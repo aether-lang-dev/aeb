@@ -1,0 +1,141 @@
+// c10/util — smallest leaf module of PyTorch's C10 library.
+//
+// 42 .cpp files, depending only on c10's own headers + the
+// `torch/headeronly/macros/cmake_macros.h` config header that CMake's
+// `configure_file()` produces from a `.h.in` template at configure
+// time. The compile try here:
+//
+//   1. Writes a minimal `cmake_macros.h` shim into `target/_aeb_cfg/`
+//      with every `#cmakedefine` un-defined (no shared libs, no GLOG,
+//      no GFLAGS, no NUMA, no ROCm). Equivalent to a default CMake
+//      configure with no optional features enabled.
+//
+//   2. Invokes `c.compile` over `*.cpp` with `g++ -std=c++20` and
+//      include paths covering c10's own headers (`-I../..`) plus
+//      the shim dir.
+//
+// **Expected outcome on a vanilla Linux dev box:** several .cpp files
+// compile clean, others fail on missing third-party deps that c10/util
+// pulls in transitively (e.g. `kineto` for `ApproximateClock.cpp` if
+// `USE_KINETO` is in play). The point isn't a green compile of every
+// TU — it's that the DAG shape, include resolution, and codegen-input
+// contract work end-to-end against a real-world C++ codebase. Failures
+// at this layer have specific, reportable causes; they're not "aeb
+// can't express this build."
+//
+// What this file does NOT do (and shouldn't, at this stage):
+//
+//   - Link c10 into a `.so` / `.a`. The `c.compile` builder emits an
+//     object set; an `c.archive` or `c.library` builder would be the
+//     next step.
+//   - Pull in `fmt`, `gflags`, `glog`, `numa`, or any third_party
+//     library. Those gates are off via the shim header.
+//   - Wire CUDA / ROCm / XPU. Out of scope for the smallest-leaf demo.
+
+import build
+import c
+import c (sources, cc, cflag)
+import std.string
+import std.io
+import std.os
+
+// Minimal cmake_macros.h with every feature gate off. Mirrors
+// torch/headeronly/macros/cmake_macros.h.in with all `#cmakedefine`
+// lines resolved to "not defined" (the absence of #define is what
+// matters; CMake emits `/* #undef X */` to that effect).
+_cmake_macros_shim() {
+    s = "#ifndef C10_MACROS_CMAKE_MACROS_H_\n"
+    s = string.concat(s, "#define C10_MACROS_CMAKE_MACROS_H_\n")
+    s = string.concat(s, "/* #undef C10_BUILD_SHARED_LIBS */\n")
+    s = string.concat(s, "/* #undef C10_USE_GLOG */\n")
+    s = string.concat(s, "/* #undef C10_USE_GFLAGS */\n")
+    s = string.concat(s, "/* #undef C10_USE_NUMA */\n")
+    s = string.concat(s, "/* #undef C10_USE_MSVC_STATIC_RUNTIME */\n")
+    s = string.concat(s, "/* #undef C10_USE_ROCM_KERNEL_ASSERT */\n")
+    s = string.concat(s, "#endif\n")
+    return s
+}
+
+main() {
+    b = build.start()
+
+    // Drop the shim header into target/_aeb_cfg/torch/headeronly/macros/
+    // so the `-I` block below picks it up. Idempotent — writing the
+    // same content every run is fine; we only care about the header
+    // existing before c.compile starts.
+    cfg_dir = "target/_aeb_cfg/torch/headeronly/macros"
+    os.system("mkdir -p ${cfg_dir}")
+    io.write_file("${cfg_dir}/cmake_macros.h", _cmake_macros_shim())
+
+    c.compile(b) {
+        // C++ compile setup. PyTorch's CMake builds c10 with C++17 +
+        // optional C++20 features; CMakeLists pins `CXX_STANDARD 20`
+        // so we follow.
+        cc("g++")
+        cflag("-std=c++20")
+        cflag("-O2")
+        cflag("-Wall")
+        cflag("-Wno-unused-parameter")
+        // c10 headers reach #include <c10/util/...>; the c10 root is
+        // two levels above this `c10/util/` directory.
+        cflag("-I../..")
+        // The shim dir; resolves #include <torch/headeronly/macros/cmake_macros.h>.
+        // The shim is written into source_dir/target/_aeb_cfg/ above
+        // (`mkdir -p` + io.write_file run with cwd = source_dir at
+        // builder time), so the include is relative to source_dir.
+        cflag("-Itarget/_aeb_cfg")
+
+        // **Explicit source enumeration.** 42 .cpp files live in this
+        // directory; 39 of them compile clean against the host
+        // toolchain with this header set, and 3 (env.cpp,
+        // signal_handler.cpp, tempfile.cpp) pull in the {fmt}
+        // third-party library which we haven't wired yet. CMake's
+        // GLOB approach (`file(GLOB C10_SRCS CONFIGURE_DEPENDS *.cpp
+        // util/*.cpp …)`) would silently rope all 42 in and fail; the
+        // explicit list here makes the 3 omissions a visible decision.
+        // Re-add them after a `.build.ae` for fmt lands as a sibling
+        // dep.
+        sources("ApproximateClock.cpp")
+        sources("Backtrace.cpp")
+        sources("Bfloat16.cpp")
+        sources("complex_math.cpp")
+        sources("DeadlockDetection.cpp")
+        sources("DynamicCounter.cpp")
+        sources("error.cpp")
+        sources("Exception.cpp")
+        sources("flags_use_gflags.cpp")
+        sources("flags_use_no_gflags.cpp")
+        sources("Float8_e4m3fn.cpp")
+        sources("Float8_e4m3fnuz.cpp")
+        sources("Float8_e5m2.cpp")
+        sources("Float8_e5m2fnuz.cpp")
+        sources("Float8_e8m0fnu.cpp")
+        sources("Gauge.cpp")
+        sources("Half.cpp")
+        sources("int128.cpp")
+        sources("intrusive_ptr.cpp")
+        sources("LeftRight.cpp")
+        sources("Logging.cpp")
+        sources("MathConstants.cpp")
+        sources("NetworkFlow.cpp")
+        sources("numa.cpp")
+        sources("Optional.cpp")
+        sources("ParallelGuard.cpp")
+        sources("SmallVector.cpp")
+        sources("StringUtil.cpp")
+        sources("thread_name.cpp")
+        sources("ThreadLocalDebugInfo.cpp")
+        sources("TypeCast.cpp")
+        sources("typeid.cpp")
+        sources("TypeList.cpp")
+        sources("TypeTraits.cpp")
+        sources("Type_demangle.cpp")
+        sources("Type_no_demangle.cpp")
+        sources("Unicode.cpp")
+        sources("UniqueVoidPtr.cpp")
+        sources("WaitCounter.cpp")
+        // env.cpp, signal_handler.cpp, tempfile.cpp — TODO: re-enable
+        // once we have a `build.dep("../../third_party/fmt/.build.ae")`
+        // (or equivalent) supplying <fmt/format.h>.
+    }
+}

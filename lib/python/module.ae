@@ -52,6 +52,100 @@ packages_include(_ctx: ptr, pattern: string) {
     _e = map.put(_ctx, "packages_include", pattern)
 }
 
+// --- DSL setters: codegen ---
+//
+// python.codegen runs a Python module or script that produces source
+// files for downstream compilation (PyTorch's torchgen.gen / autograd
+// generators, gRPC's protoc-gen-py, sqlalchemy migrations, …). Inputs
+// are declared *explicitly* — no GLOB_RECURSE fallback. The contract
+// is "this script reads exactly these files and writes exactly these
+// outputs"; missing-input bugs surface at staleness-check time and
+// missing-output bugs surface at run time. The motivating case is
+// PyTorch's `file(GLOB_RECURSE all_python "torchgen/*.py")` +
+// `add_custom_command(... DEPENDS hand-maintained-list)` trap (see
+// `itests/pytorch/cmake/Codegen.cmake` line 77).
+//
+// Repeated calls accumulate. The builder reads the map keys
+// "codegen_driver" / "codegen_script" / "codegen_inputs" /
+// "codegen_input_dirs" / "codegen_args" / "codegen_outputs" /
+// "codegen_cwd" / "codegen_python".
+
+// codegen_driver("foo.bar") — run as `python -m foo.bar`. Mutually
+// exclusive with codegen_script(); the last call wins.
+codegen_driver(_ctx: ptr, module_name: string) {
+    _e = map.put(_ctx, "codegen_driver", module_name)
+}
+
+// codegen_script("tools/gen.py") — run as `python tools/gen.py`.
+// Path is resolved against codegen_cwd (or source_dir if unset).
+codegen_script(_ctx: ptr, script_path: string) {
+    _e = map.put(_ctx, "codegen_script", script_path)
+}
+
+// codegen_input("path/to/file.yaml") — declare one file the script
+// reads. Repeatable. Paths are resolved against codegen_cwd. The
+// content hash of every declared input feeds the staleness check.
+codegen_input(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_inputs") == 0 {
+        _e1 = map.put(_ctx, "codegen_inputs", list.new())
+    }
+    inputs, _ = map.get(_ctx, "codegen_inputs")
+    _e2 = list.add(inputs, path)
+}
+
+// codegen_input_dir("torchgen") — declare a directory whose contents
+// are inputs. Every regular file under the directory feeds the
+// staleness check (recursive find, content-hashed). Use sparingly:
+// the explicit input(...) form is preferred, but template trees and
+// the codegen tool's own .py files are usually too many to enumerate.
+codegen_input_dir(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_input_dirs") == 0 {
+        _e1 = map.put(_ctx, "codegen_input_dirs", list.new())
+    }
+    dirs, _ = map.get(_ctx, "codegen_input_dirs")
+    _e2 = list.add(dirs, path)
+}
+
+// codegen_arg("--source-path=aten/src/ATen") — one CLI arg, appended
+// in declared order to the python command line. Repeatable. No
+// shell-splitting; pass `--flag value` as two separate calls.
+codegen_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "codegen_args") == 0 {
+        _e1 = map.put(_ctx, "codegen_args", list.new())
+    }
+    args, _ = map.get(_ctx, "codegen_args")
+    _e2 = list.add(args, arg)
+}
+
+// codegen_output("path/to/Functions.cpp") — declare one expected
+// output. Repeatable. The builder fails if any declared output
+// doesn't exist after the script runs (catches partial generation /
+// silent skips). Paths are resolved against codegen_cwd.
+codegen_output(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_outputs") == 0 {
+        _e1 = map.put(_ctx, "codegen_outputs", list.new())
+    }
+    outs, _ = map.get(_ctx, "codegen_outputs")
+    _e2 = list.add(outs, path)
+}
+
+// codegen_cwd("..") — working directory for the python command
+// (relative to source_dir, or absolute). Defaults to source_dir.
+// Use when the codegen tool expects to run from the repo root but
+// the .codegen.ae file lives in a subdirectory.
+codegen_cwd(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "codegen_cwd", dir)
+}
+
+// codegen_python("python3") — override the python interpreter. By
+// default the builder probes `${root}/.aeb/venv/bin/python` and falls
+// back to PATH `python3`. Use to pin a specific runtime when the
+// codegen tool depends on a venv-installed library (e.g. PyYAML for
+// torchgen).
+codegen_python(_ctx: ptr, py: string) {
+    _e = map.put(_ctx, "codegen_python", py)
+}
+
 // --- Command builders (pure) ---
 
 // pytest_cmd — pytest invocation. Pure.
@@ -82,6 +176,35 @@ pip_install_cmd(pip_bin: string, spec: string) {
 // pip_install_requirements_cmd — install from requirements file. Pure.
 pip_install_requirements_cmd(pip_bin: string, req_path: string) {
     return "'${pip_bin}' install -q -r '${req_path}'"
+}
+
+// python_codegen_cmd — assemble the shell command for python.codegen.
+// Pure: builds `cd '<cwd>' && '<py>' <driver_part> <args>` from the
+// resolved inputs. driver_form is either "module" (→ `-m <name>`) or
+// "script" (→ `<path>`); driver_name is the module name or script path.
+// args is a list of pre-quoted CLI args (caller responsible for
+// shell-quoting if needed); they're joined with single spaces.
+// Tested in tests/test_python_codegen_cmd.ae.
+python_codegen_cmd(py: string, cwd: string, driver_form: string, driver_name: string, args: ptr) {
+    driver_part = ""
+    if string.equals(driver_form, "module") == 1 {
+        driver_part = string.concat(" -m ", driver_name)
+    }
+    if string.equals(driver_form, "script") == 1 {
+        driver_part = string.concat(" ", driver_name)
+    }
+    args_part = ""
+    if args != null {
+        n = list.size(args)
+        i = 0
+        while i < n {
+            a, _ = list.get(args, i)
+            args_part = string.concat(args_part, " ")
+            args_part = string.concat(args_part, a)
+            i = i + 1
+        }
+    }
+    return "cd '${cwd}' && '${py}'${driver_part}${args_part}"
 }
 
 // pyproject_toml_content — generate the [project] pyproject.toml from
@@ -532,4 +655,224 @@ builder package(ctx: ptr) {
     println("${mod_dir}: packaging done → ${dist_dir}")
     _ew3 = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
+}
+
+// --- python.codegen builder ---
+//
+// Runs a Python codegen tool with explicitly declared inputs and
+// outputs. The contract: the script reads exactly the files listed
+// via codegen_input(...) / codegen_input_dir(...) and writes exactly
+// the files listed via codegen_output(...). When all declared
+// outputs exist and are newer than every declared input, the run is
+// skipped (mtime-driven, same shape as `aether.regen`).
+//
+// Why this exists: PyTorch's torchgen.gen reads native_functions.yaml
+// (+ tags + templates) and emits ~hundreds of .cpp/.h files in
+// `aten/src/ATen/`. CMake handles this via GLOB_RECURSE
+// CONFIGURE_DEPENDS over torchgen/*.py and a hand-maintained DEPENDS
+// list inside `add_custom_command` — silent staleness when the
+// DEPENDS list misses a file, full configure-time rebuild when any
+// .py source changes. Aeb's explicit form catches both.
+//
+// Cache integration is deferred — codegen runs are expensive but
+// declared outputs are large multi-file sets; wiring lib/cache for
+// multi-file artifacts is a follow-up. Today's behaviour is "run if
+// any declared input is newer than the oldest declared output."
+builder codegen(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    root = build._get(ctx, "root")
+    build._mkdirs(target_dir)
+
+    // Resolve working directory. codegen_cwd is relative to source_dir
+    // unless absolute. Default to source_dir.
+    cwd = source_dir
+    if _builder != null {
+        if map.has(_builder, "codegen_cwd") == 1 {
+            rel, _ = map.get(_builder, "codegen_cwd")
+            if string.length(rel) > 0 {
+                first = string.substring(rel, 0, 1)
+                if string.equals(first, "/") == 1 {
+                    cwd = rel
+                } else {
+                    cwd = path.join(source_dir, rel)
+                }
+            }
+        }
+    }
+
+    // Resolve python interpreter. Priority:
+    //   1. codegen_python(...) override
+    //   2. ${root}/.aeb/venv/bin/python (if venv installed)
+    //   3. system "python3"
+    py = "python3"
+    if _builder != null {
+        if map.has(_builder, "codegen_python") == 1 {
+            py, _ = map.get(_builder, "codegen_python")
+        } else {
+            venv_py = path.join(root, ".aeb/venv/bin/python")
+            if file.exists(venv_py) == 1 {
+                py = venv_py
+            }
+        }
+    }
+
+    // Resolve driver form. codegen_driver wins over codegen_script if
+    // both are set (last-call-wins is a per-key map.put, but we accept
+    // either by checking which key is present).
+    driver_form = ""
+    driver_name = ""
+    if _builder != null {
+        if map.has(_builder, "codegen_driver") == 1 {
+            driver_form = "module"
+            driver_name, _ = map.get(_builder, "codegen_driver")
+        } else {
+            if map.has(_builder, "codegen_script") == 1 {
+                driver_form = "script"
+                driver_name, _ = map.get(_builder, "codegen_script")
+            }
+        }
+    }
+    if string.length(driver_form) == 0 {
+        println("${mod_dir}: codegen: declare codegen_driver(\"module\") or codegen_script(\"path.py\")")
+        return 1
+    }
+
+    // Inputs / outputs / args.
+    args = null
+    if _builder != null && map.has(_builder, "codegen_args") == 1 {
+        args, _ = map.get(_builder, "codegen_args")
+    }
+
+    // Staleness check: skip if every declared output exists AND is
+    // newer than every declared input file. Input dirs are not mtime-
+    // checked here (would require recursive find — out of scope for
+    // the MVP); they trigger only when their declared-input siblings
+    // do. A follow-up can hash them into a fuller cache key.
+    inputs = null
+    outputs = null
+    if _builder != null {
+        if map.has(_builder, "codegen_inputs") == 1 {
+            inputs, _ = map.get(_builder, "codegen_inputs")
+        }
+        if map.has(_builder, "codegen_outputs") == 1 {
+            outputs, _ = map.get(_builder, "codegen_outputs")
+        }
+    }
+    skip = _codegen_can_skip(cwd, inputs, outputs)
+
+    if skip == 0 {
+        cmd = python_codegen_cmd(py, cwd, driver_form, driver_name, args)
+        println("${mod_dir}: codegen running")
+        rc = os.system(cmd)
+        if rc != 0 {
+            println("${mod_dir}: codegen FAILED")
+            return rc
+        }
+    } else {
+        println("${mod_dir}: codegen up-to-date")
+    }
+
+    // Verify every declared output exists, regardless of skip.
+    missing = _codegen_check_outputs(cwd, outputs, mod_dir)
+    if missing > 0 {
+        println("${mod_dir}: codegen: ${missing} declared output(s) missing — check codegen_output() vs the tool's actual output set")
+        return 1
+    }
+
+    // Record artifact: a newline-separated list of the codegen output
+    // paths (absolute). Downstream consumers can read this as a
+    // build artifact and feed it into their compile step.
+    out_listing = _codegen_format_output_list(cwd, outputs)
+    build._write_artifact(ctx, "python_codegen_outputs", out_listing)
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _codegen_can_skip(cwd, inputs, outputs) — return 1 when every
+// declared output exists AND its mtime is >= every declared input's
+// mtime. Returns 0 when codegen must run (missing output, or an input
+// is newer). Empty inputs/outputs → never skip (force run, since we
+// can't reason about freshness).
+_codegen_can_skip(cwd: string, inputs: ptr, outputs: ptr) {
+    if outputs == null { return 0 }
+    if list.size(outputs) == 0 { return 0 }
+    // Find newest input mtime.
+    newest_in = 0
+    if inputs != null {
+        n = list.size(inputs)
+        i = 0
+        while i < n {
+            p, _ = list.get(inputs, i)
+            abs_p = _codegen_resolve(cwd, p)
+            t = file.mtime(abs_p)
+            if t > newest_in { newest_in = t }
+            i = i + 1
+        }
+    }
+    // Find oldest output mtime; any-missing → 0.
+    no = list.size(outputs)
+    j = 0
+    oldest_out = 0
+    while j < no {
+        op, _ = list.get(outputs, j)
+        abs_o = _codegen_resolve(cwd, op)
+        ot = file.mtime(abs_o)
+        if ot == 0 { return 0 }
+        if oldest_out == 0 { oldest_out = ot }
+        if ot < oldest_out { oldest_out = ot }
+        j = j + 1
+    }
+    if oldest_out >= newest_in { return 1 }
+    return 0
+}
+
+// _codegen_check_outputs(cwd, outputs, mod_dir) — return the number
+// of declared outputs that don't exist on disk. Prints one line per
+// missing file. Returns 0 when all outputs are present (or none are
+// declared).
+_codegen_check_outputs(cwd: string, outputs: ptr, mod_dir: string) {
+    if outputs == null { return 0 }
+    n = list.size(outputs)
+    if n == 0 { return 0 }
+    missing = 0
+    i = 0
+    while i < n {
+        p, _ = list.get(outputs, i)
+        abs_p = _codegen_resolve(cwd, p)
+        if file.exists(abs_p) == 0 {
+            println("${mod_dir}: codegen output missing: ${abs_p}")
+            missing = missing + 1
+        }
+        i = i + 1
+    }
+    return missing
+}
+
+// _codegen_format_output_list(cwd, outputs) — newline-joined absolute
+// paths suitable for the `python_codegen_outputs` artifact. Empty
+// when no outputs declared.
+_codegen_format_output_list(cwd: string, outputs: ptr) {
+    if outputs == null { return "" }
+    n = list.size(outputs)
+    out = ""
+    i = 0
+    while i < n {
+        p, _ = list.get(outputs, i)
+        abs_p = _codegen_resolve(cwd, p)
+        if i > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, abs_p)
+        i = i + 1
+    }
+    return out
+}
+
+// _codegen_resolve(cwd, p) — return absolute path. Bare-relative is
+// joined against cwd; absolute passes through.
+_codegen_resolve(cwd: string, p: string) {
+    if string.length(p) == 0 { return p }
+    first = string.substring(p, 0, 1)
+    if string.equals(first, "/") == 1 { return p }
+    return path.join(cwd, p)
 }

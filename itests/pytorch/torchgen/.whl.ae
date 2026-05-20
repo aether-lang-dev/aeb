@@ -1,0 +1,41 @@
+// torchgen — PyTorch's codegen tool. Pure Python package. Reads
+// YAML operator specs (`aten/src/ATen/native/native_functions.yaml`)
+// plus templates (`aten/src/ATen/templates/`) and emits the C++
+// surface that the rest of ATen compiles against.
+//
+// Aeb sees torchgen two ways:
+//
+//   1. As a *runtime tool* invoked from `aten/src/ATen/.codegen.ae`
+//      via `python.codegen_driver(b, "torchgen.gen")`. The codegen
+//      run lives in pytorch's source tree (the package is at
+//      `pytorch/torchgen/`), so PYTHONPATH falls out of the
+//      `codegen_cwd("../../..")` setting in the consumer.
+//
+//   2. As an *installable wheel* — `pip install -e torchgen` so
+//      downstream projects (a `torch` Python package, a third-party
+//      operator library that wants to reuse the codegen) can
+//      `import torchgen` without depending on the pytorch source
+//      layout. This file declares that wheel surface.
+//
+// The runtime usage (#1) doesn't strictly need this declaration —
+// torchgen.gen is importable in-tree without `pip install`. The
+// wheel declaration matters when another `.build.ae` wants to
+// `build.dep("torchgen/.whl.ae")` to express "I need torchgen's
+// codegen primitives in my venv."
+
+import build
+import python
+
+main() {
+    b = build.start()
+    build.begin(b, "torchgen:wheel")
+
+    // pip-installable name + version-pin tilde shorthand consumed by
+    // `python.install`. The version follows pytorch's source tree
+    // (torchgen/__init__.py carries `__version__ =` when it ships
+    // separately on PyPI). For the in-tree codegen run this is a
+    // self-reference; for downstream venvs it's the install line.
+    python.wheel_registry(b, "torchgen~")
+
+    build.done(b, "torchgen:wheel")
+}

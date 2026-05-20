@@ -1,0 +1,67 @@
+// Tests for python.codegen's pure command-string builder.
+//
+// Covers the shape of the `cd '<cwd>' && '<py>' [-m mod | script] <args>`
+// invocation aeb constructs for python.codegen. Exec-string assembly
+// is the regression surface — Python-side codegen runs are too
+// stateful to round-trip in a unit test, so we assert on the string.
+
+import python (python_codegen_cmd)
+import std.string
+import std.list
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+main() {
+    // --- Module-form driver, no args.
+    args0 = list.new()
+    cmd0 = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args0)
+    _assert("module form has -m flag",
+        string.equals(cmd0, "cd '/proj' && 'python3' -m torchgen.gen"))
+
+    // --- Script-form driver, no args.
+    args1 = list.new()
+    cmd1 = python_codegen_cmd("python3", "/proj", "script", "tools/gen.py", args1)
+    _assert("script form omits -m and uses script path",
+        string.equals(cmd1, "cd '/proj' && 'python3' tools/gen.py"))
+
+    // --- Args appended in order with single-space separation.
+    args2 = list.new()
+    list.add(args2, "--source-path=aten/src/ATen")
+    list.add(args2, "--install_dir=target/aten")
+    list.add(args2, "--per-operator-headers")
+    cmd2 = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args2)
+    _assert("three args appear in order",
+        string.equals(cmd2, "cd '/proj' && 'python3' -m torchgen.gen --source-path=aten/src/ATen --install_dir=target/aten --per-operator-headers"))
+
+    // --- Custom python interpreter (e.g. venv path) is quoted in
+    // single quotes so spaces in venv paths survive.
+    args3 = list.new()
+    cmd3 = python_codegen_cmd("/proj/.aeb/venv/bin/python", "/proj", "module", "torchgen.gen", args3)
+    _assert("venv python is quoted",
+        string.equals(cmd3, "cd '/proj' && '/proj/.aeb/venv/bin/python' -m torchgen.gen"))
+
+    // --- Unknown driver_form yields no -m / script segment (defensive
+    // — the builder validates upstream, but the pure helper degrades
+    // to a bare interpreter invocation).
+    args4 = list.new()
+    cmd4 = python_codegen_cmd("python3", "/proj", "", "", args4)
+    _assert("missing driver_form → bare python invocation",
+        string.equals(cmd4, "cd '/proj' && 'python3'"))
+
+    // --- Working directory is single-quoted; absolute path passes through.
+    args5 = list.new()
+    list.add(args5, "--dry-run")
+    cmd5 = python_codegen_cmd("python3", "/path with spaces/repo", "script", "tools/gen.py", args5)
+    _assert("cwd with spaces is quoted",
+        string.equals(cmd5, "cd '/path with spaces/repo' && 'python3' tools/gen.py --dry-run"))
+
+    println("python.codegen_cmd tests done")
+}
