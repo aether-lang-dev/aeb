@@ -1113,6 +1113,159 @@ _run_regen_pass(builder_map: ptr, source_dir: string, aetherc: string, mod_dir: 
     return 0
 }
 
+// --- Option B: extern link-failure diagnostic ----------------------
+//
+// `_expand_transitive_regens` walks `import` lines but cannot follow
+// `extern <sym>(...)` declarations into a sibling module's symbols.
+// When that gap manifests, gcc fails with `undefined reference to
+// <sym>` and the porter has to guess which sibling defines the
+// symbol. The helpers below mine gcc's stderr after a link failure,
+// match each undefined symbol against `module_generated.c` files in
+// the workspace, and print a `hint:` line naming the missing
+// regen_with declaration. See asks/transitive-regen-extern-followup.md.
+
+// Pure helper — parse gcc stderr for "undefined reference to `<sym>'"
+// occurrences. Returns the symbols in first-occurrence order, with
+// duplicates collapsed.
+//
+// Loop shape mirrors `_transitive_import_aes`: a single scratch string
+// (`rest`) is chopped down via successive `string.substring(rest, ...)`
+// reassignments. Don't introduce an intermediate `after` variable
+// derived from `rest` and then reassign back to rest from `after` —
+// that combination silently drops the substring payload in aetherc's
+// current heap-string codegen, returning empty strings. The
+// test_aether_extern_diagnostics regression pins the working shape.
+_extract_undefined_refs(stderr_text: string) {
+    syms = list.new()
+    seen = map.new()
+    if string.length(stderr_text) == 0 { return syms }
+    needle = "undefined reference to `"
+    rest = ""
+    sym = ""
+    idx = 0
+    end = 0
+    rest = stderr_text
+    while string.length(rest) > 0 {
+        idx = string.index_of(rest, needle)
+        if idx < 0 { return syms }
+        // Step 1: drop everything up to and including the needle.
+        rest = string.substring(rest, idx + string.length(needle), string.length(rest))
+        // Step 2: find the closing apostrophe in what's left.
+        end = string.index_of(rest, "'")
+        if end < 0 { return syms }
+        // Step 3: symbol is [0, end). Add if new.
+        sym = string.substring(rest, 0, end)
+        if string.length(sym) > 0 {
+            if map.has(seen, sym) == 0 {
+                _seenp = map.put(seen, sym, "1")
+                _addp = list.add(syms, sym)
+            }
+        }
+        // Step 4: drop the symbol + its closing apostrophe.
+        rest = string.substring(rest, end + 1, string.length(rest))
+    }
+    return syms
+}
+
+// Locate the sibling Aether module that defines `sym` by searching
+// every module_generated.c under project_root for the function-like
+// pattern `<sym>(`. Returns the .ae path of the defining module
+// (typically <root>/<sibling>/module.ae) or "" when no match. Best-
+// effort: shells out to grep, short-circuits on first hit.
+_find_extern_definer(project_root: string, sym: string) {
+    if string.length(project_root) == 0 { return "" }
+    if string.length(sym) == 0 { return "" }
+    pattern = string.concat(sym, "(")
+    cmd = "grep -rl --include='module_generated.c' -F -- '${pattern}' '${project_root}' 2>/dev/null | head -1"
+    out, _err = os.exec(cmd)
+    found_c = string.trim(out)
+    if string.length(found_c) == 0 { return "" }
+    mod_dir = path.dirname(found_c)
+    module_ae = path.join(mod_dir, "module.ae")
+    if file.exists(module_ae) == 1 { return module_ae }
+    return ""
+}
+
+// Compute the path from `from_dir` to `to_file` suitable for a
+// `regen_with(...)` first argument. Shells out to python3 (already
+// an aeb dependency for lib/dotnet / lib/python). Returns "" on any
+// failure; the caller can fall back to the absolute path.
+_relpath_for_hint(from_dir: string, to_file: string) {
+    cmd = "python3 -c \"import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))\" '${to_file}' '${from_dir}' 2>/dev/null"
+    out, _err = os.exec(cmd)
+    return string.trim(out)
+}
+
+// Top-level: parse stderr, group missing symbols by defining sibling,
+// print one hint line per sibling with the suggested `regen_with(...)`.
+// No-op when no undefined symbols resolve to a project module — true
+// C externs (libc, runtime libs) skip silently.
+_emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
+    syms = _extract_undefined_refs(stderr_text)
+    n = list.size(syms)
+    if n == 0 { return 0 }
+    root = build._get(ctx, "root")
+    if string.length(root) == 0 { return 0 }
+
+    by_module = map.new()
+    order = list.new()
+    i = 0
+    sym = ""
+    definer = ""
+    sl = list.new()
+    while i < n {
+        sym, _ = list.get(syms, i)
+        definer = _find_extern_definer(root, sym)
+        if string.length(definer) > 0 {
+            if map.has(by_module, definer) == 0 {
+                _bm1 = map.put(by_module, definer, list.new())
+                _ord = list.add(order, definer)
+            }
+            sl, _ = map.get(by_module, definer)
+            _bm2 = list.add(sl, sym)
+        }
+        i = i + 1
+    }
+
+    nm = list.size(order)
+    if nm == 0 { return 0 }
+    println("")
+    println("aeb: undefined symbol(s) appear to be defined by sibling Aether module(s).")
+    println("aeb: this usually means the consumer reaches the sibling via `extern` rather")
+    println("aeb: than `import`, so transitive-regen expansion missed it. Suggested fix —")
+    println("aeb: add to the .build.ae:")
+    mi = 0
+    mod_ae = ""
+    ns = 0
+    rel = ""
+    caps = ""
+    sym_list = ""
+    j = 0
+    sj = ""
+    while mi < nm {
+        mod_ae, _ = list.get(order, mi)
+        sl, _ = map.get(by_module, mod_ae)
+        ns = list.size(sl)
+        rel = _relpath_for_hint(source_dir, mod_ae)
+        caps = _detect_caps(mod_ae)
+        sym_list = ""
+        j = 0
+        while j < ns {
+            sj, _ = list.get(sl, j)
+            if j > 0 { sym_list = string.concat(sym_list, ", ") }
+            sym_list = string.concat(sym_list, sj)
+            j = j + 1
+        }
+        if string.length(rel) > 0 {
+            println("  regen_with(\"${rel}\", \"${caps}\")  // defines ${sym_list}")
+        } else {
+            println("  regen_with(\"${mod_ae}\", \"${caps}\")  // defines ${sym_list}")
+        }
+        mi = mi + 1
+    }
+    return 0
+}
+
 // Manual build path: aetherc + gcc, with optional extra_source,
 // link_flag, and regen entries from the builder block. Used when the
 // .build.ae declares any of those — bypasses aether.toml entirely so
@@ -1280,9 +1433,23 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     _eo9 = map.put(opts, "dup_flag", dup_flag)
     _eo10 = map.put(opts, "coverage", coverage)
     gcc_cmd = aether_link_cmd(opts)
-    rc = os.system(gcc_cmd)
+    // Capture gcc stderr to a per-module file so a link failure can
+    // be mined for `undefined reference` symbols (Option B in
+    // asks/transitive-regen-extern-followup.md). The user still sees
+    // gcc's output — we replay it on the failure path before the
+    // hint lines.
+    target_dir = build._get(ctx, "target_dir")
+    gcc_stderr_path = path.join(target_dir, "_gcc_stderr.log")
+    gcc_with_capture = string.concat(gcc_cmd, " 2>")
+    gcc_with_capture = string.concat(gcc_with_capture, gcc_stderr_path)
+    rc = os.system(gcc_with_capture)
     if rc != 0 {
+        os.system("cat ${gcc_stderr_path} >&2 2>/dev/null")
         println("${mod_dir}: gcc link failed")
+        stderr_text, _serr = io.read_file(gcc_stderr_path)
+        if string.length(stderr_text) > 0 {
+            _emit_extern_hints(ctx, source_dir, stderr_text)
+        }
         return rc
     }
 
