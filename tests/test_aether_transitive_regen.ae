@@ -1,0 +1,154 @@
+// Regression test for transitive-regen-expansion.md.
+//
+// Before the fix, `_run_regen_pass` only built `_generated.c` for
+// regen entries the consumer enumerated by hand. A `.build.ae` that
+// listed `regen_with("../client/module.ae", ...)` but forgot
+// `../util/module.ae` (a transitive sibling that `client` imports)
+// linked with an `undefined reference` gcc error and no breadcrumb
+// back to "you missed a regen entry."
+//
+// `_expand_transitive_regens` now walks the import closure from
+// src_path + each regen entry and appends every project-local
+// sibling it finds. This test pins the behaviour so the manual-
+// enumeration variant of the bug can't return silently.
+
+import aether (_expand_transitive_regens)
+import std.string
+import std.os
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+// Returns 1 if the regen list contains an entry whose suffix matches
+// `needle` (a substring check on the absolute path). Lets the test
+// assert on the discovered module without caring about absolute path
+// prefixes the BFS happened to assemble.
+_regen_contains(bm: ptr, needle: string) {
+    if map.has(bm, "regen") == 0 { return 0 }
+    regens, _ = map.get(bm, "regen")
+    n = list.size(regens)
+    i = 0
+    e = ""
+    while i < n {
+        e, _ = list.get(regens, i)
+        if string.index_of(e, needle) >= 0 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// Returns the caps string for the regen entry matching `needle`,
+// or "" if no entry matches.
+_regen_caps_for(bm: ptr, needle: string) {
+    if map.has(bm, "regen") == 0 { return "" }
+    regens, _ = map.get(bm, "regen")
+    caps, _ = map.get(bm, "regen_caps")
+    n = list.size(regens)
+    i = 0
+    e = ""
+    c = ""
+    while i < n {
+        e, _ = list.get(regens, i)
+        if string.index_of(e, needle) >= 0 {
+            c, _ = list.get(caps, i)
+            return c
+        }
+        i = i + 1
+    }
+    return ""
+}
+
+_regen_size(bm: ptr) {
+    if map.has(bm, "regen") == 0 { return 0 }
+    regens, _ = map.get(bm, "regen")
+    return list.size(regens)
+}
+
+main() {
+    base = "/tmp/aeb_test_transitive_regen"
+    os.system("rm -rf ${base}; mkdir -p ${base}/app ${base}/client ${base}/util ${base}/working_copy ${base}/other")
+
+    // Layout: app/main.ae --(import client)--> client/module.ae
+    //                       --(import util)--> util/module.ae
+    //                       --(import working_copy)--> working_copy/module.ae
+    // working_copy itself pulls std.fs for cap-detection coverage.
+    // other/ is unrelated — nothing imports it, must NOT be picked up.
+    appdir = "${base}/app"
+    entry = "${base}/app/main.ae"
+    os.system("printf 'import client\\nmain() {}\\n' > ${entry}")
+    os.system("printf 'import util\\nimport working_copy\\nfoo() { return 1 }\\n' > ${base}/client/module.ae")
+    os.system("printf 'bar() { return 1 }\\n' > ${base}/util/module.ae")
+    os.system("printf 'import std.fs\\nbaz() { return 1 }\\n' > ${base}/working_copy/module.ae")
+    os.system("printf 'unrelated() { return 1 }\\n' > ${base}/other/module.ae")
+
+    // --- Test 1: explicit regen names client, expansion finds the rest.
+    bm = map.new()
+    rl = list.new()
+    list.add(rl, "../client/module.ae")
+    map.put(bm, "regen", rl)
+    cl = list.new()
+    list.add(cl, "fs")
+    map.put(bm, "regen_caps", cl)
+
+    _expand_transitive_regens(bm, appdir, entry)
+
+    _assert("client (explicit) survives the expansion",
+        _regen_contains(bm, "/client/module.ae"))
+    _assert("util (transitive via client) gets added",
+        _regen_contains(bm, "/util/module.ae"))
+    _assert("working_copy (transitive via client) gets added",
+        _regen_contains(bm, "/working_copy/module.ae"))
+    _assert("unrelated module never enters the regen list",
+        1 - _regen_contains(bm, "/other/module.ae"))
+
+    // Explicit caps survive — the expansion must not overwrite them.
+    _assert("explicit caps survive expansion",
+        string.equals(_regen_caps_for(bm, "/client/module.ae"), "fs"))
+
+    // Auto-detected caps — working_copy imports std.fs, so caps = "fs".
+    _assert("auto-detected caps for working_copy",
+        string.equals(_regen_caps_for(bm, "/working_copy/module.ae"), "fs"))
+    // util has no std.* imports → empty caps.
+    _assert("auto-detected caps for util (no std caps)",
+        string.equals(_regen_caps_for(bm, "/util/module.ae"), ""))
+
+    // --- Test 2: idempotent — running again must not duplicate.
+    size_before = _regen_size(bm)
+    _expand_transitive_regens(bm, appdir, entry)
+    size_after = _regen_size(bm)
+    _assert("expansion is idempotent (no double-add)", size_before == size_after)
+
+    // --- Test 3: builder_map with NO regen entries still picks up
+    // transitive siblings from src_path (covers the
+    // extra_source/link_flag-only consumer).
+    bm2 = map.new()
+    _expand_transitive_regens(bm2, appdir, entry)
+    _assert("empty regen list seeded from src_path: client found",
+        _regen_contains(bm2, "/client/module.ae"))
+    _assert("empty regen list seeded from src_path: util found",
+        _regen_contains(bm2, "/util/module.ae"))
+
+    // --- Test 4: std.* / contrib.* imports are skipped (not project-
+    // local). Build a fresh fixture importing only stdlib + contrib.
+    os.system("rm -rf ${base}/stdonly; mkdir -p ${base}/stdonly")
+    stdentry = "${base}/stdonly/main.ae"
+    os.system("printf 'import std.string\\nimport std.os\\nimport contrib.aeocha\\nmain() {}\\n' > ${stdentry}")
+    bm3 = map.new()
+    _expand_transitive_regens(bm3, "${base}/stdonly", stdentry)
+    _assert("std.* / contrib.* are not added to regen",
+        _regen_size(bm3) == 0)
+
+    os.system("rm -rf ${base}")
+    println("transitive regen expansion tests done")
+}

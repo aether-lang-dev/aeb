@@ -898,6 +898,119 @@ _detect_caps_from_content(content: string) {
     return out
 }
 
+// Expand the regen list with every project-local sibling module the
+// graph imports transitively. Without this, every consumer has to
+// enumerate `regen_with("../util/module.ae", ...)` for each
+// transitive sibling by hand; forget one and the build dies with a
+// `undefined reference` gcc link error and no breadcrumb back to
+// "you missed a regen line" (transitive-regen-expansion.md).
+//
+// Strategy mirrors `_cache_key_for_aether_link`'s import scan, but
+// here the closure feeds the regen list (so `_generated.c` actually
+// gets built and linked) rather than the cache-key hash. BFS seeds:
+// the entry .ae plus every already-declared regen entry. Each
+// project-local import found gets appended with caps auto-detected
+// from its own `import std.X` lines (same heuristic as plain
+// `regen(...)`).
+//
+// Skipped:
+//   - std.* / contrib.* — resolved at link via libaether.a.
+//   - Already-declared paths — explicit `regen_with(..., "caps")`
+//     wins over auto-detection.
+//   - Unresolvable imports — silently dropped, same as
+//     `_resolve_import_ae`. A genuinely missing module surfaces
+//     at the aetherc step.
+_expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string) {
+    if builder_map == null { return 0 }
+
+    // Ensure regen/regen_caps exist — a target that uses only
+    // extra_source/link_flag still benefits from the expansion
+    // (transitively-imported siblings of the entry need building).
+    if map.has(builder_map, "regen") == 0 {
+        _er1 = map.put(builder_map, "regen", list.new())
+        _er2 = map.put(builder_map, "regen_caps", list.new())
+    }
+    regens, _ = map.get(builder_map, "regen")
+    regen_caps, _ = map.get(builder_map, "regen_caps")
+
+    roots = _ancestor_dirs(source_dir)
+
+    // Resolve existing regen entries to absolute paths for dedup.
+    known = map.new()
+    n = list.size(regens)
+    i = 0
+    while i < n {
+        rel, _ = list.get(regens, i)
+        abs_p = rel
+        if string.length(rel) > 0 {
+            first = string.substring(rel, 0, 1)
+            if string.equals(first, "/") == 0 {
+                abs_p = path.join(source_dir, rel)
+            }
+        }
+        _km = map.put(known, abs_p, "1")
+        i = i + 1
+    }
+
+    // BFS over (src_path + each regen entry). `_transitive_import_aes`
+    // already dedups within one walk; we merge across seeds via the
+    // `discovered` map.
+    discovered = list.new()
+    seen_disc = map.new()
+
+    seeds = list.new()
+    if string.length(src_path) > 0 {
+        list.add(seeds, src_path)
+    }
+    j = 0
+    while j < n {
+        relx, _ = list.get(regens, j)
+        abs_x = relx
+        if string.length(relx) > 0 {
+            fx = string.substring(relx, 0, 1)
+            if string.equals(fx, "/") == 0 {
+                abs_x = path.join(source_dir, relx)
+            }
+        }
+        list.add(seeds, abs_x)
+        j = j + 1
+    }
+
+    ns = list.size(seeds)
+    si = 0
+    while si < ns {
+        seed_path, _ = list.get(seeds, si)
+        imps = _transitive_import_aes(seed_path, roots)
+        ni = list.size(imps)
+        ii = 0
+        while ii < ni {
+            f, _ = list.get(imps, ii)
+            if map.has(seen_disc, f) == 0 {
+                _smx = map.put(seen_disc, f, "1")
+                list.add(discovered, f)
+            }
+            ii = ii + 1
+        }
+        si = si + 1
+    }
+
+    // Append previously-unknown sibling modules to the regen list.
+    // Caps auto-detected from each file's own `import std.X` lines.
+    nd = list.size(discovered)
+    di = 0
+    while di < nd {
+        f2, _ = list.get(discovered, di)
+        if map.has(known, f2) == 0 {
+            caps = _detect_caps(f2)
+            list.add(regens, f2)
+            list.add(regen_caps, caps)
+            _kma = map.put(known, f2, "1")
+        }
+        di = di + 1
+    }
+    return 0
+}
+
 // Walk the regen list, run `aetherc --emit=lib X.ae X_generated.c`
 // for each entry whose paired .c is missing or older than the .ae,
 // and append the generated .c paths to extra_source so the gcc step
@@ -924,13 +1037,30 @@ _run_regen_pass(builder_map: ptr, source_dir: string, aetherc: string, mod_dir: 
     while i < n {
         rel, _ = list.get(regens, i)
         explicit_caps, _ = list.get(regen_caps, i)
-        ae_abs = path.join(source_dir, rel)
+        // Pass absolute paths through verbatim — `path.join` is naive
+        // and would double-up the prefix (`source_dir//abs/...`). The
+        // transitive-import expansion seeds absolute paths into the
+        // regen list, so this branch is the common case once the
+        // expansion pass has run.
+        ae_abs = rel
+        if string.length(rel) > 0 {
+            first = string.substring(rel, 0, 1)
+            if string.equals(first, "/") == 0 {
+                ae_abs = path.join(source_dir, rel)
+            }
+        }
         c_rel = _paired_generated_c(rel)
         if string.length(c_rel) == 0 {
             println("${mod_dir}: regen entry must end in .ae: ${rel}")
             return 1
         }
-        c_abs = path.join(source_dir, c_rel)
+        c_abs = c_rel
+        if string.length(c_rel) > 0 {
+            firstc = string.substring(c_rel, 0, 1)
+            if string.equals(firstc, "/") == 0 {
+                c_abs = path.join(source_dir, c_rel)
+            }
+        }
 
         ae_mtime = file.mtime(ae_abs)
         if ae_mtime == 0 {
@@ -994,7 +1124,14 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     ae_dir = _resolve_aether_dir()
     aetherc = path.join(ae_dir, "aetherc")
 
-    // Phase 0: regen .ae → _generated.c for each declared regen(...) entry.
+    // Phase 0a: expand regen entries to cover every transitive
+    // project-local sibling import. Without this the consumer has to
+    // enumerate every `regen_with("../util/module.ae", ...)` by hand
+    // (transitive-regen-expansion.md).
+    _expand_transitive_regens(builder_map, source_dir, src_path)
+
+    // Phase 0b: regen .ae → _generated.c for each entry (declared +
+    // discovered).
     rrc = _run_regen_pass(builder_map, source_dir, aetherc, mod_dir)
     if rrc != 0 {
         return rrc
