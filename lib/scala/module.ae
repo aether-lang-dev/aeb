@@ -27,6 +27,13 @@ main_class(_ctx: ptr, cls: string) {
     _e = map.put(_ctx, "main_class", cls)
 }
 
+// output_jar("app-assembly.jar") — name of the fat jar produced by
+// `scala.assembly(b)`. Resolved against `target/<mod>/bin/`. Default
+// when unset: `<source_dir_basename>-assembly.jar`. Scalar.
+output_jar(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "scala_output_jar", name)
+}
+
 // --- Command builders (pure) ---
 
 // scalac_cmd — assemble a Dotty (Scala 3) compile invocation. Pure:
@@ -41,6 +48,30 @@ scalac_cmd(compiler_cp: string, classes_dir: string, classpath: string, argfile:
 // space-separated list of fully-qualified test class names.
 munit_cmd(classpath: string, class_names: string) {
     return "java -cp '${classpath}' org.junit.runner.JUnitCore ${class_names}"
+}
+
+// assembly_unzip_jar_cmd — unzip a single classpath .jar into the
+// staging directory so its `.class` files lay flat under stage_dir/.
+// `unzip -qq -o` is quiet + overwrite-without-prompt. Pure.
+assembly_unzip_jar_cmd(jar_src: string, stage_dir: string) {
+    return "unzip -qq -o '${jar_src}' -d '${stage_dir}'"
+}
+
+// assembly_copy_classes_cmd — mirror a compiled-classes directory's
+// contents into the staging dir. `cp -a` preserves attrs and is
+// recursive. The trailing `/.` form copies the directory's contents,
+// not the directory itself (so stage_dir gets the class files at top
+// level, not nested under another `classes/` folder). Pure.
+assembly_copy_classes_cmd(classes_dir: string, stage_dir: string) {
+    return "cp -a '${classes_dir}/.' '${stage_dir}/'"
+}
+
+// assembly_jar_cmd — `jar cfM <out> -C <stage> .` — bundle the
+// staged tree into a single fat jar. `M` skips auto-manifest because
+// the caller staged a hand-written MANIFEST.MF under
+// stage_dir/META-INF/. Pure.
+assembly_jar_cmd(jar_path: string, stage_dir: string) {
+    return "jar cfM '${jar_path}' -C '${stage_dir}' ."
 }
 
 // --- Internal helpers ---
@@ -139,11 +170,20 @@ builder scalac(ctx: ptr) {
         return exit_code
     }
 
-    // Write classpath artifact for downstream modules
+    // Write classpath artifact for downstream modules. Must include
+    // the transitive build.dep classpath (dep_cp) — the artifact is
+    // named "..._including_transitive" and downstream consumers
+    // (scala.assembly, a sibling module's scalac) rely on it carrying
+    // every dep this module saw at compile time. Omitting dep_cp meant
+    // a fat jar lost cross-module classes (e.g. common/SharedCode).
     full_cp = classes_dir
     if string.length(library_cp) > 0 {
         tmp4 = string.concat(full_cp, ":")
         full_cp = string.concat(tmp4, library_cp)
+    }
+    if string.length(dep_cp) > 0 {
+        tmp_dep = string.concat(full_cp, ":")
+        full_cp = string.concat(tmp_dep, dep_cp)
     }
     if string.length(maven_cp) > 0 {
         tmp5 = string.concat(full_cp, ":")
@@ -206,6 +246,162 @@ builder scalac_test(ctx: ptr) {
     }
 
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// scala.assembly(b) — produce a single executable fat jar bundling
+// this module's compiled classes + scala-library + maven deps + every
+// transitive `build.dep` artifact's classpath.
+//
+// Setters consumed:
+//   main_class("App")        — Main-Class attribute (required)
+//   output_jar("app.jar")    — output filename (optional; defaults to
+//                              `<module>-assembly.jar`)
+//
+// Resolves classpath entries (one per line in the
+// `jvm_classpath_deps_including_transitive` artifact) by unzipping
+// each .jar into a staging dir; for directory entries (e.g. another
+// module's `classes/`) it `cp -a`s the contents. The hand-written
+// MANIFEST.MF goes into `<stage>/META-INF/` so `jar cfM` picks it up.
+// Output lands at `target/<mod>/bin/<jar_name>`.
+//
+// Why this builder exists: scala-cli ships its own `package` step,
+// but the migration away from scala-cli wants a no-toolchain
+// equivalent. sbt's `assembly` plugin (sbt-assembly) and mill's
+// `assembly` task are the upstream analogues. aeb's shape is closer
+// to java.shade (which fills the same gap on the Java side), with
+// the difference that scala-library MUST be inlined: without it the
+// resulting jar exits with `NoClassDefFoundError: scala/Predef`.
+builder assembly(ctx: ptr) {
+    target_dir = build._get(ctx, "target_dir")
+    source_dir = build._get(ctx, "source_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    if _builder == null {
+        println("${mod_dir}: scala.assembly: empty builder block — declare main_class(...)")
+        return 1
+    }
+    if map.has(_builder, "main_class") == 0 {
+        println("${mod_dir}: scala.assembly: missing main_class(\"...\")")
+        return 1
+    }
+    main_cls, _ = map.get(_builder, "main_class")
+
+    jar_name = ""
+    if map.has(_builder, "scala_output_jar") == 1 {
+        jar_name, _ = map.get(_builder, "scala_output_jar")
+    }
+    if string.length(jar_name) == 0 {
+        // Default: derive from source_dir's basename.
+        base = path.basename(source_dir)
+        jar_name = string.concat(base, "-assembly.jar")
+    }
+
+    bin_dir = path.join(target_dir, "bin")
+    build._mkdirs(bin_dir)
+    jar_path = path.join(bin_dir, jar_name)
+
+    // Staging dir under target/<mod>/_assembly/. Nuke and recreate so
+    // a previous run's leftovers don't bleed into this jar.
+    stage_dir = path.join(target_dir, "_assembly")
+    _e1 = os.system("rm -rf '${stage_dir}'")
+    build._mkdirs(stage_dir)
+
+    // Stage this module's compiled classes first.
+    classes_dir = path.join(target_dir, "classes")
+    if dir.exists(classes_dir) == 1 {
+        rc_cls = os.system(assembly_copy_classes_cmd(classes_dir, stage_dir))
+        if rc_cls != 0 {
+            println("${mod_dir}: scala.assembly: copying classes failed")
+            return rc_cls
+        }
+    }
+
+    // Compose the runtime classpath. Read directly from the
+    // `jvm_classpath_deps_including_transitive` artifact that
+    // `scala.scalac` writes into the module's target_dir — same shape
+    // java.shade uses. The artifact already contains scala-library +
+    // every resolved maven dep + this module's own classes, in the
+    // exact set scalac used at compile time. Falling back to live
+    // re-resolution via maven.classpath / _library_classpath would
+    // diverge from the compile-time set on a stale cache.
+    cp_file = path.join(target_dir, "jvm_classpath_deps_including_transitive")
+    full_cp = ""
+    if file.exists(cp_file) == 1 {
+        full_cp_raw, _er_cp = io.read_file(cp_file)
+        full_cp = string.trim(full_cp_raw)
+    }
+
+    // Also fold in any transitive build.dep classpaths the dep walker
+    // can resolve — covers cross-module deps where the dep's artifact
+    // dir is under a sibling target/<other-mod>/.
+    dep_cp = build._build_dep_classpath(ctx)
+    if string.length(dep_cp) > 0 {
+        if string.length(full_cp) > 0 {
+            full_cp = string.concat(full_cp, ":")
+        }
+        full_cp = string.concat(full_cp, dep_cp)
+    }
+
+    // Walk colon-separated classpath. For each entry: if it's a .jar,
+    // unzip into stage_dir; if it's a directory, copy its contents.
+    // Empty entries (a stray "::") are skipped.
+    parts = string.split(full_cp, ":")
+    np = string.array_size(parts)
+    pi = 0
+    while pi < np {
+        entry = string.array_get(parts, pi)
+        if string.length(entry) > 0 {
+            if _ends_with_jar(entry) == 1 {
+                rc_uz = os.system(assembly_unzip_jar_cmd(entry, stage_dir))
+                if rc_uz != 0 {
+                    println("${mod_dir}: scala.assembly: unzipping ${entry} failed")
+                    string.array_free(parts)
+                    return rc_uz
+                }
+            } else {
+                if dir.exists(entry) == 1 {
+                    rc_cp = os.system(assembly_copy_classes_cmd(entry, stage_dir))
+                    if rc_cp != 0 {
+                        println("${mod_dir}: scala.assembly: copying ${entry} failed")
+                        string.array_free(parts)
+                        return rc_cp
+                    }
+                }
+            }
+        }
+        pi = pi + 1
+    }
+    string.array_free(parts)
+
+    // Write the manifest into stage/META-INF/.
+    meta_dir = path.join(stage_dir, "META-INF")
+    build._mkdirs(meta_dir)
+    manifest_path = path.join(meta_dir, "MANIFEST.MF")
+    mf = string.concat("Manifest-Version: 1.0\nMain-Class: ", main_cls)
+    mf = string.concat(mf, "\n")
+    _ew = io.write_file(manifest_path, mf)
+
+    println("${mod_dir}: assembling ${jar_name}")
+    rc = os.system(assembly_jar_cmd(jar_path, stage_dir))
+    if rc != 0 {
+        println("${mod_dir}: scala.assembly: jar command failed")
+        return rc
+    }
+
+    println("${mod_dir}: built ${jar_path}")
+    println("  run: java -jar ${jar_path}")
+    build._write_artifact(ctx, "scala_assembly_jar", jar_path)
+    _ts = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _ends_with_jar(s) — return 1 iff `s` ends in ".jar". Pure.
+_ends_with_jar(s: string) {
+    sl = string.length(s)
+    if sl < 4 { return 0 }
+    tail = string.substring(s, sl - 4, sl)
+    if string.equals(tail, ".jar") == 1 { return 1 }
     return 0
 }
 
