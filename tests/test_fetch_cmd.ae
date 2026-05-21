@@ -1,0 +1,145 @@
+// Tests for lib/fetch's pure command builders, format inference,
+// and closure-DSL setters.
+//
+// Three surfaces, same shape as the other SDK test files:
+//
+//   1. Pure `*_cmd` helpers (fetch_curl_cmd, sha256_verify_cmd,
+//      tar_extract_cmd, zip_extract_cmd) — string-equality
+//      assertions on the shell command aeb constructs.
+//
+//   2. Pure inference helpers (_infer_archive_flags, _is_zip_url,
+//      _ends_with_p) — URL-suffix → tar-flags / is-zip mapping.
+//      These gate the format() override in fetch.archive(b).
+//
+//   3. Grammar setters (url, sha256, output_to, extract_to,
+//      strip_components, format) — closure-DSL accumulation on
+//      a fresh map.
+
+import fetch (fetch_curl_cmd, sha256_verify_cmd, tar_extract_cmd,
+              zip_extract_cmd, _infer_archive_flags, _is_zip_url,
+              _ends_with_p,
+              url, sha256, output_to, extract_to, strip_components,
+              format)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+_str_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return "" }
+    v, _ = map.get(m, k)
+    return v
+}
+
+main() {
+    // === Pure command-builder tests ====================================
+
+    _assert("fetch_curl_cmd basic",
+        string.equals(
+            fetch_curl_cmd("https://example.com/foo.cddl", "/proj/specs/foo.cddl"),
+            "curl -fsSL 'https://example.com/foo.cddl' -o '/proj/specs/foo.cddl'"))
+
+    _assert("fetch_curl_cmd with query string",
+        string.equals(
+            fetch_curl_cmd("https://api.example.com/files?id=42&v=2", "/tmp/o"),
+            "curl -fsSL 'https://api.example.com/files?id=42&v=2' -o '/tmp/o'"))
+
+    // The expected string contains literal `\n` (2 chars: backslash
+    // + n). Built via string.concat so the test source itself
+    // doesn't fall into the interpolation-eats-backslash trap.
+    bs_n_expect = string.concat("\\", "n")
+    expected_sha = string.concat("printf '%s  %s", bs_n_expect)
+    expected_sha = string.concat(expected_sha, "' 'abc123def456' '/proj/file.bin' | sha256sum -c - >/dev/null")
+    _assert("sha256_verify_cmd basic",
+        string.equals(
+            sha256_verify_cmd("/proj/file.bin", "abc123def456"),
+            expected_sha))
+
+    // --- tar_extract_cmd: no strip.
+    _assert("tar_extract_cmd no strip",
+        string.equals(
+            tar_extract_cmd("/tmp/arc.tar.gz", "/proj/vendor", "xzf", 0),
+            "tar -C '/proj/vendor' -xzf '/tmp/arc.tar.gz'"))
+
+    // --- tar_extract_cmd: strip 1 (the canonical GH-release shape).
+    _assert("tar_extract_cmd strip=1",
+        string.equals(
+            tar_extract_cmd("/tmp/arc.tar.gz", "/proj/vendor", "xzf", 1),
+            "tar -C '/proj/vendor' -xzf '/tmp/arc.tar.gz' --strip-components=1"))
+
+    // --- tar_extract_cmd: bz2 flags.
+    _assert("tar_extract_cmd bz2 flags",
+        string.equals(
+            tar_extract_cmd("/tmp/arc.tar.bz2", "/dst", "xjf", 0),
+            "tar -C '/dst' -xjf '/tmp/arc.tar.bz2'"))
+
+    // --- zip_extract_cmd.
+    _assert("zip_extract_cmd basic",
+        string.equals(
+            zip_extract_cmd("/tmp/arc.zip", "/proj/vendor"),
+            "unzip -q -o '/tmp/arc.zip' -d '/proj/vendor'"))
+
+    // === Pure inference tests =========================================
+
+    _assert("_ends_with_p positive",     _ends_with_p("foo.tar.gz", ".tar.gz") == 1)
+    _assert("_ends_with_p negative",     _ends_with_p("foo.tar.gz", ".zip") == 0)
+    _assert("_ends_with_p suffix > s",   _ends_with_p("ab", "abc") == 0)
+
+    _assert("_infer .tar.gz",  string.equals(_infer_archive_flags("https://x/foo.tar.gz"), "xzf"))
+    _assert("_infer .tgz",     string.equals(_infer_archive_flags("https://x/foo.tgz"),    "xzf"))
+    _assert("_infer .tar.bz2", string.equals(_infer_archive_flags("https://x/foo.tar.bz2"),"xjf"))
+    _assert("_infer .tar.xz",  string.equals(_infer_archive_flags("https://x/foo.tar.xz"), "xJf"))
+    _assert("_infer plain .tar", string.equals(_infer_archive_flags("https://x/foo.tar"), "xf"))
+    _assert("_infer .zip → not tar", string.equals(_infer_archive_flags("https://x/foo.zip"), ""))
+    _assert("_infer with query string", string.equals(_infer_archive_flags("https://x/foo.tar.gz?token=abc"), "xzf"))
+
+    _assert("_is_zip_url positive", _is_zip_url("https://x/foo.zip") == 1)
+    _assert("_is_zip_url negative", _is_zip_url("https://x/foo.tar.gz") == 0)
+    _assert("_is_zip_url with query", _is_zip_url("https://x/foo.zip?t=1") == 1)
+
+    // === Setter accumulation tests =====================================
+
+    // --- All five required scalars set; format optional.
+    bm = map.new()
+    url(bm, "https://w3c.github.io/webdriver-bidi/all.cddl")
+    sha256(bm, "deadbeef00000000")
+    output_to(bm, "specs/bidi.cddl")
+    _assert("url stored",
+        string.equals(_str_at(bm, "fetch_url"), "https://w3c.github.io/webdriver-bidi/all.cddl"))
+    _assert("sha256 stored",
+        string.equals(_str_at(bm, "fetch_sha256"), "deadbeef00000000"))
+    _assert("output_to stored",
+        string.equals(_str_at(bm, "fetch_output_to"), "specs/bidi.cddl"))
+
+    // --- Archive shape: extract_to + strip + format.
+    bm2 = map.new()
+    url(bm2, "https://github.com/foo/bar/archive/v1.2.3.tar.gz")
+    sha256(bm2, "cafebabe")
+    extract_to(bm2, "vendor/bar")
+    strip_components(bm2, 1)
+    format(bm2, "tar.gz")
+    _assert("extract_to stored",
+        string.equals(_str_at(bm2, "fetch_extract_to"), "vendor/bar"))
+    _assert("strip_components stored as int-string",
+        string.equals(_str_at(bm2, "fetch_strip"), "1"))
+    _assert("format stored",
+        string.equals(_str_at(bm2, "fetch_format"), "tar.gz"))
+
+    // --- Last-call-wins on scalar overwrites.
+    bm3 = map.new()
+    url(bm3, "https://first/v1.zip")
+    url(bm3, "https://second/v2.zip")
+    _assert("url last-call-wins",
+        string.equals(_str_at(bm3, "fetch_url"), "https://second/v2.zip"))
+
+    println("fetch SDK tests done")
+}

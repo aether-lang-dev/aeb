@@ -14,7 +14,7 @@ import build
 // python.pip_install_requirements_cmd
 
 import python
-import python (pytest_cmd, ruff_lint_cmd, mypy_cmd, build_package_cmd, pip_install_cmd, pip_install_requirements_cmd)
+import python (pytest_cmd, ruff_lint_cmd, mypy_cmd, build_package_cmd, pip_install_cmd, pip_install_requirements_cmd, pyproject_path)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -54,6 +54,28 @@ main() {
     _assert_eq("pip_install_requirements_cmd basic",
         pip_install_requirements_cmd("/v/bin/pip", "/proj/requirements.txt"),
         "'/v/bin/pip' install -q -r '/proj/requirements.txt'")
+
+    // python.package_existing(b) reuses build_package_cmd verbatim
+    // (same `cd <dir> && python -m build --outdir <dist>` shape) —
+    // so the exec-string regression is already covered by the
+    // build_package_cmd assertion above. What's new is the
+    // `pyproject_path` setter; assert it accumulates as a scalar
+    // key on the builder map.
+    bm = map.new()
+    pyproject_path(bm, "py/pyproject.toml")
+    pyproject_stored = ""
+    if map.has(bm, "pyproject_path") == 1 {
+        pyproject_stored, _ = map.get(bm, "pyproject_path")
+    }
+    _assert_eq("pyproject_path setter stores the path",
+        pyproject_stored, "py/pyproject.toml")
+
+    // Last-call-wins on a second pyproject_path call (scalar
+    // semantics, same as the other lib/python scalar setters).
+    pyproject_path(bm, "subproject/pyproject.toml")
+    pyproject_stored, _ = map.get(bm, "pyproject_path")
+    _assert_eq("pyproject_path setter is last-call-wins",
+        pyproject_stored, "subproject/pyproject.toml")
 
     println("python cmd tests done")
 }

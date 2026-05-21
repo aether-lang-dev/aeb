@@ -1,0 +1,26 @@
+// Selenium Python — non-destructive package build.
+//
+// Selenium's `py/pyproject.toml` ships a hand-tuned `[build-system]`
+// (`setuptools` + `setuptools-rust`), `[project]` metadata with
+// classifiers and license-files, and a `[tool.setuptools-rust]`
+// section that builds the Selenium Manager Rust binary into the
+// wheel. `python.package(b)` would regenerate the pyproject.toml
+// from setters and lose all of that, producing a wheel without the
+// manager binary.
+//
+// `python.package_existing(b)` (added in lib/python alongside this
+// file) runs `python -m build` against the upstream pyproject.toml
+// unchanged. Output lands in `target/py/dist/`.
+//
+// **Note:** running this end-to-end requires the Rust toolchain
+// available on PATH (for the setuptools-rust bridge that compiles
+// `selenium-manager`). The shape lands here either way; running it
+// is the next step once a host has both Python and Rust available.
+
+import build
+import python
+
+main() {
+    b = build.start()
+    python.package_existing(b)
+}

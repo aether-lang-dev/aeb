@@ -65,24 +65,24 @@ Not a full conversion. The migration aims to:
 ### Python (`py/`)
 
 Selenium's Python client has the simplest leaf: a single
-`pyproject.toml`-driven setuptools package. `lib/python.package`
-already supports the pyproject.toml shape — but with a wrinkle:
-**aeb's `python.package` builder writes its own pyproject.toml,
-overwriting any upstream one.** Selenium ships a real
-`pyproject.toml` with complex metadata (license-files, classifiers,
-explicit setuptools-rust dependency for the Selenium Manager
-binding). Driving it requires either:
+`pyproject.toml`-driven setuptools package. The grammar gap that
+PyTorch didn't expose — **`python.package(b)` regenerates and
+overwrites pyproject.toml destructively** — surfaces cleanly here.
+Selenium's `py/pyproject.toml` ships hand-tuned `[build-system]`
+(`setuptools-rust`), `[project]` classifiers + license-files, and a
+`[tool.setuptools-rust]` section that builds the Selenium Manager
+Rust binary into the wheel. Regenerating would silently drop all
+of that.
 
-1. A new `python.package_existing_pyproject(b)` builder that runs
-   `python -m build` against the upstream pyproject.toml without
-   regenerating it. **Grammar gap.**
-2. Hand-translating Selenium's full pyproject.toml into the
-   `package_name()` / `version()` / `requires_python()` setters and
-   accepting that ASCII-cleanups, classifiers, license-files, and
-   the setuptools-rust hook would be dropped.
+**Gap closed in a follow-up:** `python.package_existing(b)` (added
+to lib/python alongside this migration) runs `python -m build`
+against the upstream pyproject.toml unchanged. Setter
+`pyproject_path(...)` overrides the default `<source_dir>/pyproject.toml`.
 
-Either way, that's a real lift. Recorded here as the first concrete
-grammar gap.
+Demo: `itests/selenium/py/.dist.ae` calls `python.package_existing(b)`
+with no setters. Shape is valid (ae build clean); end-to-end
+execution needs the Rust toolchain on PATH for setuptools-rust to
+compile the Selenium Manager binary.
 
 ### Java (`java/`)
 
@@ -222,18 +222,25 @@ intact).
 
 ## Gaps recorded by this pass
 
-1. `python.package_existing_pyproject` builder is missing
-   (`lib/python` always regenerates pyproject.toml — destructive
-   for projects with hand-tuned upstream pyproject.toml).
+1. ~~`python.package_existing_pyproject` builder is missing.~~
+   **Closed** — `python.package_existing(b)` added in a follow-up
+   (`lib/python/module.ae`, `tests/test_python_cmd.ae` extended
+   with setter-accumulation assertions). `itests/selenium/py/.dist.ae`
+   is the demonstration target.
 2. ~~`lib/ruby` doesn't exist; Selenium's Ruby tree can't be
    converted.~~ **Closed** — `lib/ruby` added in a follow-up
    (`tests/test_ruby_cmd.ae`, 21 assertions). Selenium's rb/
    conversion is now a mechanical .build.ae write, not an
    SDK-shaped gap.
-3. Selenium's external-fetch pattern (BiDi CDDL via Bazel
-   `bazel_dep`/`http_file`) has no aeb analogue; converting
-   `generate_bidi.py` as a `.codegen.ae` would need either local
-   pinning of the CDDL files or a fetch-step grammar.
+3. ~~Selenium's external-fetch pattern (BiDi CDDL via Bazel
+   `bazel_dep`/`http_file`) has no aeb analogue.~~ **Closed** —
+   `lib/fetch` added. `fetch.file(b)` (sha256-verified download)
+   and `fetch.archive(b)` (extract .tar.gz / .tar.bz2 / .tar.xz /
+   .zip with strip_components + format-inference fallback).
+   `itests/selenium/py/.bidi-spec.ae` demonstrates against the
+   exact upstream pinning (118 KB CDDL fetched from
+   `raw.githubusercontent.com/w3c/webref/<sha>/ed/cddl/`,
+   sha256-verified). 27 assertions in `tests/test_fetch_cmd.ae`.
 4. `rules_jvm_external`'s `maven_install.json` pinning isn't
    directly readable by `lib/maven`; translating selenium-scale
    Java deps would benefit from a converter that reads it.

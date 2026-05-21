@@ -4,6 +4,44 @@
 
 ### Added
 
+- **`lib/fetch`: external-resource SDK** (`fetch.file(b)`,
+  `fetch.archive(b)`) — Bazel `http_file` / `http_archive`
+  analogue. Closes the gap surfaced by Selenium's BiDi codegen
+  (CDDL specs fetched as Bazel external repos). Setters:
+  `url(...)`, `sha256(...)`, `output_to(...)` (file builder),
+  `extract_to(...)`, `strip_components(N)`, `format(...)` (archive
+  builder). Sha256 verified on every run; mismatch fails loud and
+  removes the bad blob. Archive format inferred from URL suffix
+  (`.tar.gz` / `.tgz` / `.tar.bz2` / `.tar.xz` / `.zip`); query
+  strings tolerated. Cached archive lives in
+  `target/<mod>/_fetch/` and skips re-download on subsequent
+  invocations. Pure helpers (`fetch_curl_cmd`,
+  `sha256_verify_cmd`, `tar_extract_cmd`, `zip_extract_cmd`,
+  `_infer_archive_flags`, `_is_zip_url`, `_ends_with_p`) and
+  setter accumulation covered by 27 assertions in
+  `tests/test_fetch_cmd.ae`. Verified end-to-end against the
+  Selenium upstream pinning:
+  `itests/selenium/py/.bidi-spec.ae` fetches the 118 KB
+  WebDriver BiDi CDDL from `raw.githubusercontent.com/w3c/webref`
+  at the same commit Selenium's `common/webref_cddl.bzl` pins to.
+  Registered in `tools/aeb-init.ae` `shipped_modules()`.
+
+- **`lib/python`: `python.package_existing(b)` builder**.
+  Non-destructive Python packaging: runs `python -m build` against
+  the upstream `pyproject.toml` as-is, never regenerates or
+  overwrites it. Pairs with the existing `python.package(b)`
+  builder, which is the right choice when aeb owns the metadata;
+  the new builder is the right choice when the upstream
+  `pyproject.toml` is the source of truth (selenium ships
+  `setuptools-rust` + classifiers + license-files that
+  aeb-side regeneration would silently drop). Optional setter:
+  `pyproject_path("alt/pyproject.toml")` for non-default locations.
+  Test coverage in `tests/test_python_cmd.ae` extended with
+  setter-accumulation assertions (9 total, was 7). The exec-string
+  surface (`build_package_cmd`) is shared with the existing
+  builder, so no new pure helper. Demo:
+  `itests/selenium/py/.dist.ae`.
+
 - **`lib/ruby`: Ruby SDK** for Bundler + RSpec + RuboCop + `gem`
   packaging. Closes the gap surfaced by Selenium (32 Ruby BUILD
   files unreachable without this). Project-local isolation via

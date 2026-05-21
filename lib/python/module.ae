@@ -52,6 +52,16 @@ packages_include(_ctx: ptr, pattern: string) {
     _e = map.put(_ctx, "packages_include", pattern)
 }
 
+// pyproject_path("pyproject.toml") — explicit path to the project's
+// pyproject.toml, consumed by `python.package_existing(b)`. Resolved
+// against source_dir. Default: `<source_dir>/pyproject.toml`. Use
+// when the file lives at a non-standard location or under a non-
+// standard name. Ignored by `python.package(b)` (the regenerating
+// builder) — that one always writes to `<source_dir>/pyproject.toml`.
+pyproject_path(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "pyproject_path", path)
+}
+
 // --- DSL setters: codegen ---
 //
 // python.codegen runs a Python module or script that produces source
@@ -654,6 +664,93 @@ builder package(ctx: ptr) {
     }
     println("${mod_dir}: packaging done → ${dist_dir}")
     _ew3 = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// --- python.package_existing builder ---
+//
+// Non-destructive packaging. Runs `python -m build` against the
+// pyproject.toml already present in source_dir; never overwrites it.
+//
+// `python.package(b)` (above) is the right choice when aeb owns the
+// metadata: `package_name`, `version`, `requires_python`,
+// `packages_where`, `packages_include` setters drive a generated
+// pyproject.toml every build. That's destructive when the project
+// already ships a hand-tuned pyproject.toml with classifiers,
+// license-files, setuptools-rust hooks, dynamic version metadata, or
+// any other shape lib/python's generator doesn't model.
+//
+// `python.package_existing(b)` is the right choice when the upstream
+// pyproject.toml is the source of truth and aeb should drive
+// `python -m build` against it unchanged. Common case: an open-
+// source project where the python packaging layout is owned by the
+// project authors (e.g., selenium's py/pyproject.toml uses
+// setuptools-rust to build the Selenium Manager Rust binary as part
+// of the wheel — losing that to aeb-side regeneration would silently
+// produce a broken wheel).
+//
+// Setters consumed (all optional):
+//
+//   pyproject_path("pyproject.toml")
+//                — override the default `<source_dir>/pyproject.toml`.
+//                  Resolved against source_dir.
+//
+// Outputs land in `target/<module>/dist/` per the existing
+// `build_package_cmd` shape, so this builder is a drop-in for any
+// downstream that consumes the dist artifact.
+builder package_existing(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    root = build._get(ctx, "root")
+
+    dist_dir = path.join(target_dir, "dist")
+    build._mkdirs(dist_dir)
+
+    // Resolve pyproject.toml: explicit override > source_dir default.
+    pyproject_rel = "pyproject.toml"
+    if _builder != null {
+        if map.has(_builder, "pyproject_path") == 1 {
+            pyproject_rel, _ = map.get(_builder, "pyproject_path")
+        }
+    }
+    pyproject_abs = pyproject_rel
+    if string.length(pyproject_rel) > 0 {
+        first = string.substring(pyproject_rel, 0, 1)
+        if string.equals(first, "/") == 0 {
+            pyproject_abs = path.join(source_dir, pyproject_rel)
+        }
+    }
+    if file.exists(pyproject_abs) == 0 {
+        println("${mod_dir}: python.package_existing: pyproject.toml not found at ${pyproject_abs}")
+        println("${mod_dir}: did you mean python.package(b) (which generates one) or set pyproject_path(\"...\")?")
+        return 1
+    }
+
+    venv = _ensure_venv(root)
+    pip_bin = path.join(venv, "bin/pip")
+    py = path.join(venv, "bin/python")
+
+    // Ensure the `build` package is installed in the venv. Same
+    // shape as `python.package`; idempotent on re-run.
+    os.system("'${pip_bin}' install -q build")
+
+    // `python -m build` runs from the dir containing pyproject.toml.
+    // If the override pointed somewhere else, cd to that dir.
+    build_dir = source_dir
+    if string.equals(pyproject_rel, "pyproject.toml") == 0 {
+        build_dir = path.dirname(pyproject_abs)
+    }
+
+    println("${mod_dir}: packaging via existing pyproject.toml (${pyproject_abs})")
+    cmd = build_package_cmd(py, build_dir, dist_dir)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: packaging failed")
+        return exit_code
+    }
+    println("${mod_dir}: packaging done → ${dist_dir}")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
 

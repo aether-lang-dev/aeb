@@ -1,0 +1,394 @@
+// fetch — externally-hosted-resource SDK for aether.build
+//
+// The analogue of Bazel's `http_file` / `http_archive` rules.
+// Declares a URL + sha256 + local destination; downloads on cache
+// miss, verifies on every run, fails loud on sha256 mismatch.
+//
+// Why aeb needs this: Selenium's WebDriver BiDi codegen reads CDDL
+// spec files that upstream Bazel fetches via `bazel_dep` /
+// `http_file` rules declared in `MODULE.bazel`. Without an aeb
+// fetch primitive, converting that codegen step requires the user
+// to pre-fetch the specs manually — defeating the
+// declarative-graph promise. The same gap shows up for any project
+// that pulls third-party tarballs, browser binaries, prebuilt
+// toolchain components, or protocol specs.
+//
+// Two builders:
+//
+//   fetch.file(b)    — fetch a single file. Required: url, sha256,
+//                      output_to. Output lands at the declared path
+//                      relative to source_dir (or absolute).
+//
+//   fetch.archive(b) — fetch + extract a .tar.gz / .tar.bz2 / .zip.
+//                      Required: url, sha256, extract_to. Optional:
+//                      strip_components, format (when not inferable
+//                      from URL).
+//
+// Caching: sha256-verified fetches are content-addressed by
+// definition. The MVP uses local mtime-skip plus a re-verify on
+// every run; the natural extension is to key `lib/cache` by sha256
+// so a fetched blob downloaded by alice's build is restorable on
+// bob's machine without re-hitting the URL.
+
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+
+// --- DSL setters (consumed by both file and archive builders) ---
+
+// url("https://...") — the upstream URL to fetch. Required. Last
+// call wins if invoked multiple times (scalar). Use a versioned
+// or content-addressed URL when possible; URLs that move silently
+// are the classic supply-chain footgun.
+url(_ctx: ptr, u: string) {
+    _e = map.put(_ctx, "fetch_url", u)
+}
+
+// sha256("a1b2c3...") — the expected sha256 of the fetched bytes,
+// as a 64-char lowercase hex string (no `sha256:` prefix). Required.
+// The build fails if the downloaded content's hash doesn't match.
+sha256(_ctx: ptr, hex: string) {
+    _e = map.put(_ctx, "fetch_sha256", hex)
+}
+
+// output_to("specs/bidi.cddl") — destination path for a `fetch.file`.
+// Relative to source_dir; absolute paths pass through. Parent dirs
+// are created if missing. Required for `fetch.file`.
+output_to(_ctx: ptr, p: string) {
+    _e = map.put(_ctx, "fetch_output_to", p)
+}
+
+// extract_to("vendor/bar") — extraction directory for a `fetch.archive`.
+// Relative to source_dir; absolute paths pass through. Created if
+// missing. Required for `fetch.archive`.
+extract_to(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "fetch_extract_to", dir)
+}
+
+// strip_components(1) — drop the first N path components when
+// extracting (passes to `tar --strip-components=N`). Defaults to 0.
+// Useful when the archive's top-level dir is just `<project>-<sha>/`
+// and you want its contents directly in `extract_to`.
+strip_components(_ctx: ptr, n: int) {
+    _e = map.put(_ctx, "fetch_strip", string.from_int(n))
+}
+
+// format("tar.gz") — explicit archive format. By default
+// `fetch.archive` infers from the URL's tail (.tar.gz / .tar.bz2 /
+// .tar.xz / .zip). Set this when the URL is opaque (a CDN that
+// hides the extension behind query params, a redirected GH release
+// download, etc.).
+format(_ctx: ptr, fmt: string) {
+    _e = map.put(_ctx, "fetch_format", fmt)
+}
+
+// --- Pure command builders ---
+
+// fetch_curl_cmd — `curl -fsSL <url> -o <dest>`. `-f` so HTTP 404
+// fails fast, `-s` silent, `-S` show error on -s failures, `-L`
+// follow redirects. Pure.
+fetch_curl_cmd(url_str: string, dest_path: string) {
+    return "curl -fsSL '${url_str}' -o '${dest_path}'"
+}
+
+// sha256_verify_cmd — `printf '<hex>  <path>\n' | sha256sum -c -`.
+// sha256sum's `-c` mode reads "<hex>  <file>" lines from stdin,
+// exits 0 on match, 1 on mismatch. Pure.
+//
+// The `\n` escape is built via string.concat rather than written as
+// a literal in the format-string: an interpolated Aether string
+// processes `\\n` twice (the literal pass + the ${...} pre-pass)
+// and ends up emitting an actual newline, which breaks sh's
+// single-quoted printf format. See LLM.md § interpolation footgun.
+sha256_verify_cmd(file_path: string, expected_hex: string) {
+    bs_n = string.concat("\\", "n")
+    return "printf '%s  %s${bs_n}' '${expected_hex}' '${file_path}' | sha256sum -c - >/dev/null"
+}
+
+// tar_extract_cmd — `tar -C <dest> -x[fjz] <archive> [--strip-components=N]`.
+// Accepts a `flags` string covering the compression suffix
+// ("xzf" for tar.gz, "xjf" for tar.bz2, "xJf" for tar.xz, "xf"
+// for plain tar). Pure.
+tar_extract_cmd(archive_path: string, dest_dir: string, flags: string, strip: int) {
+    base = "tar -C '${dest_dir}' -${flags} '${archive_path}'"
+    if strip > 0 {
+        strip_str = string.from_int(strip)
+        return string.concat(base, " --strip-components=${strip_str}")
+    }
+    return base
+}
+
+// zip_extract_cmd — `unzip -q -o <archive> -d <dest>`. `-q` quiet,
+// `-o` overwrite without prompting. Pure.
+zip_extract_cmd(archive_path: string, dest_dir: string) {
+    return "unzip -q -o '${archive_path}' -d '${dest_dir}'"
+}
+
+// _infer_archive_flags(url) — return the tar flags string ("xzf",
+// "xjf", "xJf", "xf") or "" when the URL extension isn't a
+// recognised tarball form (caller falls back to `zip_extract_cmd`
+// or errors). Pure.
+_infer_archive_flags(url_str: string) {
+    if string.length(url_str) == 0 { return "" }
+    // Strip query string before suffix-matching: a URL like
+    // `…/foo.tar.gz?token=xyz` would otherwise match nothing.
+    qmark = string.index_of(url_str, "?")
+    base = url_str
+    if qmark >= 0 {
+        base = string.substring(url_str, 0, qmark)
+    }
+    if _ends_with_p(base, ".tar.gz")  == 1 { return "xzf" }
+    if _ends_with_p(base, ".tgz")     == 1 { return "xzf" }
+    if _ends_with_p(base, ".tar.bz2") == 1 { return "xjf" }
+    if _ends_with_p(base, ".tbz2")    == 1 { return "xjf" }
+    if _ends_with_p(base, ".tar.xz")  == 1 { return "xJf" }
+    if _ends_with_p(base, ".txz")     == 1 { return "xJf" }
+    if _ends_with_p(base, ".tar")     == 1 { return "xf"  }
+    return ""
+}
+
+// _is_zip_url(url) — return 1 when the URL points at a .zip
+// (extension match, query string tolerated). Pure.
+_is_zip_url(url_str: string) {
+    if string.length(url_str) == 0 { return 0 }
+    qmark = string.index_of(url_str, "?")
+    base = url_str
+    if qmark >= 0 {
+        base = string.substring(url_str, 0, qmark)
+    }
+    if _ends_with_p(base, ".zip") == 1 { return 1 }
+    return 0
+}
+
+// _ends_with_p(s, suffix) — pure suffix check. Returns 1 / 0.
+_ends_with_p(s: string, suffix: string) {
+    sl = string.length(s)
+    fl = string.length(suffix)
+    if fl > sl { return 0 }
+    tail = string.substring(s, sl - fl, sl)
+    if string.equals(tail, suffix) == 1 { return 1 }
+    return 0
+}
+
+// _resolve_path(source_dir, p) — absolute resolution for setter
+// inputs; relative paths join source_dir. Pure.
+_resolve_path(source_dir: string, p: string) {
+    if string.length(p) == 0 { return p }
+    first = string.substring(p, 0, 1)
+    if string.equals(first, "/") == 1 { return p }
+    return path.join(source_dir, p)
+}
+
+// --- SDK builders ---
+
+// fetch.file(b) — single-file download with sha256 verification.
+//
+// Lifecycle:
+//   1. Verify required setters present (url, sha256, output_to).
+//   2. If destination exists AND its sha256 matches expected →
+//      skip download. (Re-verify every run; mtime alone isn't
+//      enough — a partial download from a prior aborted run
+//      could be on disk.)
+//   3. Otherwise download via curl, verify the result, fail loud
+//      on mismatch.
+//   4. Record a build artifact pointing at the resolved path so
+//      downstream `.build.ae` consumers can read it via
+//      `build.dep` + artifact lookup.
+builder file(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+
+    if _builder == null {
+        println("${mod_dir}: fetch.file: empty builder block — declare url(...), sha256(...), output_to(...)")
+        return 1
+    }
+    if map.has(_builder, "fetch_url") == 0 {
+        println("${mod_dir}: fetch.file: missing url(...)")
+        return 1
+    }
+    if map.has(_builder, "fetch_sha256") == 0 {
+        println("${mod_dir}: fetch.file: missing sha256(...)")
+        return 1
+    }
+    if map.has(_builder, "fetch_output_to") == 0 {
+        println("${mod_dir}: fetch.file: missing output_to(...)")
+        return 1
+    }
+
+    url_str, _   = map.get(_builder, "fetch_url")
+    sha_str, _   = map.get(_builder, "fetch_sha256")
+    out_rel, _   = map.get(_builder, "fetch_output_to")
+    out_abs = _resolve_path(source_dir, out_rel)
+    parent_dir = path.dirname(out_abs)
+    build._mkdirs(parent_dir)
+
+    if file.exists(out_abs) == 1 {
+        verify_existing = sha256_verify_cmd(out_abs, sha_str)
+        rc_v = os.system(verify_existing)
+        if rc_v == 0 {
+            println("${mod_dir}: fetch.file up-to-date ${out_rel}")
+            build._write_artifact(ctx, "fetched_file", out_abs)
+            return 0
+        }
+        println("${mod_dir}: fetch.file: existing ${out_rel} sha256 mismatch — refetching")
+    }
+
+    println("${mod_dir}: fetching ${url_str}")
+    rc_dl = os.system(fetch_curl_cmd(url_str, out_abs))
+    if rc_dl != 0 {
+        println("${mod_dir}: fetch.file: curl failed for ${url_str}")
+        return rc_dl
+    }
+    rc_v2 = os.system(sha256_verify_cmd(out_abs, sha_str))
+    if rc_v2 != 0 {
+        println("${mod_dir}: fetch.file: sha256 verification FAILED for ${out_rel}")
+        println("${mod_dir}: expected ${sha_str}; downloaded bytes hashed to something else")
+        // Remove the bad file so the next run doesn't see a stale
+        // bad blob and false-pass any subsequent staleness check.
+        os.system("rm -f '${out_abs}'")
+        return 1
+    }
+    build._write_artifact(ctx, "fetched_file", out_abs)
+    return 0
+}
+
+// fetch.archive(b) — fetch + extract a compressed archive.
+//
+// Same setter contract as fetch.file plus `extract_to`,
+// `strip_components`, and optional `format` for opaque URLs.
+//
+// The intermediate archive lands in `target/<mod>/_fetch/<basename>`;
+// extraction writes into source_dir/<extract_to>. Re-running with
+// the same sha256 + an existing extract_to dir is treated as
+// up-to-date (we don't re-hash every extracted file — that's a
+// follow-up if it ever bites).
+builder archive(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+
+    if _builder == null {
+        println("${mod_dir}: fetch.archive: empty builder block")
+        return 1
+    }
+    if map.has(_builder, "fetch_url") == 0 {
+        println("${mod_dir}: fetch.archive: missing url(...)")
+        return 1
+    }
+    if map.has(_builder, "fetch_sha256") == 0 {
+        println("${mod_dir}: fetch.archive: missing sha256(...)")
+        return 1
+    }
+    if map.has(_builder, "fetch_extract_to") == 0 {
+        println("${mod_dir}: fetch.archive: missing extract_to(...)")
+        return 1
+    }
+
+    url_str, _   = map.get(_builder, "fetch_url")
+    sha_str, _   = map.get(_builder, "fetch_sha256")
+    ex_rel, _    = map.get(_builder, "fetch_extract_to")
+    ex_abs = _resolve_path(source_dir, ex_rel)
+
+    strip = 0
+    if map.has(_builder, "fetch_strip") == 1 {
+        strip_str, _ = map.get(_builder, "fetch_strip")
+        strip, _ = string.to_int(strip_str)
+    }
+
+    fmt = ""
+    if map.has(_builder, "fetch_format") == 1 {
+        fmt, _ = map.get(_builder, "fetch_format")
+    }
+
+    // Cache the downloaded archive under target/<mod>/_fetch/ so
+    // re-runs don't re-curl. Filename derived from the URL tail.
+    fetch_cache_dir = path.join(target_dir, "_fetch")
+    build._mkdirs(fetch_cache_dir)
+    archive_name = "archive.bin"
+    last_slash = string.length(url_str)
+    i = last_slash - 1
+    while i >= 0 {
+        ch = string.substring(url_str, i, i + 1)
+        if string.equals(ch, "/") == 1 {
+            archive_name = string.substring(url_str, i + 1, last_slash)
+            // Strip query string from filename.
+            qm = string.index_of(archive_name, "?")
+            if qm >= 0 {
+                archive_name = string.substring(archive_name, 0, qm)
+            }
+            i = -1
+        } else {
+            i = i - 1
+        }
+    }
+    archive_path = path.join(fetch_cache_dir, archive_name)
+
+    // Skip re-download if cached archive matches sha256.
+    have_archive = 0
+    if file.exists(archive_path) == 1 {
+        rc_v = os.system(sha256_verify_cmd(archive_path, sha_str))
+        if rc_v == 0 {
+            have_archive = 1
+        }
+    }
+    if have_archive == 0 {
+        println("${mod_dir}: fetching ${url_str}")
+        rc_dl = os.system(fetch_curl_cmd(url_str, archive_path))
+        if rc_dl != 0 {
+            println("${mod_dir}: fetch.archive: curl failed for ${url_str}")
+            return rc_dl
+        }
+        rc_v2 = os.system(sha256_verify_cmd(archive_path, sha_str))
+        if rc_v2 != 0 {
+            println("${mod_dir}: fetch.archive: sha256 verification FAILED for ${archive_name}")
+            os.system("rm -f '${archive_path}'")
+            return 1
+        }
+    }
+
+    // Determine archive format. format() override > URL inference.
+    flags = ""
+    is_zip = 0
+    if string.length(fmt) > 0 {
+        if string.equals(fmt, "tar.gz")  == 1 { flags = "xzf" }
+        if string.equals(fmt, "tgz")     == 1 { flags = "xzf" }
+        if string.equals(fmt, "tar.bz2") == 1 { flags = "xjf" }
+        if string.equals(fmt, "tar.xz")  == 1 { flags = "xJf" }
+        if string.equals(fmt, "tar")     == 1 { flags = "xf"  }
+        if string.equals(fmt, "zip")     == 1 { is_zip = 1 }
+    } else {
+        flags = _infer_archive_flags(url_str)
+        is_zip = _is_zip_url(url_str)
+    }
+    if string.length(flags) == 0 {
+        if is_zip == 0 {
+            println("${mod_dir}: fetch.archive: can't infer format from ${url_str}; set format(\"tar.gz\" / \"zip\" / ...)")
+            return 1
+        }
+    }
+
+    build._mkdirs(ex_abs)
+    extract_cmd = ""
+    if is_zip == 1 {
+        extract_cmd = zip_extract_cmd(archive_path, ex_abs)
+    } else {
+        extract_cmd = tar_extract_cmd(archive_path, ex_abs, flags, strip)
+    }
+    println("${mod_dir}: extracting ${archive_name} → ${ex_rel}")
+    rc_ex = os.system(extract_cmd)
+    if rc_ex != 0 {
+        println("${mod_dir}: fetch.archive: extraction failed")
+        return rc_ex
+    }
+    build._write_artifact(ctx, "fetched_archive_dir", ex_abs)
+    return 0
+}

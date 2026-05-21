@@ -1,0 +1,34 @@
+// Selenium BiDi CDDL spec — declarative fetch of the upstream W3C
+// spec file used by `py/generate_bidi.py` to emit the Python BiDi
+// command modules.
+//
+// Upstream Bazel `MODULE.bazel` declares this as an `http_file`:
+//
+//     bazel_dep(name = "webdriver_bidi_all_cddl", ...)
+//     # ... resolving to https://w3c.github.io/webdriver-bidi/all.cddl
+//
+// The aeb equivalent is `fetch.file(b)` with `url(...)` + `sha256(...)`
+// + `output_to(...)`. The file lands at `specs/all.cddl` in this
+// directory; the sibling `.codegen.ae` (a future addition) would
+// `codegen_input("specs/all.cddl")` and feed it to
+// `generate_bidi.py`.
+//
+// Note: URL + sha256 are pinned to the exact upstream Selenium
+// pinning at the time of the snapshot — `common/webref_cddl.bzl`
+// uses `https://raw.githubusercontent.com/w3c/webref/<commit>/ed/cddl/`
+// as the base. A stale sha256 here fails loud at fetch time, which
+// is the right behaviour: bumping the spec is a deliberate flow,
+// not a silent drift.
+
+import build
+import fetch
+import fetch (url, sha256, output_to)
+
+main() {
+    b = build.start()
+    fetch.file(b) {
+        url("https://raw.githubusercontent.com/w3c/webref/5301ec52f85f9156ae696f24523d722193fc0817/ed/cddl/webdriver-bidi-all.cddl")
+        sha256("58baffeda459e2fee2d9b58a896eb4394e87e861ada5cb761a169d32e122138f")
+        output_to("specs/all.cddl")
+    }
+}
