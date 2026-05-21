@@ -135,12 +135,16 @@ rules_jvm_external's data model.
 Converting the rest of Java is mechanical work that doesn't add
 proof-of-concept value beyond what three leaves already show.
 
-**Two-import gotcha:** all three leaves declare both
-`import maven` and `import maven (load_bom_file)`. The bare-setter
-two-import rule (LLM.md) applies because aeb's orchestrator-generated
-file only inherits the selective import; lib/java's internal
-`maven.classpath()` calls then can't resolve without the bare
-`import maven` also being declared at the leaf.
+**Two-import gotcha — now fixed at the orchestrator level.** Earlier
+revisions of this conversion declared both `import maven` and
+`import maven (load_bom_file)` in every leaf, because the
+orchestrator's transitive-import resolution (`tools/resolve-imports.sh`)
+treated a selective import as "namespace already in scope" and
+suppressed the bare form needed for lib/java's internal `maven.classpath()`
+calls. Fixed: `resolve-imports.sh` now only treats *bare* `import X`
+lines as "covered"; selective `import X (sym)` no longer masks
+emission of `import X` from transitive lib needs. Spring-data
+modules (also affected) build clean without the duplicate import.
 
 ### Ruby (`rb/`)
 

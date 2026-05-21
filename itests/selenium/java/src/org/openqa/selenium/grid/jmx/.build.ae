@@ -17,7 +17,6 @@
 
 import build
 import build (dep)
-import maven
 import maven (load_bom_file)
 import java
 import java (release)

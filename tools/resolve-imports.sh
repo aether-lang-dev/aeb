@@ -23,15 +23,30 @@ extract_imports() {
     sed -n 's/^import \([A-Za-z_][A-Za-z0-9_.]*\).*$/\1/p' "$1"
 }
 
+# Extract only *bare* (no parens) imports — `^import foo$`. Used to
+# decide which transitives the user has already covered with a
+# namespace import. Selective imports (`import foo (sel)`) do NOT
+# suppress emitting a bare `import foo` for transitive purposes —
+# selective imports expose only the named symbols, while transitively-
+# required dotted calls (e.g. lib/java's internal `maven.classpath()`)
+# need the namespace to be in scope. Otherwise the user's
+# `import maven (load_bom_file)` masks lib/java's `maven.*` use and
+# the link step fails with E0301 'Undefined function maven.classpath'.
+extract_bare_imports() {
+    sed -n 's/^import \([A-Za-z_][A-Za-z0-9_.]*\)$/\1/p' "$1"
+}
+
 tmp_seen=$(mktemp)
 tmp_prev=$(mktemp)
 direct=$(mktemp)
 trap 'rm -f "$tmp_seen" "$tmp_prev" "$direct"' EXIT INT TERM
 
-# Seed with the source file's direct imports. Remember this set so we
-# don't re-emit them at the end.
+# Seed with the source file's direct imports for the BFS, but use the
+# bare-imports subset as the "already covered" set: a selective
+# import doesn't count as "namespace in scope" for dotted-call
+# resolution further down the tree.
 extract_imports "$SRC" | sort -u > "$tmp_seen"
-cp "$tmp_seen" "$direct"
+extract_bare_imports "$SRC" | sort -u > "$direct"
 
 # Fixed-point iteration: expand each seen module's own imports, sort
 # the combined set, stop when nothing new was added.
