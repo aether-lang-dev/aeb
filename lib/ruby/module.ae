@@ -1,0 +1,316 @@
+// ruby — Ruby SDK for aether.build
+//
+// Drives Bundler, RSpec, RuboCop, and `gem build` against a project
+// that ships a Gemfile + (optionally) a .gemspec. Bundler is the
+// load-bearing entry point: every other command goes through
+// `bundle exec` so the resolved gem closure is in scope.
+//
+// Project-local isolation: gems install into `.aeb/bundle/` (parallel
+// to `lib/python`'s `.aeb/venv/`). Avoids touching the system
+// rubygems repo and lets aeb's per-project cache claim the closure.
+//
+// Common shape:
+//
+//     import build
+//     import ruby
+//
+//     main() {
+//         b = build.start()
+//         ruby.install(b)
+//         ruby.rspec(b)
+//         ruby.rubocop(b)
+//     }
+//
+// Packaging shape:
+//
+//     import ruby (gemspec)
+//
+//     main() {
+//         b = build.start()
+//         ruby.install(b)
+//         ruby.gem(b) {
+//             gemspec("selenium-webdriver.gemspec")
+//         }
+//     }
+
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+// gem("rspec ~> 3.13") — declare a gem to append to the project's
+// Gemfile at install time. Repeatable; each entry is one `gem '...'`
+// line. Use the bundler-syntax string verbatim (name + optional
+// version constraint, possibly groups/platforms). For projects that
+// already maintain a Gemfile in-tree, prefer leaving it alone and
+// let bundler resolve from there — this setter is for ad-hoc
+// additions, the same way `python.pip` is.
+gem(_ctx: ptr, line: string) {
+    if map.has(_ctx, "ruby_gems") == 0 {
+        _e1 = map.put(_ctx, "ruby_gems", list.new())
+    }
+    gems, _ = map.get(_ctx, "ruby_gems")
+    _e2 = list.add(gems, line)
+}
+
+// gemfile("Gemfile.aeb") — override the default Gemfile location.
+// Path resolved against source_dir. Default: `Gemfile`.
+gemfile(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "ruby_gemfile", path)
+}
+
+// gemspec("selenium-webdriver.gemspec") — point `ruby.gem(b)` at the
+// .gemspec file to package. Path resolved against source_dir.
+// Required for `ruby.gem`; ignored by `ruby.install` / `ruby.rspec`
+// / `ruby.rubocop`.
+gemspec(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "ruby_gemspec", path)
+}
+
+// bundle_path("vendor/bundle") — override the bundle install path
+// (where `bundle install --path=<dir>` writes the gem closure).
+// Default: `${root}/.aeb/bundle`. Use when interoperating with an
+// existing project convention.
+bundle_path(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "ruby_bundle_path", dir)
+}
+
+// rspec_arg("--format=doc") — append one CLI argument to the
+// `bundle exec rspec` invocation. Repeatable.
+rspec_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "ruby_rspec_args") == 0 {
+        _e1 = map.put(_ctx, "ruby_rspec_args", list.new())
+    }
+    args, _ = map.get(_ctx, "ruby_rspec_args")
+    _e2 = list.add(args, arg)
+}
+
+// rubocop_config(".rubocop.yml") — explicit rubocop config path.
+// Default: rubocop searches upward from source_dir for a
+// `.rubocop.yml` (its standard behaviour).
+rubocop_config(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "ruby_rubocop_config", path)
+}
+
+// ruby_version("3.3") — declared required Ruby major.minor. Today
+// this is only echoed in the build log and doesn't gate compilation;
+// future work could check `ruby --version` matches.
+ruby_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "ruby_version", ver)
+}
+
+// --- Command builders (pure) ---
+
+// bundle_install_cmd — bundle install with --path for project-local
+// isolation. Pure. The path is single-quoted to survive spaces.
+bundle_install_cmd(bundle_bin: string, source_dir: string, bundle_path: string) {
+    return "cd '${source_dir}' && '${bundle_bin}' install --path='${bundle_path}'"
+}
+
+// bundle_exec_cmd — `bundle exec <argv>` from source_dir. The
+// `argv_str` is appended verbatim; caller is responsible for any
+// shell quoting needed. Pure.
+bundle_exec_cmd(bundle_bin: string, source_dir: string, argv_str: string) {
+    return "cd '${source_dir}' && '${bundle_bin}' exec ${argv_str}"
+}
+
+// rspec_cmd — bundle exec rspec with appended args. args is a
+// pre-joined space-separated string (caller built it from the
+// rspec_arg list). Empty args → bare `bundle exec rspec`. Pure.
+rspec_cmd(bundle_bin: string, source_dir: string, args: string) {
+    if string.length(args) == 0 {
+        return "cd '${source_dir}' && '${bundle_bin}' exec rspec"
+    }
+    return "cd '${source_dir}' && '${bundle_bin}' exec rspec ${args}"
+}
+
+// rubocop_cmd — bundle exec rubocop, optionally with --config flag.
+// Empty config_path → no --config (rubocop searches the tree). Pure.
+rubocop_cmd(bundle_bin: string, source_dir: string, config_path: string) {
+    if string.length(config_path) == 0 {
+        return "cd '${source_dir}' && '${bundle_bin}' exec rubocop"
+    }
+    return "cd '${source_dir}' && '${bundle_bin}' exec rubocop --config '${config_path}'"
+}
+
+// gem_build_cmd — `gem build <gemspec>` from source_dir, writing
+// the .gem into `<dist_dir>`. `gem build` emits to cwd by default;
+// we cd to dist_dir and pass the absolute gemspec path so the
+// .gem lands where aeb expects. Pure.
+gem_build_cmd(gem_bin: string, gemspec_abs: string, dist_dir: string) {
+    return "cd '${dist_dir}' && '${gem_bin}' build '${gemspec_abs}'"
+}
+
+// --- Internal: ensure bundler-installed dirs exist ---
+
+// Resolve the bundle install path. Returns the absolute path. If
+// the builder declared `bundle_path(...)`, use it (resolving
+// relative against root). Otherwise default to `<root>/.aeb/bundle`.
+_resolve_bundle_path(builder_map: ptr, root: string) {
+    if builder_map != null {
+        if map.has(builder_map, "ruby_bundle_path") == 1 {
+            p, _ = map.get(builder_map, "ruby_bundle_path")
+            if string.length(p) > 0 {
+                first = string.substring(p, 0, 1)
+                if string.equals(first, "/") == 1 { return p }
+                return path.join(root, p)
+            }
+        }
+    }
+    return path.join(root, ".aeb/bundle")
+}
+
+// Resolve the bundle binary. Today this just returns "bundle" so
+// it's picked up from PATH; future work could probe a per-project
+// Ruby toolchain pin (chruby / asdf style).
+_resolve_bundle_bin() {
+    return "bundle"
+}
+
+_resolve_gem_bin() {
+    return "gem"
+}
+
+// Build the rspec args string from the accumulated list. Empty list → "".
+_rspec_args_str(builder_map: ptr) {
+    if builder_map == null { return "" }
+    if map.has(builder_map, "ruby_rspec_args") == 0 { return "" }
+    args, _ = map.get(builder_map, "ruby_rspec_args")
+    n = list.size(args)
+    if n == 0 { return "" }
+    out = ""
+    i = 0
+    while i < n {
+        a, _ = list.get(args, i)
+        if i > 0 { out = string.concat(out, " ") }
+        out = string.concat(out, a)
+        i = i + 1
+    }
+    return out
+}
+
+// --- SDK functions ---
+
+// Install bundler-managed gems into the project-local bundle path.
+// Idempotent at the bundler level: `bundle install` is a no-op when
+// Gemfile.lock matches the closure on disk. The `.timestamp` file
+// lets aeb's dep-edge handling see "install ran."
+builder install(ctx: ptr) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    root = build._get(ctx, "root")
+    source_dir = build._get(ctx, "source_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: installing gems (bundle)")
+
+    bundle = _resolve_bundle_bin()
+    bp = _resolve_bundle_path(_builder, root)
+    build._mkdirs(bp)
+
+    cmd = bundle_install_cmd(bundle, source_dir, bp)
+    rc = os.system(cmd)
+    if rc != 0 {
+        println("${mod_dir}: bundle install FAILED")
+        return rc
+    }
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Run rspec via bundler. Reads rspec_arg(...) entries.
+builder rspec(ctx: ptr) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: running tests (rspec)")
+
+    bundle = _resolve_bundle_bin()
+    args_str = _rspec_args_str(_builder)
+    cmd = rspec_cmd(bundle, source_dir, args_str)
+    rc = os.system(cmd)
+    if rc != 0 {
+        // rspec exits non-zero on test failure; record one logical
+        // failure. A future iteration could parse rspec's
+        // `--format=json` output for per-example pass/fail counts.
+        build._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        return rc
+    }
+    build._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Run rubocop via bundler.
+builder rubocop(ctx: ptr) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: linting (rubocop)")
+
+    bundle = _resolve_bundle_bin()
+    cfg = ""
+    if _builder != null {
+        if map.has(_builder, "ruby_rubocop_config") == 1 {
+            cfg, _ = map.get(_builder, "ruby_rubocop_config")
+        }
+    }
+    cmd = rubocop_cmd(bundle, source_dir, cfg)
+    rc = os.system(cmd)
+    if rc != 0 {
+        println("${mod_dir}: lint FAILED")
+        return rc
+    }
+    println("${mod_dir}: lint PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Build a .gem package from a .gemspec. Requires `gemspec("path")`.
+// Output lands in `target/<module>/dist/<name>-<version>.gem`.
+builder gem(ctx: ptr) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+
+    if _builder == null { return 1 }
+    if map.has(_builder, "ruby_gemspec") == 0 {
+        println("${mod_dir}: ruby.gem requires gemspec(\"<name>.gemspec\")")
+        return 1
+    }
+    gemspec_rel, _ = map.get(_builder, "ruby_gemspec")
+    gemspec_abs = path.join(source_dir, gemspec_rel)
+    if file.exists(gemspec_abs) == 0 {
+        println("${mod_dir}: ruby.gem: gemspec not found at ${gemspec_abs}")
+        return 1
+    }
+
+    dist_dir = path.join(target_dir, "dist")
+    build._mkdirs(dist_dir)
+    println("${mod_dir}: packaging (gem build)")
+
+    gem_bin = _resolve_gem_bin()
+    cmd = gem_build_cmd(gem_bin, gemspec_abs, dist_dir)
+    rc = os.system(cmd)
+    if rc != 0 {
+        println("${mod_dir}: gem build FAILED")
+        return rc
+    }
+    println("${mod_dir}: packaging done → ${dist_dir}")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}

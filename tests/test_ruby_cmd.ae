@@ -1,0 +1,160 @@
+// Tests for lib/ruby's pure command builders AND the closure-DSL
+// setters.
+//
+// Two surfaces, mirroring tests/test_python_cmd.ae +
+// tests/test_python_codegen_cmd.ae:
+//
+//   1. Pure `*_cmd` helpers (bundle_install_cmd, bundle_exec_cmd,
+//      rspec_cmd, rubocop_cmd, gem_build_cmd) — string-equality
+//      assertions on the shell commands aeb constructs.
+//
+//   2. Setter accumulation — drive `gem` / `rspec_arg` /
+//      `rubocop_config` / `gemspec` / `gemfile` / `bundle_path` /
+//      `ruby_version` on a fresh map, read back the keys.
+
+import ruby (bundle_install_cmd, bundle_exec_cmd, rspec_cmd,
+             rubocop_cmd, gem_build_cmd,
+             gem, rspec_arg, rubocop_config, gemspec, gemfile,
+             bundle_path, ruby_version)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+_list_size_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return 0 }
+    l, _ = map.get(m, k)
+    return list.size(l)
+}
+
+_list_get_at(m: ptr, k: string, i: int) {
+    l, _ = map.get(m, k)
+    v, _ = list.get(l, i)
+    return v
+}
+
+_str_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return "" }
+    v, _ = map.get(m, k)
+    return v
+}
+
+main() {
+    // === Pure command-builder tests ====================================
+
+    // --- bundle_install_cmd: default `bundle install --path=...`
+    _assert("bundle_install_cmd basic",
+        string.equals(
+            bundle_install_cmd("bundle", "/proj/rb", "/proj/.aeb/bundle"),
+            "cd '/proj/rb' && 'bundle' install --path='/proj/.aeb/bundle'"))
+
+    // --- bundle_install_cmd: spaces in paths survive quoting.
+    _assert("bundle_install_cmd with spaces",
+        string.equals(
+            bundle_install_cmd("bundle", "/path with space/rb", "/path with space/bundle"),
+            "cd '/path with space/rb' && 'bundle' install --path='/path with space/bundle'"))
+
+    // --- bundle_exec_cmd: generic exec passthrough.
+    _assert("bundle_exec_cmd basic",
+        string.equals(
+            bundle_exec_cmd("bundle", "/proj/rb", "rake spec"),
+            "cd '/proj/rb' && 'bundle' exec rake spec"))
+
+    // --- rspec_cmd: no args.
+    _assert("rspec_cmd empty args",
+        string.equals(
+            rspec_cmd("bundle", "/proj/rb", ""),
+            "cd '/proj/rb' && 'bundle' exec rspec"))
+
+    // --- rspec_cmd: appended args.
+    _assert("rspec_cmd with args",
+        string.equals(
+            rspec_cmd("bundle", "/proj/rb", "--format=doc spec/foo_spec.rb"),
+            "cd '/proj/rb' && 'bundle' exec rspec --format=doc spec/foo_spec.rb"))
+
+    // --- rubocop_cmd: no config (rubocop searches the tree).
+    _assert("rubocop_cmd default config",
+        string.equals(
+            rubocop_cmd("bundle", "/proj/rb", ""),
+            "cd '/proj/rb' && 'bundle' exec rubocop"))
+
+    // --- rubocop_cmd: explicit config path.
+    _assert("rubocop_cmd explicit config",
+        string.equals(
+            rubocop_cmd("bundle", "/proj/rb", "/proj/rb/.rubocop.yml"),
+            "cd '/proj/rb' && 'bundle' exec rubocop --config '/proj/rb/.rubocop.yml'"))
+
+    // --- gem_build_cmd: cd to dist_dir, absolute gemspec.
+    _assert("gem_build_cmd basic",
+        string.equals(
+            gem_build_cmd("gem", "/proj/rb/selenium-webdriver.gemspec", "/proj/target/rb/dist"),
+            "cd '/proj/target/rb/dist' && 'gem' build '/proj/rb/selenium-webdriver.gemspec'"))
+
+    // === Setter accumulation tests =====================================
+
+    // --- gem: list accumulator, order preserved.
+    bm1 = map.new()
+    gem(bm1, "rspec ~> 3.13")
+    gem(bm1, "rubocop ~> 1.66")
+    gem(bm1, "debug")
+    _assert("gem accumulates 3 entries", _list_size_at(bm1, "ruby_gems") == 3)
+    _assert("gem order: first is rspec",
+        string.equals(_list_get_at(bm1, "ruby_gems", 0), "rspec ~> 3.13"))
+    _assert("gem order: third is debug",
+        string.equals(_list_get_at(bm1, "ruby_gems", 2), "debug"))
+
+    // --- rspec_arg: separate list from gem.
+    bm2 = map.new()
+    gem(bm2, "rspec")
+    rspec_arg(bm2, "--format=doc")
+    rspec_arg(bm2, "spec/foo_spec.rb")
+    _assert("rspec_arg stores in its own key",
+        _list_size_at(bm2, "ruby_rspec_args") == 2)
+    _assert("rspec_arg and gem don't cross-contaminate",
+        _list_size_at(bm2, "ruby_gems") == 1)
+
+    // --- Scalar setters (gemspec, gemfile, bundle_path,
+    // rubocop_config, ruby_version) — each writes a single string
+    // key. Later calls overwrite earlier (map.put semantics).
+    bm3 = map.new()
+    gemspec(bm3, "selenium-webdriver.gemspec")
+    gemfile(bm3, "Gemfile.aeb")
+    bundle_path(bm3, "vendor/bundle")
+    rubocop_config(bm3, ".rubocop.yml")
+    ruby_version(bm3, "3.3")
+    _assert("gemspec stored as scalar",
+        string.equals(_str_at(bm3, "ruby_gemspec"), "selenium-webdriver.gemspec"))
+    _assert("gemfile stored as scalar",
+        string.equals(_str_at(bm3, "ruby_gemfile"), "Gemfile.aeb"))
+    _assert("bundle_path stored as scalar",
+        string.equals(_str_at(bm3, "ruby_bundle_path"), "vendor/bundle"))
+    _assert("rubocop_config stored as scalar",
+        string.equals(_str_at(bm3, "ruby_rubocop_config"), ".rubocop.yml"))
+    _assert("ruby_version stored as scalar",
+        string.equals(_str_at(bm3, "ruby_version"), "3.3"))
+
+    // --- Scalar overwrite: last call wins.
+    bm4 = map.new()
+    gemspec(bm4, "first.gemspec")
+    gemspec(bm4, "second.gemspec")
+    _assert("gemspec last-call-wins",
+        string.equals(_str_at(bm4, "ruby_gemspec"), "second.gemspec"))
+
+    // --- Untouched map: list keys absent, scalar keys absent.
+    bm5 = map.new()
+    _assert("untouched map has no ruby_gems",
+        _list_size_at(bm5, "ruby_gems") == 0)
+    _assert("untouched map has empty ruby_gemspec",
+        string.equals(_str_at(bm5, "ruby_gemspec"), ""))
+
+    println("ruby SDK tests done")
+}

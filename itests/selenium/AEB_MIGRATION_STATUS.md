@@ -116,11 +116,20 @@ proof-of-concept value beyond what one leaf already shows.
 
 ### Ruby (`rb/`)
 
-**No aeb SDK exists.** 32 `BUILD.bazel` files use
-`rules_ruby_gem` shapes plus `ruby_library` / `ruby_test`. Adding
-`lib/ruby` would follow the same pattern as `lib/python`:
-`ruby.bundle_install(b)`, `ruby.rspec(b)`, `ruby.gem_package(b)`.
-Out of scope for this pass; recorded as a gap.
+**`lib/ruby` now exists** (added downstream of this migration). 32
+`BUILD.bazel` files use `rules_ruby_gem` shapes plus `ruby_library`
+/ `ruby_test`. The aeb SDK ships `ruby.install(b)` (bundle install),
+`ruby.rspec(b)` (bundle exec rspec), `ruby.rubocop(b)`, and
+`ruby.gem(b)` (gem build from a .gemspec). Project-local gem
+isolation via `.aeb/bundle/`, parallel to `lib/python`'s
+`.aeb/venv/`.
+
+A `rb/.build.ae` plus `rb/.tests.ae` is the next-natural conversion
+target; selenium's Gemfile + selenium-webdriver.gemspec map directly
+onto the new grammar. Not converted in this pass, but the
+**SDK-side gap is closed** — running `aeb` against a hand-written
+`.build.ae` for `rb/` would work once the Ruby toolchain plus
+required browsers are present.
 
 ### JavaScript/Node (`javascript/`)
 
@@ -216,8 +225,11 @@ intact).
 1. `python.package_existing_pyproject` builder is missing
    (`lib/python` always regenerates pyproject.toml — destructive
    for projects with hand-tuned upstream pyproject.toml).
-2. `lib/ruby` doesn't exist; Selenium's Ruby tree can't be
-   converted.
+2. ~~`lib/ruby` doesn't exist; Selenium's Ruby tree can't be
+   converted.~~ **Closed** — `lib/ruby` added in a follow-up
+   (`tests/test_ruby_cmd.ae`, 21 assertions). Selenium's rb/
+   conversion is now a mechanical .build.ae write, not an
+   SDK-shaped gap.
 3. Selenium's external-fetch pattern (BiDi CDDL via Bazel
    `bazel_dep`/`http_file`) has no aeb analogue; converting
    `generate_bidi.py` as a `.codegen.ae` would need either local

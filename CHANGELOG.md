@@ -4,6 +4,21 @@
 
 ### Added
 
+- **`lib/ruby`: Ruby SDK** for Bundler + RSpec + RuboCop + `gem`
+  packaging. Closes the gap surfaced by Selenium (32 Ruby BUILD
+  files unreachable without this). Project-local isolation via
+  `.aeb/bundle/` (parallel to `lib/python`'s `.aeb/venv/`). Builders:
+  `ruby.install(b)` (bundle install), `ruby.rspec(b)` (bundle exec
+  rspec), `ruby.rubocop(b)` (bundle exec rubocop), `ruby.gem(b)`
+  (gem build from a `.gemspec`). Setters: `gem(line)`, `gemfile`,
+  `gemspec`, `bundle_path`, `rspec_arg`, `rubocop_config`,
+  `ruby_version`. Pure command builders (`bundle_install_cmd`,
+  `bundle_exec_cmd`, `rspec_cmd`, `rubocop_cmd`, `gem_build_cmd`) +
+  the seven grammar setters are covered by 21 assertions in
+  `tests/test_ruby_cmd.ae`. Registered in `tools/aeb-init.ae`'s
+  `shipped_modules()` list so `aeb --init` symlinks it into
+  consumer repos.
+
 - **Selenium integration test scaffolding** (`itests/selenium/`).
   Adds `https://github.com/SeleniumHQ/selenium.git` to
   `itests/fetch-upstream.sh`. Per-file ignore overlay added to
