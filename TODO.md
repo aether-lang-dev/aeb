@@ -666,6 +666,107 @@ All language SDKs now use `defer` functions with trailing-block DSL:
 - [x] `tsc()` — strict, ts_target, module_kind, out_dir
 - [x] `mocha()` — mocha_timeout, reporter, mocha_grep
 
+## Platform-branching ergonomics
+
+Aeb is Aether, so `if`/`else` inside `main()` or a closure block is
+the working answer to platform-conditional builds today. The
+mechanic is fine; the surface is ugly. Example of the current
+shape — pick sources + flags by host OS:
+
+```aether
+import build
+import c
+import c (sources, cflag)
+import std.os
+import std.string
+
+main() {
+    b = build.start()
+    host = os.getenv("HOST_OS")
+    c.compile(b) {
+        sources("core.c")
+        if string.equals(host, "darwin") == 1 {
+            sources("plat_macos.c")
+            cflag("-DPLAT_MACOS")
+        }
+        if string.equals(host, "linux") == 1 {
+            sources("plat_linux.c")
+            cflag("-DPLAT_LINUX")
+        }
+        if string.equals(host, "windows") == 1 {
+            sources("plat_windows.c")
+            cflag("-DPLAT_WINDOWS")
+        }
+    }
+}
+```
+
+This isn't Bazel's `select()`. Bazel's mechanic specialises the
+target graph at *analysis time* based on a configuration object
+(`--config=…`, `--define=…`, platform constraints, `config_setting`
+labels). aeb's `if/else` runs every build — functionally
+indistinguishable for string-compare-to-literal branching, but
+semantically a runtime decision, not a configuration-time one.
+
+Three ergonomic sugar layers, in increasing scope:
+
+### 1. `build.host_os()` / `build.host_arch()` primitives
+
+Hide the `os.getenv("HOST_OS")` dance behind a one-liner accessor
+that returns "linux" / "darwin" / "windows" / "freebsd" derived
+from `uname -s` (or the existing `os.host_os()` if Aether ships
+one) plus the `HOST_OS` env-var override. Cheap; closes most of
+the verbosity without inventing any new grammar.
+
+### 2. `when_os("darwin") { ... }` closure-DSL helper
+
+A `lib/build` helper that takes a string + a closure, evaluates
+the closure only when the host matches:
+
+```aether
+c.compile(b) {
+    sources("core.c")
+    when_os("darwin") {
+        sources("plat_macos.c")
+        cflag("-DPLAT_MACOS")
+    }
+    when_os("linux") {
+        sources("plat_linux.c")
+        cflag("-DPLAT_LINUX")
+    }
+}
+```
+
+Same runtime behaviour as the raw `if`-block above, much shorter
+to read. The implementation is one Aether function plus the host-
+OS primitive.
+
+### 3. `select(host, { "darwin": fn, "linux": fn, "default": fn })`
+
+A multi-way switch helper that takes a value + a map of label →
+closure-or-value. Closer to Bazel's `select()` surface, still
+runtime-evaluated. Useful when the same branch decides multiple
+unrelated things (`sources` AND `cflag` AND `link_flag`) and the
+`when_os(...)` form would repeat the OS check three times.
+
+What's NOT in scope of any of these three: real configuration-
+phase selection. That needs (a) a configuration object the
+orchestrator builds before running module functions, (b) a
+constraint-solver over platform / `--config` / `--define`,
+(c) per-config target-graph specialisation. None of those are
+small; none are demanded by any project currently in `itests/`.
+File when a real consumer needs it (gRPC, Bazel-migrated
+hyperscaler repo, anything with fine-grained platform-conditional
+deps).
+
+Selenium's actual platform branching (rust binary local-build
+vs prebuilt download, per-OS test variants) is coarse enough
+that one `.build.ae` per platform plus the suffix-tag convention
+(`.build-linux.ae` / `.build-macos.ae`) covers it without
+needing this sugar at all. The ergonomic sugar above pays off
+for the *fine-grained inside-one-target* shape, not the
+coarse-grained one.
+
 ## Test coverage gaps (this session, deliberately deferred)
 
 The round-218 backfill (`tests/test_aether_*.ae`, `tests/test_bash_*.ae`,
