@@ -107,12 +107,40 @@ mechanical:
   Bazel-flat layout matches lib/java's default mode: *.java in the
   same dir as .build.ae).
 
-**One leaf converted in this pass:**
-`java/src/org/openqa/selenium/status/.build.ae` — 2 .java files,
-1 Maven dep (`org.jspecify:jspecify:1.0.0`), no internal deps.
+**Three leaves converted, two patterns demonstrated:**
+
+| Leaf | Pattern | Sources | Externals |
+|------|---------|---------|-----------|
+| `status/.build.ae`        | inline `dep(b, "g:a:v")` | 2 | jspecify |
+| `io/.build.ae`            | `load_bom_file` + inline `dep(b, "g:a:v")` | 7 | jspecify |
+| `grid/jmx/.build.ae`      | `load_bom_file` + inline `dep(b, "g:a:v")` | 5 | jspecify |
+
+The new `java/selenium-deps.bom.ae` file is the hand-authored
+**pin set** for selenium-java's headline third-party coords (18
+coords today: jspecify, guava, byte-buddy, opentelemetry-*, jackson,
+slf4j-*, jcommander, gson, jackson-databind, redis, protobuf-java,
+javaparser-core, jboss-marshalling). Each coord pinned to the
+version upstream uses, transcribed from `java/maven_install.json` at
+fetch-upstream.sh snapshot time. Leaves consume it via
+`maven.load_bom_file` from `lib/maven`.
+
+**Why not bridge `maven_install.json`:** see
+`itests/selenium/Aeb_vs_Bazel.md` for the full musing. The short
+form: aeb doesn't parse external config formats (LLM.md's
+load-bearing principle). The `.bom.ae` is the idiomatic-aeb shape;
+it's more verbose at scale but every dep edge is a literal string
+in source, greppable, and translatable without consulting
+rules_jvm_external's data model.
 
 Converting the rest of Java is mechanical work that doesn't add
-proof-of-concept value beyond what one leaf already shows.
+proof-of-concept value beyond what three leaves already show.
+
+**Two-import gotcha:** all three leaves declare both
+`import maven` and `import maven (load_bom_file)`. The bare-setter
+two-import rule (LLM.md) applies because aeb's orchestrator-generated
+file only inherits the selective import; lib/java's internal
+`maven.classpath()` calls then can't resolve without the bare
+`import maven` also being declared at the leaf.
 
 ### Ruby (`rb/`)
 
@@ -130,6 +158,29 @@ onto the new grammar. Not converted in this pass, but the
 **SDK-side gap is closed** — running `aeb` against a hand-written
 `.build.ae` for `rb/` would work once the Ruby toolchain plus
 required browsers are present.
+
+**Now converted:** `rb/.build.ae` calls `ruby.install(b)` then
+`ruby.gem(b) { gemspec("selenium-webdriver.gemspec") }`;
+`rb/.tests.ae` calls `ruby.rspec(b)` + `ruby.rubocop(b)` with a
+`build.dep` on the install step. Smoke run on this box reaches the
+expected upstream-environmental failures:
+
+  - `bundle install` ran (after a `lib/ruby` patch to use
+    `bundle config set --local path` instead of the now-removed
+    `--path=` flag; verified in `tests/test_ruby_cmd.ae`), then
+    failed at `psych` native-gem compile (missing `libyaml-dev`
+    on this Debian host).
+  - `gem build selenium-webdriver.gemspec` requires LICENSE and
+    NOTICE files in the rb/ directory, which upstream Bazel stages
+    via `copy_file` rules from the repo root. aeb has no canonical
+    `copy_file` SDK today; a `bash.run(b) { pre_command("cp ...") }`
+    preamble would work, but isn't wired here. Tracking as a
+    pre-build-staging gap (see also the `./go format` note in
+    `Aeb_vs_Bazel.md`).
+
+Both failures are environmental / upstream-staging, not SDK gaps.
+The aeb-side grammar is verified-correct in
+`tests/test_ruby_cmd.ae` (26 assertions).
 
 ### JavaScript/Node (`javascript/`)
 
@@ -221,17 +272,68 @@ a `codegen_input_dir(b, "selenium")` (lossy — every .py change
 re-runs the gen) or a small refactor of the upstream script to take
 an explicit input list.
 
-Not converted in this pass; recorded as low-hanging fruit.
+**Now converted:** `itests/selenium/py/.api-listing-codegen.ae`
+drives `generate_api_module_listing.py` via `python.codegen(b)`
+with `codegen_input_dir("selenium")` + `codegen_output("docs/source/api.rst")`.
+End-to-end verified on this snapshot: deleting `api.rst` and
+running `aeb .api-listing-codegen.ae` regenerates it (5.8 KB of
+Sphinx autodoc directives covering 30+ selenium submodules); a
+subsequent `touch selenium/__init__.py` triggers a re-run.
+
+This required wiring `codegen_input_dir` into `_codegen_can_skip` —
+the MVP gap recorded in lib/python that ignored directory inputs
+for staleness. Now the staleness check walks every input_dir
+recursively via `_dir_newest_mtime` (Aether-native `dir.list` +
+`file.mtime`, no shell-out to `find -printf`), folding the newest
+file mtime in the tree into the standard "newest input vs oldest
+output" comparison. Cross-platform; works on macOS without the
+GNU-find dependency. See `lib/python/module.ae` `_dir_newest_mtime`
++ `_codegen_can_skip` extension.
 
 ## What this pass actually produced
 
-| File                                                                | Status   |
-|---------------------------------------------------------------------|----------|
-| `itests/selenium/AEB_MIGRATION_STATUS.md`                          | This file. |
-| `itests/selenium/java/src/org/openqa/selenium/status/.build.ae`    | Single Java leaf, 2 sources, 1 Maven dep. Expected to compile clean given `org.jspecify:jspecify:1.0.0` resolves through `~/.m2`. |
+Running tally across the multi-session conversion:
 
-The .build.ae is the demonstration; the migration status is the
-honest accounting of what's deferred.
+| File / Artifact                                                            | Status   |
+|----------------------------------------------------------------------------|----------|
+| `itests/selenium/AEB_MIGRATION_STATUS.md`                                  | This file. |
+| `itests/selenium/Aeb_vs_Bazel.md`                                          | Polyglot-DAG musing doc, sibling to the PyTorch one. Includes the "why not bridge maven_install.json" reasoning. |
+| `itests/selenium/.build.ae`                                                | Workspace-root pnpm install (`pnpm.install` + `frozen_lockfile`). |
+| `itests/selenium/java/selenium-deps.bom.ae`                                | Hand-pinned 18-coord BOM for the headline selenium-java third-party deps. |
+| `itests/selenium/java/src/org/openqa/selenium/status/.build.ae`            | Java leaf #1: inline pinned dep. |
+| `itests/selenium/java/src/org/openqa/selenium/io/.build.ae`                | Java leaf #2: BOM-loaded + inline pinned dep, 7 sources. |
+| `itests/selenium/java/src/org/openqa/selenium/grid/jmx/.build.ae`          | Java leaf #3: BOM-loaded + inline pinned dep, 5 sources. |
+| `itests/selenium/rb/.build.ae`                                             | Ruby leaf: `ruby.install` + `ruby.gem`. |
+| `itests/selenium/rb/.tests.ae`                                             | Ruby tests: `ruby.rspec` + `ruby.rubocop`. |
+| `itests/selenium/py/.dist.ae`                                              | `python.package_existing` (non-destructive wheel build). |
+| `itests/selenium/py/.bidi-spec.ae`                                         | `fetch.file` of the CDDL spec, sha256-pinned. |
+| `itests/selenium/py/.bidi-codegen.ae`                                      | `python.codegen` driving `generate_bidi.py`. |
+| `itests/selenium/py/.api-listing-codegen.ae`                               | `python.codegen` with `codegen_input_dir` walking `selenium/` recursively. End-to-end verified. |
+| `itests/selenium/javascript/selenium-webdriver/.build.ae`                  | `pnpm.run` for the eslint script. |
+| `itests/selenium/dotnet/src/webdriver/.build.ae`                           | `dotnet.build_project_existing` against upstream csproj. |
+| `itests/selenium/rust/.build.ae`                                           | `rust.cargo_project_existing` for selenium-manager binary. |
+
+Plus SDK upgrades and unit-test additions (off-tree from
+`itests/selenium/` but driven by this exercise):
+
+| SDK upgrade                                                                | Where |
+|----------------------------------------------------------------------------|-------|
+| `python.codegen` honors `codegen_input_dir` in staleness check via `_dir_newest_mtime` | `lib/python/module.ae` |
+| `lib/ruby` `bundle_install_cmd` switched to `bundle config set --local path` (bundler 2.x removed `--path=`) | `lib/ruby/module.ae` |
+| `lib/fetch` extracted `_format_to_flags` + `_format_is_zip` pure helpers from inline format-override mapping | `lib/fetch/module.ae` |
+| `lib/dotnet` extracted `_resolve_csproj_path` pure helper from inline csproj-path resolution | `lib/dotnet/module.ae` |
+
+Unit-test additions (all pure command-string-builder assertions):
+
+| Test file                              | Before → after assertions |
+|----------------------------------------|---------------------------|
+| `tests/test_python_codegen_cmd.ae`     | 21 → 26 |
+| `tests/test_ruby_cmd.ae`               | 21 → 26 |
+| `tests/test_dotnet_cmd.ae`             | 7  → 12 |
+| `tests/test_fetch_cmd.ae`              | 27 → 43 |
+| `tests/test_cargo_cmd.ae`              | 12 → 14 |
+
+Full test suite remains green: **62 tests, 853 assertions**.
 
 ## How to drive a partial build
 
@@ -274,6 +376,22 @@ intact).
    exact upstream pinning (118 KB CDDL fetched from
    `raw.githubusercontent.com/w3c/webref/<sha>/ed/cddl/`,
    sha256-verified). 27 assertions in `tests/test_fetch_cmd.ae`.
-4. `rules_jvm_external`'s `maven_install.json` pinning isn't
-   directly readable by `lib/maven`; translating selenium-scale
-   Java deps would benefit from a converter that reads it.
+4. ~~`rules_jvm_external`'s `maven_install.json` pinning isn't
+   directly readable by `lib/maven`.~~ **Closed by hand-authoring**
+   instead of bridging: `java/selenium-deps.bom.ae` carries the
+   pinned headline set. See `Aeb_vs_Bazel.md` § "Why aeb won't parse
+   `maven_install.json`" — bridging an external config format would
+   crack LLM.md's load-bearing principle. The hand-authored shape
+   is the idiomatic-aeb answer.
+
+5. **Pre-build file-staging gap.** Selenium's Bazel build uses
+   `copy_file` rules to stage LICENSE / NOTICE / per-OS
+   `selenium-manager` binaries into the rb/, py/, dotnet/ trees at
+   build time. aeb has no canonical `lib/copy.file(b)` SDK; a
+   `bash.run(b)` preamble works but isn't ergonomic. Roadmap item
+   — would also subsume the `./go format`-shaped pre-build chains
+   mentioned in `Aeb_vs_Bazel.md`.
+
+6. **`./go format`-shaped multi-language formatter chains.** Same
+   roadmap entry as #5; a `lib/format` SDK or a canonical phase
+   shape would cover both.

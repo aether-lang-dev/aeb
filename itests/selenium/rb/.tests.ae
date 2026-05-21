@@ -1,0 +1,31 @@
+// Selenium Ruby — rspec + rubocop runner.
+//
+// Upstream Bazel uses per-spec-file `rb_test` rules (one target per
+// spec). aeb's grammar runs the whole spec/ suite via `bundle exec
+// rspec` — same shape as rake's `:spec` task in the upstream
+// Rakefile.
+//
+// `build.dep(b, ".build.ae")` chains the install step: bundler-managed
+// gems must be installed before rspec/rubocop can run via
+// `bundle exec`.
+//
+// Heads-up: Selenium's full spec suite needs browser drivers
+// (chromedriver, geckodriver) reachable at runtime. The
+// `:tests_per_dialect` style suites also need the
+// `WD_SPEC_DRIVER=chrome|firefox|safari|edge` env var set, which we
+// don't surface here. Running this leaf end-to-end on a headless CI
+// box without browsers will fail tests in the typical
+// "WebDriver::Error::WebDriverError: Unable to connect" way.
+// For SDK-grammar verification (does aeb construct the right
+// bundle-exec commands), see tests/test_ruby_cmd.ae.
+
+import build
+import build (dep)
+import ruby
+
+main() {
+    b = build.start()
+    dep(b, ".build.ae")
+    ruby.rspec(b)
+    ruby.rubocop(b)
+}

@@ -1,0 +1,56 @@
+// org.openqa.selenium.io — pure-leaf Java module (no internal deps).
+//
+// Seven Java sources (CircularOutputStream, FileHandler,
+// MultiOutputStream, Read, TemporaryFilesystem, Zip, package-info),
+// one external Maven dep (`org.jspecify:jspecify` for the
+// `@NullMarked` package annotation), no `//java/...` internal
+// sibling deps. Selected as the second demonstration leaf (after
+// `status/`) because it's the smallest tractable target that
+// **consumes the shared BOM file** rather than inlining the version.
+//
+// Upstream Bazel equivalent (java/src/org/openqa/selenium/io/BUILD.bazel):
+//
+//     java_library(
+//         name = "io",
+//         srcs = glob(["*.java"]),
+//         deps = [artifact("org.jspecify:jspecify")],
+//     )
+//
+// aeb translation:
+//
+//   - `srcs = glob(["*.java"])` → `java.javac(b)` default mode
+//     picks up `*.java` in source_dir.
+//   - `artifact("org.jspecify:jspecify")` — the Bazel form is
+//     unversioned because rules_jvm_external looks the version up
+//     in `maven_install.json`. The aeb form loads the shared
+//     `../../../../selenium-deps.bom.ae` (which pins jspecify to
+//     1.0.0) and declares the coord unversioned via
+//     `dep(b, "org.jspecify:jspecify")` — the BOM supplies the
+//     pinned version to aeb-resolve.jar.
+//
+// This pattern is the load-bearing one for scaling Java conversion:
+// shared `.bom.ae` carries the closure pin set; each leaf declares
+// its direct coords with version inline (so each dep edge is
+// greppable from this file alone). The unbridged alternative (parse
+// `maven_install.json`) would have moved rules_jvm_external's data
+// model into aeb; see Aeb_vs_Bazel.md.
+//
+// Relative path note: this leaf sits at
+// `java/src/org/openqa/selenium/io/`, five directories below
+// `java/`, so `../../../../../selenium-deps.bom.ae`.
+
+import build
+import build (dep)
+import maven
+import maven (load_bom_file)
+import java
+import java (release)
+
+main() {
+    b = build.start()
+    load_bom_file(b, "../../../../../selenium-deps.bom.ae")
+    dep(b, "org.jspecify:jspecify:1.0.0")
+    java.javac(b) {
+        release("17")
+    }
+}

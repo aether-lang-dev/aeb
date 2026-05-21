@@ -1,0 +1,42 @@
+// Selenium Java — hand-pinned third-party dep set.
+//
+// Idiomatic aeb alternative to bridging upstream's
+// `java/maven_install.json` (a rules_jvm_external pinning artefact).
+// LLM.md's load-bearing principle says aeb doesn't parse external
+// config formats; the closure DSL travels in `.ae` files. So instead
+// of writing a `maven_install.json` → `.bom.ae` converter, we
+// hand-author the pinned set as plain `dep("g:a:v")` lines.
+//
+// aeb-resolve.jar greps this file for `maven_bom(...)`, `maven_repo(...)`,
+// and `dep(...)` lines (each containing a g:a:v coord). Leaves
+// consume it via `load_bom_file(b, "<path>")` from `lib/maven`.
+//
+// **Versions are pinned from upstream Selenium's
+// `java/maven_install.json` at the snapshot fetch-upstream.sh
+// captured.** The chosen subset is the headline cluster of coords
+// most Selenium Java leaves reach for; full coverage of the 120+
+// closure coords would multiply this file by ~6x and isn't needed
+// for the migration's proof-of-shape. Add more lines as additional
+// leaves get converted.
+//
+// Greppability check: `grep -rE '^\s*dep\("[^"]+"\)' .bom.ae` lists
+// every pinned coord. No JSON parsing required.
+
+dep("org.jspecify:jspecify:1.0.0")
+dep("com.google.guava:guava:33.6.0-jre")
+dep("net.bytebuddy:byte-buddy:1.18.8")
+dep("com.google.code.gson:gson:2.14.0")
+dep("com.fasterxml.jackson.core:jackson-databind:2.21.3")
+dep("org.slf4j:slf4j-api:2.0.18")
+dep("org.slf4j:slf4j-jdk14:2.0.18")
+dep("com.beust:jcommander:1.82")
+dep("com.google.auto.service:auto-service-annotations:1.1.1")
+dep("io.opentelemetry:opentelemetry-api:1.62.0")
+dep("io.opentelemetry:opentelemetry-context:1.62.0")
+dep("io.opentelemetry:opentelemetry-sdk:1.62.0")
+dep("io.opentelemetry:opentelemetry-exporter-logging:1.62.0")
+dep("io.lettuce:lettuce-core:7.5.2.RELEASE")
+dep("org.redisson:redisson:4.4.0")
+dep("com.google.protobuf:protobuf-java:4.34.1")
+dep("com.github.javaparser:javaparser-core:3.28.1")
+dep("org.jboss.marshalling:jboss-marshalling:2.3.0")

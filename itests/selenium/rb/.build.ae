@@ -1,0 +1,65 @@
+// Selenium Ruby — LICENSE/NOTICE staging + Gemfile install +
+// selenium-webdriver gem build.
+//
+// Upstream Bazel shape (rb/BUILD.bazel):
+//
+//     copy_file(name = "license", src = ":global-license", out = "LICENSE")
+//     copy_file(name = "notice",  src = ":global-notice",  out = "NOTICE")
+//     rb_gem_build(
+//         name = "selenium-webdriver",
+//         gemspec = "selenium-webdriver.gemspec",
+//         deps = [":selenium-webdriver-runtime-deps", ":license", ":notice"],
+//     )
+//
+// aeb shape:
+//
+//   1. copy.file(b)     — stage LICENSE and NOTICE from the repo
+//                         root into rb/. The .gemspec references
+//                         them as required files; without staging,
+//                         `gem build` fails with
+//                         "[LICENSE, NOTICE] are not files".
+//   2. ruby.install(b)  — bundle install from the upstream Gemfile.
+//                         Honours `Gemfile.lock`; project-local gem
+//                         closure lands under `.aeb/bundle/`.
+//   3. ruby.package(b)  — gem build against selenium-webdriver.gemspec.
+//                         Output: target/<mod>/dist/selenium-webdriver-<ver>.gem.
+//                         (Builder is `package`, not `gem`, because
+//                         `gem` is the Gemfile-line setter; LLM.md
+//                         § builder-name-collision.)
+//
+// The selenium-devtools.gemspec sibling would be a separate
+// `.dist.ae` (a single `.build.ae` can only declare one builder
+// per call site, and the two .gemspecs are independent artifacts).
+//
+// **End-to-end requirements:** bundler on PATH (`gem install
+// bundler`), libyaml-dev for the psych native gem, plus whatever
+// Selenium's Gemfile resolves to — rubocop, rspec, debug, rbs,
+// steep, etc. The `bundle install` step downloads all of these to
+// `.aeb/bundle/`.
+//
+// **lib/copy is the canonical pre-build file-staging primitive.**
+// Selenium's Bazel build leans on `copy_file` rules pervasively for
+// per-OS binary staging, license-file propagation, and similar.
+// See lib/copy/module.ae for the SDK.
+
+import build
+import copy
+import copy (from, to)
+import ruby
+import ruby (gemspec)
+
+main() {
+    b = build.start()
+    copy.file(b) {
+        from("../LICENSE")
+        to("LICENSE")
+    }
+    copy.file(b) {
+        from("../NOTICE")
+        to("NOTICE")
+    }
+    ruby.install(b)
+    ruby.package(b) {
+        gemspec("selenium-webdriver.gemspec")
+    }
+}

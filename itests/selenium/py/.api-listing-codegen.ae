@@ -1,0 +1,51 @@
+// Selenium Python — Sphinx API-listing codegen.
+//
+// Drives `generate_api_module_listing.py`, which recursively walks
+// the `selenium/` package directory and writes
+// `docs/source/api.rst` (the master listing Sphinx's autogen feeds
+// into for the Python API docs).
+//
+// The script takes no CLI args. Upstream Selenium runs it via
+// `bazel run //py:generate_api_module_listing` (a Bazel-shaped
+// py_binary with default-runfiles). The aeb shape is a
+// `python.codegen(b)` block declaring the input directory tree and
+// the single output file.
+//
+// **Why this leaf exists and was deferred until now:** the AEB
+// migration status doc listed it as gap-not-closed because the
+// upstream script's inputs are "every .py under selenium/" with no
+// explicit declared input. The bridge `python.codegen` provides is
+// the `codegen_input_dir(dir)` setter — declare a tree, every file
+// in it counts toward the staleness check (recursively, via
+// `_dir_newest_mtime` in lib/python). Now any change inside
+// `selenium/` invalidates `api.rst`; the script re-runs on the next
+// build; outputs are verified for existence.
+//
+// Note on staleness model: this is NOT hermetic — the script also
+// does `import site` and reads installed-package metadata. If the
+// venv changes underneath without `selenium/` changing on disk,
+// staleness won't notice. The reasonable answer is "if you change
+// the venv, delete the api.rst output." The same is true of the
+// PyTorch torchgen leaf and most codegen tools that reach outside
+// their declared inputs.
+
+import build
+import python
+import python (codegen_script, codegen_input_dir, codegen_output)
+
+main() {
+    b = build.start()
+
+    python.codegen(b) {
+        codegen_script("generate_api_module_listing.py")
+
+        // Recursive walk of selenium/ feeds the staleness check.
+        // Every .py file under here participates in the mtime
+        // comparison via `_dir_newest_mtime`.
+        codegen_input_dir("selenium")
+
+        // The single declared output. python.codegen fails the
+        // build if this file doesn't exist after the script runs.
+        codegen_output("docs/source/api.rst")
+    }
+}

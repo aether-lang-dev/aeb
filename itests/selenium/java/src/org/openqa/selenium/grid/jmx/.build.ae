@@ -1,0 +1,32 @@
+// org.openqa.selenium.grid.jmx — pure-leaf Java module.
+//
+// Five sources (JMXHelper, MBean, ManagedAttribute, ManagedOperation,
+// ManagedService) plus package-info. One external Maven dep
+// (jspecify), no internal sibling deps. Third demonstration leaf
+// after `status/` (inline-version pattern) and `io/` (BOM-loaded
+// pattern); selected to show the BOM-loaded shape works the same
+// way regardless of where the leaf sits in the tree.
+//
+// The relative path to selenium-deps.bom.ae is `../../../../../../`
+// (six `..` instead of `io/`'s five) because this leaf lives one
+// directory deeper under `grid/`. Both leaves consume the same
+// pinning truth; only the path differs.
+//
+// Upstream Bazel equivalent (java/src/org/openqa/selenium/grid/jmx/BUILD.bazel)
+// — identical to `io/`'s shape, just `name = "jmx"`.
+
+import build
+import build (dep)
+import maven
+import maven (load_bom_file)
+import java
+import java (release)
+
+main() {
+    b = build.start()
+    load_bom_file(b, "../../../../../../selenium-deps.bom.ae")
+    dep(b, "org.jspecify:jspecify:1.0.0")
+    java.javac(b) {
+        release("17")
+    }
+}
