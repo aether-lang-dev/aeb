@@ -69,6 +69,15 @@ dotnet_build_cmd(csproj: string, config: string) {
     return "dotnet build '${csproj}' --configuration ${config}"
 }
 
+// csproj_path("Selenium.WebDriver.csproj") — explicit path to an
+// upstream .csproj file, consumed by `dotnet.build_project_existing(b)`.
+// Resolved against source_dir. When omitted, the builder looks for a
+// single `*.csproj` in source_dir and uses that. Use this setter when
+// multiple .csproj files coexist or the project lives in a subdir.
+csproj_path(_ctx: ptr, p: string) {
+    _e = map.put(_ctx, "csproj_path", p)
+}
+
 // dotnet_test_cmd — `dotnet test` invocation. Pure. --no-build because
 // the test orchestrator runs after build_project has already compiled.
 dotnet_test_cmd(csproj: string, config: string) {
@@ -383,6 +392,96 @@ builder build_project(ctx: ptr) {
         }
     }
 
+    cmd = dotnet_build_cmd(csproj, config)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: dotnet build failed")
+        return exit_code
+    }
+
+    _ets = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// dotnet.build_project_existing(b) — non-destructive variant of
+// `dotnet.build_project`. Runs `dotnet build` against the upstream
+// `.csproj` already in source_dir; never generates or overwrites it.
+//
+// `dotnet.build_project(b)` (above) is the right choice when aeb
+// owns the project metadata: `target_framework` / `nuget` /
+// `root_namespace` / `assembly_name` setters drive a regenerated
+// `.{name}.generated.csproj`. That's destructive when the project
+// ships a hand-tuned upstream .csproj with custom MSBuild targets,
+// signing config, multi-targeting, generated assembly info, etc.
+//
+// `dotnet.build_project_existing(b)` is the right choice when the
+// upstream .csproj is the source of truth and aeb should just
+// drive `dotnet build` against it. Common case: ports of real-world
+// .NET projects (e.g., Selenium's Selenium.WebDriver.csproj which
+// uses Microsoft.NET.Sdk + custom signing + AssemblyInfo
+// templates).
+//
+// Setters consumed (all optional):
+//
+//   csproj_path("Selenium.WebDriver.csproj")
+//                   — explicit .csproj path. Default: scan source_dir
+//                     for a single .csproj and use that. Required
+//                     when more than one .csproj coexists in source_dir.
+//   configuration("Release")
+//                   — `dotnet build --configuration <name>`. Default
+//                     "Release". Same setter as `dotnet.build_project`.
+builder build_project_existing(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    // Resolve .csproj path: explicit setter override > single-file
+    // glob > error.
+    csproj_rel = ""
+    if _builder != null {
+        if map.has(_builder, "csproj_path") == 1 {
+            csproj_rel, _ = map.get(_builder, "csproj_path")
+        }
+    }
+    csproj = ""
+    if string.length(csproj_rel) > 0 {
+        first = string.substring(csproj_rel, 0, 1)
+        if string.equals(first, "/") == 1 {
+            csproj = csproj_rel
+        } else {
+            csproj = path.join(source_dir, csproj_rel)
+        }
+    } else {
+        // No explicit setter — scan source_dir for a single .csproj.
+        cs_raw, _ecs = os.exec("ls '${source_dir}'/*.csproj 2>/dev/null")
+        cs_list = string.trim(cs_raw)
+        nl_pos = string.index_of(cs_list, "\n")
+        if string.length(cs_list) == 0 {
+            println("${mod_dir}: build_project_existing: no .csproj found in ${source_dir}")
+            println("${mod_dir}: place this .build.ae next to the .csproj, or set csproj_path(\"...\")")
+            return 1
+        }
+        if nl_pos >= 0 {
+            println("${mod_dir}: build_project_existing: multiple .csproj files in ${source_dir}")
+            println("${mod_dir}: set csproj_path(\"...\") to disambiguate")
+            return 1
+        }
+        csproj = cs_list
+    }
+    if file.exists(csproj) == 0 {
+        println("${mod_dir}: build_project_existing: csproj not found at ${csproj}")
+        return 1
+    }
+
+    config = "Release"
+    if _builder != null {
+        if map.has(_builder, "configuration") == 1 {
+            config, _ = map.get(_builder, "configuration")
+        }
+    }
+
+    println("${mod_dir}: compiling existing project (${csproj})")
     cmd = dotnet_build_cmd(csproj, config)
     exit_code = os.system(cmd)
     if exit_code != 0 {

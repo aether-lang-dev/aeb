@@ -12,7 +12,7 @@ import build
 // Tests for cargo_build_cmd()
 
 import rust
-import rust (cargo_build_cmd)
+import rust (cargo_build_cmd, binary_name)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -50,6 +50,19 @@ main() {
     _assert_eq("all combined",
         cargo_build_cmd("/src", "/target", opts4),
         "cd /src && cargo build --profile release --features jni --jobs 8 --locked --target-dir=/target/lib")
+
+    // --- binary_name setter (consumed by cargo_project_existing).
+    bm = map_new()
+    binary_name(bm, "selenium-manager")
+    bn, _ = map_get(bm, "binary_name")
+    _assert_eq("binary_name setter stores the name",
+        bn, "selenium-manager")
+
+    // Scalar last-call-wins.
+    binary_name(bm, "renamed")
+    bn2, _ = map_get(bm, "binary_name")
+    _assert_eq("binary_name last-call-wins",
+        bn2, "renamed")
 
     println("cargo_build_cmd tests done")
 }

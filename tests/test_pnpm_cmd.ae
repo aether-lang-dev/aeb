@@ -12,7 +12,8 @@ import build
 // Tests for pnpm.pnpm_spec_from_dep, pnpm.pnpm_add_cmd
 
 import pnpm
-import pnpm (pnpm_spec_from_dep, pnpm_add_cmd)
+import pnpm (pnpm_spec_from_dep, pnpm_add_cmd, pnpm_install_cmd,
+             pnpm_run_cmd, script_arg, frozen_lockfile)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -65,6 +66,39 @@ main() {
     _assert_eq("mixed deps (versioned scoped + bare)",
         pnpm_add_cmd("/proj/.aeb", deps4),
         "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb' 'react@18.3.1' '@angular/core@11.2.4' 'lodash'")
+
+    // --- pnpm_install_cmd: from-project-package.json shape ---
+    _assert_eq("pnpm install (no frozen-lockfile)",
+        pnpm_install_cmd("/proj", 0),
+        "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm install")
+
+    _assert_eq("pnpm install --frozen-lockfile",
+        pnpm_install_cmd("/proj", 1),
+        "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm install --frozen-lockfile")
+
+    // --- pnpm_run_cmd: scripts from package.json ---
+    _assert_eq("pnpm run bare script",
+        pnpm_run_cmd("/proj", "lint", ""),
+        "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm run lint")
+
+    _assert_eq("pnpm run script with args (after --)",
+        pnpm_run_cmd("/proj", "lint", "--fix --quiet"),
+        "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm run lint -- --fix --quiet")
+
+    // --- Setter accumulation for the new builders ---
+    bm1 = map_new()
+    script_arg(bm1, "--silent")
+    script_arg(bm1, "--reporter=tap")
+    args1, _ = map_get(bm1, "pnpm_script_args")
+    arg0, _ = list_get(args1, 0)
+    arg1, _ = list_get(args1, 1)
+    _assert_eq("script_arg first stored", arg0, "--silent")
+    _assert_eq("script_arg second stored", arg1, "--reporter=tap")
+
+    bm2 = map_new()
+    frozen_lockfile(bm2)
+    frozen_marker, _ = map_get(bm2, "pnpm_frozen_lockfile")
+    _assert_eq("frozen_lockfile marker set", frozen_marker, "1")
 
     println("pnpm cmd tests done")
 }

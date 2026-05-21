@@ -1,0 +1,24 @@
+// Selenium WebDriver — .NET bindings (Selenium.WebDriver.csproj).
+//
+// The .csproj uses Microsoft.NET.Sdk + custom signing
+// (Selenium.snk) + assembly-info templating + multi-targeting
+// (netstandard2.0). aeb's `dotnet.build_project` would regenerate
+// the .csproj from setters and lose all of that, so the right
+// builder is `dotnet.build_project_existing(b)` — runs
+// `dotnet build` against the upstream .csproj unchanged.
+//
+// Selenium uses paket for NuGet pinning (`paket.dependencies`,
+// `paket.lock`). aeb's lib/dotnet routes inline `nuget(...)` setters
+// and registry .nupkg.ae artifacts; this conversion sidesteps that
+// entirely by letting the upstream .csproj declare its own
+// PackageReferences as it does today. paket-pinned closures end up
+// resolved by `dotnet restore` (run implicitly as part of
+// `dotnet build`).
+
+import build
+import dotnet
+
+main() {
+    b = build.start()
+    dotnet.build_project_existing(b)
+}

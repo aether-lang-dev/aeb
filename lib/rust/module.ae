@@ -1081,6 +1081,98 @@ builder cargo_project(ctx: ptr) {
     return 0
 }
 
+// rust.cargo_project_existing(b) — non-destructive variant of
+// `rust.cargo_project`. Runs `cargo build --release` against the
+// upstream `Cargo.toml` already in source_dir; never generates or
+// overwrites it.
+//
+// `rust.cargo_project(b)` (above) is the right choice when aeb
+// owns the crate metadata: `crate_name` / `edition` / `version` /
+// `crate_dep` setters drive a regenerated Cargo.toml every build.
+// That's destructive when the project ships a hand-tuned Cargo.toml
+// with workspace links, dev-dependencies, profiles.* tables,
+// platform-specific deps, [features], [[bin]] declarations,
+// build.rs hooks, etc. — anything lib/rust's TOML generator
+// doesn't model.
+//
+// `rust.cargo_project_existing(b)` is the right choice when the
+// upstream Cargo.toml is the source of truth and aeb should drive
+// `cargo build` against it unchanged. Common case: a real-world
+// crate ported into the aeb graph as a leaf, like Selenium's
+// `rust/Cargo.toml` (the `selenium-manager` binary).
+//
+// Setters consumed (all optional):
+//
+//   binary_name(name)  — declared name of the output binary; when
+//                        set, the builder writes a `cargo_binary`
+//                        artifact pointing at
+//                        `target/lib/release/<name>` so downstream
+//                        `.build.ae` consumers can read the path.
+//                        Library-shaped crates skip this.
+//   profile / features / jobs — same as cargo_project; passed
+//                        through to `cargo_build_cmd`.
+builder cargo_project_existing(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    lib_dir = path.join(target_dir, "lib")
+    build._mkdirs(lib_dir)
+
+    cargo_toml = path.join(source_dir, "Cargo.toml")
+    if file.exists(cargo_toml) == 0 {
+        println("${mod_dir}: cargo_project_existing: Cargo.toml not found at ${cargo_toml}")
+        println("${mod_dir}: did you mean cargo_project(b) (which generates one) or place this .build.ae next to the Cargo.toml?")
+        return 1
+    }
+
+    ts_file = path.join(lib_dir, ".timestamp")
+    if build._needs_rebuild(source_dir, ts_file) == 0 {
+        println("${mod_dir}: skipping compilation of prod code (not changed)")
+        return 0
+    }
+
+    cargo_dir = path.join(target_dir, ".cargo")
+    build._mkdirs(cargo_dir)
+    cargo_config = path.join(cargo_dir, "config.toml")
+    _write_cargo_config(cargo_config)
+
+    println("${mod_dir}: compiling prod code (cargo build, existing Cargo.toml)")
+    cargo_cmd = cargo_build_cmd(source_dir, target_dir, _builder)
+    exit_code = os.system(cargo_cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: cargo build failed")
+        return exit_code
+    }
+
+    // Optional: artifact write for binary crates. The Rust-side
+    // shared-library handoff (cargo_build's `ldlibdeps` /
+    // `shared_library_deps_including_transitive`) is wrong for
+    // binaries — they're not loaded into other languages' processes,
+    // they're executed standalone. The `cargo_binary` artifact is
+    // its own contract: a single path string for downstream consumers.
+    if _builder != null {
+        if map.has(_builder, "binary_name") == 1 {
+            bn, _ = map.get(_builder, "binary_name")
+            release_dir = path.join(lib_dir, "release")
+            full_bin = path.join(release_dir, bn)
+            build._write_artifact(ctx, "cargo_binary", full_bin)
+        }
+    }
+
+    _e = io.write_file(ts_file, "")
+    return 0
+}
+
+// binary_name("selenium-manager") — declares the name of the output
+// binary for a `rust.cargo_project_existing(b)` invocation. Used
+// only by the artifact-write step; cargo itself derives the name
+// from the upstream Cargo.toml's `[[bin]]` / `[package].name`.
+binary_name(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "binary_name", name)
+}
+
 // --- Command builder ---
 
 cargo_build_cmd(source_dir: string, target_dir: string, opts: ptr) {

@@ -1,0 +1,37 @@
+// Selenium Manager — Rust binary crate.
+//
+// Selenium's `rust/Cargo.toml` declares a single binary crate
+// (`selenium-manager`) with a deep dependency tree (clap, reqwest,
+// tokio, zip, …). Upstream Bazel `rust_binary` rule wraps a
+// `cargo`-shaped build via `rules_rust`.
+//
+// The aeb conversion uses the upstream Cargo.toml unchanged —
+// `rust.cargo_project_existing(b)` runs `cargo build --release`
+// from this dir without regenerating Cargo.toml. The
+// `binary_name("selenium-manager")` setter is the artifact-write
+// hint; downstream consumers (e.g., the Python wheel that vendors
+// selenium-manager into the wheel via setuptools-rust) can
+// `build.dep` on this file and read the `cargo_binary` artifact
+// for the path.
+//
+// **Not converted in this pass:** the Bazel-side `rust_test` rules
+// in `tests/BUILD.bazel`. `rust.cargo_test(b)` or equivalent would
+// run `cargo test`; not present in lib/rust today. The shape gap
+// is small enough that adding it is mechanical (new builder, pure
+// `cargo_test_cmd` helper, parallel `_existing` variant).
+//
+// End-to-end execution needs a working Rust toolchain on PATH plus
+// network access for cargo's transitive crate fetch (the lockfile
+// is pinned; cargo just verifies). Roughly 5-10 minutes clean
+// build on a recent dev box.
+
+import build
+import rust
+import rust (binary_name)
+
+main() {
+    b = build.start()
+    rust.cargo_project_existing(b) {
+        binary_name("selenium-manager")
+    }
+}

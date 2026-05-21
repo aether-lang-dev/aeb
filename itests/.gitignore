@@ -29499,3 +29499,6 @@ selenium/java/test/org/openqa/selenium/docker/client/V148AdapterTest.java
 selenium/java/test/org/openqa/selenium/docker/client/V140AdapterTest.java
 selenium/java/test/org/openqa/selenium/docker/client/AdapterFactoryTest.java
 selenium/java/test/org/openqa/selenium/docker/client/ListImagesTest.java
+selenium/py/NOTICE
+selenium/py/README.rst
+selenium/py/LICENSE

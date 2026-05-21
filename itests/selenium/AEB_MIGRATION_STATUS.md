@@ -134,30 +134,60 @@ required browsers are present.
 ### JavaScript/Node (`javascript/`)
 
 Mix of pnpm workspaces (`selenium-webdriver/`) and Bazel-driven
-JS targets using `aspect_rules_js`. `lib/pnpm` covers the pnpm side;
-`lib/ts` could cover TypeScript compilation. The
-Bazel-rules-js-specific bits (rollup config inside Bazel, esbuild
-pipelines) would need translation to direct pnpm script
-invocation — a fit for `lib/pnpm`'s existing `pnpm.run(b, script)`
-shape.
+JS targets using `aspect_rules_js`. **Two converters landed** in
+a follow-up pass:
 
-Not converted in this pass.
+- `itests/selenium/.build.ae` — `pnpm.install(b)` with
+  `frozen_lockfile()` at the workspace root. Honours the upstream
+  `pnpm-workspace.yaml` + `pnpm-lock.yaml`.
+- `itests/selenium/javascript/selenium-webdriver/.build.ae` —
+  `pnpm.run(b, "lint")` for the eslint script declared in the
+  subpackage's `package.json`. `build.dep` edge on the workspace
+  install so node_modules is in place first.
+
+The Bazel-rules-js-specific bits (rollup config inside Bazel,
+esbuild pipelines) would still need per-pipeline conversion;
+neither converted here.
+
+SDK additions this required: `pnpm.install(b)` and `pnpm.run(b, script)`
+(closure-DSL with `frozen_lockfile()` and repeatable
+`script_arg(...)`). See `tests/test_pnpm_cmd.ae`.
 
 ### .NET (`dotnet/`)
 
-10 BUILD files. `lib/dotnet` handles the build shape (`dotnet build`
-plus reference resolution); the conversion would be mechanical for
-a leaf. Not converted in this pass.
+10 BUILD files. **One leaf converted** in a follow-up:
+`itests/selenium/dotnet/src/webdriver/.build.ae` runs
+`dotnet.build_project_existing(b)` against the upstream
+`Selenium.WebDriver.csproj` (Microsoft.NET.Sdk, custom signing
+via `Selenium.snk`, AssemblyInfo templating, paket-pinned
+NuGet deps).
+
+SDK addition this required: `dotnet.build_project_existing(b)` —
+non-destructive variant that doesn't regenerate
+`.{name}.generated.csproj`. Closes the same shape of gap that
+PyTorch surfaced for python.package and Selenium surfaced for
+rust.cargo_project. Setter `csproj_path(...)` for non-default
+locations. See `tests/test_dotnet_cmd.ae`.
 
 ### Rust (`rust/`)
 
 3 BUILD files. Selenium's Rust subtree builds the **Selenium
 Manager** binary that the Python `selenium` package vendors via
-`setuptools-rust`. `lib/rust` handles cargo-based builds; the
-Bazel side wraps `cargo` through `rules_rust`, so a translation to
-`lib/rust` is direct.
+`setuptools-rust`. **Binary crate converted** in a follow-up:
+`itests/selenium/rust/.build.ae` runs
+`rust.cargo_project_existing(b)` with `binary_name("selenium-manager")`
+against the upstream `Cargo.toml`. Cargo's transitive dep
+resolution runs unchanged; the `Cargo.lock` is honoured.
 
-Not converted in this pass.
+SDK addition this required: `rust.cargo_project_existing(b)` —
+non-destructive variant that doesn't regenerate `Cargo.toml` from
+setters. Optional setter `binary_name(name)` writes a
+`cargo_binary` artifact for downstream consumers (e.g., the Python
+wheel that vendors selenium-manager via setuptools-rust would
+read this path). See `tests/test_cargo_cmd.ae`.
+
+Test rules in `rust/tests/BUILD.bazel` not converted; a
+`rust.cargo_test_existing(b)` would be the natural next addition.
 
 ### C++ (`cpp/`)
 

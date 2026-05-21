@@ -1,0 +1,32 @@
+// Selenium JS — selenium-webdriver subpackage.
+//
+// Upstream uses `aspect_rules_js` + Bazel for the actual build, but
+// the pnpm-workspace setup (`pnpm-workspace.yaml` at the selenium
+// root) plus the in-tree `package.json` scripts means a sensible
+// aeb conversion just defers to pnpm for both dep resolution and
+// script execution.
+//
+// Two steps:
+//
+//   1. `pnpm.install(b)` at the workspace root (this dir's grandparent
+//      — the file at `selenium/.build.ae` is the install target, see
+//      that file). This file's `build.dep(b, "../../.build.ae")`
+//      edge means the workspace install runs first.
+//
+//   2. `pnpm.run(b, "lint")` runs the `lint` script from this
+//      package.json (eslint over the JS sources). Mirrors what an
+//      `npm run lint` would do.
+//
+// Not covered: the `test` script (which shells back to Bazel — a
+// real conversion would split that out), or `generate-docs` (jsdoc;
+// the pnpm.run shape works fine for it too, just one more line).
+
+import build
+import build (dep)
+import pnpm
+
+main() {
+    b = build.start()
+    dep(b, "../../.build.ae")
+    pnpm.run(b, "lint")
+}

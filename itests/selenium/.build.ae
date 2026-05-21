@@ -1,0 +1,23 @@
+// Selenium workspace root — pnpm install for the JS workspace.
+//
+// Selenium's pnpm-workspace.yaml lists `javascript/grid-ui` and
+// `javascript/selenium-webdriver` as the two workspace packages.
+// A `pnpm install` at this dir resolves the full workspace deps
+// closure (lockfile-honouring via frozen_lockfile() so CI fails
+// loud on drift instead of regenerating).
+//
+// Downstream JS `.build.ae` files (e.g.
+// `javascript/selenium-webdriver/.build.ae`) `build.dep` on this
+// file so node_modules is in place before their own `pnpm.run(...)`
+// calls.
+
+import build
+import pnpm
+import pnpm (frozen_lockfile)
+
+main() {
+    b = build.start()
+    pnpm.install(b) {
+        frozen_lockfile()
+    }
+}

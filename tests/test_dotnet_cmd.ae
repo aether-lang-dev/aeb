@@ -12,7 +12,7 @@ import build
 // Tests for dotnet.dotnet_build_cmd, dotnet.dotnet_test_cmd
 
 import dotnet
-import dotnet (dotnet_build_cmd, dotnet_test_cmd)
+import dotnet (dotnet_build_cmd, dotnet_test_cmd, csproj_path)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -40,6 +40,25 @@ main() {
     _assert_eq("dotnet_test_cmd Debug",
         dotnet_test_cmd("/proj/tests.csproj", "Debug"),
         "dotnet test '/proj/tests.csproj' --configuration Debug --no-build")
+
+    // --- dotnet_build_cmd over an upstream-shipped csproj (consumed
+    // by build_project_existing) — same exec-string shape; the
+    // setter that names the file rides separately on the builder map.
+    _assert_eq("dotnet_build_cmd against upstream csproj",
+        dotnet_build_cmd("/proj/Selenium.WebDriver.csproj", "Release"),
+        "dotnet build '/proj/Selenium.WebDriver.csproj' --configuration Release")
+
+    // --- csproj_path setter accumulation.
+    bm = map_new()
+    csproj_path(bm, "Selenium.WebDriver.csproj")
+    csp, _ = map_get(bm, "csproj_path")
+    _assert_eq("csproj_path setter stores the path",
+        csp, "Selenium.WebDriver.csproj")
+
+    csproj_path(bm, "Other.csproj")
+    csp2, _ = map_get(bm, "csproj_path")
+    _assert_eq("csproj_path last-call-wins",
+        csp2, "Other.csproj")
 
     println("dotnet cmd tests done")
 }

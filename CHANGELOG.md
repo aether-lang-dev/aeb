@@ -4,6 +4,44 @@
 
 ### Added
 
+- **`lib/dotnet`: `dotnet.build_project_existing(b)` builder**.
+  Non-destructive .NET packaging: runs `dotnet build` against the
+  upstream `.csproj` as-is, never regenerates a
+  `.{name}.generated.csproj`. The right choice for projects with
+  hand-tuned upstream csprojs (Microsoft.NET.Sdk customisations,
+  signing config, multi-targeting, paket-managed deps). Setter
+  `csproj_path(path)` for non-default locations; single-csproj
+  source_dirs auto-detect. Test coverage in
+  `tests/test_dotnet_cmd.ae` extended to 7 assertions (was 4).
+  Demo: `itests/selenium/dotnet/src/webdriver/.build.ae`.
+
+- **`lib/rust`: `rust.cargo_project_existing(b)` builder**.
+  Non-destructive cargo build: runs `cargo build --release` against
+  the upstream `Cargo.toml` as-is, never regenerates. The right
+  choice for porting real-world crates as aeb leaves (workspace
+  links, dev-deps, platform-specific deps, [[bin]] declarations
+  aeb's TOML generator doesn't model). Optional setter
+  `binary_name(name)` writes a `cargo_binary` artifact for
+  downstream consumers. Test coverage in `tests/test_cargo_cmd.ae`
+  extended to 6 assertions (was 4). Demo:
+  `itests/selenium/rust/.build.ae` for the Selenium Manager
+  binary crate.
+
+- **`lib/pnpm`: `pnpm.install(b)` + `pnpm.run(b, script)` builders**.
+  The two missing core operations for Bazel-rules-js projects
+  with an in-tree `package.json` + `pnpm-lock.yaml` +
+  `pnpm-workspace.yaml`. `pnpm.install(b)` runs `pnpm install`
+  from source_dir; optional `frozen_lockfile()` setter forces
+  CI-mode (`--frozen-lockfile`). `pnpm.run(b, "script")` runs a
+  `scripts:` entry from package.json; repeatable `script_arg(...)`
+  appends args after the `--` separator. Two new pure command
+  builders (`pnpm_install_cmd`, `pnpm_run_cmd`) plus the existing
+  `pnpm_spec_from_dep` and `pnpm_add_cmd` are covered by 15
+  assertions in `tests/test_pnpm_cmd.ae` (was 8). Demos:
+  `itests/selenium/.build.ae` (workspace install) and
+  `itests/selenium/javascript/selenium-webdriver/.build.ae`
+  (pnpm run lint).
+
 - **`lib/fetch`: external-resource SDK** (`fetch.file(b)`,
   `fetch.archive(b)`) — Bazel `http_file` / `http_archive`
   analogue. Closes the gap surfaced by Selenium's BiDi codegen

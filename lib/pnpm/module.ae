@@ -114,3 +114,136 @@ resolve(ctx: ptr) {
     build._write_artifact(ctx, "npm_node_modules", nm_dir)
     return nm_dir
 }
+
+// --- Builders: install + run ---
+//
+// `pnpm.resolve(ctx)` (above) handles the .npm.ae dep-coordinate
+// flow — aeb declares packages, pnpm fetches them into .aeb/.
+// What's missing for a real project that ships its own package.json
+// + pnpm-workspace.yaml + pnpm-lock.yaml is:
+//
+//   pnpm.install(b)        — `pnpm install` from source_dir, honouring
+//                            the in-tree package.json + lockfile. The
+//                            shape every Bazel-rules-js conversion
+//                            needs as step zero.
+//
+//   pnpm.run(b, "script")  — `pnpm run <script>`. The way modern JS
+//                            projects expose build/test/lint
+//                            commands (`pnpm run lint`, `pnpm run
+//                            build`, …). Closure-DSL friendly: pass
+//                            a list of script args via the
+//                            `script_arg(...)` setter.
+
+// --- DSL setters (consumed by pnpm.run) ---
+
+// script_arg("--silent") — extra arg appended after the script
+// name. Repeatable. The script name itself is passed as the
+// builder-call positional arg.
+script_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "pnpm_script_args") == 0 {
+        _e1 = map.put(_ctx, "pnpm_script_args", list.new())
+    }
+    args, _ = map.get(_ctx, "pnpm_script_args")
+    _e2 = list.add(args, arg)
+}
+
+// frozen_lockfile() — pass `--frozen-lockfile` to `pnpm install`.
+// Bunches an exact-lockfile install (CI mode). When the lockfile
+// is out of sync with package.json, the install fails fast instead
+// of silently regenerating the lockfile.
+frozen_lockfile(_ctx: ptr) {
+    _e = map.put(_ctx, "pnpm_frozen_lockfile", "1")
+}
+
+// --- Pure command builders ---
+
+// pnpm_install_cmd — `cd <src> && pnpm install [--frozen-lockfile]`.
+// Pure.
+pnpm_install_cmd(source_dir: string, frozen: int) {
+    if frozen == 1 {
+        return "cd '${source_dir}' && COREPACK_ENABLE_STRICT=0 pnpm install --frozen-lockfile"
+    }
+    return "cd '${source_dir}' && COREPACK_ENABLE_STRICT=0 pnpm install"
+}
+
+// pnpm_run_cmd — `cd <src> && pnpm run <script> [args]`. args is a
+// pre-joined space-separated string (caller built it from the
+// script_arg list). Empty args → bare `pnpm run <script>`. Pure.
+pnpm_run_cmd(source_dir: string, script: string, args: string) {
+    if string.length(args) == 0 {
+        return "cd '${source_dir}' && COREPACK_ENABLE_STRICT=0 pnpm run ${script}"
+    }
+    return "cd '${source_dir}' && COREPACK_ENABLE_STRICT=0 pnpm run ${script} -- ${args}"
+}
+
+// Helper: assemble the script args list into a single space-
+// separated string. Pure (loops a list).
+_script_args_str(builder_map: ptr) {
+    if builder_map == null { return "" }
+    if map.has(builder_map, "pnpm_script_args") == 0 { return "" }
+    args, _ = map.get(builder_map, "pnpm_script_args")
+    n = list.size(args)
+    if n == 0 { return "" }
+    out = ""
+    i = 0
+    while i < n {
+        a, _ = list.get(args, i)
+        if i > 0 { out = string.concat(out, " ") }
+        out = string.concat(out, a)
+        i = i + 1
+    }
+    return out
+}
+
+// pnpm.install(b) — run `pnpm install` from source_dir. Honours the
+// project's own package.json + pnpm-lock.yaml + pnpm-workspace.yaml
+// without aeb introducing parallel state. The right choice for a
+// Bazel-rules-js project that already manages its npm dep closure.
+//
+// Distinct from `pnpm.resolve(ctx)` (above), which is the
+// aeb-declared dep flow for .npm.ae files.
+builder install(ctx: ptr) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+    build._mkdirs(target_dir)
+
+    frozen = 0
+    if _builder != null {
+        if map.has(_builder, "pnpm_frozen_lockfile") == 1 {
+            frozen = 1
+        }
+    }
+
+    println("${mod_dir}: pnpm install")
+    cmd = pnpm_install_cmd(source_dir, frozen)
+    rc = os.system(cmd)
+    if rc != 0 {
+        println("${mod_dir}: pnpm install FAILED")
+        return rc
+    }
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// pnpm.run(b, "script-name") — run a `scripts:` entry from
+// source_dir's package.json. Repeatable `script_arg(...)` setters
+// append args after the script name (separated by `--` so they reach
+// the script, not pnpm itself).
+builder run(ctx: ptr, script: string) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+    build._mkdirs(target_dir)
+
+    args_str = _script_args_str(_builder)
+    println("${mod_dir}: pnpm run ${script}")
+    cmd = pnpm_run_cmd(source_dir, script, args_str)
+    rc = os.system(cmd)
+    if rc != 0 {
+        println("${mod_dir}: pnpm run ${script} FAILED")
+        return rc
+    }
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
