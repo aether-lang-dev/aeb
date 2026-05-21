@@ -1,0 +1,209 @@
+// copy — file/directory-staging SDK for aether.build
+//
+// Bazel-`copy_file`/`copy_directory` shaped primitive. The motivating
+// case is Selenium's pre-build chain: LICENSE / NOTICE files staged
+// from the repo root into rb/, py/, dotnet/ trees so each binding's
+// gem/wheel/nupkg package step finds them where its tooling expects.
+// Other use cases:
+//
+//   - Per-OS prebuilt binaries staged into per-binding bin/ dirs
+//     (e.g. selenium-manager-linux → rb/bin/linux/selenium-manager).
+//   - Codegen output trees vendored into a binding's source tree
+//     before the binding's own packager picks them up.
+//   - Test fixtures copied from common/ into per-language test trees.
+//
+// Two builders:
+//
+//   copy.file(b) { from("src") to("dst") }
+//                  — one regular file. Parent of dst is created if
+//                    missing. dst is overwritten if it exists.
+//
+//   copy.tree(b) { from("src/dir") to("dst/dir") }
+//                  — recursive directory copy. Parent of dst is
+//                    created if missing. The contract is "after this
+//                    runs, dst is a tree whose contents match src's
+//                    contents." Today implemented via `cp -rf`; future
+//                    work could rsync for incrementality.
+//
+// Staleness: each builder skips when dst exists AND has an mtime
+// greater than or equal to src's. Mtime-based, not content-hashed —
+// same MVP model lib/python.codegen uses for its own staleness check.
+// Wrong-but-fast is the right tradeoff here; a real cache key (via
+// lib/cache) is a follow-up.
+//
+// Paths are resolved against source_dir when relative; absolute
+// passes through. The `path.join` trap (LLM.md § path.join) is
+// dodged via the same `_resolve_path` shape lib/fetch uses.
+
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+// from("path") — source path. Required. Relative paths resolve
+// against source_dir; absolute paths pass through. Scalar
+// (last-call-wins; one src per builder block).
+from(_ctx: ptr, p: string) {
+    _e = map.put(_ctx, "copy_from", p)
+}
+
+// to("path") — destination path. Required. Resolution rules match
+// `from(...)`. Scalar.
+to(_ctx: ptr, p: string) {
+    _e = map.put(_ctx, "copy_to", p)
+}
+
+// --- Pure command builders ---
+
+// cp_file_cmd — `cp -f <src> <dst>`. `-f` overwrites without
+// prompting. Both paths single-quoted to survive spaces. Pure.
+cp_file_cmd(src_abs: string, dst_abs: string) {
+    return "cp -f '${src_abs}' '${dst_abs}'"
+}
+
+// cp_tree_cmd — `cp -rf <src> <dst>`. `-r` recursive, `-f`
+// overwrites. Pure.
+//
+// Note on trailing-slash semantics: GNU cp treats `cp -rf a b`
+// differently from `cp -rf a/ b/` only in subtle ways at the
+// leaf. To stay predictable, callers should declare the dst as the
+// *final* directory name they want (so `from("vendor")
+// to("third_party/vendor")` copies the `vendor` subtree under
+// `third_party/`, not the contents of `vendor` into `third_party/`).
+cp_tree_cmd(src_abs: string, dst_abs: string) {
+    return "cp -rf '${src_abs}' '${dst_abs}'"
+}
+
+// _resolve_path(source_dir, p) — absolute resolution for setter
+// inputs; relative paths join source_dir. Pure. Same shape as
+// lib/fetch's `_resolve_path`.
+_resolve_path(source_dir: string, p: string) {
+    if string.length(p) == 0 { return p }
+    first = string.substring(p, 0, 1)
+    if string.equals(first, "/") == 1 { return p }
+    return path.join(source_dir, p)
+}
+
+// _needs_copy(src_abs, dst_abs) — return 1 when the copy should run
+// (dst missing, or src newer than dst). Return 0 when dst is fresh
+// enough to skip. Mtime-based. Pure.
+_needs_copy(src_abs: string, dst_abs: string) {
+    src_t = file.mtime(src_abs)
+    if src_t == 0 {
+        // Src missing — let the builder fail loud (we return 1 so
+        // the cp invocation runs and its non-zero exit propagates).
+        return 1
+    }
+    dst_t = file.mtime(dst_abs)
+    if dst_t == 0 { return 1 }
+    if dst_t >= src_t { return 0 }
+    return 1
+}
+
+// _validate_setters(b_map, mod_dir, builder_name) — check that the
+// required from(...) / to(...) setters are present. Returns 1 on
+// success, 0 with a printed error on failure. Pure-ish (calls
+// println; doesn't run os.system).
+_validate_setters(b_map: ptr, mod_dir: string, builder_name: string) {
+    if b_map == null {
+        println("${mod_dir}: copy.${builder_name}: empty builder block — declare from(...) and to(...)")
+        return 0
+    }
+    if map.has(b_map, "copy_from") == 0 {
+        println("${mod_dir}: copy.${builder_name}: missing from(...)")
+        return 0
+    }
+    if map.has(b_map, "copy_to") == 0 {
+        println("${mod_dir}: copy.${builder_name}: missing to(...)")
+        return 0
+    }
+    return 1
+}
+
+// --- SDK builders ---
+
+// copy.file(b) — single-file copy. Mtime-skip when dst is fresh.
+builder file(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+
+    if _validate_setters(_builder, mod_dir, "file") == 0 { return 1 }
+
+    src_rel, _ = map.get(_builder, "copy_from")
+    dst_rel, _ = map.get(_builder, "copy_to")
+    src_abs = _resolve_path(source_dir, src_rel)
+    dst_abs = _resolve_path(source_dir, dst_rel)
+
+    if file.exists(src_abs) == 0 {
+        println("${mod_dir}: copy.file: source not found at ${src_abs}")
+        return 1
+    }
+
+    // Parent dir of dst must exist before cp can write into it.
+    build._mkdirs(path.dirname(dst_abs))
+
+    if _needs_copy(src_abs, dst_abs) == 0 {
+        println("${mod_dir}: copy.file up-to-date ${dst_rel}")
+        return 0
+    }
+
+    println("${mod_dir}: copying ${src_rel} → ${dst_rel}")
+    rc = os.system(cp_file_cmd(src_abs, dst_abs))
+    if rc != 0 {
+        println("${mod_dir}: copy.file: cp failed")
+        return rc
+    }
+    return 0
+}
+
+// copy.tree(b) — recursive directory copy. Mtime-skip uses the dst
+// directory's own mtime against src directory's. Imperfect (a
+// file deep in src changing won't always bump src's dir mtime) —
+// MVP. Callers that need deeper staleness should `rm -rf dst`
+// between runs.
+builder tree(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+
+    if _validate_setters(_builder, mod_dir, "tree") == 0 { return 1 }
+
+    src_rel, _ = map.get(_builder, "copy_from")
+    dst_rel, _ = map.get(_builder, "copy_to")
+    src_abs = _resolve_path(source_dir, src_rel)
+    dst_abs = _resolve_path(source_dir, dst_rel)
+
+    if dir.exists(src_abs) == 0 {
+        println("${mod_dir}: copy.tree: source directory not found at ${src_abs}")
+        return 1
+    }
+
+    // Parent dir of dst must exist. cp -rf <src> <parent_of_dst>/
+    // would place src under dst's parent; we want dst itself to
+    // become the target, so the parent (not dst) is what we mkdir.
+    build._mkdirs(path.dirname(dst_abs))
+
+    if _needs_copy(src_abs, dst_abs) == 0 {
+        println("${mod_dir}: copy.tree up-to-date ${dst_rel}")
+        return 0
+    }
+
+    println("${mod_dir}: copying tree ${src_rel} → ${dst_rel}")
+    rc = os.system(cp_tree_cmd(src_abs, dst_abs))
+    if rc != 0 {
+        println("${mod_dir}: copy.tree: cp failed")
+        return rc
+    }
+    return 0
+}

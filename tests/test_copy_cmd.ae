@@ -1,0 +1,118 @@
+// Tests for lib/copy's pure command builders AND closure-DSL
+// setters. Same shape as the other SDK test files.
+//
+// Three surfaces:
+//
+//   1. Pure `*_cmd` helpers (cp_file_cmd, cp_tree_cmd) —
+//      string-equality assertions on the cp invocation aeb constructs.
+//
+//   2. Pure path-resolution (_resolve_path) — relative joins
+//      source_dir; absolute pass-through; empty pass-through.
+//
+//   3. Grammar setters (from, to) — scalar last-call-wins,
+//      stored under canonical keys.
+
+import copy (cp_file_cmd, cp_tree_cmd, _resolve_path,
+             from, to)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+_str_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return "" }
+    v, _ = map.get(m, k)
+    return v
+}
+
+main() {
+    // === Pure command-builder tests ====================================
+
+    _assert("cp_file_cmd basic",
+        string.equals(
+            cp_file_cmd("/proj/LICENSE", "/proj/rb/LICENSE"),
+            "cp -f '/proj/LICENSE' '/proj/rb/LICENSE'"))
+
+    _assert("cp_file_cmd spaces in src",
+        string.equals(
+            cp_file_cmd("/path with space/LICENSE", "/dst/LICENSE"),
+            "cp -f '/path with space/LICENSE' '/dst/LICENSE'"))
+
+    _assert("cp_file_cmd spaces in dst",
+        string.equals(
+            cp_file_cmd("/proj/LICENSE", "/dst with space/LICENSE"),
+            "cp -f '/proj/LICENSE' '/dst with space/LICENSE'"))
+
+    _assert("cp_tree_cmd basic",
+        string.equals(
+            cp_tree_cmd("/proj/common/manager", "/proj/rb/bin"),
+            "cp -rf '/proj/common/manager' '/proj/rb/bin'"))
+
+    _assert("cp_tree_cmd spaces in src",
+        string.equals(
+            cp_tree_cmd("/path with space/src", "/dst"),
+            "cp -rf '/path with space/src' '/dst'"))
+
+    _assert("cp_tree_cmd spaces in dst",
+        string.equals(
+            cp_tree_cmd("/proj/src", "/dst with space/out"),
+            "cp -rf '/proj/src' '/dst with space/out'"))
+
+    // === Pure path-resolution tests ====================================
+
+    _assert("_resolve_path empty passes through",
+        string.equals(_resolve_path("/proj/rb", ""), ""))
+
+    _assert("_resolve_path absolute passes through",
+        string.equals(_resolve_path("/proj/rb", "/abs/LICENSE"), "/abs/LICENSE"))
+
+    _assert("_resolve_path bare-relative joins source_dir",
+        string.equals(_resolve_path("/proj/rb", "LICENSE"), "/proj/rb/LICENSE"))
+
+    _assert("_resolve_path with ../ joins source_dir",
+        string.equals(_resolve_path("/proj/rb", "../LICENSE"), "/proj/rb/../LICENSE"))
+
+    _assert("_resolve_path nested-relative",
+        string.equals(_resolve_path("/proj/rb", "bin/linux/selenium-manager"),
+            "/proj/rb/bin/linux/selenium-manager"))
+
+    // === Setter accumulation tests =====================================
+
+    // --- Both setters required for copy.file / copy.tree.
+    bm = map.new()
+    from(bm, "../LICENSE")
+    to(bm, "LICENSE")
+    _assert("from stored as scalar",
+        string.equals(_str_at(bm, "copy_from"), "../LICENSE"))
+    _assert("to stored as scalar",
+        string.equals(_str_at(bm, "copy_to"), "LICENSE"))
+
+    // --- Scalar last-call-wins (one src per builder block).
+    bm2 = map.new()
+    from(bm2, "first.txt")
+    from(bm2, "second.txt")
+    to(bm2, "out_a.txt")
+    to(bm2, "out_b.txt")
+    _assert("from last-call-wins",
+        string.equals(_str_at(bm2, "copy_from"), "second.txt"))
+    _assert("to last-call-wins",
+        string.equals(_str_at(bm2, "copy_to"), "out_b.txt"))
+
+    // --- Untouched map: both keys absent.
+    bm3 = map.new()
+    _assert("untouched map has empty copy_from",
+        string.equals(_str_at(bm3, "copy_from"), ""))
+    _assert("untouched map has empty copy_to",
+        string.equals(_str_at(bm3, "copy_to"), ""))
+
+    println("copy SDK tests done")
+}

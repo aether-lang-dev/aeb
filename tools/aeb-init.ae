@@ -25,7 +25,7 @@ extern exit(code: int)
 // into a project's .aeb/lib/ on `aeb --init`.
 // Space-separated so we don't need an array literal in Aether.
 shipped_modules() {
-    return string.concat("build java kotlin go rust c ts scala clojure dotnet python ruby aether bash brew cache container maven meta pnpm jest webpack angular approval webhook fetch", "")
+    return string.concat("build java kotlin go rust c ts scala clojure dotnet python ruby aether bash brew cache container maven meta pnpm jest webpack angular approval webhook fetch copy", "")
 }
 
 // Returns 1 if `path` is a symlink (regardless of validity), 0 otherwise.
