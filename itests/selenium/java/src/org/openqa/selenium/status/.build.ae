@@ -1,0 +1,48 @@
+// org.openqa.selenium.status — minimal Java leaf module.
+//
+// Two source files (HasReadyState.java + package-info.java), one
+// external Maven dep (org.jspecify:jspecify for the @NullMarked
+// package annotation), no internal sibling deps. Selected as the
+// demonstration leaf for the Selenium aeb migration because it is
+// the smallest tractable target — most Java leaves under
+// `java/src/org/openqa/selenium/` reach into `:core` or other
+// sibling packages and would need the full Java tree converted in
+// dependency order before they could compile in isolation.
+//
+// Upstream Bazel equivalent (java/src/org/openqa/selenium/status/BUILD.bazel):
+//
+//     java_library(
+//         name = "status",
+//         srcs = glob(["*.java"]),
+//         deps = [
+//             artifact("org.jspecify:jspecify"),
+//         ],
+//     )
+//
+// The aeb translation:
+//
+//   - `srcs = glob(["*.java"])` → `java.javac(b)` with no
+//     `source_layout` set; lib/java's default mode picks up *.java
+//     in source_dir (Bazel-flat package layout).
+//   - `artifact("org.jspecify:jspecify")` → `dep(b, "org.jspecify:jspecify:1.0.0")`;
+//     lib/build routes the colon-bearing coord into maven_deps,
+//     lib/maven resolves against ~/.m2 (version comes from
+//     `java/maven_install.json`'s pinned closure).
+//   - No internal `//java/...` deps to translate for this leaf.
+//
+// Expected outcome: javac compiles HasReadyState.class +
+// package-info.class into target/<module>/classes/, classpath
+// drawn entirely from the resolved jspecify jar.
+
+import build
+import build (dep)
+import java
+import java (release)
+
+main() {
+    b = build.start()
+    dep(b, "org.jspecify:jspecify:1.0.0")
+    java.javac(b) {
+        release("17")
+    }
+}

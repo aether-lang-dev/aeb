@@ -4,6 +4,32 @@
 
 ### Added
 
+- **Selenium integration test scaffolding** (`itests/selenium/`).
+  Adds `https://github.com/SeleniumHQ/selenium.git` to
+  `itests/fetch-upstream.sh`. Per-file ignore overlay added to
+  `itests/.gitignore` (5098 file entries, no bare-directory
+  shadows). One Java leaf converted as the demonstration:
+  `java/src/org/openqa/selenium/status/.build.ae` translates
+  upstream's `java_library(srcs=glob(["*.java"]),
+  deps=[artifact("org.jspecify:jspecify")])` into a 6-line aeb DSL
+  call; verified compiles `HasReadyState.class` +
+  `package-info.class` as real Java 17 bytecode after `lib/maven`
+  resolves jspecify 1.0.0. `AEB_MIGRATION_STATUS.md` records the
+  scope, the per-language status (Java / Python / Ruby / JS / .NET
+  / Rust / C++), and four grammar gaps surfaced by Selenium that
+  weren't visible from PyTorch alone:
+    1. `python.package_existing_pyproject` builder missing —
+       `lib/python.package` always regenerates pyproject.toml, which
+       is destructive for projects with tuned upstream metadata.
+    2. `lib/ruby` doesn't exist; Selenium's 32 Ruby BUILD files can't
+       be converted.
+    3. No grammar for "fetch external file at build time" — Selenium's
+       BiDi codegen reads CDDL specs that Bazel fetches via
+       `MODULE.bazel`'s `bazel_dep`/`http_file` rules.
+    4. `rules_jvm_external`'s `maven_install.json` pinning isn't
+       directly readable by `lib/maven`; selenium-scale Java
+       conversion would benefit from a converter.
+
 - **`lib/python`: `python.codegen` builder** for codegen-driver
   scripts (PyTorch's `torchgen.gen`, gRPC's `protoc-gen-py`, sqlalchemy
   migrations). DSL closure with explicit input declaration
