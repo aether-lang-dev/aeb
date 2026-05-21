@@ -129,6 +129,30 @@ main() {
         _list_size_at(bm2, "codegen_inputs") == 1)
     _assert("codegen_input_dir entry 0 is torchgen",
         string.equals(_list_get_at(bm2, "codegen_input_dirs", 0), "torchgen"))
+    _assert("codegen_input_dir entry 1 preserves order",
+        string.equals(_list_get_at(bm2, "codegen_input_dirs", 1), "aten/src/ATen/templates"))
+
+    // --- codegen_input_dir mixed-input-mode: matches the Selenium
+    // api-listing leaf's shape (single dir, no individual inputs).
+    bm2b = map.new()
+    codegen_input_dir(bm2b, "selenium")
+    _assert("input_dir-only declarations have no codegen_inputs key",
+        _list_size_at(bm2b, "codegen_inputs") == 0)
+    _assert("input_dir-only declarations have 1 input_dirs entry",
+        _list_size_at(bm2b, "codegen_input_dirs") == 1)
+
+    // --- codegen_input_dir + codegen_input interleaved: order is
+    // preserved *within* each list independently.
+    bm2c = map.new()
+    codegen_input(bm2c, "a.yaml")
+    codegen_input_dir(bm2c, "templates")
+    codegen_input(bm2c, "b.yaml")
+    codegen_input_dir(bm2c, "schemas")
+    codegen_input(bm2c, "c.yaml")
+    _assert("interleaved: inputs preserve their own order",
+        string.equals(_list_get_at(bm2c, "codegen_inputs", 1), "b.yaml"))
+    _assert("interleaved: input_dirs preserve their own order",
+        string.equals(_list_get_at(bm2c, "codegen_input_dirs", 1), "schemas"))
 
     // --- codegen_arg: list accumulator, used to build the CLI tail.
     // Drive the setters, then run python_codegen_cmd against the

@@ -82,5 +82,21 @@ main() {
         cargo_test_cmd("/proj/rust", test_opts2),
         "cd '/proj/rust' && cargo test --jobs 4 --release")
 
+    // --- cargo_test_cmd: all four opts combined, order is canonical
+    // (features → jobs → extra). Selenium's rust/.tests.ae would land
+    // close to this shape.
+    test_opts3 = map_new()
+    map_put(test_opts3, "features", "experimental,bidi")
+    map_put(test_opts3, "jobs", "2")
+    map_put(test_opts3, "extra", "--locked -- --nocapture")
+    _assert_eq("cargo_test_cmd features+jobs+extra ordering",
+        cargo_test_cmd("/proj/rust", test_opts3),
+        "cd '/proj/rust' && cargo test --features experimental,bidi --jobs 2 --locked -- --nocapture")
+
+    // --- cargo_test_cmd: source_dir with spaces (single-quoted).
+    _assert_eq("cargo_test_cmd source_dir with spaces",
+        cargo_test_cmd("/path with space/rust", null),
+        "cd '/path with space/rust' && cargo test")
+
     println("cargo_build_cmd tests done")
 }

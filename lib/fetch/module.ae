@@ -176,6 +176,29 @@ _ends_with_p(s: string, suffix: string) {
     return 0
 }
 
+// _format_to_flags(fmt) — map a user-supplied `format(...)` setter
+// value to the tar flags string. Returns "" for any non-tar format
+// (including "zip", which the caller routes through `zip_extract_cmd`
+// after checking `_format_is_zip`). Pure; tested separately from
+// `_infer_archive_flags` so the override path has its own coverage.
+_format_to_flags(fmt: string) {
+    if string.equals(fmt, "tar.gz")  == 1 { return "xzf" }
+    if string.equals(fmt, "tgz")     == 1 { return "xzf" }
+    if string.equals(fmt, "tar.bz2") == 1 { return "xjf" }
+    if string.equals(fmt, "tbz2")    == 1 { return "xjf" }
+    if string.equals(fmt, "tar.xz")  == 1 { return "xJf" }
+    if string.equals(fmt, "txz")     == 1 { return "xJf" }
+    if string.equals(fmt, "tar")     == 1 { return "xf"  }
+    return ""
+}
+
+// _format_is_zip(fmt) — return 1 iff the format setter is "zip".
+// Symmetric with `_is_zip_url`. Pure.
+_format_is_zip(fmt: string) {
+    if string.equals(fmt, "zip") == 1 { return 1 }
+    return 0
+}
+
 // _resolve_path(source_dir, p) — absolute resolution for setter
 // inputs; relative paths join source_dir. Pure.
 _resolve_path(source_dir: string, p: string) {
@@ -359,12 +382,8 @@ builder archive(ctx: ptr) {
     flags = ""
     is_zip = 0
     if string.length(fmt) > 0 {
-        if string.equals(fmt, "tar.gz")  == 1 { flags = "xzf" }
-        if string.equals(fmt, "tgz")     == 1 { flags = "xzf" }
-        if string.equals(fmt, "tar.bz2") == 1 { flags = "xjf" }
-        if string.equals(fmt, "tar.xz")  == 1 { flags = "xJf" }
-        if string.equals(fmt, "tar")     == 1 { flags = "xf"  }
-        if string.equals(fmt, "zip")     == 1 { is_zip = 1 }
+        flags = _format_to_flags(fmt)
+        is_zip = _format_is_zip(fmt)
     } else {
         flags = _infer_archive_flags(url_str)
         is_zip = _is_zip_url(url_str)

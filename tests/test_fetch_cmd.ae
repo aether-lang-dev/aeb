@@ -17,7 +17,7 @@
 
 import fetch (fetch_curl_cmd, sha256_verify_cmd, tar_extract_cmd,
               zip_extract_cmd, _infer_archive_flags, _is_zip_url,
-              _ends_with_p,
+              _ends_with_p, _format_to_flags, _format_is_zip,
               url, sha256, output_to, extract_to, strip_components,
               format)
 import std.string
@@ -82,11 +82,35 @@ main() {
             tar_extract_cmd("/tmp/arc.tar.bz2", "/dst", "xjf", 0),
             "tar -C '/dst' -xjf '/tmp/arc.tar.bz2'"))
 
+    // --- tar_extract_cmd: xz flags with deeper strip.
+    _assert("tar_extract_cmd xz flags strip=2",
+        string.equals(
+            tar_extract_cmd("/tmp/arc.tar.xz", "/dst", "xJf", 2),
+            "tar -C '/dst' -xJf '/tmp/arc.tar.xz' --strip-components=2"))
+
+    // --- tar_extract_cmd: plain tar (no compression) with strip=3.
+    _assert("tar_extract_cmd plain tar strip=3",
+        string.equals(
+            tar_extract_cmd("/tmp/plain.tar", "/dst", "xf", 3),
+            "tar -C '/dst' -xf '/tmp/plain.tar' --strip-components=3"))
+
+    // --- tar_extract_cmd: spaces in dest_dir survive single-quoting.
+    _assert("tar_extract_cmd spaces in dest",
+        string.equals(
+            tar_extract_cmd("/tmp/a.tar.gz", "/dst with space/v", "xzf", 1),
+            "tar -C '/dst with space/v' -xzf '/tmp/a.tar.gz' --strip-components=1"))
+
     // --- zip_extract_cmd.
     _assert("zip_extract_cmd basic",
         string.equals(
             zip_extract_cmd("/tmp/arc.zip", "/proj/vendor"),
             "unzip -q -o '/tmp/arc.zip' -d '/proj/vendor'"))
+
+    // --- zip_extract_cmd: spaces in archive path.
+    _assert("zip_extract_cmd spaces in archive path",
+        string.equals(
+            zip_extract_cmd("/path with space/a.zip", "/dst"),
+            "unzip -q -o '/path with space/a.zip' -d '/dst'"))
 
     // === Pure inference tests =========================================
 
@@ -105,6 +129,29 @@ main() {
     _assert("_is_zip_url positive", _is_zip_url("https://x/foo.zip") == 1)
     _assert("_is_zip_url negative", _is_zip_url("https://x/foo.tar.gz") == 0)
     _assert("_is_zip_url with query", _is_zip_url("https://x/foo.zip?t=1") == 1)
+
+    // === Format-override mapping tests ================================
+    //
+    // _format_to_flags + _format_is_zip are the explicit-`format(...)`
+    // setter consumers. Separate from _infer_archive_flags so the
+    // override path is independently exercisable when a URL is opaque
+    // (CDN-hashed, redirected, etc.).
+
+    _assert("_format_to_flags tar.gz",  string.equals(_format_to_flags("tar.gz"),  "xzf"))
+    _assert("_format_to_flags tgz",     string.equals(_format_to_flags("tgz"),     "xzf"))
+    _assert("_format_to_flags tar.bz2", string.equals(_format_to_flags("tar.bz2"), "xjf"))
+    _assert("_format_to_flags tbz2",    string.equals(_format_to_flags("tbz2"),    "xjf"))
+    _assert("_format_to_flags tar.xz",  string.equals(_format_to_flags("tar.xz"),  "xJf"))
+    _assert("_format_to_flags txz",     string.equals(_format_to_flags("txz"),     "xJf"))
+    _assert("_format_to_flags tar",     string.equals(_format_to_flags("tar"),     "xf"))
+    _assert("_format_to_flags zip → empty (caller routes via _format_is_zip)",
+        string.equals(_format_to_flags("zip"), ""))
+    _assert("_format_to_flags unknown → empty",
+        string.equals(_format_to_flags("7z"), ""))
+
+    _assert("_format_is_zip positive", _format_is_zip("zip") == 1)
+    _assert("_format_is_zip tar.gz",   _format_is_zip("tar.gz") == 0)
+    _assert("_format_is_zip empty",    _format_is_zip("") == 0)
 
     // === Setter accumulation tests =====================================
 

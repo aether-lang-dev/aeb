@@ -843,21 +843,25 @@ builder codegen(ctx: ptr) {
     }
 
     // Staleness check: skip if every declared output exists AND is
-    // newer than every declared input file. Input dirs are not mtime-
-    // checked here (would require recursive find — out of scope for
-    // the MVP); they trigger only when their declared-input siblings
-    // do. A follow-up can hash them into a fuller cache key.
+    // newer than every declared input file AND every file recursively
+    // under every declared input_dir. Empty inputs+input_dirs → cannot
+    // reason → force run. `_dir_newest_mtime` walks via std.dir,
+    // portable across linux/macos.
     inputs = null
+    input_dirs = null
     outputs = null
     if _builder != null {
         if map.has(_builder, "codegen_inputs") == 1 {
             inputs, _ = map.get(_builder, "codegen_inputs")
         }
+        if map.has(_builder, "codegen_input_dirs") == 1 {
+            input_dirs, _ = map.get(_builder, "codegen_input_dirs")
+        }
         if map.has(_builder, "codegen_outputs") == 1 {
             outputs, _ = map.get(_builder, "codegen_outputs")
         }
     }
-    skip = _codegen_can_skip(cwd, inputs, outputs)
+    skip = _codegen_can_skip(cwd, inputs, input_dirs, outputs)
 
     if skip == 0 {
         cmd = python_codegen_cmd(py, cwd, driver_form, driver_name, args)
@@ -887,15 +891,17 @@ builder codegen(ctx: ptr) {
     return 0
 }
 
-// _codegen_can_skip(cwd, inputs, outputs) — return 1 when every
-// declared output exists AND its mtime is >= every declared input's
-// mtime. Returns 0 when codegen must run (missing output, or an input
-// is newer). Empty inputs/outputs → never skip (force run, since we
-// can't reason about freshness).
-_codegen_can_skip(cwd: string, inputs: ptr, outputs: ptr) {
+// _codegen_can_skip(cwd, inputs, input_dirs, outputs) — return 1 when
+// every declared output exists AND its mtime is >= every declared
+// input's mtime (both individual files via codegen_input(...) AND every
+// file recursively under codegen_input_dir(...) trees). Returns 0 when
+// codegen must run (missing output, or any input is newer). Empty
+// inputs+input_dirs+outputs → never skip (force run, since we can't
+// reason about freshness).
+_codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
     if outputs == null { return 0 }
     if list.size(outputs) == 0 { return 0 }
-    // Find newest input mtime.
+    // Find newest input mtime across individual files.
     newest_in = 0
     if inputs != null {
         n = list.size(inputs)
@@ -906,6 +912,23 @@ _codegen_can_skip(cwd: string, inputs: ptr, outputs: ptr) {
             t = file.mtime(abs_p)
             if t > newest_in { newest_in = t }
             i = i + 1
+        }
+    }
+    // Fold in newest mtime across each declared input directory's
+    // recursive contents. Directory entries themselves are skipped
+    // (mtime check is per regular-file). Symlinks aren't followed
+    // (dir.list returns the symlink itself; file.mtime on a symlink
+    // is the symlink's mtime, not the target's — which is the safer
+    // default for staleness).
+    if input_dirs != null {
+        nd = list.size(input_dirs)
+        di = 0
+        while di < nd {
+            dp, _ = list.get(input_dirs, di)
+            abs_d = _codegen_resolve(cwd, dp)
+            dir_newest = _dir_newest_mtime(abs_d)
+            if dir_newest > newest_in { newest_in = dir_newest }
+            di = di + 1
         }
     }
     // Find oldest output mtime; any-missing → 0.
@@ -923,6 +946,45 @@ _codegen_can_skip(cwd: string, inputs: ptr, outputs: ptr) {
     }
     if oldest_out >= newest_in { return 1 }
     return 0
+}
+
+// _dir_newest_mtime(dir_abs) — recursively walk a directory and return
+// the newest file mtime found. Returns 0 if the directory doesn't
+// exist or contains no regular files. Uses std.dir's flat list + per-
+// entry stat to recurse; no shell-out so the staleness path stays
+// fork-free (one os.system per build is the python-codegen run itself,
+// not per-input-file).
+//
+// Why not shell out to `find -printf '%T@'`: GNU-only, breaks on
+// macOS / BSD. The Aether-native recursion is portable as long as
+// std.dir.list is implemented for the host.
+_dir_newest_mtime(dir_abs: string) {
+    if dir.exists(dir_abs) == 0 { return 0 }
+    entries, _ = dir.list(dir_abs)
+    if entries == null { return 0 }
+    n = dir_list_count(entries)
+    newest = 0
+    i = 0
+    while i < n {
+        name = dir_list_get(entries, i)
+        // dir.list returns bare names without "." / ".."; defensive
+        // skip for any harness that returns them.
+        if string.equals(name, ".") == 0 {
+            if string.equals(name, "..") == 0 {
+                full = path.join(dir_abs, name)
+                if dir.exists(full) == 1 {
+                    sub = _dir_newest_mtime(full)
+                    if sub > newest { newest = sub }
+                } else {
+                    t = file.mtime(full)
+                    if t > newest { newest = t }
+                }
+            }
+        }
+        i = i + 1
+    }
+    dir_list_free(entries)
+    return newest
 }
 
 // _codegen_check_outputs(cwd, outputs, mod_dir) — return the number

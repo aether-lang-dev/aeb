@@ -51,17 +51,18 @@ _str_at(m: ptr, k: string) {
 main() {
     // === Pure command-builder tests ====================================
 
-    // --- bundle_install_cmd: default `bundle install --path=...`
+    // --- bundle_install_cmd: `bundle config set --local path` then
+    //     `bundle install` (replaces the removed --path flag).
     _assert("bundle_install_cmd basic",
         string.equals(
             bundle_install_cmd("bundle", "/proj/rb", "/proj/.aeb/bundle"),
-            "cd '/proj/rb' && 'bundle' install --path='/proj/.aeb/bundle'"))
+            "cd '/proj/rb' && 'bundle' config set --local path '/proj/.aeb/bundle' && 'bundle' install"))
 
     // --- bundle_install_cmd: spaces in paths survive quoting.
     _assert("bundle_install_cmd with spaces",
         string.equals(
             bundle_install_cmd("bundle", "/path with space/rb", "/path with space/bundle"),
-            "cd '/path with space/rb' && 'bundle' install --path='/path with space/bundle'"))
+            "cd '/path with space/rb' && 'bundle' config set --local path '/path with space/bundle' && 'bundle' install"))
 
     // --- bundle_exec_cmd: generic exec passthrough.
     _assert("bundle_exec_cmd basic",
@@ -93,11 +94,48 @@ main() {
             rubocop_cmd("bundle", "/proj/rb", "/proj/rb/.rubocop.yml"),
             "cd '/proj/rb' && 'bundle' exec rubocop --config '/proj/rb/.rubocop.yml'"))
 
-    // --- gem_build_cmd: cd to dist_dir, absolute gemspec.
+    // --- gem_build_cmd: cd to source_dir + gem build <basename> +
+    //     mv *.gem to dist_dir. The cwd has to be the gemspec's dir
+    //     so relative `s.files` paths in the spec resolve correctly;
+    //     the mv step moves the resulting .gem into dist_dir.
     _assert("gem_build_cmd basic",
         string.equals(
-            gem_build_cmd("gem", "/proj/rb/selenium-webdriver.gemspec", "/proj/target/rb/dist"),
-            "cd '/proj/target/rb/dist' && 'gem' build '/proj/rb/selenium-webdriver.gemspec'"))
+            gem_build_cmd("gem", "/proj/rb", "selenium-webdriver.gemspec", "/proj/target/rb/dist"),
+            "cd '/proj/rb' && 'gem' build 'selenium-webdriver.gemspec' && mv -f *.gem '/proj/target/rb/dist/'"))
+
+    // --- gem_build_cmd: spaces in source_dir + dist_dir survive
+    //     single-quoting on both sides of the &&-chain.
+    _assert("gem_build_cmd spaces in source_dir and dist_dir",
+        string.equals(
+            gem_build_cmd("gem", "/path with space/rb", "x.gemspec", "/path with space/dist"),
+            "cd '/path with space/rb' && 'gem' build 'x.gemspec' && mv -f *.gem '/path with space/dist/'"))
+
+    // --- gem_build_cmd: alt gem_bin (e.g., chruby-managed `gem3.3`).
+    _assert("gem_build_cmd alt gem_bin",
+        string.equals(
+            gem_build_cmd("/opt/rubies/3.3/bin/gem", "/proj/rb", "x.gemspec", "/proj/dist"),
+            "cd '/proj/rb' && '/opt/rubies/3.3/bin/gem' build 'x.gemspec' && mv -f *.gem '/proj/dist/'"))
+
+    // --- rspec_cmd: many args + space-sep ordering preserved.
+    _assert("rspec_cmd many args",
+        string.equals(
+            rspec_cmd("bundle", "/proj/rb",
+                "--format=doc --order=random --tag focus spec/foo_spec.rb spec/bar_spec.rb"),
+            "cd '/proj/rb' && 'bundle' exec rspec --format=doc --order=random --tag focus spec/foo_spec.rb spec/bar_spec.rb"))
+
+    // --- rubocop_cmd: config path with spaces (single-quoted survives).
+    _assert("rubocop_cmd config path with spaces",
+        string.equals(
+            rubocop_cmd("bundle", "/proj/rb", "/proj/cfg with space/.rubocop.yml"),
+            "cd '/proj/rb' && 'bundle' exec rubocop --config '/proj/cfg with space/.rubocop.yml'"))
+
+    // --- bundle_exec_cmd: trailing argv with embedded quoting passes
+    // through verbatim. (Caller is responsible for quoting; this just
+    // documents the surface contract.)
+    _assert("bundle_exec_cmd argv passthrough",
+        string.equals(
+            bundle_exec_cmd("bundle", "/proj/rb", "rake spec[selenium-webdriver]"),
+            "cd '/proj/rb' && 'bundle' exec rake spec[selenium-webdriver]"))
 
     // === Setter accumulation tests =====================================
 

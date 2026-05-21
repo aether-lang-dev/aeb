@@ -84,6 +84,19 @@ dotnet_test_cmd(csproj: string, config: string) {
     return "dotnet test '${csproj}' --configuration ${config} --no-build"
 }
 
+// _resolve_csproj_path — pure path-resolution helper for the
+// `csproj_path(...)` setter. Returns an absolute path. Empty
+// `csproj_rel` is returned as-is (caller falls back to globbing
+// `source_dir` for a single .csproj). Absolute paths pass through;
+// bare-relative paths join `source_dir`. Tested in
+// tests/test_dotnet_cmd.ae.
+_resolve_csproj_path(source_dir: string, csproj_rel: string) {
+    if string.length(csproj_rel) == 0 { return "" }
+    first = string.substring(csproj_rel, 0, 1)
+    if string.equals(first, "/") == 1 { return csproj_rel }
+    return path.join(source_dir, csproj_rel)
+}
+
 // csproj_content — generate the .csproj XML from builder opts and
 // pre-resolved dep lists. Pure: caller pre-walks dep artifacts and
 // passes plain lists, this just assembles XML.
@@ -444,15 +457,8 @@ builder build_project_existing(ctx: ptr) {
             csproj_rel, _ = map.get(_builder, "csproj_path")
         }
     }
-    csproj = ""
-    if string.length(csproj_rel) > 0 {
-        first = string.substring(csproj_rel, 0, 1)
-        if string.equals(first, "/") == 1 {
-            csproj = csproj_rel
-        } else {
-            csproj = path.join(source_dir, csproj_rel)
-        }
-    } else {
+    csproj = _resolve_csproj_path(source_dir, csproj_rel)
+    if string.length(csproj) == 0 {
         // No explicit setter — scan source_dir for a single .csproj.
         cs_raw, _ecs = os.exec("ls '${source_dir}'/*.csproj 2>/dev/null")
         cs_list = string.trim(cs_raw)

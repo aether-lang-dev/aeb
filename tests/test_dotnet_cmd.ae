@@ -12,7 +12,8 @@ import build
 // Tests for dotnet.dotnet_build_cmd, dotnet.dotnet_test_cmd
 
 import dotnet
-import dotnet (dotnet_build_cmd, dotnet_test_cmd, csproj_path)
+import dotnet (dotnet_build_cmd, dotnet_test_cmd, csproj_path,
+               _resolve_csproj_path)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -59,6 +60,32 @@ main() {
     csp2, _ = map_get(bm, "csproj_path")
     _assert_eq("csproj_path last-call-wins",
         csp2, "Other.csproj")
+
+    // --- _resolve_csproj_path — the pure helper consumed by
+    // build_project_existing. Three cases:
+    //   1. Empty csproj_rel → empty string (caller globs source_dir).
+    //   2. Bare-relative → joined with source_dir.
+    //   3. Absolute (leading "/") → passed through unchanged.
+
+    _assert_eq("empty rel returns empty (signals 'glob source_dir')",
+        _resolve_csproj_path("/proj/dotnet", ""),
+        "")
+
+    _assert_eq("bare-relative joins source_dir",
+        _resolve_csproj_path("/proj/dotnet", "Selenium.WebDriver.csproj"),
+        "/proj/dotnet/Selenium.WebDriver.csproj")
+
+    _assert_eq("absolute path passes through",
+        _resolve_csproj_path("/proj/dotnet", "/abs/path/Other.csproj"),
+        "/abs/path/Other.csproj")
+
+    _assert_eq("relative with subdir prefix joins source_dir",
+        _resolve_csproj_path("/proj/dotnet", "src/webdriver/Selenium.WebDriver.csproj"),
+        "/proj/dotnet/src/webdriver/Selenium.WebDriver.csproj")
+
+    _assert_eq("source_dir with trailing slash collapses cleanly",
+        _resolve_csproj_path("/proj/dotnet/", "A.csproj"),
+        "/proj/dotnet/A.csproj")
 
     println("dotnet cmd tests done")
 }

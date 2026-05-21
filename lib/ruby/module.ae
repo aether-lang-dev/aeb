@@ -28,7 +28,7 @@
 //     main() {
 //         b = build.start()
 //         ruby.install(b)
-//         ruby.gem(b) {
+//         ruby.package(b) {
 //             gemspec("selenium-webdriver.gemspec")
 //         }
 //     }
@@ -67,10 +67,10 @@ gemfile(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "ruby_gemfile", path)
 }
 
-// gemspec("selenium-webdriver.gemspec") — point `ruby.gem(b)` at the
-// .gemspec file to package. Path resolved against source_dir.
-// Required for `ruby.gem`; ignored by `ruby.install` / `ruby.rspec`
-// / `ruby.rubocop`.
+// gemspec("selenium-webdriver.gemspec") — point `ruby.package(b)` at
+// the .gemspec file to build. Path resolved against source_dir.
+// Required for `ruby.package`; ignored by `ruby.install` /
+// `ruby.rspec` / `ruby.rubocop`.
 gemspec(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "ruby_gemspec", path)
 }
@@ -109,10 +109,20 @@ ruby_version(_ctx: ptr, ver: string) {
 
 // --- Command builders (pure) ---
 
-// bundle_install_cmd — bundle install with --path for project-local
-// isolation. Pure. The path is single-quoted to survive spaces.
+// bundle_install_cmd — `bundle config set --local path <bundle_path>`
+// then `bundle install`. Pure.
+//
+// Bundler 2.x removed the `--path=DIR` flag from `bundle install` (it
+// relied on being remembered across invocations, which bundler no
+// longer does). The replacement is `bundle config set --local path
+// <DIR>` (writes to `<src>/.bundle/config`), followed by a plain
+// `bundle install` which reads the path from the local config.
+//
+// Two-statement compound (`&&` chained) so a config-write failure
+// short-circuits the install. Single-quoted args survive paths with
+// spaces.
 bundle_install_cmd(bundle_bin: string, source_dir: string, bundle_path: string) {
-    return "cd '${source_dir}' && '${bundle_bin}' install --path='${bundle_path}'"
+    return "cd '${source_dir}' && '${bundle_bin}' config set --local path '${bundle_path}' && '${bundle_bin}' install"
 }
 
 // bundle_exec_cmd — `bundle exec <argv>` from source_dir. The
@@ -141,12 +151,21 @@ rubocop_cmd(bundle_bin: string, source_dir: string, config_path: string) {
     return "cd '${source_dir}' && '${bundle_bin}' exec rubocop --config '${config_path}'"
 }
 
-// gem_build_cmd — `gem build <gemspec>` from source_dir, writing
-// the .gem into `<dist_dir>`. `gem build` emits to cwd by default;
-// we cd to dist_dir and pass the absolute gemspec path so the
-// .gem lands where aeb expects. Pure.
-gem_build_cmd(gem_bin: string, gemspec_abs: string, dist_dir: string) {
-    return "cd '${dist_dir}' && '${gem_bin}' build '${gemspec_abs}'"
+// gem_build_cmd — `gem build <basename>` from `source_dir`, then
+// move the resulting `.gem` into `<dist_dir>`. Pure.
+//
+// Why not `cd dist_dir && gem build /abs/path.gemspec`: the gemspec
+// has its `s.files` paths resolved against the **cwd** of the gem
+// build invocation, not the gemspec's directory. Real-world
+// gemspecs (Selenium's included) reference relative paths like
+// "LICENSE", "lib/foo.rb"; running gem build from dist_dir would
+// fail with "[LICENSE, lib/foo.rb, ...] are not files."
+//
+// Output `.gem` lands in dist_dir via the `mv` step. `mv -f *.gem`
+// requires that source_dir not contain pre-existing `.gem` files
+// from a manual gem build; an idempotent build run is the contract.
+gem_build_cmd(gem_bin: string, source_dir: string, gemspec_basename: string, dist_dir: string) {
+    return "cd '${source_dir}' && '${gem_bin}' build '${gemspec_basename}' && mv -f *.gem '${dist_dir}/'"
 }
 
 // --- Internal: ensure bundler-installed dirs exist ---
@@ -282,20 +301,28 @@ builder rubocop(ctx: ptr) {
 
 // Build a .gem package from a .gemspec. Requires `gemspec("path")`.
 // Output lands in `target/<module>/dist/<name>-<version>.gem`.
-builder gem(ctx: ptr) {
+//
+// **Name note:** this builder is `package`, not `gem`, because
+// `gem` is also the setter that appends a line to the in-memory
+// Gemfile (`gem("rspec ~> 3.13")`). aeb's compile-to-C name
+// mangling collides on `ruby_gem` for both, so the builder takes
+// the `package` name to match `python.package`'s convention.
+// LLM.md § "a builder must not share a name with a function in
+// its module" formalises this rule.
+builder package(ctx: ptr) {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
 
     if _builder == null { return 1 }
     if map.has(_builder, "ruby_gemspec") == 0 {
-        println("${mod_dir}: ruby.gem requires gemspec(\"<name>.gemspec\")")
+        println("${mod_dir}: ruby.package requires gemspec(\"<name>.gemspec\")")
         return 1
     }
     gemspec_rel, _ = map.get(_builder, "ruby_gemspec")
     gemspec_abs = path.join(source_dir, gemspec_rel)
     if file.exists(gemspec_abs) == 0 {
-        println("${mod_dir}: ruby.gem: gemspec not found at ${gemspec_abs}")
+        println("${mod_dir}: ruby.package: gemspec not found at ${gemspec_abs}")
         return 1
     }
 
@@ -304,7 +331,8 @@ builder gem(ctx: ptr) {
     println("${mod_dir}: packaging (gem build)")
 
     gem_bin = _resolve_gem_bin()
-    cmd = gem_build_cmd(gem_bin, gemspec_abs, dist_dir)
+    gemspec_basename = path.basename(gemspec_rel)
+    cmd = gem_build_cmd(gem_bin, source_dir, gemspec_basename, dist_dir)
     rc = os.system(cmd)
     if rc != 0 {
         println("${mod_dir}: gem build FAILED")
