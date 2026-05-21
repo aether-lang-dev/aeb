@@ -1,13 +1,30 @@
-// Tests for python.codegen's pure command-string builder.
+// Tests for python.codegen's pure command-string builder AND the
+// closure-DSL setters that feed it.
 //
-// Covers the shape of the `cd '<cwd>' && '<py>' [-m mod | script] <args>`
-// invocation aeb constructs for python.codegen. Exec-string assembly
-// is the regression surface — Python-side codegen runs are too
-// stateful to round-trip in a unit test, so we assert on the string.
+// Two surfaces are covered:
+//
+//   1. `python_codegen_cmd(py, cwd, driver_form, driver_name, args)`
+//      — the pure exec-string assembler. Asserts on the literal
+//      `cd '<cwd>' && '<py>' [-m mod | script] <args>` shape.
+//
+//   2. The grammar setters (`codegen_driver`, `codegen_script`,
+//      `codegen_input`, `codegen_input_dir`, `codegen_arg`,
+//      `codegen_output`, `codegen_cwd`, `codegen_python`) — each
+//      call accumulates into the builder map; this test drives the
+//      setters on a fresh map and reads back the keys to confirm.
+//
+// itests/pytorch/aten/src/ATen/.codegen.ae exercises the same
+// surface end-to-end against the real torchgen.gen tool, but that
+// requires fetching ~1 GB of upstream pytorch source via
+// itests/fetch-upstream.sh, so it's a *fringe* test — the canonical
+// grammar test of record is this file.
 
-import python (python_codegen_cmd)
+import python (python_codegen_cmd, codegen_driver, codegen_script,
+               codegen_input, codegen_input_dir, codegen_arg,
+               codegen_output, codegen_cwd, codegen_python)
 import std.string
 import std.list
+import std.map
 
 extern println(s: string)
 
@@ -17,6 +34,24 @@ _assert(label: string, cond: int) {
     } else {
         println("FAIL: ${label}")
     }
+}
+
+_list_size_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return 0 }
+    l, _ = map.get(m, k)
+    return list.size(l)
+}
+
+_list_get_at(m: ptr, k: string, i: int) {
+    l, _ = map.get(m, k)
+    v, _ = list.get(l, i)
+    return v
+}
+
+_str_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return "" }
+    v, _ = map.get(m, k)
+    return v
 }
 
 main() {
@@ -63,5 +98,93 @@ main() {
     _assert("cwd with spaces is quoted",
         string.equals(cmd5, "cd '/path with spaces/repo' && 'python3' tools/gen.py --dry-run"))
 
-    println("python.codegen_cmd tests done")
+    // === Setter accumulation tests ====================================
+    //
+    // Each grammar setter writes into a builder map keyed by an
+    // accumulator name (codegen_inputs / codegen_input_dirs /
+    // codegen_args / codegen_outputs for the list-valued setters;
+    // codegen_driver / codegen_script / codegen_cwd / codegen_python
+    // for the scalar setters). Drive each one against a fresh map and
+    // assert the read-back is what a downstream builder would see.
+
+    // --- codegen_input: list accumulator, order preserved.
+    bm1 = map.new()
+    codegen_input(bm1, "a.yaml")
+    codegen_input(bm1, "b.yaml")
+    codegen_input(bm1, "c.yaml")
+    _assert("codegen_input accumulates 3 entries", _list_size_at(bm1, "codegen_inputs") == 3)
+    _assert("codegen_input order: first is a.yaml",
+        string.equals(_list_get_at(bm1, "codegen_inputs", 0), "a.yaml"))
+    _assert("codegen_input order: third is c.yaml",
+        string.equals(_list_get_at(bm1, "codegen_inputs", 2), "c.yaml"))
+
+    // --- codegen_input_dir: separate list from codegen_input.
+    bm2 = map.new()
+    codegen_input(bm2, "native_functions.yaml")
+    codegen_input_dir(bm2, "torchgen")
+    codegen_input_dir(bm2, "aten/src/ATen/templates")
+    _assert("codegen_input_dir stores in its own key",
+        _list_size_at(bm2, "codegen_input_dirs") == 2)
+    _assert("codegen_input and codegen_input_dir don't cross-contaminate",
+        _list_size_at(bm2, "codegen_inputs") == 1)
+    _assert("codegen_input_dir entry 0 is torchgen",
+        string.equals(_list_get_at(bm2, "codegen_input_dirs", 0), "torchgen"))
+
+    // --- codegen_arg: list accumulator, used to build the CLI tail.
+    // Drive the setters, then run python_codegen_cmd against the
+    // accumulated list — same shape as a real builder body.
+    bm3 = map.new()
+    codegen_arg(bm3, "--source-path")
+    codegen_arg(bm3, "aten/src/ATen")
+    codegen_arg(bm3, "--install_dir")
+    codegen_arg(bm3, "target/aten")
+    args_acc, _ = map.get(bm3, "codegen_args")
+    cmd_acc = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args_acc)
+    _assert("setter-accumulated args produce expected cmd",
+        string.equals(cmd_acc,
+            "cd '/proj' && 'python3' -m torchgen.gen --source-path aten/src/ATen --install_dir target/aten"))
+
+    // --- codegen_output: list accumulator.
+    bm4 = map.new()
+    codegen_output(bm4, "Functions.cpp")
+    codegen_output(bm4, "Functions.h")
+    _assert("codegen_output accumulates 2 entries",
+        _list_size_at(bm4, "codegen_outputs") == 2)
+
+    // --- Scalar setters (codegen_cwd, codegen_driver, codegen_script,
+    // codegen_python) — each writes a single string key. Later calls
+    // overwrite earlier (map.put semantics; not list.add). The builder
+    // uses the last value seen.
+    bm5 = map.new()
+    codegen_cwd(bm5, "../../..")
+    codegen_driver(bm5, "torchgen.gen")
+    codegen_python(bm5, "/venv/bin/python")
+    _assert("codegen_cwd stored as scalar",
+        string.equals(_str_at(bm5, "codegen_cwd"), "../../.."))
+    _assert("codegen_driver stored as scalar",
+        string.equals(_str_at(bm5, "codegen_driver"), "torchgen.gen"))
+    _assert("codegen_python stored as scalar",
+        string.equals(_str_at(bm5, "codegen_python"), "/venv/bin/python"))
+
+    // codegen_script is the alternative to codegen_driver. Calling
+    // both leaves both keys populated; the builder's resolution rule
+    // is "driver wins if both", but the storage is independent.
+    bm6 = map.new()
+    codegen_driver(bm6, "torchgen.gen")
+    codegen_script(bm6, "tools/gen.py")
+    _assert("codegen_driver and codegen_script coexist in the map",
+        string.equals(_str_at(bm6, "codegen_driver"), "torchgen.gen"))
+    _assert("codegen_script also stored",
+        string.equals(_str_at(bm6, "codegen_script"), "tools/gen.py"))
+
+    // --- Empty-list accumulation: a builder body that never calls
+    // a setter shouldn't see a zero-length list — the key is absent
+    // entirely (downstream uses `map.has` to gate).
+    bm7 = map.new()
+    _assert("untouched map has no codegen_inputs key",
+        _list_size_at(bm7, "codegen_inputs") == 0)
+    _assert("untouched map has empty scalar codegen_cwd",
+        string.equals(_str_at(bm7, "codegen_cwd"), ""))
+
+    println("python.codegen_cmd + setter accumulation tests done")
 }

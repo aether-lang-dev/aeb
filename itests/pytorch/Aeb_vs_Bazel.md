@@ -116,3 +116,16 @@ is roughly:
   for.
 - **Aeb** for the polyglot monorepo problem CMake-and-Make were never
   quite shaped to solve.
+
+## Follow-up: the cache gap, reframed
+
+The "remote cache + reproducibility" gap above is true for a
+maximalist read. The minimalist read says aeb can ship most of the
+distributed-cache wall-clock win without going hermetic, by
+borrowing Wingerd's mainline-model policy framework:
+named cache scopes (mainline / development / release / task) with
+explicit promotion gates and bounded host-fingerprint trust.
+
+That direction is captured in
+[`docs/distributed-cache-plan.md`](../../docs/distributed-cache-plan.md)
+of the aeb repo, with links from `TODO.md` and `bazel-gaps.md`.

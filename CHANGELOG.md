@@ -15,8 +15,15 @@
   shape as `aether.regen`). Fails the build if any declared output
   is missing after the run — catches CMake's silent-partial-
   generation trap. Pure command builder
-  (`python_codegen_cmd`) covered by 6 assertions in
-  `tests/test_python_codegen_cmd.ae`.
+  (`python_codegen_cmd`) AND the eight grammar setters
+  (`codegen_driver` / `codegen_script` / `codegen_input` /
+  `codegen_input_dir` / `codegen_arg` / `codegen_output` /
+  `codegen_cwd` / `codegen_python`) are covered by 21 assertions in
+  `tests/test_python_codegen_cmd.ae`. These are the canonical tests
+  of record for the grammar; the `itests/pytorch/` end-to-end
+  demonstration is a fringe experiment that requires fetching
+  upstream source via `itests/fetch-upstream.sh` and is not part of
+  the required test surface.
 
 - **PyTorch integration test scaffolding** (`itests/pytorch/`,
   documented in `itests/pytorch/AEB_MIGRATION_STATUS.md`). Three

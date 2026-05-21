@@ -209,6 +209,13 @@ hash inputs → check remote store (S3, GCS, local server) → download
 artifacts or build locally → upload result. The cache primitives in
 `lib/cache/` are the substrate; needs a backend protocol and auth.
 
+**Direction & policy:** [`docs/distributed-cache-plan.md`](docs/distributed-cache-plan.md)
+captures the design framing — repeatability vs reproducibility,
+Wingerd-style named scopes (mainline / development / release / task)
+with explicit promotion gates, container-vs-content artifact classes.
+The doc proposes a 5-step sequencing that backs into CDC (below) as
+a later layer.
+
 #### Content-Defined Chunking (CDC) — a later layer, but it shapes the format now
 
 Prior art: BuildBuddy's "Remote Cache CDC: Reusing Bytes" (May 2026)

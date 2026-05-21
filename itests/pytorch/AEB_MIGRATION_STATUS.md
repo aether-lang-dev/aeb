@@ -6,6 +6,22 @@ target by design — the value isn't reproducible bit-for-bit but
 demonstrating that aeb's graph shape can express PyTorch's codegen-
 heavy build without GLOB_RECURSE or phantom CMake targets.
 
+## Not a test of record
+
+This is a **fringe experiment**, not part of aeb's canonical test
+surface. Cloning the aeb repo and running `tests/run.sh` exercises
+every grammar addition (including `python.codegen` and its eight
+setters — see `tests/test_python_codegen_cmd.ae`) without fetching a
+single byte of upstream pytorch. The overlay files in this directory
+are an end-to-end demonstration against a real-world codebase;
+useful for shaking out integration bugs, but if `itests/pytorch/`
+disappeared tomorrow the grammar guarantees would still be intact
+under `tests/`.
+
+If you're a cloner-and-builder, you do **not** need to run
+`itests/fetch-upstream.sh`. The itests are optional, slow, and
+network-dependent; the tests are mandatory, fast, and offline.
+
 ## Why PyTorch is interesting
 
 PyTorch tried to migrate to Buck (the `BUCK.oss` files in the tree
