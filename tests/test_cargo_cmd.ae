@@ -12,7 +12,7 @@ import build
 // Tests for cargo_build_cmd()
 
 import rust
-import rust (cargo_build_cmd, binary_name)
+import rust (cargo_build_cmd, cargo_test_cmd, binary_name)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -63,6 +63,24 @@ main() {
     bn2, _ = map_get(bm, "binary_name")
     _assert_eq("binary_name last-call-wins",
         bn2, "renamed")
+
+    // --- cargo_test_cmd (consumed by rust.cargo_test_existing).
+    _assert_eq("cargo_test_cmd bare",
+        cargo_test_cmd("/proj/rust", null),
+        "cd '/proj/rust' && cargo test")
+
+    test_opts = map_new()
+    map_put(test_opts, "features", "experimental")
+    _assert_eq("cargo_test_cmd with features",
+        cargo_test_cmd("/proj/rust", test_opts),
+        "cd '/proj/rust' && cargo test --features experimental")
+
+    test_opts2 = map_new()
+    map_put(test_opts2, "jobs", "4")
+    map_put(test_opts2, "extra", "--release")
+    _assert_eq("cargo_test_cmd jobs + extra",
+        cargo_test_cmd("/proj/rust", test_opts2),
+        "cd '/proj/rust' && cargo test --jobs 4 --release")
 
     println("cargo_build_cmd tests done")
 }

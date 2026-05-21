@@ -4,6 +4,26 @@
 
 ### Added
 
+- **`lib/rust`: `rust.cargo_test_existing(b)` builder**.
+  Pair to `rust.cargo_project_existing(b)` — runs `cargo test`
+  from source_dir against the upstream `Cargo.toml`, no
+  regeneration. Optional `features` / `jobs` / `extra` setters
+  pass through to the test command the same way they do for
+  `cargo_build_cmd`. New pure helper `cargo_test_cmd(source_dir,
+  opts)`. Test coverage in `tests/test_cargo_cmd.ae` extended
+  from 6 to 9 assertions.
+
+- **`itests/selenium/py/.bidi-codegen.ae`**: end-to-end
+  demonstration of the `fetch.file` → `python.codegen` chain.
+  Reads the CDDL spec fetched by `itests/selenium/py/.bidi-spec.ae`,
+  runs `generate_bidi.py` against it with declared inputs (CDDL +
+  manifest) and declared outputs (the BiDi command modules
+  generated under `selenium/webdriver/common/bidi/`). This is the
+  full integration Selenium's upstream Bazel needs `http_file` +
+  a custom `generate_bidi.bzl` macro to express; aeb does it with
+  two canonical `.ae` files (one per SDK) and a `build.dep` edge
+  between them.
+
 - **`lib/dotnet`: `dotnet.build_project_existing(b)` builder**.
   Non-destructive .NET packaging: runs `dotnet build` against the
   upstream `.csproj` as-is, never regenerates a

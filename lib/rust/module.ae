@@ -1173,6 +1173,63 @@ binary_name(_ctx: ptr, name: string) {
     _e = map.put(_ctx, "binary_name", name)
 }
 
+// cargo_test_cmd — `cd <src> && cargo test [--features F] [--jobs N]
+// [extra]`. Pure: assembles the shell command from already-resolved
+// strings. Tested in tests/test_cargo_cmd.ae.
+cargo_test_cmd(source_dir: string, opts: ptr) {
+    cmd = "cd '${source_dir}' && cargo test"
+    if opts != null {
+        if map.has(opts, "features") == 1 {
+            val, _ = map.get(opts, "features")
+            cmd = string.concat(cmd, " --features ${val}")
+        }
+        if map.has(opts, "jobs") == 1 {
+            val, _ = map.get(opts, "jobs")
+            cmd = string.concat(cmd, " --jobs ${val}")
+        }
+        if map.has(opts, "extra") == 1 {
+            val, _ = map.get(opts, "extra")
+            cmd = string.concat(cmd, " ${val}")
+        }
+    }
+    return cmd
+}
+
+// rust.cargo_test_existing(b) — pair to cargo_project_existing.
+// Runs `cargo test` against the upstream Cargo.toml in source_dir;
+// never regenerates. Honours the optional `features` / `jobs` /
+// `extra` setters the same way cargo_build_cmd does.
+//
+// Distinct from `rust.test(b)` (workspace-pattern, requires
+// `crate_name`) and `rust.test_workspace(b)` (whole-workspace via
+// `cargo test --workspace`). This is the single-crate-in-source_dir
+// shape that pairs naturally with `cargo_project_existing(b)`.
+builder cargo_test_existing(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    cargo_toml = path.join(source_dir, "Cargo.toml")
+    if file.exists(cargo_toml) == 0 {
+        println("${mod_dir}: cargo_test_existing: Cargo.toml not found at ${cargo_toml}")
+        return 1
+    }
+
+    println("${mod_dir}: running tests (cargo test)")
+    cmd = cargo_test_cmd(source_dir, _builder)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        build._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        return exit_code
+    }
+    build._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _e = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
 // --- Command builder ---
 
 cargo_build_cmd(source_dir: string, target_dir: string, opts: ptr) {

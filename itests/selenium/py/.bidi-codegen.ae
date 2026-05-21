@@ -1,0 +1,76 @@
+// Selenium BiDi codegen — drives `generate_bidi.py` with the
+// CDDL spec fetched by `.bidi-spec.ae`.
+//
+// The full chain in aeb terms:
+//
+//   .bidi-spec.ae     (fetches webdriver-bidi-all.cddl via lib/fetch)
+//        |
+//        v
+//   .bidi-codegen.ae  (this file — runs generate_bidi.py via lib/python.codegen)
+//        |
+//        v
+//   selenium/webdriver/common/bidi/*.py  (declared outputs; verified
+//                                          by python.codegen after the
+//                                          script runs)
+//
+// Upstream Bazel models this as `http_file(...)` + `generate_bidi(...)`
+// macro that wraps a `py_binary` invocation. aeb's split is the
+// same two steps but expressed in canonical SDK calls — no
+// project-specific Bazel macro, no MODULE.bazel external repo
+// declaration, just `fetch.file` feeding `python.codegen`.
+//
+// Output set is a representative sample (about 20 BiDi command
+// modules in upstream; this declares the canonical ones the script
+// emits today). The full list grows with CDDL spec evolution;
+// extending it is mechanical because python.codegen fails the build
+// if any declared output is missing — silent partial generation
+// can't slip past.
+
+import build
+import build (dep)
+import python
+import python (codegen_script, codegen_input, codegen_arg, codegen_output)
+
+main() {
+    b = build.start()
+
+    // The fetch step is upstream — run .bidi-spec.ae first so
+    // specs/all.cddl exists before this codegen reads it. Aeb's
+    // file-to-file edges handle the ordering.
+    dep(b, ".bidi-spec.ae")
+
+    python.codegen(b) {
+        // Script form: `python py/generate_bidi.py ...` (the script
+        // isn't packaged as a module).
+        codegen_script("generate_bidi.py")
+
+        // Inputs the script reads. The fetched CDDL is the canonical
+        // spec; the manifest is selenium-side Python code that
+        // refines the generator's output for the BiDi module set.
+        codegen_input("specs/all.cddl")
+        codegen_input("private/bidi_enhancements_manifest.py")
+
+        // Positional args: cddl_file, output_dir, [spec_version].
+        // Output goes into the upstream-tree location the
+        // generator writes to so a Python build picks the generated
+        // modules up from their canonical paths.
+        codegen_arg("specs/all.cddl")
+        codegen_arg("selenium/webdriver/common/bidi")
+        codegen_arg("1.0")
+        codegen_arg("--enhancements-manifest")
+        codegen_arg("private/bidi_enhancements_manifest.py")
+
+        // Representative output declarations. The generator emits
+        // one Python module per top-level CDDL section (browser,
+        // browsing_context, script, network, …). The exact list
+        // depends on the CDDL content; declaring a subset here
+        // means python.codegen verifies these specific files
+        // exist after the run, catching silent partial-generation
+        // bugs.
+        codegen_output("selenium/webdriver/common/bidi/browser.py")
+        codegen_output("selenium/webdriver/common/bidi/browsing_context.py")
+        codegen_output("selenium/webdriver/common/bidi/script.py")
+        codegen_output("selenium/webdriver/common/bidi/network.py")
+        codegen_output("selenium/webdriver/common/bidi/session.py")
+    }
+}

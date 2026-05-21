@@ -186,8 +186,11 @@ setters. Optional setter `binary_name(name)` writes a
 wheel that vendors selenium-manager via setuptools-rust would
 read this path). See `tests/test_cargo_cmd.ae`.
 
-Test rules in `rust/tests/BUILD.bazel` not converted; a
-`rust.cargo_test_existing(b)` would be the natural next addition.
+**Test rules:** `rust.cargo_test_existing(b)` added as the pair
+to `cargo_project_existing` — runs `cargo test` against the
+upstream Cargo.toml. Tests in `rust/tests/` are picked up by
+cargo automatically. Not wired into a separate `rust/.tests.ae`
+in this pass, but the grammar is available.
 
 ### C++ (`cpp/`)
 
