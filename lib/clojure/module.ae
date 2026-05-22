@@ -25,6 +25,14 @@ test_timeout(_ctx: ptr, seconds: string) {
     _e = map.put(_ctx, "test_timeout", seconds)
 }
 
+// output_jar("app.jar") — name of the uberjar produced by
+// `clojure.uberjar(b)`. Resolved against `target/<mod>/bin/`.
+// Default when unset: `<source_dir_basename>-standalone.jar`
+// (mirrors leiningen's `-standalone.jar` convention). Scalar.
+output_jar(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "clojure_output_jar", name)
+}
+
 // --- Command builders (pure) ---
 
 // clj_aot_compile_cmd — assemble a `clojure.main -e "(compile 'ns)"`
@@ -50,6 +58,57 @@ clj_test_cmd(classpath: string, quoted_namespaces: string, test_timeout: string)
         cmd = string.concat("timeout ${test_timeout} ", cmd)
     }
     return cmd
+}
+
+// uber_unzip_jar_cmd — unzip one classpath .jar into the staging
+// dir. `unzip -qq -o` quiet + overwrite. Pure.
+uber_unzip_jar_cmd(jar_src: string, stage_dir: string) {
+    return "unzip -qq -o '${jar_src}' -d '${stage_dir}'"
+}
+
+// uber_copy_tree_cmd — mirror a directory's contents into the
+// staging dir (`cp -a <dir>/. <stage>/`). Used for AOT classes and
+// for source roots that ship inside the uberjar so non-AOT
+// namespaces load at runtime. Pure.
+uber_copy_tree_cmd(src_dir: string, stage_dir: string) {
+    return "cp -a '${src_dir}/.' '${stage_dir}/'"
+}
+
+// uber_jar_cmd — `jar cfM <out> -C <stage> .`. `M` skips
+// auto-manifest (the caller stages a hand-written MANIFEST.MF under
+// stage/META-INF/). Pure.
+uber_jar_cmd(jar_path: string, stage_dir: string) {
+    return "jar cfM '${jar_path}' -C '${stage_dir}' ."
+}
+
+// _ns_to_main_class(ns) — Clojure munges a namespace's `-main`
+// gen-class into a Java class whose name replaces `-` with `_` in
+// each segment. `my-app.core` -> `my_app.core`. Dots stay dots
+// (package separators); only dashes are munged. Pure char-walk
+// (stdlib has no string.replace).
+_ns_to_main_class(ns: string) {
+    out = ""
+    n = string.length(ns)
+    i = 0
+    while i < n {
+        ch = string.substring(ns, i, i + 1)
+        if string.equals(ch, "-") == 1 {
+            out = string.concat(out, "_")
+        } else {
+            out = string.concat(out, ch)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// _ends_with_jar(s) — return 1 iff `s` ends in ".jar". Pure.
+_ends_with_jar(s: string) {
+    sl = string.length(s)
+    if sl < 4 { return 0 }
+    tail = string.substring(s, sl - 4, sl)
+    if string.equals(tail, ".jar") == 1 { return 1 }
+    return 0
 }
 
 // --- Internal helpers ---
@@ -216,5 +275,147 @@ builder test(ctx: ptr) {
     build._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _e4 = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// clojure.uberjar(b) — produce a single executable uberjar.
+//
+// Setters:
+//   main_ns("com.example.core")  — the namespace with `(:gen-class)`
+//                                  + `(defn -main ...)`. Required;
+//                                  becomes the jar's Main-Class
+//                                  (after dash->underscore munging).
+//   output_jar("app.jar")        — output filename (optional; default
+//                                  `<module>-standalone.jar`).
+//
+// Lifecycle:
+//   1. AOT-compile main_ns into a staging dir (so the gen-class
+//      `-main` entry point exists as a real .class).
+//   2. Stage the project's `src/` tree (non-AOT namespaces load from
+//      source at runtime — Clojure's normal mixed AOT/source model).
+//   3. Unzip every maven jar (clojure.jar + deps) into the stage.
+//   4. Write MANIFEST.MF with Main-Class = munged main_ns.
+//   5. `jar cfM` the stage into target/<mod>/bin/<name>.
+//
+// The no-leiningen / no-tools.build analogue of `lein uberjar` /
+// tools.build's `uber`. Mirrors scala.assembly + java.shade, with
+// the Clojure twist that *source* must ride inside the jar (most
+// namespaces aren't AOT'd), not just classes.
+//
+// Maven classpath is read from the `maven_classpath` artifact in
+// target_dir (written by `clojure.compile`); declaring this builder
+// in a `.dist.ae` alongside a `.build.ae` in the same directory means
+// they share target_dir, so the artifact is present after compile.
+builder uberjar(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    if _builder == null {
+        println("${mod_dir}: clojure.uberjar: empty builder block — declare main_ns(...)")
+        return 1
+    }
+    if map.has(_builder, "main_ns") == 0 {
+        println("${mod_dir}: clojure.uberjar: missing main_ns(\"...\")")
+        return 1
+    }
+    ns, _ = map.get(_builder, "main_ns")
+
+    jar_name = ""
+    if map.has(_builder, "clojure_output_jar") == 1 {
+        jar_name, _ = map.get(_builder, "clojure_output_jar")
+    }
+    if string.length(jar_name) == 0 {
+        base = path.basename(source_dir)
+        jar_name = string.concat(base, "-standalone.jar")
+    }
+
+    bin_dir = path.join(target_dir, "bin")
+    build._mkdirs(bin_dir)
+    jar_path = path.join(bin_dir, jar_name)
+
+    // Fresh staging dir.
+    stage_dir = path.join(target_dir, "_uber")
+    _e0 = os.system("rm -rf '${stage_dir}'")
+    build._mkdirs(stage_dir)
+
+    src_root = path.join(source_dir, "src")
+
+    // Compose the classpath used for AOT: src + maven deps. Maven cp
+    // comes from the artifact a sibling clojure.compile wrote.
+    maven_cp = ""
+    mvn_file = path.join(target_dir, "maven_classpath")
+    if file.exists(mvn_file) == 1 {
+        mvn_raw, _emv = io.read_file(mvn_file)
+        maven_cp = string.trim(mvn_raw)
+    }
+    aot_cp = src_root
+    if string.length(maven_cp) > 0 {
+        tmp_cp = string.concat(aot_cp, ":")
+        aot_cp = string.concat(tmp_cp, maven_cp)
+    }
+
+    // 1. AOT-compile main_ns into the staging dir.
+    println("${mod_dir}: AOT-compiling ${ns}")
+    aot_cmd = clj_aot_compile_cmd(stage_dir, aot_cp, ns)
+    rc_aot = os.system(aot_cmd)
+    if rc_aot != 0 {
+        println("${mod_dir}: clojure.uberjar: AOT compile failed")
+        return rc_aot
+    }
+
+    // 2. Stage the source tree so non-AOT namespaces load at runtime.
+    if dir.exists(src_root) == 1 {
+        rc_src = os.system(uber_copy_tree_cmd(src_root, stage_dir))
+        if rc_src != 0 {
+            println("${mod_dir}: clojure.uberjar: staging sources failed")
+            return rc_src
+        }
+    }
+
+    // 3. Unzip every maven jar into the stage. Walk the colon-
+    // separated maven classpath; each entry is a .jar.
+    if string.length(maven_cp) > 0 {
+        parts = string.split(maven_cp, ":")
+        np = string.array_size(parts)
+        pi = 0
+        while pi < np {
+            entry = string.array_get(parts, pi)
+            if string.length(entry) > 0 {
+                if _ends_with_jar(entry) == 1 {
+                    rc_uz = os.system(uber_unzip_jar_cmd(entry, stage_dir))
+                    if rc_uz != 0 {
+                        println("${mod_dir}: clojure.uberjar: unzipping ${entry} failed")
+                        string.array_free(parts)
+                        return rc_uz
+                    }
+                }
+            }
+            pi = pi + 1
+        }
+        string.array_free(parts)
+    }
+
+    // 4. Manifest. Main-Class is the dash-munged namespace.
+    meta_dir = path.join(stage_dir, "META-INF")
+    build._mkdirs(meta_dir)
+    manifest_path = path.join(meta_dir, "MANIFEST.MF")
+    main_class = _ns_to_main_class(ns)
+    mf = string.concat("Manifest-Version: 1.0\nMain-Class: ", main_class)
+    mf = string.concat(mf, "\n")
+    _ew = io.write_file(manifest_path, mf)
+
+    // 5. Jar it.
+    println("${mod_dir}: building uberjar ${jar_name}")
+    rc = os.system(uber_jar_cmd(jar_path, stage_dir))
+    if rc != 0 {
+        println("${mod_dir}: clojure.uberjar: jar command failed")
+        return rc
+    }
+
+    println("${mod_dir}: built ${jar_path}")
+    println("  run: java -jar ${jar_path}")
+    build._write_artifact(ctx, "clojure_uberjar", jar_path)
+    _ets = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
