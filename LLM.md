@@ -489,33 +489,25 @@ these are absolute, but skipping them tends to produce regrets.
   hides this via `-Wl,--allow-multiple-definition` (currently
   hard-coded in `tools/aeb-link.ae`); macOS ld64 rejects the flag.
   Tracked in TODO.md § Aether compiler issues.
-- **0.180 heap-string aliasing regression (FIXED in aether 0.181.0).**
-  A `rest = content; … rest = string.substring(rest, …)` loop
-  corrupted the original `content` heap string (a file-read / malloc'd
-  string; literals were unaffected) — the alias-move `dest = src`
-  disowned `src` even when `src` is read again, so the loop's next
-  reassignment freed the shared buffer. Filed as
-  `../aether/180-regression.md`. Root cause: 0.175's tuple-destructure
-  heap classification began tagging `content, _ = io.read_file(...)`
-  as heap-owned, which started triggering the latent move.
-  **Fixed and released**: aether **0.181.0** (commit `0dd4396`
-  "fix(codegen): defensive-copy heap-string alias when source stays
-  live", on main; was `e7445f6` pre-rebase). Verified at the codegen
-  level — the buggy `_heap_content = 0` disown becomes `rest =
-  aether_uniform_heap_str(content, 0)`, leaving `content` owned.
-  **Workaround still in the tree pending a toolchain bump**:
-  `tools/extract-deps` and `tools/scan-ae-files` defensively copy the
-  alias (`rest = string.concat(content, "")`). The copies are
-  harmless (an extra alloc) and must stay while aeb's installed `ae`
-  is < 0.181.0 — `make install` force-rebuilds the tools, so under an
-  older toolchain the copies are what keep scan working. Once
-  `ae --version` reports >= 0.181.0, drop the two copies and rebuild.
 - Most other upstream gaps are documented inline in TODO.md.
 
 Resolved upstream issues that aeb used to work around (kept here
 because the workarounds left traces in commit history / older
 LLM-session notes — if you see one in a diff, it's probably stale):
 
+- ~~**0.180 heap-string aliasing regression**~~ — a
+  `rest = content; … rest = string.substring(rest, …)` loop corrupted
+  the original `content` heap string: the alias-move `dest = src`
+  disowned `src` even when read again, so the loop's next reassignment
+  freed the shared buffer. Filed as `../aether/180-regression.md`;
+  broke `tools/extract-deps`'s scan pass + runtime `build.scan` when
+  those tools were rebuilt under 0.180. **Fixed in aether 0.181.0**
+  (commit `0dd4396`, "defensive-copy heap-string alias when source
+  stays live"). aeb's toolchain bumped to 0.181.0 and the defensive
+  `rest = string.concat(content, "")` copies in `tools/extract-deps`
+  and `tools/scan-ae-files` were removed (back to plain `rest =
+  content`). If you're on a pre-0.181.0 `ae` and rebuild those tools,
+  scan will break again — bump the toolchain.
 - ~~`tools/gcheckout` doesn't link~~ — was a manual `extern` block
   for stdlib symbols (the same anti-pattern aeocha hit, see
   `../aether/extern_mistake.md`). Migrated to idiomatic

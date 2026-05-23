@@ -64,9 +64,7 @@ load_extra_excludes() {
     if rerr != "" {
         return string.concat(out, "")
     }
-    // Defensive copy — substring-reassign loop corrupts an aliased
-    // heap string under ae 0.180 (see ../aether/180-regression.md).
-    rest = string.concat(content, "")
+    rest = content
     line = ""
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
