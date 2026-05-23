@@ -489,18 +489,30 @@ these are absolute, but skipping them tends to produce regrets.
   hides this via `-Wl,--allow-multiple-definition` (currently
   hard-coded in `tools/aeb-link.ae`); macOS ld64 rejects the flag.
   Tracked in TODO.md § Aether compiler issues.
-- **0.180 heap-string aliasing regression (OPEN).** A
-  `rest = content; … rest = string.substring(rest, …)` loop corrupts
-  the original `content` heap string (a file-read / malloc'd string;
-  string literals are unaffected). Filed as
-  `../aether/180-regression.md` with a minimal repro. It silently
-  breaks `tools/extract-deps`'s scan pass and runtime `build.scan`
-  when those tools are rebuilt under 0.180. **Workaround in place**:
-  `tools/extract-deps` and `tools/scan-ae-files` defensively copy the
-  alias (`rest = string.concat(content, "")`). If you see those
-  copies and the upstream fix has landed (check the aether CHANGELOG
-  — not fixed as of 0.180.0 / `[current]`), they can be removed and
-  the tools rebuilt. Until then, keep them.
+- **0.180 heap-string aliasing regression (FIXED UPSTREAM, NOT YET
+  RELEASED).** A `rest = content; … rest = string.substring(rest, …)`
+  loop corrupts the original `content` heap string (a file-read /
+  malloc'd string; literals are unaffected) — the alias-move `dest =
+  src` disowned `src` even when `src` is read again, so the loop's
+  next reassignment freed the shared buffer. Filed as
+  `../aether/180-regression.md` with a minimal repro. Root cause:
+  0.175's tuple-destructure heap classification began tagging
+  `content, _ = io.read_file(...)` as heap-owned, which started
+  triggering the latent move.
+  **Fix exists**: aether commit `e7445f6` ("fix(codegen):
+  defensive-copy heap-string alias when source stays live", branch
+  `fix/alias-reassign-keeps-source-live`) — a liveness check that
+  defensive-copies instead of moving when the source is referenced
+  later. Verified at the codegen level (the buggy `_heap_content = 0`
+  disown becomes `rest = aether_uniform_heap_str(content, 0)` leaving
+  `content` owned). **But it is NOT in 0.180.0, NOT in `[current]`,
+  and NOT yet merged to main** — the installed `ae` still has the bug.
+  **Workaround stays in place** until that fix merges + a release
+  ships + aeb's toolchain updates: `tools/extract-deps` and
+  `tools/scan-ae-files` defensively copy the alias
+  (`rest = string.concat(content, "")`). Once `ae --version` reports
+  a release containing `e7445f6`, drop the copies and rebuild the
+  tools.
 - Most other upstream gaps are documented inline in TODO.md.
 
 Resolved upstream issues that aeb used to work around (kept here
