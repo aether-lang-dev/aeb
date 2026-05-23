@@ -219,7 +219,14 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   TypeScript, Scala, Clojure, .NET, Python, Aether (native programs),
   Bash (test runner — note the builder is `bash.run`, not
   `bash.script`: a builder must not share a name with a function in
-  its module), Maven (resolver), pnpm/jest/webpack/angular,
+  its module — both mangle to `<module>_<name>` and collide. As of
+  **aether 0.178.0 this is a compile error** (`duplicate definition
+  of '<name>': a builder and a function cannot share a name`), so the
+  rule is now enforced, not just a convention to remember. It used to
+  silently dispatch to one of them: `lib/ruby`'s `gem` setter vs a
+  former `gem` builder collided this way and the builder was renamed
+  to `package`; under 0.178+ that collision would have failed the
+  build immediately), Maven (resolver), pnpm/jest/webpack/angular,
   Container (OCI/LXC). Each SDK exposes `<lang>.<verb>(b) { ... }`
   builders.
 - `lib/webhook/module.ae` — outbound webhook trigger SDK (core, not
@@ -482,6 +489,18 @@ these are absolute, but skipping them tends to produce regrets.
   hides this via `-Wl,--allow-multiple-definition` (currently
   hard-coded in `tools/aeb-link.ae`); macOS ld64 rejects the flag.
   Tracked in TODO.md § Aether compiler issues.
+- **0.180 heap-string aliasing regression (OPEN).** A
+  `rest = content; … rest = string.substring(rest, …)` loop corrupts
+  the original `content` heap string (a file-read / malloc'd string;
+  string literals are unaffected). Filed as
+  `../aether/180-regression.md` with a minimal repro. It silently
+  breaks `tools/extract-deps`'s scan pass and runtime `build.scan`
+  when those tools are rebuilt under 0.180. **Workaround in place**:
+  `tools/extract-deps` and `tools/scan-ae-files` defensively copy the
+  alias (`rest = string.concat(content, "")`). If you see those
+  copies and the upstream fix has landed (check the aether CHANGELOG
+  — not fixed as of 0.180.0 / `[current]`), they can be removed and
+  the tools rebuilt. Until then, keep them.
 - Most other upstream gaps are documented inline in TODO.md.
 
 Resolved upstream issues that aeb used to work around (kept here
@@ -675,6 +694,29 @@ exists if a need arises."
   (`_ = os.system(...)` after a string-typed `_` destructure no
   longer fails codegen); `ae build` warns on a compiler/`libaether.a`
   version mismatch instead of failing cryptically at link.
+- **0.178 builder-vs-function name collision is now a compile error**
+  (consumed: it's why the LLM.md `bash.run`/`lib/ruby gem→package`
+  note above says "now enforced"). aeb filed it as
+  `../aether/builder-function-name-collision-silent-dispatch.md`;
+  `[current]` generalises it to `E1001` (any user function forging an
+  imported export's mangled symbol). Nothing to consume beyond
+  knowing aetherc now catches an SDK-authoring footgun aeb used to
+  only document.
+- **`[current]` `--emit=lib` artifacts are first-class imports** —
+  `import foo` with no `foo` source but a `libfoo.so` on the search
+  path synthesises an Aether stub (`@extern` per function export +
+  a trailing-block `builder` wrapper per builder entry point) from
+  the lib's `aether_lib_meta()` catalog, with the builder DSL
+  reconstructed at full fidelity (v2 closure-context records, same
+  release). **Not consumed; flagged as a future direction.** Today
+  aeb ships SDKs as source `lib/<lang>/module.ae` + `.aeb/lib`
+  symlinks, recompiled into every orchestrator build. A future aeb
+  could precompile the SDKs to `.so` once and consume them as binary
+  imports — faster per-build, and the closure metadata means the
+  `<lang>.<verb>(b) { ... }` builder grammar survives the boundary.
+  The value-add over the current source-symlink model is unproven
+  (the recompile is cheap; the symlink model is simple), so this is
+  "exists if a need arises," not a roadmap commitment.
 
 A note on resolution order: an `ae` binary installed under
 `~/.local/bin/` will pick up contrib modules from
