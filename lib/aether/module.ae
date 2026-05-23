@@ -1466,12 +1466,21 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
 }
 
 // Router: shell out to `ae build` by default; take the manual path
-// only when the user declared extra_source(...) or link_flag(...).
-// c_path is only consumed by the manual path (it's the intermediate
-// .c file aetherc emits); the shell-out lets `ae build` manage its
-// own scratch.
+// when the user declared extra_source(...) / link_flag(...) / regen(...)
+// OR when the module has shared-library deps (a `build.dep` on a
+// crate/lib that produced a `shared_library_deps_including_transitive`
+// artifact — e.g. a Rust cdylib the Aether program FFIs into). `ae
+// build` knows nothing about those .so files, so the default
+// shell-out would leave the extern symbols unresolved at link
+// (undefined reference to Aether_..._printString). The manual gcc
+// path collects the .so paths via _collect_shared_libs and links
+// them with -L/-l + -Wl,-rpath. c_path is only consumed by the
+// manual path (the intermediate .c aetherc emits).
 _build_binary(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, c_path: string) {
     if _has_manual_overrides(builder_map) == 1 {
+        return _compile_and_link(ctx, builder_map, src_path, bin_path, c_path)
+    }
+    if string.length(_collect_shared_libs(ctx)) > 0 {
         return _compile_and_link(ctx, builder_map, src_path, bin_path, c_path)
     }
     return _shell_out_ae_build(ctx, src_path, bin_path)

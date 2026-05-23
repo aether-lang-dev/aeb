@@ -334,20 +334,42 @@ main() {
         return 0
     }
 
-    // --- Write edges file for topo-sort ---
-    // .aeb/lib is a per-project SDK pin — a symlink set by `aeb
-    // --init`. When it is absent (project never init'd, or aeb run
-    // from a subdir below where .aeb lives) or a dangling symlink,
-    // fall back to the SDK tree of the running aeb itself: AEB_HOME
-    // is always exported by the aeb trampoline and $AEB_HOME/lib is
-    // the canonical runtime SDK. Without this fallback the generated
-    // orchestrator nodes get `--lib <nonexistent>` and every
-    // `import build` / `import <sdk>` silently resolves to nothing —
-    // surfacing only as E0301 "Undefined function" at each call
-    // site. Probe a concrete file under the dir so a dangling
-    // symlink is treated as absent too.
+    // --- Resolve the SDK lib dir ---
+    // `.aeb/lib` is a per-project SDK pin — a tree of symlinks set by
+    // `aeb --init`. Two distinct missing-pin cases, handled
+    // differently (split deliberately; they used to both fall back):
+    //
+    //   1. `.aeb/lib` ABSENT entirely (project never init'd, or aeb
+    //      run from a subdir below where .aeb lives) → fall back to
+    //      the running aeb's own SDK tree ($AEB_HOME/lib, always
+    //      exported by the trampoline). This keeps `aeb --init`
+    //      optional for a fresh clone: it "just works" against the
+    //      global install.
+    //
+    //   2. `.aeb/lib` PRESENT but its `build` symlink is dangling /
+    //      broken (the pinned SDK tree moved or was deleted) → FAST
+    //      FAIL. The project explicitly pinned an SDK and it's gone;
+    //      silently swapping in the global tree masks the breakage
+    //      (you can build against a different — possibly stale — SDK
+    //      than the project declares, which is exactly the footgun
+    //      that hid a bad pin for an entire debugging session). Error
+    //      loudly and point at `aeb --init` to re-point the links.
+    //
+    // Probe a concrete file (`build/module.ae`) so a dangling symlink
+    // fails the usability check; then disambiguate absent-vs-broken by
+    // whether the `.aeb/lib` directory itself exists.
     aeb_lib_dir = string.concat(root, "/.aeb/lib")
     if fs.exists(string.concat(aeb_lib_dir, "/build/module.ae")) == 0 {
+        if fs.exists(aeb_lib_dir) == 1 {
+            // Case 2: broken pin — fail loud, don't silently fall back.
+            println("aeb: .aeb/lib exists but its SDK symlinks are dangling")
+            println("aeb:   (e.g. .aeb/lib/build does not resolve to a build/module.ae)")
+            println("aeb:   the pinned SDK tree has moved or been deleted.")
+            println("aeb: re-run `aeb --init` to re-point .aeb/lib at this aeb install,")
+            println("aeb:   or remove .aeb/lib to fall back to the global SDK ($AEB_HOME/lib).")
+            exit(1)
+        }
+        // Case 1: never init'd — fall back to the global SDK tree.
         aeb_lib_dir = string.concat(aebhome, "/lib")
     }
     build_dir = string.concat(root, "/target/_aeb")

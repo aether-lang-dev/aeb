@@ -1081,18 +1081,23 @@ _parse_junit5_count(output: string, marker: string) {
 }
 
 // Build a fat jar from this module's classes + all transitive deps + native libs.
+//
+// Staging-dir approach (same shape as scala.assembly / clojure.uberjar):
+// extract every dep .jar and copy every class dir into a staging tree,
+// drop native .so files at the tree root (so `-Djava.library.path=.`
+// finds them), write the manifest, then `jar cfM` the staging tree.
+//
+// Why not the older `jar -C <entry> .` per classpath entry: the
+// classpath artifact is a mix of newline- and colon-separated entries
+// and contains both class directories AND .jar files. `jar -C` only
+// works on directories (you can't -C into a .jar), and the per-entry
+// echo emitted embedded newlines that split the jar command into
+// separate shell lines (`sh: -C: not found`). Staging sidesteps both.
 shade(ctx: ptr, main_class: string, jar_name: string) {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
 
     classes_dir = path.join(target_dir, "classes")
-
-    meta_dir = path.join(classes_dir, "META-INF")
-    build._mkdirs(meta_dir)
-    manifest = path.join(meta_dir, "MANIFEST.MF")
-    mf_content = string.concat("Manifest-Version: 1.0\nMain-Class: ", main_class)
-    mf_content = string.concat(mf_content, "\n")
-    _ew1 = io.write_file(manifest, mf_content)
 
     bin_dir = path.join(target_dir, "bin")
     build._mkdirs(bin_dir)
@@ -1112,34 +1117,40 @@ shade(ctx: ptr, main_class: string, jar_name: string) {
 
     println("${mod_dir}: packaging ${jar_name}")
 
-    jar_cmd = string.concat("jar cfM ", jar_path)
-    jar_cmd = string.concat(jar_cmd, " -C ")
-    jar_cmd = string.concat(jar_cmd, classes_dir)
-    jar_cmd = string.concat(jar_cmd, " .")
+    stage_dir = path.join(target_dir, "_shade")
 
+    // Build a single shell script. Shell loop vars use bare `$e` /
+    // `$st` (no braces) so Aether's ${...} interpolation leaves them
+    // alone; Aether vars are spliced via interpolation. cp_content and
+    // ld_content are newline+colon-separated path lists; `tr ':' '\n'`
+    // normalises to one entry per line.
+    sh = "set -e; st='${stage_dir}'; rm -rf \"$st\"; mkdir -p \"$st\"; "
+    // Module's own classes first.
+    sh = string.concat(sh, "[ -d '${classes_dir}' ] && cp -a '${classes_dir}/.' \"$st\"/ 2>/dev/null; ")
+    // Classpath deps: extract .jar entries, copy class dirs.
     if string.length(cp_content) > 0 {
-        add_cp_cmd = string.concat("echo '", cp_content)
-        add_cp_cmd = string.concat(add_cp_cmd, "' | while IFS= read -r line; do [ -n \"$line\" ] && echo \" -C $line .\"; done")
-        extra_cp_raw, _ex1 = os.exec(add_cp_cmd)
-        extra_cp = string.trim(extra_cp_raw)
-        if string.length(extra_cp) > 0 {
-            jar_cmd = string.concat(jar_cmd, " ")
-            jar_cmd = string.concat(jar_cmd, extra_cp)
-        }
+        sh = string.concat(sh, "printf '%s\\n' '")
+        sh = string.concat(sh, cp_content)
+        sh = string.concat(sh, "' | tr ':' '")
+        sh = string.concat(sh, "\\n")
+        sh = string.concat(sh, "' | while IFS= read -r e; do [ -z \"$e\" ] && continue; case \"$e\" in *.jar) [ -f \"$e\" ] && unzip -qq -o \"$e\" -d \"$st\" >/dev/null 2>&1 ;; *) [ -d \"$e\" ] && cp -a \"$e/.\" \"$st\"/ 2>/dev/null ;; esac; done; ")
     }
-
+    // Native libs at the jar root.
     if string.length(ld_content) > 0 {
-        add_ld_cmd = string.concat("echo '", ld_content)
-        add_ld_cmd = string.concat(add_ld_cmd, "' | while IFS= read -r line; do [ -n \"$line\" ] && echo \" -C $(dirname $line) $(basename $line)\"; done")
-        extra_ld_raw, _ex2 = os.exec(add_ld_cmd)
-        extra_ld = string.trim(extra_ld_raw)
-        if string.length(extra_ld) > 0 {
-            jar_cmd = string.concat(jar_cmd, " ")
-            jar_cmd = string.concat(jar_cmd, extra_ld)
-        }
+        sh = string.concat(sh, "printf '%s\\n' '")
+        sh = string.concat(sh, ld_content)
+        sh = string.concat(sh, "' | while IFS= read -r e; do [ -z \"$e\" ] && continue; [ -f \"$e\" ] && cp -f \"$e\" \"$st\"/; done; ")
     }
+    // Manifest (stage wins over any META-INF copied from classes).
+    sh = string.concat(sh, "mkdir -p \"$st/META-INF\"; printf 'Manifest-Version: 1.0")
+    sh = string.concat(sh, "\\n")
+    sh = string.concat(sh, "Main-Class: ${main_class}")
+    sh = string.concat(sh, "\\n")
+    sh = string.concat(sh, "' > \"$st/META-INF/MANIFEST.MF\"; ")
+    // Package.
+    sh = string.concat(sh, "jar cfM '${jar_path}' -C \"$st\" .")
 
-    exit_code = os.system(jar_cmd)
+    exit_code = os.system(sh)
     if exit_code != 0 {
         println("${mod_dir}: jar packaging failed")
         return exit_code
