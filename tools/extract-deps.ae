@@ -61,6 +61,57 @@ resolve_dep(dep: string) {
     return string.concat(build_path, "")
 }
 
+// Directory component of a path (everything before the last "/"), or
+// "" when the path has no slash. Pure string op — extract-deps doesn't
+// import std.path.
+_dir_of(p: string) {
+    n = string.length(p)
+    i = n - 1
+    while i >= 0 {
+        ch = string.substring(p, i, i + 1)
+        if string.equals(ch, "/") == 1 {
+            return string.substring(p, 0, i)
+        }
+        i = i - 1
+    }
+    return string.concat("", "")
+}
+
+// Resolve a dep to a repo-root-relative .ae file path, supporting BOTH
+// conventions seen in the wild:
+//
+//   1. repo-root-relative path  — `dep(b, "jpa/example/.build.ae")`
+//      (or a module dir `dep(b, "jpa/example")`). Resolves from cwd
+//      (= repo root) via resolve_dep; used as-is when it exists.
+//
+//   2. depending-file-relative  — `dep(b, ".build.ae")` (a same-dir
+//      sibling) or `dep(b, "../common/.build.ae")`. When the
+//      root-relative form doesn't exist on disk, re-resolve the dep
+//      joined to `base_dir` (the directory of the .ae file declaring
+//      it) so a bare `.build.ae` becomes `<that-dir>/.build.ae`.
+//
+// Without (2), a same-dir `dep(b, ".build.ae")` emitted the bare
+// string `.build.ae`, which (a) failed the target-mode BFS's
+// file.exists check (resolved from cwd, not the depending file's dir)
+// so the dep never built, and (b) never matched its node key in the
+// scan-mode topo-sort, so ordering was unenforced. Both are the aeb
+// dep DAG silently dropping an edge — see the .dist.ae→.build.ae case.
+resolve_dep_rel(dep: string, base_dir: string) {
+    resolved = resolve_dep(dep)
+    if file.exists(resolved) == 1 {
+        return resolved
+    }
+    if string.length(base_dir) > 0 {
+        joined = string.concat(base_dir, "/")
+        joined = string.concat(joined, dep)
+        rel = resolve_dep(joined)
+        if file.exists(rel) == 1 {
+            return rel
+        }
+    }
+    return resolved
+}
+
 main() {
     argc = aether_args_count()
     if argc < 2 {
@@ -84,6 +135,10 @@ main() {
     out = ""
     seen = map.new()
 
+    // Directory of the .ae file we're scanning — base for resolving
+    // depending-file-relative deps (e.g. a same-dir `dep(".build.ae")`).
+    base_dir = _dir_of(path)
+
     // Pass 1: dep(b, "...") — explicit single-target deps.
     needle = "dep(b, \""
     nlen = string.length(needle)
@@ -106,7 +161,7 @@ main() {
                 rest = ""
             } else {
                 dep = string.substring(tail, 0, close)
-                resolved = resolve_dep(dep)
+                resolved = resolve_dep_rel(dep, base_dir)
                 if map.has(seen, resolved) == 0 {
                     if string.length(out) > 0 {
                         out = string.concat(out, " ")
