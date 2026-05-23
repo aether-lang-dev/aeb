@@ -489,30 +489,27 @@ these are absolute, but skipping them tends to produce regrets.
   hides this via `-Wl,--allow-multiple-definition` (currently
   hard-coded in `tools/aeb-link.ae`); macOS ld64 rejects the flag.
   Tracked in TODO.md § Aether compiler issues.
-- **0.180 heap-string aliasing regression (FIXED UPSTREAM, NOT YET
-  RELEASED).** A `rest = content; … rest = string.substring(rest, …)`
-  loop corrupts the original `content` heap string (a file-read /
-  malloc'd string; literals are unaffected) — the alias-move `dest =
-  src` disowned `src` even when `src` is read again, so the loop's
-  next reassignment freed the shared buffer. Filed as
-  `../aether/180-regression.md` with a minimal repro. Root cause:
-  0.175's tuple-destructure heap classification began tagging
-  `content, _ = io.read_file(...)` as heap-owned, which started
-  triggering the latent move.
-  **Fix exists**: aether commit `e7445f6` ("fix(codegen):
-  defensive-copy heap-string alias when source stays live", branch
-  `fix/alias-reassign-keeps-source-live`) — a liveness check that
-  defensive-copies instead of moving when the source is referenced
-  later. Verified at the codegen level (the buggy `_heap_content = 0`
-  disown becomes `rest = aether_uniform_heap_str(content, 0)` leaving
-  `content` owned). **But it is NOT in 0.180.0, NOT in `[current]`,
-  and NOT yet merged to main** — the installed `ae` still has the bug.
-  **Workaround stays in place** until that fix merges + a release
-  ships + aeb's toolchain updates: `tools/extract-deps` and
-  `tools/scan-ae-files` defensively copy the alias
-  (`rest = string.concat(content, "")`). Once `ae --version` reports
-  a release containing `e7445f6`, drop the copies and rebuild the
-  tools.
+- **0.180 heap-string aliasing regression (FIXED in aether 0.181.0).**
+  A `rest = content; … rest = string.substring(rest, …)` loop
+  corrupted the original `content` heap string (a file-read / malloc'd
+  string; literals were unaffected) — the alias-move `dest = src`
+  disowned `src` even when `src` is read again, so the loop's next
+  reassignment freed the shared buffer. Filed as
+  `../aether/180-regression.md`. Root cause: 0.175's tuple-destructure
+  heap classification began tagging `content, _ = io.read_file(...)`
+  as heap-owned, which started triggering the latent move.
+  **Fixed and released**: aether **0.181.0** (commit `0dd4396`
+  "fix(codegen): defensive-copy heap-string alias when source stays
+  live", on main; was `e7445f6` pre-rebase). Verified at the codegen
+  level — the buggy `_heap_content = 0` disown becomes `rest =
+  aether_uniform_heap_str(content, 0)`, leaving `content` owned.
+  **Workaround still in the tree pending a toolchain bump**:
+  `tools/extract-deps` and `tools/scan-ae-files` defensively copy the
+  alias (`rest = string.concat(content, "")`). The copies are
+  harmless (an extra alloc) and must stay while aeb's installed `ae`
+  is < 0.181.0 — `make install` force-rebuilds the tools, so under an
+  older toolchain the copies are what keep scan working. Once
+  `ae --version` reports >= 0.181.0, drop the two copies and rebuild.
 - Most other upstream gaps are documented inline in TODO.md.
 
 Resolved upstream issues that aeb used to work around (kept here
