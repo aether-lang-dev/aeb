@@ -4,6 +4,153 @@
 
 ### Added
 
+- **`lib/copy`: file/directory-staging SDK** (`copy.file(b)`,
+  `copy.tree(b)`) — Bazel `copy_file` / `copy_directory` analogue.
+  Closure-DSL setters `from(...)` / `to(...)`; mtime-skip when the
+  destination is fresher than the source. The canonical pre-build
+  staging primitive (e.g. Selenium's Ruby gemspec needs LICENSE /
+  NOTICE staged from the repo root before `gem build`). Pure helpers
+  `cp_file_cmd` / `cp_tree_cmd` / `_resolve_path` + setter
+  accumulation covered by 17 assertions in `tests/test_copy_cmd.ae`.
+  Registered in `tools/aeb-init.ae` `shipped_modules()`.
+
+- **`lib/scala`: `scala.assembly(b)` fat-jar builder**. The
+  no-scala-cli / no-sbt analogue of sbt-assembly: stages compiled
+  classes + scala-library + every transitive dep (unzips each
+  classpath jar, copies each class dir) into a tree, writes a
+  Main-Class manifest, and `jar cfM`s it. Setters `main_class(...)`
+  (required) + `output_jar(...)`. Pure helpers
+  (`assembly_unzip_jar_cmd` / `assembly_copy_classes_cmd` /
+  `assembly_jar_cmd` / `_ends_with_jar`) covered in
+  `tests/test_scala_cmd.ae` (4 → 18 assertions). Demo:
+  `itests/scala-cli-multi-module-demo/module-1/.dist.ae`.
+
+- **`lib/clojure`: `clojure.uberjar(b)` builder**. The no-leiningen
+  analogue of `lein uberjar`: AOT-compiles `main_ns` (a `(:gen-class)`
+  namespace), stages `src/` so non-AOT namespaces load at runtime,
+  unzips clojure.jar + maven deps, writes a Main-Class manifest (with
+  Clojure's dash→underscore munging), and packages it. Setters
+  `main_ns(...)` + `output_jar(...)`. `tests/test_clojure_cmd.ae`
+  4 → 16 assertions. Demo:
+  `itests/clojure-multiproject-example/projects/example_app/.dist.ae`.
+
+- **`lib/build`: public path accessors for inline build steps** —
+  `build.target_dir(b)` / `build.source_dir(b)` / `build.root(b)` /
+  `build.mkdirs(path)`. Lets inline Aether between SDK builders read
+  the module's paths without reaching into the internal `_get`.
+
+- **`docs/inline-build-steps.md` + runnable example**
+  (`docs/examples/inline-git-changelog/`). Documents that a
+  `.build.ae` is an Aether program: between idiomatic SDK builders you
+  can run any Aether — shell out, parse stdout, transform, write
+  artifacts — calling same-file or imported functions. Worked example:
+  an inline step that runs `git log --oneline -10`, reformats it via
+  an adjacent helper, and writes an artifact a sibling `.dist.ae`
+  pulls in. Closes with the one-off-inline → repo-local-module →
+  core-`lib/<name>` promotion path.
+
+- **`itests/selenium/Aeb_vs_Bazel.md`** — polyglot-DAG musing
+  (sibling to the PyTorch one), including the rationale for *not*
+  bridging `maven_install.json`. Plus a hand-pinned
+  `java/selenium-deps.bom.ae` and two more Java leaves (`io/`,
+  `grid/jmx/`) demonstrating BOM-loaded dep resolution.
+
+- **`itests/selenium/py/.api-listing-codegen.ae`** — closes the
+  `generate_api_module_listing.py` gap via `python.codegen` with
+  `codegen_input_dir`. `lib/python`'s `_codegen_can_skip` now walks
+  declared input directories recursively (`_dir_newest_mtime`,
+  Aether-native, no GNU-`find` dependency) so dir inputs participate
+  in the staleness check.
+
+### Changed
+
+- **`lib/java`: `shade(b)` fat-jar rewritten to a staging-dir
+  approach** (matching `scala.assembly` / `clojure.uberjar`). The old
+  `jar -C <entry> .` per-classpath-entry form was broken for real dep
+  sets — it can't `-C` into a `.jar` (only directories), and the
+  per-entry echo emitted embedded newlines that split the jar command
+  into separate shell lines (`sh: -C: not found`). Now extracts each
+  dep jar, copies each class dir, drops native `.so` files at the jar
+  root, writes the manifest, and packages the staging tree.
+
+- **`lib/kotlin`: compiler and stdlib resolved from one install**.
+  New `_kotlin_home()` (probe `KOTLIN_HOME` → snap → apt, first with a
+  real `kotlin-stdlib.jar`) + `_kotlinc_bin()` (the home-local
+  `kotlinc`, not bare PATH). Fixes "incompatible version of Kotlin"
+  when a box has an old `/usr/bin/kotlinc` alongside a newer stdlib.
+  Unifies the three builders (`kotlinc` / `kotlinc_test` /
+  `kotlin_test`) onto one resolution path.
+
+- **`lib/aether`: `aether.program(b)` auto-links shared-library
+  deps**. A `build.dep` on a Rust cdylib (or any lib emitting a
+  `shared_library_deps_including_transitive` artifact) the program
+  FFIs into now takes the manual gcc path automatically (with
+  `-L`/`-l` + `-Wl,-rpath`), even without an explicit
+  `extra_source`/`link_flag`. Previously the default `ae build`
+  shell-out left such externs unresolved (`undefined reference`).
+
+- **SDK-lib resolution: fast-fail on a dangling `.aeb/lib`**
+  (`tools/aeb-main`). An absent `.aeb/lib` still falls back to
+  `$AEB_HOME/lib` (keeps `aeb --init` optional for a fresh clone), but
+  a `.aeb/lib` whose symlinks are dangling now errors loudly instead
+  of silently swapping in the global SDK — silent fallback on a broken
+  pin can build against a different/stale SDK than the project
+  declares. `aeb --init` re-points dangling links.
+
+- **`make install` force-rebuilds every `tools/*.ae` binary** before
+  copying the runtime tree. The lazy-built tool binaries (topo-sort,
+  extract-deps, …) are gitignored and the pattern rule can't tell a
+  binary is stale vs the *toolchain* (only vs its source mtime); a
+  stale `topo-sort` built under an older aetherc shipped a wrong DAG
+  order and cascaded into repo-wide build failures.
+
+### Fixed
+
+- **`tools/extract-deps`: same-directory deps now resolve**. A
+  `dep(b, ".build.ae")` (no path prefix — e.g. a `.dist.ae` depending
+  on its sibling `.build.ae`) was emitted as the bare string
+  `.build.ae`, which never matched its node (`foo/.build.ae`): in
+  target mode the sibling never built; in scan mode the ordering edge
+  was silently dropped. Deps are now resolved relative to the
+  depending file's directory when they aren't valid repo-root-relative
+  paths, supporting both conventions. The dep DAG is aeb's core, so
+  this was a real dropped-edge bug.
+
+- **`tools/resolve-imports.sh`: selective imports no longer mask
+  transitive bare imports**. A user's `import maven (load_bom_file)`
+  suppressed the bare `import maven` that lib/java's internal
+  `maven.classpath()` calls need at orchestrator-link time, producing
+  repo-wide `E0301 Undefined function 'maven.classpath'`. Only bare
+  `import X` lines now count as "already covered".
+
+- **`tools/extract-deps` + `tools/scan-ae-files`: ae 0.180
+  heap-string workaround**. A `rest = content; … rest = substring(…)`
+  loop corrupts the aliased `content` heap string under ae 0.180
+  (filed upstream as `180-regression.md`), making a freshly-built
+  extract-deps return an empty `scan()` expansion. Defensive
+  `string.concat(content, "")` copies dodge it.
+
+- **`lib/scala`: `scalac`'s classpath artifact now includes
+  transitive deps**. The `jvm_classpath_deps_including_transitive`
+  artifact omitted the `build.dep` classpath, so a downstream fat jar
+  lost cross-module classes (e.g. `common/SharedCode`).
+
+- **`lib/ruby`: three fixes**. `bundle_install_cmd` uses
+  `bundle config set --local path` then `bundle install` (Bundler 2.x
+  removed `--path=`); `gem_build_cmd` runs from the gemspec's directory
+  (so relative `s.files` resolve) then moves the `.gem` to dist;
+  the `gem` *builder* renamed to `package` — it collided at C-mangle
+  time with the `gem` *setter* (Gemfile-line append), silently routing
+  `ruby.gem(b)` into the setter and skipping the build.
+
+- **`lib/fetch` / `lib/dotnet`: pure helpers extracted** for
+  unit-testability — `_format_to_flags` / `_format_is_zip` (fetch
+  archive format override) and `_resolve_csproj_path` (dotnet csproj
+  path). `tests/test_fetch_cmd.ae` 27 → 43, `tests/test_dotnet_cmd.ae`
+  7 → 12, `tests/test_cargo_cmd.ae` 12 → 14,
+  `tests/test_python_codegen_cmd.ae` 21 → 26,
+  `tests/test_ruby_cmd.ae` 21 → 26.
+
 - **`lib/rust`: `rust.cargo_test_existing(b)` builder**.
   Pair to `rust.cargo_project_existing(b)` — runs `cargo test`
   from source_dir against the upstream `Cargo.toml`, no
