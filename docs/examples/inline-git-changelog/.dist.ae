@@ -1,0 +1,38 @@
+// Archive step that pulls the inline step's artifact into a dist tree.
+//
+// A `.dist.ae` shares the same `target/<module>/` dir as the sibling
+// `.build.ae`, so it reads RECENT_CHANGES.txt straight from
+// `build.target_dir(b)` — no fragile relative paths. The
+// `dep(b, ".build.ae")` edge guarantees the inline producer step runs
+// first. The DAG treats an inline-produced artifact exactly like an
+// SDK-produced one. See ../../inline-build-steps.md.
+
+import build
+import build (dep)
+import std.io
+import std.string
+import std.path
+
+main() {
+    b = build.start()
+    dep(b, ".build.ae")
+
+    tdir = build.target_dir(b)
+    src = path.join(tdir, "RECENT_CHANGES.txt")
+    body, rerr = io.read_file(src)
+    if string.length(rerr) > 0 {
+        println("dist: cannot read ${src}: ${rerr}")
+        return 1
+    }
+
+    dist_dir = path.join(tdir, "dist")
+    build.mkdirs(dist_dir)
+    out = path.join(dist_dir, "RECENT_CHANGES.txt")
+    werr = io.write_file(out, body)
+    if string.length(werr) > 0 {
+        println("dist: write failed: ${werr}")
+        return 1
+    }
+    println("dist: bundled ${out}")
+    return 0
+}

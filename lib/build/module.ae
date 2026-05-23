@@ -514,6 +514,40 @@ _get(ctx: ptr, key: string) {
     return v
 }
 
+// --- Public path accessors for inline build steps ---
+//
+// Between idiomatic SDK builders, a `.build.ae` is free to run any
+// Aether — shell out, parse, transform, write artifacts. These
+// accessors give that inline code the three paths it usually needs
+// without reaching into the internal `_get`:
+//
+//   target_dir(b)  — `target/<module>/`, where build outputs and
+//                    artifacts belong (a later .dist.ae / archive
+//                    step pulls from here).
+//   source_dir(b)  — the module's source directory (where the
+//                    `.build.ae` lives).
+//   root(b)        — the repo root aeb was invoked from.
+//
+// `mkdirs(path)` is the public form of the internal `_mkdirs` for
+// inline steps that need to create an output directory before
+// writing into it.
+
+target_dir(ctx: ptr) {
+    return _get(ctx, "target_dir")
+}
+
+source_dir(ctx: ptr) {
+    return _get(ctx, "source_dir")
+}
+
+root(ctx: ptr) {
+    return _get(ctx, "root")
+}
+
+mkdirs(dir_path: string) {
+    _mkdirs(dir_path)
+}
+
 // _detect_ci — identify the CI system from its well-known env vars.
 // Returns a specific system name ("github" / "gitlab" / "jenkins" /
 // "circleci" / "travis" / "buildkite") when one is detected, the

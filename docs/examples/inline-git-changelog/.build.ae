@@ -1,0 +1,85 @@
+// Inline-Aether build step demo.
+//
+// A `.build.ae` is an Aether program. Between the idiomatic SDK
+// builders (`java.javac(b)`, `rust.cargo_project(b)`, …) you can drop
+// into *any* Aether: shell out, parse stdout, transform strings, and
+// write artifacts. That inline code calls functions like any normal
+// Aether program — defined in this same file (see `format_recent`
+// below) or pulled in with `import`.
+//
+// This step captures the last 10 commits (`git log --oneline -10`),
+// reformats them into a numbered, headed list, and writes the result
+// into the module's target dir as RECENT_CHANGES.txt. A later archive
+// / packaging step (a `.dist.ae`, `container.image`, etc.) pulls that
+// file out of `target/<module>/` into the distributable.
+
+import build
+import std.os
+import std.io
+import std.string
+import std.path
+
+main() {
+    b = build.start()
+
+    // --- Idiomatic SDK builders would go here, e.g. ---
+    //   java.javac(b) { release("21") }
+    // Between them, this is plain inline Aether:
+
+    // 1. Shell out to git, capture stdout.
+    log_raw, err = os.exec("git log --oneline -10")
+    if string.length(err) > 0 {
+        println("inline-changelog: git failed: ${err}")
+        return 1
+    }
+
+    // 2. Reformat via an adjacent function (called like any Aether fn).
+    formatted = format_recent(string.trim(log_raw))
+
+    // 3. Write into the target dir for a later archive step to pull in.
+    tdir = build.target_dir(b)
+    build.mkdirs(tdir)
+    outfile = path.join(tdir, "RECENT_CHANGES.txt")
+    werr = io.write_file(outfile, formatted)
+    if string.length(werr) > 0 {
+        println("inline-changelog: write failed: ${werr}")
+        return 1
+    }
+    println("inline-changelog: wrote ${outfile}")
+    return 0
+}
+
+// Adjacent helper — a normal Aether function, invoked from main()
+// above. Numbers each commit line and prepends a header. Pure string
+// work; no I/O, so it's trivially testable in isolation.
+format_recent(raw: string) {
+    title = "Recent changes (last 10 commits)\n"
+    rule  = "================================\n\n"
+    out = string.concat(title, rule)
+
+    n = 0
+    rest = raw
+    line = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        trimmed = string.trim(line)
+        if string.length(trimmed) > 0 {
+            n = n + 1
+            num = string.from_int(n)
+            // "  1. <commit>\n"
+            entry = string.concat("  ", num)
+            entry = string.concat(entry, ". ")
+            entry = string.concat(entry, trimmed)
+            entry = string.concat(entry, "\n")
+            out = string.concat(out, entry)
+        }
+    }
+    return out
+}
