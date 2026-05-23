@@ -88,7 +88,12 @@ main() {
     needle = "dep(b, \""
     nlen = string.length(needle)
 
-    rest = content
+    // Defensive copy: `rest = content` would alias the heap string,
+    // and the substring-reassign loop below corrupts the aliased
+    // original under ae 0.180 (see ../aether/180-regression.md). The
+    // concat("",...) forces an independent buffer so `content` stays
+    // intact for Pass 2.
+    rest = string.concat(content, "")
     while string.length(rest) > 0 {
         idx = string.index_of(rest, needle)
         if idx < 0 {
@@ -125,7 +130,8 @@ main() {
     // marker works (see prepend_dot_slash above).
     scan_needle = "scan(b, \""
     snlen = string.length(scan_needle)
-    rest = content
+    // Defensive copy (see Pass 1 note + ../aether/180-regression.md).
+    rest = string.concat(content, "")
     while string.length(rest) > 0 {
         sidx = string.index_of(rest, scan_needle)
         if sidx < 0 {

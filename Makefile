@@ -50,6 +50,21 @@ tools/%: tools/%.ae
 # wrapper is regenerated each install so PREFIX changes are picked up.
 install: $(INSTALL_TOOLS)
 	@mkdir -p $(BINDIR) $(SHAREDIR)
+	@# Force-rebuild every tools/*.ae binary before copying. The lazy-
+	@# built tools (topo-sort, extract-deps, scan-ae-files, …) are
+	@# gitignored binaries not in $(INSTALL_TOOLS); the pattern rule
+	@# won't refresh them because their .ae source is older than the
+	@# binary — but the binary can still be stale vs the *toolchain*
+	@# (a binary built under an older aetherc with since-fixed codegen
+	@# bugs). Shipping such a stale binary silently breaks the install
+	@# (a stale topo-sort produced a wrong DAG order → cascading build
+	@# failures). Unconditional rebuild here guarantees the shipped
+	@# binaries match the current toolchain.
+	@for src in tools/*.ae; do \
+	    bin="$${src%.ae}"; \
+	    echo "  rebuild $$bin"; \
+	    $(AETHER) build "$$src" -o "$$bin" $(AEFLAGS) >/dev/null || { echo "install: failed to build $$src" >&2; exit 1; }; \
+	done
 	rm -f $(BINDIR)/aeb
 	rm -rf $(SHAREDIR)/lib $(SHAREDIR)/tools
 	cp -f aeb $(SHAREDIR)/aeb

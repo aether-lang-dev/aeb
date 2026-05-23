@@ -320,8 +320,14 @@ builder mocha(ctx: ptr, test_file: string) {
         i = i + 1
     }
 
-    npm_vendored = path.join(root, "libs/javascript/npm_vendored/node_modules")
-    node_path = string.concat(string.concat(node_path, ":"), npm_vendored)
+    // NB: local must not be named `npm_vendored` — that's a builder
+    // in this module, and the name collides at C-codegen time (the
+    // reference resolves to the builder's function pointer, not the
+    // local string). aether 0.180 + stricter gcc surface it as an
+    // -Wincompatible-pointer-types error; older toolchains silently
+    // mis-compiled it.
+    npm_vendored_dir = path.join(root, "libs/javascript/npm_vendored/node_modules")
+    node_path = string.concat(string.concat(node_path, ":"), npm_vendored_dir)
 
     ld_path = ""
     i = 0

@@ -42,8 +42,14 @@ compiler_plugin(_ctx: ptr, path: string) {
 
 // --- Command builder ---
 
-kotlinc_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) {
-    cmd = "kotlinc -d ${classes_dir}"
+// kotlinc_cmd — assemble a kotlinc invocation. `kotlinc_bin` is the
+// resolved compiler path (NOT bare "kotlinc"): the compiler binary
+// and the kotlin-stdlib.jar on the classpath must come from the same
+// install, or kotlinc rejects the build with a metadata-version
+// mismatch ("compiled with an incompatible version of Kotlin"). See
+// `_kotlinc_bin`. Pure.
+kotlinc_cmd(kotlinc_bin: string, classes_dir: string, classpath: string, file_list: string, opts: ptr) {
+    cmd = "${kotlinc_bin} -d ${classes_dir}"
 
     if opts != null {
         if map.has(opts, "jvm_target") == 1 {
@@ -81,6 +87,45 @@ kotlinc_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr
     return cmd
 }
 
+// _kotlin_home() — resolve the kotlin install root. KOTLIN_HOME wins;
+// otherwise probe the common install locations in order and return
+// the first whose `lib/kotlin-stdlib.jar` exists. The snap package
+// (/snap/kotlin/current) is preferred because it ships a current
+// compiler (2.x); the apt/sdkman layout (/usr/share/kotlin/kotlinc)
+// is the fallback. Returns "" if none found (caller degrades to bare
+// `kotlinc` on PATH + no explicit stdlib, the historic behaviour).
+_kotlin_home() {
+    env_home = os.getenv("KOTLIN_HOME")
+    if env_home != 0 {
+        return env_home
+    }
+    snap = "/snap/kotlin/current"
+    if file.exists(path.join(snap, "lib/kotlin-stdlib.jar")) == 1 {
+        return snap
+    }
+    apt = "/usr/share/kotlin/kotlinc"
+    if file.exists(path.join(apt, "lib/kotlin-stdlib.jar")) == 1 {
+        return apt
+    }
+    return ""
+}
+
+// _kotlinc_bin(kotlin_home) — the compiler binary that matches the
+// stdlib under `kotlin_home`. Returns `<home>/bin/kotlinc` when that
+// exists, else bare "kotlinc" (PATH). Invoking the home-local binary
+// (rather than whatever `kotlinc` resolves to on PATH) keeps the
+// compiler and stdlib versions in lockstep — the box may have an old
+// /usr/bin/kotlinc (1.3) on PATH while the stdlib is snap's 2.x.
+_kotlinc_bin(kotlin_home: string) {
+    if string.length(kotlin_home) > 0 {
+        cand = path.join(kotlin_home, "bin/kotlinc")
+        if file.exists(cand) == 1 {
+            return cand
+        }
+    }
+    return "kotlinc"
+}
+
 // --- SDK functions ---
 
 builder kotlinc(ctx: ptr) {
@@ -103,11 +148,9 @@ builder kotlinc(ctx: ptr) {
 
     println("${mod_dir}: compiling prod code")
 
-    kotlin_home = os.getenv("KOTLIN_HOME")
-    if kotlin_home == 0 {
-        kotlin_home = "/snap/kotlin/current/bin/.."
-    }
+    kotlin_home = _kotlin_home()
     stdlib_jar = path.join(kotlin_home, "lib/kotlin-stdlib.jar")
+    kotlinc_bin = _kotlinc_bin(kotlin_home)
 
     dep_cp = build._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
@@ -140,7 +183,7 @@ builder kotlinc(ctx: ptr) {
     }
     file_ref = string.concat("@", argfile)
 
-    kc_cmd = kotlinc_cmd(classes_dir, classpath, file_ref, _builder)
+    kc_cmd = kotlinc_cmd(kotlinc_bin, classes_dir, classpath, file_ref, _builder)
     exit_code = os.system(kc_cmd)
     if exit_code != 0 {
         println("${mod_dir}: kotlinc failed")
@@ -197,11 +240,9 @@ builder kotlinc_test(ctx: ptr) {
 
     println("${mod_dir}: compiling test code")
 
-    kotlin_home = os.getenv("KOTLIN_HOME")
-    if kotlin_home == 0 {
-        kotlin_home = "/usr/share/kotlin/kotlinc"
-    }
+    kotlin_home = _kotlin_home()
     stdlib_jar = path.join(kotlin_home, "lib/kotlin-stdlib.jar")
+    kotlinc_bin = _kotlinc_bin(kotlin_home)
 
     dep_cp = build._build_dep_classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
@@ -221,7 +262,7 @@ builder kotlinc_test(ctx: ptr) {
         return 0
     }
 
-    kc_cmd = kotlinc_cmd(test_classes, classpath, file_list, _builder)
+    kc_cmd = kotlinc_cmd(kotlinc_bin, test_classes, classpath, file_list, _builder)
     exit_code = os.system(kc_cmd)
     if exit_code != 0 {
         println("${mod_dir}: kotlinc (test) failed")
@@ -240,10 +281,9 @@ builder kotlin_test(ctx: ptr, test_class: string) {
     dep_cp = build._build_dep_classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
 
-    kotlin_home = os.getenv("KOTLIN_HOME")
-    if kotlin_home == 0 {
-        kotlin_home = "/usr/share/kotlin/kotlinc"
-    }
+    // Runtime stdlib must match what kotlinc_test compiled against —
+    // use the same resolved home (not the historic /usr/share default).
+    kotlin_home = _kotlin_home()
     stdlib_jar = path.join(kotlin_home, "lib/kotlin-stdlib.jar")
 
     classpath = string.concat(test_classes, ":")
