@@ -1642,3 +1642,165 @@ POM emission (10) → Resources (4) → Manifest (5) → Sources/Javadoc
 → Jacoco (9). That sequence unblocks "publishable library" and
 "runnable Spring Boot app" — the two shapes most Java itests in this
 repo actually exercise.
+
+## itest-driven gaps (surfaced 2026-05)
+
+Each of these came out of running a real-world itest to completion
+and hitting a specific missing feature. Listed with the expected
+grammar so a future session can pick one up cold.
+
+### `kotlin.assembly(b)` — complete the JVM fat-jar set
+
+The executable-fat-jar shape now exists for three of the four
+JVM-family SDKs:
+
+- [x] `java.shade(b, main_class, jar_name)` — `lib/java`
+- [x] `scala.assembly(b) { main_class(...) output_jar(...) }` — `lib/scala`
+- [x] `clojure.uberjar(b) { main_ns(...) output_jar(...) }` — `lib/clojure`
+- [ ] **`kotlin.assembly(b)` — the remaining gap.**
+
+Kotlin is the odd one out: `lib/kotlin` has `kotlinc` / `kotlinc_test`
+but no packaging builder. The expected grammar mirrors scala.assembly
+(Kotlin compiles to plain JVM classes, so no AOT/source-in-jar
+wrinkle like Clojure):
+
+```aether
+import kotlin
+import kotlin (main_class)
+
+main() {
+    b = build.start()
+    dep(b, ".build.ae")
+    kotlin.assembly(b) {
+        main_class("com.example.MainKt")   // note the Kt suffix for
+                                            // top-level `fun main()`
+        output_jar("app.jar")              // optional; default
+                                           // <module>-assembly.jar
+    }
+}
+```
+
+Implementation is near-identical to `scala.assembly` (in
+`lib/scala/module.ae`): stage compiled classes + the kotlin-stdlib
+jar + every maven dep (unzip each jar), write a Main-Class manifest,
+`jar cfM`. The one Kotlin-specific note is the `Kt` class-name suffix
+that the compiler appends to a file's top-level `fun main()` (file
+`Main.kt` → class `MainKt`); the builder should NOT munge this — the
+user supplies the exact class name. Reuse the three pure helpers
+(`assembly_unzip_jar_cmd`, `assembly_copy_classes_cmd`,
+`assembly_jar_cmd`) — they're generic enough to lift into a shared
+`lib/build` helper if a fourth caller justifies the move.
+
+While here: scala.assembly fixed a latent bug where
+`scala.scalac`'s `jvm_classpath_deps_including_transitive` artifact
+omitted the transitive `build.dep` classpath. Check `lib/kotlin`'s
+`kotlinc` for the same omission before relying on the artifact in
+`kotlin.assembly`.
+
+### `lib/c` third-party C/C++ library build — unblock pytorch c10/util
+
+`itests/pytorch/c10/util/.build.ae` compiles 39 of 42 `.cpp` files
+clean. The 3 omissions (`env.cpp`, `signal_handler.cpp`,
+`tempfile.cpp`) all `#include <fmt/format.h>` and need the {fmt}
+library staged + on the include path. Today there's no aeb-side way
+to declare "fetch + build this third-party C++ lib, then add its
+headers/objects to my compile."
+
+The fetch half exists (`lib/fetch`). The missing half is a C/C++
+third-party build + consume contract. Expected grammar — a sibling
+`.build.ae` for {fmt} that produces an artifact the c10/util build
+consumes via `build.dep`:
+
+```aether
+// itests/pytorch/third_party/fmt/.build.ae
+import build
+import fetch
+import fetch (url, sha256, extract_to, strip_components)
+import c
+import c (sources, cflag, header_dir)
+
+main() {
+    b = build.start()
+    fetch.archive(b) {
+        url("https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.tar.gz")
+        sha256("...")
+        extract_to("src")
+        strip_components(1)
+    }
+    c.library(b) {                  // NEW builder: compile to a .a /
+        cc("g++")                   // .so + export an include dir as
+        cflag("-std=c++20")         // a consumable artifact
+        sources("src/src/format.cc")
+        header_dir("src/include")   // NEW setter: dir to re-export on
+                                    // the `c_include_dirs` artifact
+    }
+}
+```
+
+Then c10/util consumes it:
+
+```aether
+build.dep(b, "../../third_party/fmt/.build.ae")
+// c.compile auto-picks the dep's c_include_dirs + links its archive
+```
+
+Two new pieces required:
+1. **`c.library(b)`** — compile sources into a static archive
+   (`ar rcs`) or shared object, and write two artifacts:
+   `c_archive` (the `.a`/`.so` path) and `c_include_dirs` (the
+   header roots to re-export). `lib/c` already has `c.compile`
+   (object set) — this adds the archive/library step + the
+   header-export artifact.
+2. **`header_dir(...)` setter + dep-aware include resolution** in
+   `c.compile` so a downstream module that `build.dep`s a
+   `c.library` automatically gets `-I<dir>` for each exported
+   header root and links the archive. The shared-library handoff
+   contract (`ldlibdeps` / `shared_library_deps_including_transitive`)
+   used by the JVM↔native FFI path is the model; this is the
+   C-consumes-C variant.
+
+Once {fmt} is consumable this way, re-enable the 3 omitted sources
+in `c10/util/.build.ae` and the leaf compiles 42/42.
+
+### aeb-resolve.jar: interpolate POM parent/property versions
+
+`itests/clojure-multiproject-example` carries a
+`clojure-dep-patches.bom.ae` that lists Jetty transitives by hand
+(`dep("org.eclipse.jetty:jetty-server:11.0.21")`, …) because
+aeb-resolve.jar can't interpolate `${jetty.version}`-style version
+properties declared in a parent POM / BOM. The resolver walks the
+closure but leaves property-interpolated versions unresolved, so
+those transitives silently drop and the build fails at link/run with
+a `ClassNotFoundException`.
+
+No new `.ae` grammar — this is a `tools/resolver/` (Java) capability.
+Expected behaviour: when a dependency's POM declares
+`<version>${some.prop}</version>`, resolve `some.prop` from the
+`<properties>` block of that POM and its parent chain (and from any
+imported BOM's `<properties>`) before failing. The Maven Resolver
+API exposes the effective model; the gap is that
+`SimpleModelResolver` in `MavenResolver.java` doesn't fully
+property-interpolate the parent chain.
+
+Acceptance: delete `clojure-dep-patches.bom.ae`, re-run the clojure
+itest, and the Ring/Jetty web apps (`snafuapp`,
+`usermanager-first-principles`) still resolve their full Jetty tree
+and pass tests.
+
+### Environmental itest blockers (NOT aeb gaps — recorded for honesty)
+
+These two itests don't compile/link to green, but the cause is a
+missing host library or an upstream/toolchain incompatibility, not
+an aeb feature gap. No grammar to add; recorded so a future session
+doesn't chase them as aeb bugs.
+
+- **`rust-multi-module-oxen`** — `crates/server` compiles to objects
+  then fails to link with `-lduckdb`: `libduckdb-dev` is not
+  installed on the dev box. `cargo build` fails identically outside
+  aeb. Fix is `apt install libduckdb-dev` (or a container), not aeb
+  work. `oxen-py` is also skipped (needs PyO3 + maturin + Python
+  headers).
+- **`mrhdias_rust_store`** — upstream `ord_subset` crate is
+  incompatible with the current rustc. Fails under bare `cargo build`
+  too. Would need an upstream bump or a pin to an older rustc; not
+  aeb work.
