@@ -1,0 +1,10 @@
+// A pure-Aether library module, pulled into the program by `import
+// greet` from the entry. No .build.ae of its own — it is a *library*,
+// not a build target, so aeb never builds it standalone; aether.program
+// discovers it through the entry's import closure and compiles it
+// --emit=lib, then links its object into the binary.
+import std.string
+
+greeting(name: string) {
+    return string.concat("hi-", name)
+}

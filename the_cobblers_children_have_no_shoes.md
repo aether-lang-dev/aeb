@@ -7,6 +7,64 @@
 
 ---
 
+## Resolution (2026-05-24) — already exists as `aether.program`
+
+**The capability is already here, in `lib/aether` — not `lib/c`.** The ask
+looked only at `c.program` (whose `aether_source()` is deliberately the
+*C-program-FFIs-into-Aether* direction) and concluded no exe path
+existed. But `aether.program` (`lib/aether/module.ae`) builds an Aether
+`main()` straight into the binary: its manual aetherc+gcc path runs
+`aetherc <src> <c>` with the **default emit mode (= exe)**, producing
+`int main(argc,argv)` → `aether_args_init` → your Aether `main()`. The
+"zero `--emit=exe` hits" grep is a red herring — the default *is* exe, so
+the flag is never spelled out.
+
+**Why not add `aether_entry()` to `c.program` (Option A)?** It would
+conflate target semantics. The intended split:
+
+- **`aether.program`** — Aether `main()` is the entry; links Aether libs
+  (`import` + transitive-regen, or `regen(...)`) *and* C libs
+  (`extra_source(...)` for `.c`, `link_flag(...)` for `-lfoo`).
+- **`c.program`** — C `main()` is the entry; links C libs, and Aether
+  libs *only* to satisfy C `extern`s into Aether symbols
+  (`aether_source(...)`). See `itests/c-aether-spike-a`.
+
+So a C `main` stays C; an Aether `main` is `aether.program`'s job.
+
+**For mquickjs `example` (zero committed C):**
+
+```aether
+import build
+import aether
+import aether (source, output, extra_source)
+main() {
+    b = build.start()
+    aether.program(b) {
+        source("ae/example.ae")        // entry: its main() IS the main
+        // sibling engine .ae are auto-discovered via example.ae's
+        // `import` closure and compiled --emit=lib (transitive-regen);
+        // declare explicitly with regen("../ae/foo.ae") if any aren't imported.
+        extra_source("../quickjs/quickjs.c")   // C library, if any
+        output("example")
+    }
+}
+```
+
+`mqjs.c`'s 3-line `main` shim can likewise be deleted — make `ae/mqjs.ae`'s
+`main()` the entry the same way.
+
+**Verified end-to-end** by a committed spike,
+`itests/aether-program-spike/` — an Aether `main()` program with **no
+committed C main**, linking *both* a sibling Aether lib (`import greet`)
+and a C library (`extern c_triple` from `cbits.c`), with an argv
+assertion (`app script.js` → `argv1=script.js`). Covers the ask's
+acceptance criteria 1, 3 (no `c.program`/itest changes), and 4. One
+correction to the ask's notes: the argv accessors are bare
+`aether_args_count()` / `aether_args_get(i)` (with `import std.os` +
+`--with=os`), not `os.`-qualified.
+
+---
+
 ## TL;DR
 
 aeb's SDK can build a C program, a Rust program, Scala, Angular, dotnet…

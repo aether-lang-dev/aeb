@@ -1,0 +1,20 @@
+// Build an Aether *program* — main() is the entry, zero committed C
+// `main`. aether.program:
+//   - compiles app.ae (the entry) to a binary via aetherc's default
+//     emit mode (=exe): real main(argc,argv) → aether_args_init → main()
+//   - discovers `import greet` and compiles the sibling .ae --emit=lib,
+//     linking its object in (transitive-regen)
+//   - links the committed C library cbits.c via extra_source()
+//   - auto-links libaether.a
+import build
+import aether
+import aether (source, output, extra_source)
+
+main() {
+    b = build.start()
+    aether.program(b) {
+        source("app.ae")
+        extra_source("cbits.c")
+        output("app")
+    }
+}

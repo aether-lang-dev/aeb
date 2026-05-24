@@ -1,0 +1,26 @@
+// The program ENTRY: its main() is the process entry point. aeb's
+// aether.program builder compiles this with aetherc's default emit mode
+// (=exe), which emits `int main(argc, argv)` → aether_args_init(argc,
+// argv) → this main(). No committed C `main` shim is involved.
+//
+// It exercises both link directions an Aether program is allowed:
+//   - a sibling Aether library  (`import greet`)
+//   - a C library               (`extern c_triple`, linked from cbits.c)
+// and reads argv (proving aether_args_init wired the OS args through).
+import std.os
+import std.io
+import greet
+
+extern c_triple(x: int) -> int
+
+main() {
+    arg = "none"
+    if aether_args_count() > 1 {
+        arg = aether_args_get(1)
+    }
+    println("argv1=${arg}")
+    println("greet=${greet.greeting(arg)}")
+    r = c_triple(7)
+    println("triple=${r}")
+    return 0
+}
