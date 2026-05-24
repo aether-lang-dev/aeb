@@ -67,6 +67,40 @@ _pack_server(name: string, bin: string, args: string, port: int, ready_ms: int) 
     return rec
 }
 
+// Expected teardown lines for a server whose uppercased name is `up`.
+// `dol` is "$" (built at the call site so Aether doesn't interpolate).
+_exp_term(dol: string, up: string) {
+    s = string.concat("kill -TERM \"", dol)
+    s = string.concat(s, "{")
+    s = string.concat(s, up)
+    s = string.concat(s, "_PID}\" 2>/dev/null || true")
+    return s
+}
+
+_exp_grace(dol: string, up: string) {
+    s = string.concat("for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 \"", dol)
+    s = string.concat(s, "{")
+    s = string.concat(s, up)
+    s = string.concat(s, "_PID}\" 2>/dev/null || break; sleep 0.1; done")
+    return s
+}
+
+_exp_kill(dol: string, up: string) {
+    s = string.concat("kill -KILL \"", dol)
+    s = string.concat(s, "{")
+    s = string.concat(s, up)
+    s = string.concat(s, "_PID}\" 2>/dev/null || true")
+    return s
+}
+
+_exp_wait(dol: string, up: string) {
+    s = string.concat("wait \"", dol)
+    s = string.concat(s, "{")
+    s = string.concat(s, up)
+    s = string.concat(s, "_PID}\" 2>/dev/null || true")
+    return s
+}
+
 main() {
     // --- _upper_ascii_word ---
     _assert_eq("upper: simple",        _upper_ascii_word("primary"),  "PRIMARY")
@@ -137,7 +171,7 @@ main() {
     // Built via concat — Aether parses ${...} in string literals.
     dol = "$"
     expected_spawn = string.concat("( eval exec \"\\\"", dol)
-    expected_spawn = string.concat(expected_spawn, "{PRIMARY_BIN}\\\" demo /tmp/r1 9540\" ) > \"/tmp/aeb_fixture_primary.log\" 2>&1 & export PRIMARY_PID=")
+    expected_spawn = string.concat(expected_spawn, "{PRIMARY_BIN}\\\" demo /tmp/r1 9540\" ) > \"/tmp/aeb_fixture_primary.log\" 2>&1 < /dev/null & export PRIMARY_PID=")
     expected_spawn = string.concat(expected_spawn, dol)
     expected_spawn = string.concat(expected_spawn, "!")
     _assert_eq("pre: server spawn+PID", s2, expected_spawn)
@@ -150,47 +184,50 @@ main() {
     expected_sleep = string.concat(expected_sleep, "((1500%1000)))")
     _assert_eq("pre: server sleep",        s3, expected_sleep)
 
-    // --- _synth_fixture_post: kill + rm in correct order ---
+    // --- _synth_fixture_post: teardown + rm in correct order ---
+    // Each server now lowers to 4 teardown lines (TERM, grace-poll,
+    // KILL, wait) so a server that ignores TERM still dies and is
+    // reaped before the step returns (server-daemon-snafu.md).
     seeds_with_server = list.new()
     list.add(seeds_with_server, _pack_seed("primary", "/tmp/r1", ""))
     servers_one = list.new()
     list.add(servers_one, _pack_server("primary", "/usr/bin/server", "", 9540, 1000))
     post = _synth_fixture_post(seeds_with_server, servers_one)
-    _assert_eq_int("post: kill+wait+rm = 3 lines", list.size(post), 3)
-    pk, _ = list.get(post, 0)
-    pw, _ = list.get(post, 1)
-    pr, _ = list.get(post, 2)
-    expected_kill = string.concat("kill \"", dol)
-    expected_kill = string.concat(expected_kill, "{PRIMARY_PID}\" 2>/dev/null || true")
-    expected_wait = string.concat("wait \"", dol)
-    expected_wait = string.concat(expected_wait, "{PRIMARY_PID}\" 2>/dev/null || true")
-    _assert_eq("post: kill",  pk, expected_kill)
-    _assert_eq("post: wait",  pw, expected_wait)
+    _assert_eq_int("post: 4 teardown + rm = 5 lines", list.size(post), 5)
+    pt, _ = list.get(post, 0)
+    pg, _ = list.get(post, 1)
+    pk, _ = list.get(post, 2)
+    pw, _ = list.get(post, 3)
+    pr, _ = list.get(post, 4)
+    _assert_eq("post: TERM",  pt, _exp_term(dol, "PRIMARY"))
+    _assert_eq("post: grace", pg, _exp_grace(dol, "PRIMARY"))
+    _assert_eq("post: KILL",  pk, _exp_kill(dol, "PRIMARY"))
+    _assert_eq("post: wait",  pw, _exp_wait(dol, "PRIMARY"))
     _assert_eq("post: rm",    pr, "rm -rf \"/tmp/r1\" 2>/dev/null || true")
 
-    // --- _synth_fixture_post: multi-server reverse-order kill ---
+    // --- _synth_fixture_post: multi-server reverse-order teardown ---
     s_two = list.new()
     list.add(s_two, _pack_server("source",      "/b/s1", "", 9430, 1000))
     list.add(s_two, _pack_server("destination", "/b/s2", "", 9431, 1000))
     post2 = _synth_fixture_post(null, s_two)
-    _assert_eq_int("post: 2 servers = 4 lines", list.size(post2), 4)
-    // Reverse order: destination killed first.
-    p2k0, _ = list.get(post2, 0)
-    p2k1, _ = list.get(post2, 1)
-    p2k2, _ = list.get(post2, 2)
-    p2k3, _ = list.get(post2, 3)
-    exp_dk = string.concat("kill \"", dol)
-    exp_dk = string.concat(exp_dk, "{DESTINATION_PID}\" 2>/dev/null || true")
-    exp_dw = string.concat("wait \"", dol)
-    exp_dw = string.concat(exp_dw, "{DESTINATION_PID}\" 2>/dev/null || true")
-    exp_sk = string.concat("kill \"", dol)
-    exp_sk = string.concat(exp_sk, "{SOURCE_PID}\" 2>/dev/null || true")
-    exp_sw = string.concat("wait \"", dol)
-    exp_sw = string.concat(exp_sw, "{SOURCE_PID}\" 2>/dev/null || true")
-    _assert_eq("post: dest kill first", p2k0, exp_dk)
-    _assert_eq("post: dest wait",       p2k1, exp_dw)
-    _assert_eq("post: source kill last", p2k2, exp_sk)
-    _assert_eq("post: source wait",     p2k3, exp_sw)
+    _assert_eq_int("post: 2 servers × 4 = 8 lines", list.size(post2), 8)
+    // Reverse order: destination torn down first (4 lines), then source.
+    d0, _ = list.get(post2, 0)
+    d1, _ = list.get(post2, 1)
+    d2, _ = list.get(post2, 2)
+    d3, _ = list.get(post2, 3)
+    s0, _ = list.get(post2, 4)
+    s1, _ = list.get(post2, 5)
+    s2b, _ = list.get(post2, 6)
+    s3b, _ = list.get(post2, 7)
+    _assert_eq("post: dest TERM first", d0, _exp_term(dol, "DESTINATION"))
+    _assert_eq("post: dest grace",      d1, _exp_grace(dol, "DESTINATION"))
+    _assert_eq("post: dest KILL",       d2, _exp_kill(dol, "DESTINATION"))
+    _assert_eq("post: dest wait",       d3, _exp_wait(dol, "DESTINATION"))
+    _assert_eq("post: source TERM last", s0, _exp_term(dol, "SOURCE"))
+    _assert_eq("post: source grace",     s1, _exp_grace(dol, "SOURCE"))
+    _assert_eq("post: source KILL",      s2b, _exp_kill(dol, "SOURCE"))
+    _assert_eq("post: source wait",      s3b, _exp_wait(dol, "SOURCE"))
 
     // --- _synth_fixture_pre: declaration order across seeds + servers ---
     seeds_two = list.new()

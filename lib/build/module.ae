@@ -1043,7 +1043,11 @@ _synth_fixture_pre(seeds: ptr, servers: ptr) {
             spawn_line = string.concat(spawn_line, args)
             spawn_line = string.concat(spawn_line, "\" ) > \"")
             spawn_line = string.concat(spawn_line, log)
-            spawn_line = string.concat(spawn_line, "\" 2>&1 & export ")
+            // Redirect stdin from /dev/null so the backgrounded server
+            // never shares the controlling terminal (a server holding
+            // the tty can interfere with the foreground command under a
+            // sandboxed harness — see server-daemon-snafu.md).
+            spawn_line = string.concat(spawn_line, "\" 2>&1 < /dev/null & export ")
             spawn_line = string.concat(spawn_line, up)
             spawn_line = string.concat(spawn_line, "_PID=")
             spawn_line = string.concat(spawn_line, dol)
@@ -1090,14 +1094,29 @@ _synth_fixture_post(seeds: ptr, servers: ptr) {
             f = _split_tabs(rec, 5)
             name, _ = list.get(f, 0)
             up = _upper_ascii_word(name)
-            // Render: kill "${PRIMARY_PID}" 2>/dev/null || true
             pid_ref = string.concat(dol, "{")
             pid_ref = string.concat(pid_ref, up)
             pid_ref = string.concat(pid_ref, "_PID}")
-            kill_line = string.concat("kill \"", pid_ref)
+            // Robust teardown so no server outlives the step. A native
+            // server left running past the step poisons a sandboxed
+            // harness's exit (server-daemon-snafu.md), so don't depend
+            // on the server honoring any particular signal: send TERM
+            // for a graceful stop, poll up to ~1s, then an uncatchable
+            // KILL, then reap. Renders, per server:
+            //   kill -TERM "${X_PID}" 2>/dev/null || true
+            //   for _i in 1 2 ... 10; do kill -0 "${X_PID}" 2>/dev/null || break; sleep 0.1; done
+            //   kill -KILL "${X_PID}" 2>/dev/null || true
+            //   wait "${X_PID}" 2>/dev/null || true
+            term_line = string.concat("kill -TERM \"", pid_ref)
+            term_line = string.concat(term_line, "\" 2>/dev/null || true")
+            grace_line = string.concat("for _i in 1 2 3 4 5 6 7 8 9 10; do kill -0 \"", pid_ref)
+            grace_line = string.concat(grace_line, "\" 2>/dev/null || break; sleep 0.1; done")
+            kill_line = string.concat("kill -KILL \"", pid_ref)
             kill_line = string.concat(kill_line, "\" 2>/dev/null || true")
             wait_line = string.concat("wait \"", pid_ref)
             wait_line = string.concat(wait_line, "\" 2>/dev/null || true")
+            list.add(out, term_line)
+            list.add(out, grace_line)
             list.add(out, kill_line)
             list.add(out, wait_line)
             j = j - 1

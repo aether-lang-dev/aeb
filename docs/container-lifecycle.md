@@ -113,3 +113,31 @@ finishes. This inline-Aether pattern is the lighter answer when you
 need a service standing for the duration of a step. For the same
 "spawn / exercise / kill" shape in *tests*, `bash.test`'s
 `fixture_server` grammar does it within a single test builder.
+
+## In-tree native servers: one-shot, or a reaped fixture — never a bare `&`
+
+The example above backgrounds with `docker run -d`, which is safe because
+the container daemonizes *into* the docker daemon — nothing is left
+running in aeb's own process tree. A **native, in-tree** server (an
+Aether `std.http.server`, a Go/Node test server, …) is different: if a
+step launches it with a hand-rolled `os.system("./server &")` and doesn't
+reliably reap it, the server can outlive the step. Under a sandboxed
+agent/CI harness a lingering native server has been observed to **poison
+the build's exit code** (a SIGURG/`144` or `1` with truncated output),
+even though the build logic itself succeeded — see
+[`server-daemon-snafu.md`](../server-daemon-snafu.md).
+
+Two safe shapes, in order of preference:
+
+1. **One-shot** — the server's whole lifecycle lives in a single process
+   that starts it, self-probes over loopback, stops it, and exits (the
+   `.up_poke_down.ae` shape above). Nothing is ever left backgrounded.
+2. **A reaped fixture** — `bash.test`'s `fixture_server` (and
+   `aether.driver_test`'s) launch the server with its stdin detached and
+   tear it down with `TERM → grace → KILL → wait`, so it is gone before
+   the step returns regardless of how the server handles signals. Use
+   this when a test needs the service standing while it runs.
+
+Avoid the third shape — a bare `os.system("server &")` in a build step
+with an ad-hoc `kill` — precisely because the reap can race and leave the
+server lingering into aeb's exit.
