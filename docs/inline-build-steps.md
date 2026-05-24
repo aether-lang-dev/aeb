@@ -14,6 +14,10 @@ That inline code calls functions like any normal Aether program:
 - functions pulled in with **`import`** (the stdlib — `std.os`,
   `std.io`, `std.string`, `std.path` — or your own module).
 
+For a multi-step worked example of this — bringing a container up,
+poking an endpoint inside it, then tearing it down as three dep-ordered
+inline steps — see [container-lifecycle.md](container-lifecycle.md).
+
 This is the escape hatch that means you never hit a wall: if no SDK
 builder does what you need, the full language is right there. (When a
 pattern recurs across projects, promote it to a real SDK setter or

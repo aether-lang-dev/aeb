@@ -1,0 +1,33 @@
+// Step 3 of 3 — bring the container DOWN.
+//
+// `dep(b, "...poke/.build.ae")` orders this after the poke step, so
+// teardown runs last. Stops and removes the container by its shared
+// name. Idempotent (`rm -f` tolerates an already-gone container), so
+// re-running the pipeline is clean.
+
+import build
+import build (dep)
+import std.os
+import std.string
+
+_engine() {
+    out, _ = os.exec("command -v podman >/dev/null 2>&1 && echo podman || echo docker")
+    return string.trim(out)
+}
+
+main() {
+    b = build.start()
+    dep(b, "docs/examples/container-lifecycle/poke/.build.ae")
+
+    eng = _engine()
+    name = "aeb-cldemo"
+
+    _stop = os.system("${eng} stop ${name} >/dev/null 2>&1")
+    rc = os.system("${eng} rm -f ${name} >/dev/null 2>&1")
+    if rc != 0 {
+        println("down: ${name} was already gone")
+    } else {
+        println("down: stopped + removed ${name}")
+    }
+    return 0
+}
