@@ -1,0 +1,83 @@
+// Unit tests for the aether.program include-dir + out-of-tree regen
+// helpers (the two mquickjs follow-up gaps):
+//   Gap 1 — _resolved_user_include_dirs / _inc_flags_from_dirs build the
+//           extra `-I` block for extra_source C compiles.
+//   Gap 2 — _encode_path_for_filename / _regen_target_c place each
+//           regen'd .c under target/regen/ with a collision-free name.
+// Pure helpers — no toolchain or filesystem needed.
+
+import aether (_encode_path_for_filename, _regen_target_c,
+               _inc_flags_from_dirs, _resolved_user_include_dirs)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+main() {
+    // --- Gap 2: path encoding + target placement ---
+    _assert("encode replaces non-alnum with _",
+        string.equals(_encode_path_for_filename("/proj/ae/foo.ae"), "_proj_ae_foo_ae"))
+    _assert("encode keeps digits",
+        string.equals(_encode_path_for_filename("a1/b2.ae"), "a1_b2_ae"))
+
+    _assert("regen target lands under target/regen/",
+        string.equals(_regen_target_c("/t", "/proj/ae/foo.ae"),
+                      "/t/regen/_proj_ae_foo_ae_generated.c"))
+
+    // Same basename in different dirs must NOT collide (the whole path
+    // is encoded, so the outputs differ).
+    a = _regen_target_c("/t", "/x/util.ae")
+    b = _regen_target_c("/t", "/y/util.ae")
+    _assert("same-basename sources get distinct generated names",
+        1 - _eqs(a, b))
+
+    // --- Gap 1: include-dir flag assembly ---
+    dirs = list.new()
+    list.add(dirs, "/i1")
+    list.add(dirs, "/i2")
+    _assert("inc flags quote each dir",
+        string.equals(_inc_flags_from_dirs(dirs), " -I'/i1' -I'/i2'"))
+
+    empty = list.new()
+    _assert("inc flags empty for no dirs",
+        string.equals(_inc_flags_from_dirs(empty), ""))
+
+    // user include_dir(): relative resolves against source_dir, absolute
+    // passes through.
+    bm = map.new()
+    ud = list.new()
+    list.add(ud, "inc")
+    list.add(ud, "/abs/inc")
+    map.put(bm, "include_dir", ud)
+    res = _resolved_user_include_dirs(bm, "/src")
+    _assert("two resolved user include dirs", list.size(res) == 2)
+    r0, _ = list.get(res, 0)
+    r1, _ = list.get(res, 1)
+    _assert("relative include dir resolves to source_dir",
+        string.equals(r0, "/src/inc"))
+    _assert("absolute include dir passes through",
+        string.equals(r1, "/abs/inc"))
+
+    // No include_dir declared → empty list (no NPE on a bare builder).
+    bm2 = map.new()
+    _assert("no include_dir -> empty resolved list",
+        list.size(_resolved_user_include_dirs(bm2, "/src")) == 0)
+    _assert("null builder -> empty resolved list",
+        list.size(_resolved_user_include_dirs(null, "/src")) == 0)
+
+    println("aether include-dir tests done")
+}
+
+_eqs(a: string, b: string) {
+    if string.equals(a, b) == 1 { return 1 }
+    return 0
+}

@@ -20,6 +20,13 @@ echo "${OUT}"
 fail() { echo "FAIL: $1" >&2; exit 1; }
 grep -qx "argv1=script.js"     <<<"${OUT}" || fail "argv did not reach main()"
 grep -qx "greet=hi-script.js"  <<<"${OUT}" || fail "sibling Aether lib not linked"
-grep -qx "triple=21"           <<<"${OUT}" || fail "C library not linked"
+grep -qx "triple=21"           <<<"${OUT}" || fail "C library (via include_dir header) not linked"
 
-echo "PASS: Aether main() saw argv; linked sibling .ae lib + C lib; no committed C main"
+# Gap 2: regen must not litter the committed source tree. The sibling
+# Aether lib's generated C belongs under target/, not beside greet.ae.
+STRAY="$(find . -path ./target -prune -o -name '*_generated.c' -print 2>/dev/null)"
+if [ -n "${STRAY}" ]; then
+    fail "generated C leaked into the source tree: ${STRAY}"
+fi
+
+echo "PASS: Aether main() saw argv; sibling .ae lib + C lib (incl. include_dir header) linked; regen stayed out of the source tree; no committed C main"

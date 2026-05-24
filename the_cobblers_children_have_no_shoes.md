@@ -182,3 +182,48 @@ embedding program — no committed C anywhere — and `aether.program` gains
 parity with `c.program` for the (common) case of an Aether program that
 embeds a generated C data table. The cobbler's child gets *shoes that
 fit*, not just shoes.
+
+---
+
+## Resolution (2026-05-24) — both gaps closed
+
+Both shipped in `lib/aether/module.ae`. `tests/run.sh` green (65),
+`c.program` and the existing `aether.program` spike unaffected.
+
+**Gap 1 — include dirs.** Added an `include_dir(dir)` setter (relative →
+`source_dir`, absolute passes through; repeatable; opts into the manual
+path) **and** automatic collection of a dependency's `c_header_dirs`
+artifact — the same key `c.generated_header` publishes and `c.program`
+consumes via `_collect_dep_header_dirs`. Both feed one resolved dir list
+that becomes the gcc `-I` block for the `extra_source` compile. So either
+route works:
+
+```aether
+aether.program(b) {
+    source("../ae/example.ae")
+    extra_source("gen/example_stdlib_table.c")  // #include "example_stdlib.h"
+    include_dir("..")                            // for mquickix_priv.h
+    dep(b, "example-app/gen/.build.ae")          // its c_header_dirs is auto -I'd
+    output("example")
+}
+```
+
+The resolved dirs (and the files inside them) are hashed into the
+content-addressed cache key, so a regenerated table header busts the
+consumer's cache. (Best-effort per file: a non-hashable entry is skipped,
+not fatal.)
+
+**Gap 2 — out-of-tree regen.** `regen(...)` now writes each `X.ae`'s
+generated C to `<target_dir>/regen/<encoded-abs-path>_generated.c`
+instead of beside the source. The filename encodes the *whole* absolute
+`.ae` path, so two same-basename engine sources can't collide — your
+~155-file flat `../ae` set lands entirely under `target/`, leaving the
+committed tree clean. No `ae/*_generated.c` gitignore needed.
+
+**Verified** by the extended `itests/aether-program-spike/` (now also
+links a C lib whose header resolves only via `include_dir`, and asserts
+no `*_generated.c` escapes into the source tree) plus
+`tests/test_aether_include_dirs.ae` (helper units) and the relocated
+`tests/test_aether_regen.ae`. One naming note: the setter is
+`include_dir(...)`, not `cflag(...)` — scoped to the `-I` need you
+described; ping back if `-D`/other cflags are wanted too.

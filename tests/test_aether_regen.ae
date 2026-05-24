@@ -12,12 +12,13 @@
 // The "toolchain" is a wrapper script around the real aetherc so
 // its mtime can be bumped without touching the installed binary.
 
-import aether (_run_regen_pass)
+import aether (_run_regen_pass, _regen_target_c)
 import std.string
 import std.os
 import std.file
 import std.list
 import std.map
+import std.path
 
 extern println(s: string)
 
@@ -48,7 +49,10 @@ main() {
     aec = "${base}/aetherc-wrap"
     os.system("printf '#!/bin/sh\\nexec ${aec_real} \"$@\"\\n' > ${aec}; chmod +x ${aec}")
 
-    genc = "${base}/dep_generated.c"
+    // Generated C now lands out-of-tree under <target>/regen/ (Gap 2),
+    // named from the encoded absolute .ae path — not beside dep.ae.
+    tgt = "${base}/target"
+    genc = _regen_target_c(tgt, path.join(base, "dep.ae"))
 
     bm = map.new()
     rl = list.new()
@@ -59,7 +63,7 @@ main() {
     _r4 = map.put(bm, "regen_caps", caps)
 
     // 1. Fresh: the .c does not exist → regen produces it.
-    rc1 = _run_regen_pass(bm, base, aec, "regen-test")
+    rc1 = _run_regen_pass(bm, base, tgt, aec, "regen-test")
     m1 = file.mtime(genc)
     if rc1 != 0 {
         println("PASS: regen test skipped — aetherc --emit=lib unavailable")
@@ -71,13 +75,13 @@ main() {
 
     // 2. Nothing changed → regen skips, .c mtime stays put.
     os.system("sleep 2")
-    rc2 = _run_regen_pass(bm, base, aec, "regen-test")
+    rc2 = _run_regen_pass(bm, base, tgt, aec, "regen-test")
     m2 = file.mtime(genc)
     _assert("unchanged inputs: regen skipped (mtime stable)", _eqi(m1, m2))
 
     // 3. Source edited → regen re-runs (the basic mtime-stale path).
     os.system("sleep 2; touch ${base}/dep.ae")
-    rc3 = _run_regen_pass(bm, base, aec, "regen-test")
+    rc3 = _run_regen_pass(bm, base, tgt, aec, "regen-test")
     m3 = file.mtime(genc)
     _assert("edited .ae source: regen re-ran", _gti(m3, m2))
 
@@ -85,7 +89,7 @@ main() {
     //    → regen re-runs. This is the 13e562b fix cache_stale_prob.md
     //    claimed was missing.
     os.system("sleep 2; touch ${aec}")
-    rc4 = _run_regen_pass(bm, base, aec, "regen-test")
+    rc4 = _run_regen_pass(bm, base, tgt, aec, "regen-test")
     m4 = file.mtime(genc)
     _assert("rebuilt toolchain: regen re-ran", _gti(m4, m3))
 

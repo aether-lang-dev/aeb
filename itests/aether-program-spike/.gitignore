@@ -1,5 +1,2 @@
 target/
 .aeb/
-# aether.program's transitive-regen writes the sibling lib's generated C
-# next to its .ae; it's a build artifact, not source.
-**/*_generated.c

@@ -239,6 +239,25 @@ link_flag(_ctx: ptr, flag: string) {
     _e2 = list.add(flags, flag)
 }
 
+// include_dir(dir) — add a `-I` include directory for the gcc compile
+// of this program's C inputs (extra_source files, and the entry's
+// generated .c). Relative paths resolve against source_dir at link
+// time; absolute paths pass through. Repeatable. Presence opts into the
+// manual aetherc+gcc path (like extra_source / link_flag).
+//
+// A wrapper .c that `#include`s a generated data table needs this so the
+// header resolves. The complementary route is automatic: a dependency
+// that published the `c_header_dirs` artifact (e.g. via
+// c.generated_header) has its include dir added too — `dep` the
+// producer node and the `-I` is honored without a manual include_dir.
+include_dir(_ctx: ptr, dir: string) {
+    if map.has(_ctx, "include_dir") == 0 {
+        _e1 = map.put(_ctx, "include_dir", list.new())
+    }
+    dirs, _ = map.get(_ctx, "include_dir")
+    _e2 = list.add(dirs, dir)
+}
+
 // regen(ae_path) — declare an Aether source whose paired
 // `_generated.c` should be (re)built via `aetherc --emit=lib` before
 // linking. Path is module-relative (resolved against source_dir).
@@ -658,6 +677,41 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
         }
     }
 
+    // Extra include dirs (user include_dir + dep c_header_dirs), resolved
+    // and stashed on the builder by _compile_and_link. Hash the dir paths
+    // AND the files directly inside them, so a regenerated header (e.g. a
+    // generated data table a dep published) busts the consumer's key.
+    // Best-effort per file: a non-hashable entry (a subdirectory, an
+    // unreadable file) is skipped rather than failing the whole key —
+    // the dir-path part still moves the key on structural changes.
+    if builder_map != null {
+        if map.has(builder_map, "_resolved_inc_dirs") == 1 {
+            inc_dirs, _ = map.get(builder_map, "_resolved_inc_dirs")
+            nid = list.size(inc_dirs)
+            idi = 0
+            while idi < nid {
+                idd, _ = list.get(inc_dirs, idi)
+                idi = idi + 1
+                list.add(parts, string.concat("incdir:", idd))
+                matches, _gie = fs.glob(string.concat(idd, "/*"))
+                if matches != null {
+                    mc = dir_list_count(matches)
+                    mi = 0
+                    while mi < mc {
+                        mf = dir_list_get(matches, mi)
+                        mi = mi + 1
+                        ih, ihe = cache.hash_file(mf)
+                        if string.length(ihe) == 0 {
+                            list.add(parts, string.concat("incfile:", string.concat(mf, "")))
+                            list.add(parts, string.concat("incfile-hash:", ih))
+                        }
+                    }
+                    dir_list_free(matches)
+                }
+            }
+        }
+    }
+
     // Link flags, in declared order.
     if builder_map != null {
         if map.has(builder_map, "link_flag") == 1 {
@@ -721,8 +775,101 @@ _has_manual_overrides(builder_map: ptr) {
     if map.has(builder_map, "extra_source") == 1 { return 1 }
     if map.has(builder_map, "extra_source_glob") == 1 { return 1 }
     if map.has(builder_map, "link_flag") == 1 { return 1 }
+    if map.has(builder_map, "include_dir") == 1 { return 1 }
     if map.has(builder_map, "regen") == 1 { return 1 }
     return 0
+}
+
+// --- Include dirs for the gcc compile (Gap 1) -----------------------
+//
+// Two sources of `-I` dirs beyond the Aether runtime include root:
+//   1. user include_dir(...) entries (relative → source_dir),
+//   2. dependencies' published `c_header_dirs` artifact (the same key
+//      c.generated_header writes and c.program consumes).
+// Both feed one resolved dir list, used to build the `-I` flag block
+// AND (stashed on the builder) to hash into the cache key.
+
+// Resolved user include_dir entries (absolute paths). Empty list when
+// none declared.
+_resolved_user_include_dirs(builder_map: ptr, source_dir: string) {
+    out = list.new()
+    if builder_map == null { return out }
+    if map.has(builder_map, "include_dir") == 0 { return out }
+    dirs, _ = map.get(builder_map, "include_dir")
+    n = list.size(dirs)
+    i = 0
+    while i < n {
+        d, _ = list.get(dirs, i)
+        rd = d
+        if string.length(d) > 0 {
+            if string.equals(string.substring(d, 0, 1), "/") == 0 {
+                rd = path.join(source_dir, d)
+            }
+        }
+        list.add(out, rd)
+        i = i + 1
+    }
+    return out
+}
+
+// Raw include dirs published by deps via the `c_header_dirs` artifact
+// (mirrors lib/c's _collect_dep_header_dirs, but returns the dir list
+// rather than a -I string so the dirs can also be hashed).
+_collect_dep_header_dirs(ctx: ptr) {
+    out = list.new()
+    deps, _ = map.get(ctx, "deps")
+    n = list.size(deps)
+    i = 0
+    while i < n {
+        dp, _ = list.get(deps, i)
+        i = i + 1
+        dm = build._strip_lang(dp)
+        dirs = build._read_dep_artifact(ctx, dm, "c_header_dirs")
+        if string.length(dirs) > 0 {
+            lines = string.split(dirs, "\n")
+            m = string.array_size(lines)
+            j = 0
+            while j < m {
+                d = string.array_get(lines, j)
+                j = j + 1
+                t = string.trim(d)
+                if string.length(t) > 0 { list.add(out, t) }
+            }
+            string.array_free(lines)
+        }
+    }
+    return out
+}
+
+// User include dirs + dep header dirs, resolved, in one list.
+_all_extra_include_dirs(ctx: ptr, builder_map: ptr, source_dir: string) {
+    out = _resolved_user_include_dirs(builder_map, source_dir)
+    dep_dirs = _collect_dep_header_dirs(ctx)
+    n = list.size(dep_dirs)
+    i = 0
+    while i < n {
+        d, _ = list.get(dep_dirs, i)
+        list.add(out, d)
+        i = i + 1
+    }
+    return out
+}
+
+// " -I'<dir>'" block for a resolved dir list. Pure.
+_inc_flags_from_dirs(dirs: ptr) {
+    out = ""
+    n = list.size(dirs)
+    i = 0
+    while i < n {
+        d, _ = list.get(dirs, i)
+        if string.length(d) > 0 {
+            out = string.concat(out, " -I'")
+            out = string.concat(out, d)
+            out = string.concat(out, "'")
+        }
+        i = i + 1
+    }
+    return out
 }
 
 // Default build path: shell out to `ae build`. Lets the Aether driver
@@ -853,6 +1000,36 @@ _paired_generated_c(ae_path: string) {
     if string.equals(suffix, ".ae") == 0 { return "" }
     stem = string.substring(ae_path, 0, n - 3)
     return string.concat(stem, "_generated.c")
+}
+
+// Encode a path into a flat, collision-free filename fragment: every
+// non-[A-Za-z0-9] byte becomes '_'. Because the *whole* (absolute) path
+// is encoded, two same-basename sources in different dirs can't collide.
+// Pure. "/proj/ae/foo.ae" → "_proj_ae_foo_ae".
+_encode_path_for_filename(p: string) {
+    keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    out = ""
+    n = string.length(p)
+    i = 0
+    while i < n {
+        ch = string.substring(p, i, i + 1)
+        if string.index_of(keep, ch) >= 0 {
+            out = string.concat(out, ch)
+        } else {
+            out = string.concat(out, "_")
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// Out-of-tree path for a regen'd source's generated C: under
+// <target_dir>/regen/, named from the encoded absolute .ae path so it
+// never collides and never lands next to committed source (Gap 2). Pure
+// (string assembly only). The caller mkdir's <target_dir>/regen.
+_regen_target_c(target_dir: string, ae_abs: string) {
+    fname = string.concat(_encode_path_for_filename(ae_abs), "_generated.c")
+    return path.join(path.join(target_dir, "regen"), fname)
 }
 
 // Scan an .ae source for `import std.X` lines and return a comma-
@@ -1019,13 +1196,18 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
 // Hard-fails the build on the first aetherc error — surfaces aetherc
 // stderr to the user (no 2>/dev/null suppression) so codegen errors
 // are visible.
-_run_regen_pass(builder_map: ptr, source_dir: string, aetherc: string, mod_dir: string) {
+_run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aetherc: string, mod_dir: string) {
     if builder_map == null { return 0 }
     if map.has(builder_map, "regen") == 0 { return 0 }
     regens, _ = map.get(builder_map, "regen")
     regen_caps, _ = map.get(builder_map, "regen_caps")
     n = list.size(regens)
     if n == 0 { return 0 }
+
+    // Generated C lands under <target_dir>/regen/ (Gap 2) — never beside
+    // the committed .ae source. mkdir it once.
+    regen_out = path.join(target_dir, "regen")
+    build._mkdirs(regen_out)
 
     // Ensure extra_source list exists so we can append generated paths.
     if map.has(builder_map, "extra_source") == 0 {
@@ -1049,18 +1231,14 @@ _run_regen_pass(builder_map: ptr, source_dir: string, aetherc: string, mod_dir: 
                 ae_abs = path.join(source_dir, rel)
             }
         }
-        c_rel = _paired_generated_c(rel)
-        if string.length(c_rel) == 0 {
+        // Validate the entry is an .ae, but emit the generated C
+        // out-of-tree under target/ rather than beside the source.
+        if string.length(_paired_generated_c(rel)) == 0 {
             println("${mod_dir}: regen entry must end in .ae: ${rel}")
             return 1
         }
-        c_abs = c_rel
-        if string.length(c_rel) > 0 {
-            firstc = string.substring(c_rel, 0, 1)
-            if string.equals(firstc, "/") == 0 {
-                c_abs = path.join(source_dir, c_rel)
-            }
-        }
+        c_abs = _regen_target_c(target_dir, ae_abs)
+        c_rel = path.basename(c_abs)
 
         ae_mtime = file.mtime(ae_abs)
         if ae_mtime == 0 {
@@ -1273,6 +1451,7 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
 _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, c_path: string) {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
 
     ae_dir = _resolve_aether_dir()
     aetherc = path.join(ae_dir, "aetherc")
@@ -1283,9 +1462,9 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // (transitive-regen-expansion.md).
     _expand_transitive_regens(builder_map, source_dir, src_path)
 
-    // Phase 0b: regen .ae → _generated.c for each entry (declared +
-    // discovered).
-    rrc = _run_regen_pass(builder_map, source_dir, aetherc, mod_dir)
+    // Phase 0b: regen .ae → _generated.c (under target/, not beside the
+    // source) for each entry (declared + discovered).
+    rrc = _run_regen_pass(builder_map, source_dir, target_dir, aetherc, mod_dir)
     if rrc != 0 {
         return rrc
     }
@@ -1301,6 +1480,16 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     }
     dup_flag = build._dup_symbol_link_flag()
     shared_libs = _collect_shared_libs(ctx)
+
+    // Resolve extra `-I` include dirs (user include_dir + dep
+    // c_header_dirs) BEFORE the cache key, and stash them on the builder
+    // so _cache_key_for_aether_link can hash them (and the headers in
+    // them) without a signature change. Built into the gcc -I block at
+    // link time below.
+    extra_inc_dirs = _all_extra_include_dirs(ctx, builder_map, source_dir)
+    if builder_map != null {
+        _eid = map.put(builder_map, "_resolved_inc_dirs", extra_inc_dirs)
+    }
 
     // Expand extra_source_glob(...) patterns into the extra_source
     // list BEFORE the cache key is computed, so the key correctly
@@ -1415,6 +1604,10 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     if string.length(inc_root) > 0 {
         inc_flags = " $(find ${inc_root} -type d -print | sed 's|^|-I|')"
     }
+    // Plus the user/dep extra include dirs (Gap 1) — so an extra_source
+    // wrapper .c that #includes a project or generated-table header
+    // resolves. Resolved once above and stashed on the builder.
+    inc_flags = string.concat(inc_flags, _inc_flags_from_dirs(extra_inc_dirs))
 
     coverage = ""
     if string.length(os.getenv("AEB_COVERAGE")) > 0 {

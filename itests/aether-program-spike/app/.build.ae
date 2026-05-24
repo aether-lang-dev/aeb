@@ -3,18 +3,21 @@
 //   - compiles app.ae (the entry) to a binary via aetherc's default
 //     emit mode (=exe): real main(argc,argv) → aether_args_init → main()
 //   - discovers `import greet` and compiles the sibling .ae --emit=lib,
-//     linking its object in (transitive-regen)
-//   - links the committed C library cbits.c via extra_source()
+//     linking its object in (transitive-regen). Its generated C lands
+//     under target/, never beside the source (Gap 2).
+//   - links the committed C library cbits.c via extra_source(); cbits.c
+//     #includes ../inc/rom.h, resolved via include_dir() (Gap 1).
 //   - auto-links libaether.a
 import build
 import aether
-import aether (source, output, extra_source)
+import aether (source, output, extra_source, include_dir)
 
 main() {
     b = build.start()
     aether.program(b) {
         source("app.ae")
         extra_source("cbits.c")
+        include_dir("../inc")
         output("app")
     }
 }

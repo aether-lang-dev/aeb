@@ -16,14 +16,25 @@ the capability already exists as `aether.program` (in `lib/aether`), not
   libs only to satisfy C `extern`s into Aether symbols
   (`aether_source`). See `itests/c-aether-spike-a`.
 
+It also pins the two mquickjs follow-up gaps:
+
+- **Gap 1 — include dirs.** `cbits.c` `#include`s `inc/rom.h`, which
+  resolves only because `.build.ae` declares `include_dir("../inc")`.
+  (`aether.program` also auto-collects a dependency's published
+  `c_header_dirs`, the same artifact `c.generated_header` writes.)
+- **Gap 2 — out-of-tree regen.** The sibling Aether lib's generated C
+  lands under `target/app/regen/`, never beside `greet/module.ae`; the
+  test fails if any `*_generated.c` appears in the source tree.
+
 ## Layout
 
 ```
-app/.build.ae    aether.program { source("app.ae") extra_source("cbits.c") output("app") }
+app/.build.ae    aether.program { source extra_source include_dir output }
 app/app.ae       entry: main() reads argv, calls greet.greeting + extern c_triple
-app/cbits.c      a committed C *library* (not a main shim) — extern c_triple
+app/cbits.c      a committed C *library* (not a main shim); #includes rom.h
+inc/rom.h        a header in a non-source include dir (resolved via include_dir)
 app/.tests.ae    build.dep app, then bash.test (runs test_argv.sh)
-app/test_argv.sh argv + link-direction assertion
+app/test_argv.sh argv + link-direction + clean-source-tree assertions
 greet/module.ae  a pure-Aether library (no .build.ae) pulled in via `import greet`
 ```
 
