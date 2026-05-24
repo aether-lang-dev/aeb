@@ -1,19 +1,18 @@
 // Tests for the per-target status machine (lifecycle_plan.md Slice 1):
 // build.session status table + fail / record_status + the query API
-// (status_of / any_failed / failures / session_handle).
+// (status_of / any_failed / failures / reason_of / session_handle).
 //
 // Exercised against a synthetic session + ctx built by hand, so this
 // is offline and orchestrator-free (the canonical test of record;
 // real orchestrated builds auto-record via record_status).
 //
-// NOTE: queryable failure *reason text* is deferred (lifecycle_plan.md
-// Slice 3) — storing the heap-string reason for later read hit an
-// aetherc heap-ownership bug, so `fail(ctx, reason)` currently logs the
-// reason rather than storing it. This test covers status, not reason.
+// Queryable failure *reason text* (reason_of) is included: the aetherc
+// heap-ownership bug that originally blocked storing the heap-string
+// reason was fixed in ae 0.184.0 (map-value-storing-wrapper UAF).
 
 import build
 import build (session, begin, fail, record_status, session_handle,
-              status_of, any_failed, failures)
+              status_of, any_failed, failures, reason_of)
 import std.string
 import std.list
 import std.map
@@ -36,6 +35,9 @@ main() {
     _assert("unknown label status is empty",
         string.equals(build.status_of(s, "a/.build.ae"), ""))
 
+    _assert("unknown label reason is empty",
+        string.equals(build.reason_of(s, "a/.build.ae"), ""))
+
     // record_status from a return code: 0 -> passed, non-zero -> failed.
     build.record_status(s, "a/.build.ae", 0)
     build.record_status(s, "b/.build.ae", 1)
@@ -44,6 +46,9 @@ main() {
     _assert("rc 1 -> failed",
         string.equals(build.status_of(s, "b/.build.ae"), "failed"))
     _assert("any_failed == 1 after a failure", build.any_failed(s) == 1)
+    _assert("rc-based failure records a reason",
+        string.equals(build.reason_of(s, "b/.build.ae"), "builder returned exit 1"))
+    _assert("a passed -> no reason", string.equals(build.reason_of(s, "a/.build.ae"), ""))
 
     // failures() lists failed labels exactly once.
     f = build.failures(s)
@@ -68,6 +73,8 @@ main() {
     _assert("fail() marks the node failed",
         string.equals(build.status_of(s, "c/.build.ae"), "failed"))
     _assert("two distinct failures now", list.size(build.failures(s)) == 2)
+    _assert("fail() stores the reason verbatim",
+        string.equals(build.reason_of(s, "c/.build.ae"), "curl got HTTP 500"))
 
     // session_handle(ctx) returns the same session for cross-node query.
     sh = build.session_handle(cb)

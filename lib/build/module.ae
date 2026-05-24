@@ -36,6 +36,7 @@ session(root_path: string) {
     // failed labels so any_failed/failures don't have to iterate the
     // status map. In-memory, lives for the orchestrator's run only.
     _e3 = map.put(s, "status", map.new())
+    _e4 = map.put(s, "reason", map.new())
     _e5 = map.put(s, "failed", list.new())
     return s
 }
@@ -141,14 +142,12 @@ done(s: ptr, module_dir: string) {
 // An explicit `failed` is never downgraded to `passed` by a later
 // rc-based record.
 
-// _mark_failed — internal: set label -> "failed" and add it to the
-// flat `failed` list once (idempotent on the list). Status values are
-// literals, which a map stores reliably; only the failure *reason*
-// text is problematic to store (heap-string-value-in-container is
-// unreliable under the current aetherc — see the note on `fail`), so
-// it isn't kept here. Reason text is surfaced to the build log by the
-// caller instead.
-_mark_failed(s: ptr, label: string) {
+// _mark_failed — internal: set label -> "failed", record the one-line
+// `reason` (queryable via reason_of), and add the label to the flat
+// `failed` list once (idempotent on the list). A later failure of the
+// same label refreshes the reason. An empty reason leaves any prior
+// reason untouched.
+_mark_failed(s: ptr, label: string, reason: string) {
     st, _ = map.get(s, "status")
     already = 0
     if map.has(st, label) == 1 {
@@ -156,31 +155,27 @@ _mark_failed(s: ptr, label: string) {
         if string.equals(cur, "failed") == 1 { already = 1 }
     }
     _e1 = map.put(st, label, "failed")
+    if string.length(reason) > 0 {
+        rm, _ = map.get(s, "reason")
+        _e2 = map.put(rm, label, reason)
+    }
     if already == 0 {
         failed, _ = map.get(s, "failed")
         _e3 = list.add(failed, string.copy(label))
     }
 }
 
-// fail(ctx, reason) — record THIS node as failed and surface the
-// reason to the build log. Reads the session back-ref begin() stashed
-// in ctx; a no-op in standalone `build.start()` mode (no session).
-//
-// NOTE: the reason is currently *logged*, not *stored for query*.
-// Storing the heap-string reason in the session for a later
-// `reason_of` read is blocked by an aetherc heap-ownership bug
-// (the stored value is reclaimed and reads back as garbage, in a way
-// sensitive to surrounding code — could not be minimally reproduced).
-// The queryable-reason / root-cause layer (lifecycle_plan.md Slice 3)
-// will land on disk-backed markers once that path is sound. The
-// `reason` parameter stays in the signature so callers don't churn.
+// fail(ctx, reason) — record THIS node as failed, store the reason for
+// a later reason_of() query, and surface it to the build log. Reads the
+// session back-ref begin() stashed in ctx; a no-op in standalone
+// `build.start()` mode (no session).
 fail(ctx: ptr, reason: string) {
     if map.has(ctx, "_session") == 0 { return 0 }
     s, _ = map.get(ctx, "_session")
     if s == null { return 0 }
     label, _ = map.get(ctx, "module_dir")
     println("${label}: FAILED — ${reason}")
-    _mark_failed(s, label)
+    _mark_failed(s, label, reason)
     return 0
 }
 
@@ -197,7 +192,7 @@ record_status(s: ptr, label: string, rc: int) {
     if rc == 0 {
         _e = map.put(st, label, "passed")
     } else {
-        _mark_failed(s, label)
+        _mark_failed(s, label, string.concat("builder returned exit ", string.from_int(rc)))
     }
     return 0
 }
@@ -231,6 +226,16 @@ any_failed(s: ptr) {
 failures(s: ptr) {
     f, _ = map.get(s, "failed")
     return f
+}
+
+// reason_of(s, label) — the one-line failure reason recorded for a
+// label (via fail() or an rc-based record_status), or "" when the
+// label didn't fail or carried no reason.
+reason_of(s: ptr, label: string) {
+    rm, _ = map.get(s, "reason")
+    if map.has(rm, label) == 0 { return string.concat("", "") }
+    v, _ = map.get(rm, label)
+    return v
 }
 
 // --- Context creation (standalone mode, env-var based) ---

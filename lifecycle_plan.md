@@ -180,32 +180,26 @@ hint.
 Ordered so each slice is independently useful and the risky bits are
 isolated.
 
-- **Slice 1 — in-memory status + query (glue, low risk). DONE (status
-  half).** Added a status table to the session: `build.session` now
-  carries a `status` map (label → "passed"/"failed") + a `failed` list;
-  `begin()` stashes a `_session` back-ref in each node's ctx. Shipped
-  `build.fail(ctx, reason)` (records failed + logs the reason),
-  `build.record_status(s, label, rc)`, `build.session_handle(ctx)`, and
-  the queries `build.status_of` / `build.any_failed` / `build.failures`.
-  Covered by `tests/test_build_status.ae` (14 assertions).
+- **Slice 1 — in-memory status + query (glue, low risk). DONE.** Added a
+  status table to the session: `build.session` now carries a `status` map
+  (label → "passed"/"failed"), a `reason` map (label → one-line reason),
+  and a `failed` list; `begin()` stashes a `_session` back-ref in each
+  node's ctx. Shipped `build.fail(ctx, reason)` (records failed + stores
+  the reason + logs it), `build.record_status(s, label, rc)`,
+  `build.session_handle(ctx)`, and the queries `build.status_of` /
+  `build.any_failed` / `build.failures` / `build.reason_of`. Covered by
+  `tests/test_build_status.ae` (18 assertions).
 
-  Two parts of the original Slice-1 sketch were **deferred**, for
-  reasons found while building it:
+  Note on the reason text: storing the heap-string reason for a later
+  `reason_of` read originally hit an **aetherc heap-ownership bug** (the
+  stored value was reclaimed and read back as garbage). That bug — the
+  map-value-storing-wrapper use-after-free — was **fixed in ae 0.184.0**
+  (`heap-string-map-value-use-after-free-multi-tu.md`), so `reason_of`
+  now ships in-memory. Slice 3 still moves reason + `root_cause` to
+  disk-backed markers, but for crash-survival (§5 limit 1), not because
+  in-memory is unsound.
 
-  - **Queryable failure *reason text* (`reason_of`) is not shipped.**
-    Storing the heap-string reason in the session for a later read hit
-    an **aetherc heap-ownership bug**: the stored value is reclaimed and
-    reads back as garbage, in a way sensitive to surrounding code (works
-    in a 3-line repro, corrupts in the full path — could not be
-    minimally reproduced, so not filed yet). Tried owned-copy at the put
-    site, a body-assigned local + bare-identifier put, `string.copy`, a
-    keep-alive list, and parallel label/text lists — all still corrupt
-    under accumulated heap pressure. `fail(ctx, reason)` therefore
-    *logs* the reason (so it's not lost) and records status only. The
-    queryable reason + `root_cause` layer moves to **Slice 3 on
-    disk-backed markers** (the `_record_test_result`/`_record_cache`
-    pattern — file I/O sidesteps the heap-value-in-container bug), and
-    is the better home anyway (survives a crash; see §5 limit 1).
+  One part of the original Slice-1 sketch is still **deferred**:
 
   - **Auto-recording status from a node's return code is not wired.**
     A `.build.ae` `main()` with no explicit `return` is typed *void*;
