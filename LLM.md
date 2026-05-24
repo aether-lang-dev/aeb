@@ -290,6 +290,37 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
 
 ## Idioms that keep biting
 
+- **Build scripts can share a source module across directories via a
+  root-relative dotted import.** A `.build.ae` in one dir can import an
+  Aether source module living in another dir by naming it as a path from
+  the repo root: `import gen.genengine` resolves
+  `<reporoot>/gen/genengine/module.ae` (flat `gen/genengine.ae` works
+  too), called namespaced by the LAST segment: `genengine.generate()`.
+  This works from ANY invocation dir (incl. a subdir), because
+  `tools/aeb-link.ae` discovers the project root (`_discover_repo_root`)
+  and appends it to the aetherc `--lib` path for the per-file +
+  orchestrator compiles (`compile_lib = <aeb_lib>:<repo_root>`). Discovery
+  is two-pass and preference-ordered: an `.aeb` marker wins regardless of
+  depth (walk the whole way up for `.aeb` first, so an aeb project root
+  out-anchors a deeper VCS marker like a nested git submodule); failing
+  that, the nearest VCS/working-copy marker (`.avn`, `.git`, `.hg`,
+  `.svn`, `.bzr`, Fossil, Pijul). If NO marker is found anywhere up the
+  tree, discovery returns "" and aeb adds NOTHING to `--lib` — cwd is
+  already an implicit aetherc search root so same-dir imports still work,
+  and there's no principled root to widen cross-dir resolution to. Why it needs help: aetherc
+  resolves imports against its search roots (cwd + `--lib`), NOT the
+  input file's own dir — and aeb compiles a relocated copy under
+  `target/_aeb/`, so the script's authored location is never a search
+  root. Two gotchas inherited from Aether's module model: (a) a *bare*
+  `import foo` only reaches a `foo` reachable from a search root — it
+  does NOT walk to a sibling dir on its own; express cross-dir shares as
+  the dotted path from the repo root. (b) Whole-module `import x.y` →
+  call `y.fn()` (namespaced by last segment); `import x.y (fn)` →
+  call `fn()` (bare). Mismatching the two is `E0301`, not a bug. The
+  shared module is a normal Aether source module, not an aeb SDK — no
+  `.aeb/lib` symlink, no `--init` registration. Came from
+  `AEB_ASK_sibling_imports_in_build_scripts.md` (mquickjs's two codegen
+  scripts sharing one generator engine).
 - **Aether is fixed-arity.** Setters that "want" variadic args
   (`extra_sources("a", "b", "c")` — won't compile) are repeated
   single-arg calls (`extra_source("a"); extra_source("b"); ...`).

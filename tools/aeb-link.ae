@@ -40,6 +40,96 @@ import aeblabel (infer_type, dirname_pure, extract_tag, file_to_label)
 extern println(s: string)
 extern exit(code: int)
 
+// Discover the project root to use as an extra aetherc module-search
+// root, so a build script can share a source module in another directory
+// via a root-relative dotted import (`import gen.genengine` resolving
+// <reporoot>/gen/genengine/module.ae, called namespaced by its last
+// segment: genengine.generate()) REGARDLESS of which subdirectory the
+// user invoked `aeb` from.
+//
+// Why this is needed: aetherc resolves a bare/dotted import against its
+// module-search roots (cwd + --lib), not against the input file's own
+// directory — and aeb hands aetherc a relocated copy under target/_aeb/,
+// so the build script's authored location is never a search root. When
+// `aeb` is run from the repo root, cwd already covers it; when run from a
+// subdir, cwd is the subdir and a cross-dir share is invisible. Anchoring
+// on the discovered project root makes the import path the reader sees
+// (from the project root) the path aetherc actually resolves, from any dir.
+//
+// Two-pass, preference-ordered:
+//   1. `.aeb` is the PREFERRED anchor — it marks an explicit aeb project
+//      boundary. We walk the whole way up looking only for `.aeb` first,
+//      so a `.aeb` root wins even when a VCS marker sits at a *deeper*
+//      directory (e.g. a git submodule nested below the aeb root anchors
+//      on the aeb root, not the submodule).
+//   2. If no `.aeb` is found, fall back to the nearest VCS working-copy /
+//      checkout marker (`.git`, `.svn`, ...).
+// If NEITHER is found, return "" — the caller then adds nothing to --lib.
+// (cwd is already an implicit aetherc search root, so same-dir imports
+// still work; there is simply no principled root to widen resolution to
+// in a marker-less tree, so we don't pretend there is one.)
+//
+// Marker probes use `fs.exists` (path-agnostic), NOT `dir.exists`, because
+// several markers are FILES not directories: a git worktree or submodule
+// has a `.git` *file* pointing elsewhere; Fossil uses a `.fslckout` file.
+// Subversion note: assumes svn ≥1.7, which keeps a single `.svn` at the
+// working-copy root (pre-1.7 put `.svn` in every dir and would anchor too
+// deep — but 1.7 shipped in 2011).
+_has_aeb_marker(d: string) {
+    if fs.exists(string.concat(d, "/.aeb")) == 1 { return 1 }      // aeb project root
+    return 0
+}
+
+_has_vcs_marker(d: string) {
+    if fs.exists(string.concat(d, "/.avn")) == 1 { return 1 }      // avn working-copy root
+    if fs.exists(string.concat(d, "/.git")) == 1 { return 1 }      // git (dir or worktree/submodule file)
+    if fs.exists(string.concat(d, "/.hg")) == 1 { return 1 }       // Mercurial
+    if fs.exists(string.concat(d, "/.svn")) == 1 { return 1 }      // Subversion (≥1.7: root-only)
+    if fs.exists(string.concat(d, "/.bzr")) == 1 { return 1 }      // Bazaar
+    if fs.exists(string.concat(d, "/.fslckout")) == 1 { return 1 } // Fossil checkout marker
+    if fs.exists(string.concat(d, "/_FOSSIL_")) == 1 { return 1 }  // Fossil (older / Windows marker)
+    if fs.exists(string.concat(d, "/.pijul")) == 1 { return 1 }    // Pijul
+    return 0
+}
+
+// Walk up from <start> looking for an `.aeb` marker. Returns the dir, or
+// "" if none up to the filesystem root.
+_walk_for_aeb(start: string) {
+    cur = string.concat(start, "")
+    while string.length(cur) > 0 {
+        if _has_aeb_marker(cur) == 1 { return cur }
+        if cur == "/" { return string.concat("", "") }
+        parent = dirname_pure(cur)
+        if parent == cur { return string.concat("", "") }
+        if string.length(parent) == 0 { return string.concat("", "") }
+        cur = parent
+    }
+    return string.concat("", "")
+}
+
+// Walk up from <start> looking for the nearest VCS marker. Returns the
+// dir, or "" if none up to the filesystem root.
+_walk_for_vcs(start: string) {
+    cur = string.concat(start, "")
+    while string.length(cur) > 0 {
+        if _has_vcs_marker(cur) == 1 { return cur }
+        if cur == "/" { return string.concat("", "") }
+        parent = dirname_pure(cur)
+        if parent == cur { return string.concat("", "") }
+        if string.length(parent) == 0 { return string.concat("", "") }
+        cur = parent
+    }
+    return string.concat("", "")
+}
+
+// Returns the project root, or "" when no marker is found anywhere up the
+// tree (caller adds nothing to --lib in that case).
+_discover_repo_root(start: string) {
+    aeb_root = _walk_for_aeb(start)
+    if string.length(aeb_root) > 0 { return aeb_root }
+    return _walk_for_vcs(start)
+}
+
 // Platform detection for OS-specific linker flags. See
 // lib/build/module.ae for the shared version; aeb-link is a standalone
 // tool so the helper is inlined here. Called once per link step.
@@ -179,6 +269,22 @@ main() {
 
     aetherc        = string.concat(aether_dir, "/aetherc")
     libaether_dir  = _resolve_libaether_dir(aether_dir)
+
+    // PATH-style --lib for the per-file + orchestrator aetherc compiles.
+    // <aeb_lib> resolves the shipped/consumer SDK modules; appending the
+    // discovered project root lets a build script reach a SHARED source
+    // module in another directory via a root-relative dotted import (see
+    // _discover_repo_root for the full rationale). The discovered root —
+    // not the bare <root>=cwd — is what makes the share resolve from a
+    // subdir invocation too. When discovery finds no marker (marker-less
+    // tree) it returns "", and we add NOTHING: cwd is already an implicit
+    // aetherc search root, so same-dir imports still work, and there is no
+    // principled root to widen cross-dir resolution to.
+    repo_root   = _discover_repo_root(root)
+    compile_lib = string.concat(aeb_lib, "")
+    if string.length(repo_root) > 0 {
+        compile_lib = string.concat(aeb_lib, string.concat(":", repo_root))
+    }
     transform_ae   = string.concat(aebhome, "/tools/transform-ae")
     gen_orchestrator = string.concat(aebhome, "/tools/gen-orchestrator")
 
@@ -248,9 +354,11 @@ main() {
         tr_cmd = string.concat(tr_cmd, aebhome)
         os.system(tr_cmd)
 
-        // aetherc --lib <aeb-lib> <ae_tmp> <c_out>
+        // aetherc --lib <compile_lib> <ae_tmp> <c_out>
+        // compile_lib = <aeb_lib>:<repo_root> so SDK imports AND
+        // root-relative dotted cross-dir source imports both resolve.
         ac_cmd = string.concat(aetherc, " --lib ")
-        ac_cmd = string.concat(ac_cmd, aeb_lib)
+        ac_cmd = string.concat(ac_cmd, compile_lib)
         ac_cmd = string.concat(ac_cmd, " ")
         ac_cmd = string.concat(ac_cmd, ae_tmp)
         ac_cmd = string.concat(ac_cmd, " ")
@@ -282,9 +390,12 @@ main() {
     go_cmd = string.concat(go_cmd, orch_file)
     os.system(go_cmd)
 
-    // Compile orchestrator .ae -> .c
+    // Compile orchestrator .ae -> .c. Uses compile_lib (not aeb_lib): the
+    // orchestrator imports each transformed per-file .ae, which carry the
+    // user's root-relative dotted cross-dir imports, so the repo root must
+    // be on the search path here too (matters for subdir invocations).
     oc_cmd = string.concat(aetherc, " --lib ")
-    oc_cmd = string.concat(oc_cmd, aeb_lib)
+    oc_cmd = string.concat(oc_cmd, compile_lib)
     oc_cmd = string.concat(oc_cmd, " ")
     oc_cmd = string.concat(oc_cmd, orch_file)
     oc_cmd = string.concat(oc_cmd, " ")
