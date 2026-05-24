@@ -30,6 +30,13 @@ session(root_path: string) {
     s = map.new()
     _e1 = map.put(s, "root", root_path)
     _e2 = map.put(s, "visited", map.new())
+    // Per-target status machine (lifecycle_plan.md Slice 1). `status`
+    // maps a node label -> "passed"|"failed"|"skipped"; `reason` maps
+    // a label -> a one-line failure reason; `failed` is a flat list of
+    // failed labels so any_failed/failures don't have to iterate the
+    // status map. In-memory, lives for the orchestrator's run only.
+    _e3 = map.put(s, "status", map.new())
+    _e5 = map.put(s, "failed", list.new())
     return s
 }
 
@@ -46,6 +53,12 @@ begin(s: ptr, module_dir: string) {
     ctx = map.new()
     _e1 = map.put(ctx, "root", root)
     _e2 = map.put(ctx, "module_dir", module_dir)
+    // Back-reference to the session so a node can record its own
+    // outcome (build.fail) and query siblings (status_of) without the
+    // session being passed around explicitly. Absent in standalone
+    // `build.start()` mode — the status API no-ops / returns unknown
+    // there, which is correct (no DAG, nothing to query).
+    _es = map.put(ctx, "_session", s)
 
     // Handle "test:" prefix for co-located tests
     fs_dir = module_dir
@@ -112,6 +125,112 @@ begin(s: ptr, module_dir: string) {
 done(s: ptr, module_dir: string) {
     visited, _ = map.get(s, "visited")
     _e = map.put(visited, module_dir, "1")
+}
+
+// --- Per-target status machine (lifecycle_plan.md Slice 1) ---
+//
+// A queryable record of how each node fared, so a later node (e.g. a
+// teardown step) can `dep` on the work it guards and ask "did it fail,
+// and why?" — the DAG-native stand-in for a call-stack `finally`. See
+// lifecycle_plan.md for the full design.
+//
+// Two ways a status is recorded:
+//   1. `fail(ctx, reason)` — explicit, from inside a node body.
+//   2. `record_status(s, label, rc)` — the orchestrator infers it from
+//      a node function's return code (0 = passed, non-zero = failed).
+// An explicit `failed` is never downgraded to `passed` by a later
+// rc-based record.
+
+// _mark_failed — internal: set label -> "failed" and add it to the
+// flat `failed` list once (idempotent on the list). Status values are
+// literals, which a map stores reliably; only the failure *reason*
+// text is problematic to store (heap-string-value-in-container is
+// unreliable under the current aetherc — see the note on `fail`), so
+// it isn't kept here. Reason text is surfaced to the build log by the
+// caller instead.
+_mark_failed(s: ptr, label: string) {
+    st, _ = map.get(s, "status")
+    already = 0
+    if map.has(st, label) == 1 {
+        cur, _ = map.get(st, label)
+        if string.equals(cur, "failed") == 1 { already = 1 }
+    }
+    _e1 = map.put(st, label, "failed")
+    if already == 0 {
+        failed, _ = map.get(s, "failed")
+        _e3 = list.add(failed, string.copy(label))
+    }
+}
+
+// fail(ctx, reason) — record THIS node as failed and surface the
+// reason to the build log. Reads the session back-ref begin() stashed
+// in ctx; a no-op in standalone `build.start()` mode (no session).
+//
+// NOTE: the reason is currently *logged*, not *stored for query*.
+// Storing the heap-string reason in the session for a later
+// `reason_of` read is blocked by an aetherc heap-ownership bug
+// (the stored value is reclaimed and reads back as garbage, in a way
+// sensitive to surrounding code — could not be minimally reproduced).
+// The queryable-reason / root-cause layer (lifecycle_plan.md Slice 3)
+// will land on disk-backed markers once that path is sound. The
+// `reason` parameter stays in the signature so callers don't churn.
+fail(ctx: ptr, reason: string) {
+    if map.has(ctx, "_session") == 0 { return 0 }
+    s, _ = map.get(ctx, "_session")
+    if s == null { return 0 }
+    label, _ = map.get(ctx, "module_dir")
+    println("${label}: FAILED — ${reason}")
+    _mark_failed(s, label)
+    return 0
+}
+
+// record_status(s, label, rc) — orchestrator-side, from a node's
+// return code (0 = passed, non-zero = failed). Does not clobber an
+// explicit `fail()`: a label already marked failed stays failed even
+// if rc happens to be 0.
+record_status(s: ptr, label: string, rc: int) {
+    st, _ = map.get(s, "status")
+    if map.has(st, label) == 1 {
+        cur, _ = map.get(st, label)
+        if string.equals(cur, "failed") == 1 { return 0 }
+    }
+    if rc == 0 {
+        _e = map.put(st, label, "passed")
+    } else {
+        _mark_failed(s, label)
+    }
+    return 0
+}
+
+// session_handle(ctx) — the session a node belongs to, for querying
+// siblings. Returns null in standalone mode.
+session_handle(ctx: ptr) {
+    if map.has(ctx, "_session") == 0 { return null }
+    s, _ = map.get(ctx, "_session")
+    return s
+}
+
+// status_of(s, label) — "passed" | "failed" | "skipped", or "" when
+// the label hasn't been recorded (not run / unknown).
+status_of(s: ptr, label: string) {
+    st, _ = map.get(s, "status")
+    if map.has(st, label) == 0 { return string.concat("", "") }
+    v, _ = map.get(st, label)
+    return v
+}
+
+// any_failed(s) — 1 if any node recorded a failure, else 0.
+any_failed(s: ptr) {
+    failed, _ = map.get(s, "failed")
+    if list.size(failed) > 0 { return 1 }
+    return 0
+}
+
+// failures(s) — the flat list of failed node labels (use reason_of for
+// each). Returns the live list; treat as read-only.
+failures(s: ptr) {
+    f, _ = map.get(s, "failed")
+    return f
 }
 
 // --- Context creation (standalone mode, env-var based) ---

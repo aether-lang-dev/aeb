@@ -97,6 +97,12 @@ main() {
         if type == "test" { type_word = "test" }
         if type == "dist" { type_word = "dist" }
         println("    _start = clock_ns()")
+        // NOTE: auto-recording node status from the return code
+        // (`_rc = ${fname}(s)` + build.record_status) is deferred —
+        // a `.build.ae` main() with no explicit `return` is typed void,
+        // so reading its "int" return would be garbage. Nodes record
+        // failure explicitly via build.fail() until transform-ae
+        // guarantees an int return (lifecycle_plan.md).
         println("    ${fname}(s)")
         println("    build.done(s, \"${label}\")")
         println("    _end = clock_ns()")

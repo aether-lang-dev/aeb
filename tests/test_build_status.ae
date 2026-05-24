@@ -1,0 +1,84 @@
+// Tests for the per-target status machine (lifecycle_plan.md Slice 1):
+// build.session status table + fail / record_status + the query API
+// (status_of / any_failed / failures / session_handle).
+//
+// Exercised against a synthetic session + ctx built by hand, so this
+// is offline and orchestrator-free (the canonical test of record;
+// real orchestrated builds auto-record via record_status).
+//
+// NOTE: queryable failure *reason text* is deferred (lifecycle_plan.md
+// Slice 3) — storing the heap-string reason for later read hit an
+// aetherc heap-ownership bug, so `fail(ctx, reason)` currently logs the
+// reason rather than storing it. This test covers status, not reason.
+
+import build
+import build (session, begin, fail, record_status, session_handle,
+              status_of, any_failed, failures)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+main() {
+    s = build.session("/proj")
+
+    // Fresh session: nothing failed, unknown labels read "".
+    _assert("fresh session: any_failed == 0", build.any_failed(s) == 0)
+    _assert("unknown label status is empty",
+        string.equals(build.status_of(s, "a/.build.ae"), ""))
+
+    // record_status from a return code: 0 -> passed, non-zero -> failed.
+    build.record_status(s, "a/.build.ae", 0)
+    build.record_status(s, "b/.build.ae", 1)
+    _assert("rc 0 -> passed",
+        string.equals(build.status_of(s, "a/.build.ae"), "passed"))
+    _assert("rc 1 -> failed",
+        string.equals(build.status_of(s, "b/.build.ae"), "failed"))
+    _assert("any_failed == 1 after a failure", build.any_failed(s) == 1)
+
+    // failures() lists failed labels exactly once.
+    f = build.failures(s)
+    _assert("failures has 1 entry", list.size(f) == 1)
+    f0, _ = list.get(f, 0)
+    _assert("failures[0] is b", string.equals(f0, "b/.build.ae"))
+
+    // record_status is idempotent on the failed list (re-recording the
+    // same failure doesn't double-add).
+    build.record_status(s, "b/.build.ae", 1)
+    _assert("re-record failed: still 1 entry", list.size(build.failures(s)) == 1)
+
+    // An explicit failed is NOT downgraded to passed by a later rc==0.
+    build.record_status(s, "b/.build.ae", 0)
+    _assert("rc 0 does not clobber an existing failure",
+        string.equals(build.status_of(s, "b/.build.ae"), "failed"))
+
+    // fail(ctx, reason): explicit, from inside a node. begin() stashes
+    // the session back-ref so fail() can find it.
+    cb = build.begin(s, "c/.build.ae")
+    build.fail(cb, "curl got HTTP 500")
+    _assert("fail() marks the node failed",
+        string.equals(build.status_of(s, "c/.build.ae"), "failed"))
+    _assert("two distinct failures now", list.size(build.failures(s)) == 2)
+
+    // session_handle(ctx) returns the same session for cross-node query.
+    sh = build.session_handle(cb)
+    _assert("session_handle finds the session",
+        string.equals(build.status_of(sh, "a/.build.ae"), "passed"))
+
+    // A later rc-based pass for a still-unrecorded label works.
+    build.record_status(s, "d/.build.ae", 0)
+    _assert("d passed", string.equals(build.status_of(s, "d/.build.ae"), "passed"))
+    _assert("passing d didn't change failure count",
+        list.size(build.failures(s)) == 2)
+
+    println("build status-machine tests done")
+}

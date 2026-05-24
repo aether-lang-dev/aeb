@@ -180,19 +180,52 @@ hint.
 Ordered so each slice is independently useful and the risky bits are
 isolated.
 
-- **Slice 1 — in-memory status + query (glue, low risk).**
-  Add a status table to the session object; record `passed`/`failed`
-  (+ `reason`) per target, inferred from the builder's return code, and
-  expose `build.fail(ctx, reason)` for explicit recording. Add
-  `build.status_of` / `build.reason_of` / `build.any_failed` /
-  `build.failures`. No scheduling change. Unit-testable against a
-  synthetic session.
+- **Slice 1 — in-memory status + query (glue, low risk). DONE (status
+  half).** Added a status table to the session: `build.session` now
+  carries a `status` map (label → "passed"/"failed") + a `failed` list;
+  `begin()` stashes a `_session` back-ref in each node's ctx. Shipped
+  `build.fail(ctx, reason)` (records failed + logs the reason),
+  `build.record_status(s, label, rc)`, `build.session_handle(ctx)`, and
+  the queries `build.status_of` / `build.any_failed` / `build.failures`.
+  Covered by `tests/test_build_status.ae` (14 assertions).
+
+  Two parts of the original Slice-1 sketch were **deferred**, for
+  reasons found while building it:
+
+  - **Queryable failure *reason text* (`reason_of`) is not shipped.**
+    Storing the heap-string reason in the session for a later read hit
+    an **aetherc heap-ownership bug**: the stored value is reclaimed and
+    reads back as garbage, in a way sensitive to surrounding code (works
+    in a 3-line repro, corrupts in the full path — could not be
+    minimally reproduced, so not filed yet). Tried owned-copy at the put
+    site, a body-assigned local + bare-identifier put, `string.copy`, a
+    keep-alive list, and parallel label/text lists — all still corrupt
+    under accumulated heap pressure. `fail(ctx, reason)` therefore
+    *logs* the reason (so it's not lost) and records status only. The
+    queryable reason + `root_cause` layer moves to **Slice 3 on
+    disk-backed markers** (the `_record_test_result`/`_record_cache`
+    pattern — file I/O sidesteps the heap-value-in-container bug), and
+    is the better home anyway (survives a crash; see §5 limit 1).
+
+  - **Auto-recording status from a node's return code is not wired.**
+    A `.build.ae` `main()` with no explicit `return` is typed *void*;
+    the orchestrator's node extern is declared `-> int`, so capturing
+    `_rc = node(s)` would read garbage and log spurious failures. Safe
+    auto-record needs `transform-ae` to guarantee the renamed node fn
+    returns int (inject a trailing `return 0`). Until then nodes record
+    failure **explicitly** via `build.fail()`, which is enough for the
+    intended consumers (a teardown/notify node checks `status_of` /
+    `any_failed`).
 
 - **Slice 2 — make the container demo correct (consumer proof).**
-  Restore the three-node up/poke/down form; `down` queries `poke`'s
-  status and applies the `AEB_TEARDOWN` policy. Documents the pattern
-  in `docs/container-lifecycle.md`. No new runtime concepts — just
-  Slice 1 + `dep()`.
+  RECONSIDERED. The container demo is now the single-file
+  `.up_poke_down.ae` (one `main()` with guaranteed in-process teardown),
+  which the maintainer preferred — so there's no cross-node status to
+  query there. Slice 1's status machine instead serves a *different*
+  consumer shape: a multi-node pipeline with a trailing notify/report/
+  teardown node that asks `any_failed` / `status_of("some/dep")`. Build
+  that consumer when one lands, rather than forcing the container demo
+  back to three nodes.
 
 - **Slice 3 — `root_cause` enrichment (opt-in depth).**
   Add the structured `root_cause` field; have the `lib/aether`
