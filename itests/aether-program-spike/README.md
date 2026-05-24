@@ -35,6 +35,9 @@ app/cbits.c      a committed C *library* (not a main shim); #includes rom.h
 inc/rom.h        a header in a non-source include dir (resolved via include_dir)
 app/.tests.ae    build.dep app, then bash.test (runs test_argv.sh)
 app/test_argv.sh argv + link-direction + clean-source-tree assertions
+ctest/.tests.ae  c.tests run()-ing the aether.program binary (universal
+                 runnable-binary contract: c.tests is a binary runner,
+                 not C-only)
 greet/module.ae  a pure-Aether library (no .build.ae) pulled in via `import greet`
 ```
 

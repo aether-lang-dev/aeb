@@ -124,3 +124,39 @@ mixed-suite case; your call on which is the cleaner layering.
 Closes the last seam in the mquickjs port: the suite goes 6/1 → 7/7, and
 `c.tests` becomes able to drive any aeb-built native binary (C or Aether
 entry) rather than only `c.program` ones.
+
+---
+
+## Resolution (2026-05-24) — universal runnable-binary contract
+
+Done in `lib/build` + `lib/c` + `lib/aether`. Full suite green (66);
+`c.tests` over `c.program` unaffected.
+
+Rather than teach `c.tests` one extra key, I gave the SDKs a **universal
+contract** so the runner stays SDK-agnostic (you flagged the layering —
+`c.tests` is really a *binary runner*, not a C-only one):
+
+- **New artifact `program_binary`** — every standalone-binary builder
+  publishes it. `c.program` and `aether.program` now write it (alongside
+  their legacy `c_binary` / `aether_binary`, kept for back-compat).
+- **`build.program_binary_of(ctx, dep_mod)`** — resolves `program_binary`,
+  falling back to `c_binary` then `aether_binary` (so a dep built by an
+  older builder still resolves). One lookup, language-independent.
+- **`c.tests` `run()`** resolves via `build.program_binary_of`, so one
+  suite drives a mix of `c.program` and `aether.program` binaries. The
+  "neither found" error still names the `build.dep` hint.
+
+So mquickjs needs **no change** — its existing `c.tests` suite will reach
+7/7 once it picks up this aeb (the `example` check resolves `example-app`
+via `program_binary`). Any future binary builder (rust/go program) that
+publishes `program_binary` is runnable by `c.tests` for free.
+
+I kept it to a single runner (`c.tests`) per your "a binary runner with a
+universal contract" — *not* a separate `aether.tests`. If the `c.`
+prefix grates for a pure-Aether project, a thin `aether.tests` alias over
+the same shared path is a 10-line follow-up; say the word.
+
+**Verified:** `tests/test_program_binary_contract.ae` (5 assertions:
+primary + both fallbacks + precedence + missing) and
+`itests/aether-program-spike/ctest/.tests.ae` — a `c.tests` that
+`run()`s the spike's `aether.program` binary and passes.

@@ -1,0 +1,67 @@
+// Tests the universal runnable-binary contract: build.program_binary_of
+// resolves the `program_binary` artifact a binary builder publishes, and
+// falls back to the legacy per-SDK keys (c_binary, aether_binary) so a
+// dep built by an older builder still resolves. Lets one binary runner
+// (c.tests) drive a c.program OR an aether.program binary.
+//
+// Offline: writes fake artifact files under <root>/target/<dep>/ and
+// reads them back through the resolver.
+
+import build (program_binary_of)
+import std.string
+import std.os
+import std.io
+import std.map
+import std.path
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+// Write `content` to <root>/target/<dep>/<key>.
+_put_artifact(root: string, dep: string, key: string, content: string) {
+    d = path.join(path.join(root, "target"), dep)
+    os.system("mkdir -p '${d}'")
+    _w = io.write_file(path.join(d, key), content)
+}
+
+main() {
+    base = "/tmp/aeb_test_program_binary_contract"
+    os.system("rm -rf ${base}; mkdir -p ${base}")
+    ctx = map.new()
+    map.put(ctx, "root", base)
+
+    // 1. program_binary present → used directly.
+    _put_artifact(base, "uni", "program_binary", "/bin/uni\n")
+    _assert("program_binary resolves",
+        string.equals(program_binary_of(ctx, "uni"), "/bin/uni"))
+
+    // 2. only legacy c_binary → fallback.
+    _put_artifact(base, "conly", "c_binary", "/bin/conly\n")
+    _assert("falls back to c_binary",
+        string.equals(program_binary_of(ctx, "conly"), "/bin/conly"))
+
+    // 3. only legacy aether_binary → fallback.
+    _put_artifact(base, "aonly", "aether_binary", "/bin/aonly\n")
+    _assert("falls back to aether_binary",
+        string.equals(program_binary_of(ctx, "aonly"), "/bin/aonly"))
+
+    // 4. program_binary wins over a legacy key when both exist.
+    _put_artifact(base, "both", "program_binary", "/bin/prog\n")
+    _put_artifact(base, "both", "c_binary", "/bin/legacy\n")
+    _assert("program_binary takes precedence over c_binary",
+        string.equals(program_binary_of(ctx, "both"), "/bin/prog"))
+
+    // 5. nothing published → empty (caller treats as "not built / not deped").
+    _assert("missing dep resolves to empty",
+        string.equals(program_binary_of(ctx, "nope"), ""))
+
+    os.system("rm -rf ${base}")
+    println("program-binary contract tests done")
+}

@@ -858,6 +858,10 @@ builder program(ctx: ptr) {
     }
 
     build._write_artifact(ctx, "c_binary", out_path)
+    // Universal runnable-binary contract (build.program_binary_of), so
+    // any test runner can locate this binary without knowing it was
+    // c.program that built it.
+    build._write_artifact(ctx, "program_binary", out_path)
     _ets = io.write_file(ts_file, "")
     return 0
 }
@@ -866,9 +870,14 @@ builder program(ctx: ptr) {
 //
 // Run built binaries and record pass/fail. Each run(prog, args)
 // declared on the builder is one check: invoke the binary that the
-// c.program at module path `prog` produced, with `args`, and expect
-// exit code 0. `prog` is resolved through the dependency graph — the
+// target at module path `prog` produced, with `args`, and expect exit
+// code 0. `prog` is resolved through the dependency graph — the
 // .tests.ae must build.dep the program target(s) it names.
+//
+// The binary is located via the universal runnable-binary contract
+// (build.program_binary_of), so `prog` may be a c.program OR an
+// aether.program (or any future binary builder): one c.tests suite can
+// drive a mix of C and Aether binaries.
 //
 // Reports the aggregate pass/fail count via build._record_test_result
 // so aeb's summary picks it up. Returns non-zero if any check failed.
@@ -897,14 +906,15 @@ builder tests(ctx: ptr) {
         if string.length(prog) == 0 {
             continue
         }
-        // Resolve the binary: the c.program at .build.ae path `prog`
-        // published its path as the c_binary artifact, keyed by its
-        // module DIRECTORY. Derive that dir from the .build.ae path.
+        // Resolve the binary the dep at .build.ae path `prog` produced,
+        // keyed by its module DIRECTORY. Uses the universal runnable-
+        // binary contract (build.program_binary_of), so the dep can be a
+        // c.program OR an aether.program (or any future binary builder) —
+        // c.tests is a binary runner, not a C-only one.
         dep_mod = _module_dir_of(prog)
-        bin = build._read_dep_artifact(ctx, dep_mod, "c_binary")
-        bin = string.trim(bin)
+        bin = build.program_binary_of(ctx, dep_mod)
         if string.length(bin) == 0 {
-            println("${mod_dir}: c.tests: no c_binary from '${prog}' — did you build.dep it?")
+            println("${mod_dir}: c.tests: no runnable binary from '${prog}' — did you build.dep it?")
             failed = failed + 1
             continue
         }

@@ -1722,6 +1722,10 @@ builder program(ctx: ptr) {
     }
 
     build._write_artifact(ctx, "aether_binary", bin_path)
+    // Universal runnable-binary contract (build.program_binary_of), so a
+    // c.tests (or any) suite can run this binary the same way it runs a
+    // c.program's — without the artifact key being SDK-specific.
+    build._write_artifact(ctx, "program_binary", bin_path)
     return 0
 }
 

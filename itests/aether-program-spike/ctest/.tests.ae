@@ -1,0 +1,17 @@
+// Proof that c.tests — a binary runner — can run an aether.program's
+// binary, not just a c.program's. The `app` target is an aether.program
+// (publishes the universal `program_binary` artifact); c.tests resolves
+// it via build.program_binary_of and runs it with an argument, expecting
+// exit 0. (app.ae returns 0.) This is the mquickjs mixed-suite case.
+import build
+import c
+import build (dep)
+import c (run)
+
+main() {
+    b = build.start()
+    dep(b, "app/.build.ae")
+    c.tests(b) {
+        run("app/.build.ae", "script.js")
+    }
+}

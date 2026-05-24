@@ -710,6 +710,22 @@ _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
     return ""
 }
 
+// program_binary_of(ctx, dep_module) — the universal "runnable binary a
+// dep produced" lookup, independent of which SDK built it. Every
+// standalone-binary builder publishes the `program_binary` artifact
+// (the contract); this resolves it, falling back to the legacy per-SDK
+// keys (`c_binary` from c.program, `aether_binary` from aether.program)
+// so a dep built by an older builder still resolves. Returns "" when no
+// runnable binary was published. Lets one test runner drive a binary
+// regardless of source language.
+program_binary_of(ctx: ptr, dep_module: string) {
+    bin = string.trim(_read_dep_artifact(ctx, dep_module, "program_binary"))
+    if string.length(bin) > 0 { return bin }
+    bin = string.trim(_read_dep_artifact(ctx, dep_module, "c_binary"))
+    if string.length(bin) > 0 { return bin }
+    return string.trim(_read_dep_artifact(ctx, dep_module, "aether_binary"))
+}
+
 // Writes a per-module artifact metadata file (e.g. jvm_classpath_deps_including_transitive)
 // using fs.write_atomic so a Ctrl-C between write and rename leaves either the
 // previous content or the new — never a torn file that downstream modules
