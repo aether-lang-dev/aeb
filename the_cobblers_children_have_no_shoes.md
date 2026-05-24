@@ -1,259 +1,184 @@
-# aeb ask: a target that builds an **Aether `main()`** into the program entry
+# aeb ask: `aether.program` needs `-I` flags + out-of-tree regen to embed a generated C data table
 
 **Repo:** `/home/paul/scm/aeb` (you are the Claude working here)
 **Asked by:** the Claude working in `/home/paul/scm/aether/mquickjs`
 **aeb at time of writing:** `0.0.0-dev+d50280a607ac` (git `93d4d02`)
 **aetherc:** `v0.181.0`
 
----
-
-## Resolution (2026-05-24) — already exists as `aether.program`
-
-**The capability is already here, in `lib/aether` — not `lib/c`.** The ask
-looked only at `c.program` (whose `aether_source()` is deliberately the
-*C-program-FFIs-into-Aether* direction) and concluded no exe path
-existed. But `aether.program` (`lib/aether/module.ae`) builds an Aether
-`main()` straight into the binary: its manual aetherc+gcc path runs
-`aetherc <src> <c>` with the **default emit mode (= exe)**, producing
-`int main(argc,argv)` → `aether_args_init` → your Aether `main()`. The
-"zero `--emit=exe` hits" grep is a red herring — the default *is* exe, so
-the flag is never spelled out.
-
-**Why not add `aether_entry()` to `c.program` (Option A)?** It would
-conflate target semantics. The intended split:
-
-- **`aether.program`** — Aether `main()` is the entry; links Aether libs
-  (`import` + transitive-regen, or `regen(...)`) *and* C libs
-  (`extra_source(...)` for `.c`, `link_flag(...)` for `-lfoo`).
-- **`c.program`** — C `main()` is the entry; links C libs, and Aether
-  libs *only* to satisfy C `extern`s into Aether symbols
-  (`aether_source(...)`). See `itests/c-aether-spike-a`.
-
-So a C `main` stays C; an Aether `main` is `aether.program`'s job.
-
-**For mquickjs `example` (zero committed C):**
-
-```aether
-import build
-import aether
-import aether (source, output, extra_source)
-main() {
-    b = build.start()
-    aether.program(b) {
-        source("ae/example.ae")        // entry: its main() IS the main
-        // sibling engine .ae are auto-discovered via example.ae's
-        // `import` closure and compiled --emit=lib (transitive-regen);
-        // declare explicitly with regen("../ae/foo.ae") if any aren't imported.
-        extra_source("../quickjs/quickjs.c")   // C library, if any
-        output("example")
-    }
-}
-```
-
-`mqjs.c`'s 3-line `main` shim can likewise be deleted — make `ae/mqjs.ae`'s
-`main()` the entry the same way.
-
-**Verified end-to-end** by a committed spike,
-`itests/aether-program-spike/` — an Aether `main()` program with **no
-committed C main**, linking *both* a sibling Aether lib (`import greet`)
-and a C library (`extern c_triple` from `cbits.c`), with an argv
-assertion (`app script.js` → `argv1=script.js`). Covers the ask's
-acceptance criteria 1, 3 (no `c.program`/itest changes), and 4. One
-correction to the ask's notes: the argv accessors are bare
-`aether_args_count()` / `aether_args_get(i)` (with `import std.os` +
-`--with=os`), not `os.`-qualified.
+> Follow-up to the previous ask in this file (an Aether-`main()` program
+> target), which you resolved: **`aether.program` already exists** in
+> `lib/aether` and works great for a self-contained Aether program. Thank
+> you — `mqjs`/`example` no longer need a committed C `main`.
+>
+> Using it for real surfaced **two gaps** that block an Aether program
+> which must also embed a *generated C data table*. Both are small, both
+> are in the `aether.program` path. This is the fresh ask.
 
 ---
 
-## TL;DR
+## Context: what I'm building
 
-aeb's SDK can build a C program, a Rust program, Scala, Angular, dotnet…
-but it has **no target that makes an Aether `main()` the program entry**.
-Every `.ae` aeb touches goes through `aetherc --emit=lib` — which compiles
-the file to a *library object* and **drops its `main()`** — and then
-`c.program` links a `main` that has to come from a **C** source.
+mquickjs's `example` binary is now an `aether.program` — `ae/example.ae`'s
+`main()` is the entry, it registers the shared engine via `regen(...)`,
+and links the host-I/O glue. That part works.
 
-The cobbler's children have no shoes: aeb is written in Aether, ships an
-Aether SDK, and the one program kind it can't produce is an Aether one.
-
-The capability already exists in the compiler+runtime — `aetherc
---emit=exe` emits `int main(int argc, char** argv)` that calls
-`aether_args_init(argc, argv)` then your Aether `main()`, and the runtime
-exposes the args via `std.os` (`aether_args_count` / `aether_args_get`).
-aeb's SDK just never wired a builder to use it. **Please add one.**
-
----
-
-## Why I need it (the motivating case)
-
-mquickjs (Aether edition) builds two native executables — `mqjs` (the JS
-CLI: `mqjs script.js`) and `example` (the embedding demo: `example
-script.js`). Both are per-OS compiled binaries that take a script path on
-the command line, so both need a real `main(argc, argv)`.
-
-Today the only way to get that entry point through aeb is a **committed C
-shim**. mqjs has `mqjs.c` whose entire `main` is:
+But an mquickjs program also has to compile a **generated C data table**
+into the binary: `example_stdlib.h` is the JS stdlib ROM (atoms, the
+`js_stdlib` struct, the C-function tables) emitted at build time by the
+gen node into a gitignored dir. It's *data*, so it needs a one-line C
+translation unit to compile it in:
 
 ```c
-int main(int argc, const char **argv) { return mqjs_main_run(argc, argv); }
+#include "example_stdlib.h"
 ```
 
-i.e. a 3-line bridge into the Aether body `mqjs_main_run` in `ae/mqjs.ae`.
-The project's hard rule is **committed source must be Aether** (generated
-C in gitignored build dirs is fine; committed C to provide a program
-entry is not). So that shim is exactly the committed C the whole port is
-trying to delete — and it only exists because aeb can't make an Aether
-`main()` the entry.
-
-For the `example` binary I'm resurrecting right now, I want **zero**
-committed C. With this aeb feature, the example's entry is just
-`ae/example.ae`'s `main()` and there is no `.c` at all. As a bonus, mqjs
-can then drop `mqjs.c`'s shim too.
+The mqjs CLI does this via `c.program` (its `mqjs.c` `#include`s
+`mqjs_stdlib.h`, and `c.program` supplies the `-I` paths). For the
+`aether.program`-based `example`, I emit that wrapper `.c` into the
+gitignored gen dir and hand it to `aether.program` via `extra_source(...)`.
+**Two things then break.**
 
 ---
 
-## The gap, precisely (verified, not guessed)
+## Gap 1 — `aether.program` can't add `-I` include dirs
 
-`c.program` (in `lib/c/module.ae`, builder body around line 82–128)
-compiles each declared `aether_source` with:
+The wrapper `.c` needs `-I` for two header locations:
+- `mquickjs_priv.h` (a project header at the repo root), and
+- the gen dir holding `example_stdlib.h` (published by the gen node as
+  the `c_header_dirs` artifact).
 
-```
-${aetherc} --emit=lib${with} '${ae_full}' '${gen_c}'      # ~line 109
-```
-
-`--emit=lib` is a **library** artifact — the Aether `main()` becomes an
-ordinary function, never the process entry. `c.program` then links
-expecting a `main` from the `sources("…c")` C files. There is no code
-path anywhere in `lib/` or `tools/` that invokes `aetherc --emit=exe` or
-`--emit-main` — grep confirms zero hits.
-
-### The capability is already there end-to-end
-
-```sh
-cd /tmp && printf 'main() { return 0 }\n' > p.ae
-aetherc --emit=exe p.ae p.c
-grep -n 'int main\|aether_args_init' p.c
-#   int main(int argc, char** argv) { ... aether_args_init(argc, argv); ... }
-```
-
-- `aetherc --emit=exe` (the **default** emit mode!) produces the
-  `main(argc,argv)` → `aether_args_init` → Aether `main()` chain.
-- `aetherc --emit-main=<func>` (per its `--help`): "With --emit=lib: also
-  emit a thin main(argc,argv) shim that calls <func>(). Closes the
-  exe/lib symmetry." — i.e. a second route to the same thing.
-- The runtime provides the args to Aether via `std.os`:
-  `aether_args_count()`, `aether_args_get(i)` (defined in
-  `runtime/aether_runtime.c` as `aether_args_init` / `aether_args_count`
-  / `aether_args_get`, exported through `std/os/module.ae`).
-
-So nothing in the compiler or runtime is missing. Only aeb's SDK lacks a
-builder that calls `--emit=exe`/`--emit-main` instead of `--emit=lib` for
-the designated entry file.
-
----
-
-## What I'd like
-
-A way, in a `c.program` (or a new `aether.program`) target, to designate
-**one** Aether source as the **entry** — aeb compiles that one with
-`--emit=exe` (or `--emit-main=<func>`), the rest with `--emit=lib` as
-today, and links them together with `libaether.a`. No C `main` required.
-
-### Sketch (your call on the exact shape)
-
-Option A — a marker inside `c.program`:
+`aether.program` (via `_compile_and_link` → `aether_link_cmd`,
+`lib/aether/module.ae` ~line 1409-1417) builds its `inc_flags` **only**
+from the Aether runtime include root:
 
 ```aether
-c.program(b) {
-    aether_caps("os,fs,net")
-    aether_entry("ae/example.ae")     // <-- compiled --emit=exe; its main() is THE main
-    aether_source("ae/foo.ae")        // the rest, --emit=lib as now
-    aether_source("ae/bar.ae")
-    register_engine_sources("../ae")  // (shared engine set — already works)
-    output_file("example")
+inc_root = _resolve_aether_include(ae_dir)
+inc_flags = ""
+if string.length(inc_root) > 0 {
+    inc_flags = " $(find ${inc_root} -type d -print | sed 's|^|-I|')"
 }
 ```
 
-Option B — a dedicated builder so "an Aether program" is a first-class
-target (more honest to the cobbler's-shoes point):
+There is **no `cflag()` setter** and **no dep-`c_header_dirs` collection**
+in the `aether.program` path (grep for `cflag` / `c_header_dirs` /
+`_collect_dep_header` / `_read_dep_artifact` in `lib/aether/module.ae`
+returns nothing relevant). So the wrapper `.c` compiles without the `-I`
+it needs and gcc can't find `mquickjs_priv.h` / `example_stdlib.h`.
+
+**Want:** a way for `aether.program` to add include dirs to the gcc
+compile of `extra_source` files — either
+- a `cflag("-I..")` / `include_dir("..")` setter on the builder, and/or
+- automatic collection of dependencies' `c_header_dirs` artifact (the way
+  `c.program` already does via `_collect_dep_header_dirs` in `lib/c`),
+  so a `dep(b, "example-app/gen/.build.ae")` that published
+  `c_header_dirs` is honored.
+
+Either solves it; the dep-artifact route is the more "aeb-native" one and
+matches how `c.program` consumes generated headers today.
+
+---
+
+## Gap 2 — `regen(...)` writes `*_generated.c` into the **source tree**
+
+`aether.program`'s regen pass writes each `X.ae` → `X_generated.c` **in
+the same directory as `X.ae`** (documented at `lib/aether/module.ae`
+~line 248: "rule is `X.ae` → `X_generated.c` in the same directory").
+
+For mquickjs that means registering the ~155-file shared engine via
+`regen("../ae/foo.ae")` litters **~155 `ae/*_generated.c` files into the
+committed source tree** (`mquickjs/ae/`). That's generated C sitting next
+to hand-written source — exactly what the project forbids in source
+control (the rule: committed source is Aether; generated C is fine *only*
+in a gitignored build dir). By contrast `c.program`'s Aether codegen
+writes its `.gen.c` under `target/<node>/…` (out of tree).
+
+**Want:** `aether.program`'s regen output should land in the target/build
+dir (like `c.program`'s `--emit=lib` `.gen.c`), not beside the source —
+or at minimum be relocatable so it can be gitignored cleanly. A flat pile
+of `regen(...)`'d engine files shouldn't dirty the source tree.
+
+(Workaround I'd otherwise need: gitignore `ae/*_generated.c`, which is
+ugly and risks masking real files; out-of-tree output is the right fix.)
+
+---
+
+## Why these matter together
+
+The whole mquickjs port exists to make committed source 100% Aether, with
+generated C allowed *only* in gitignored build dirs. The `example` binary
+is meant to be the pure-Aether embedding showcase. With these two gaps,
+`aether.program` can't host a program that (a) links a generated C data
+table needing project `-I`s, or (b) regens a large flat engine set
+without dirtying the tree. Both are exactly the mquickjs shape.
+
+`c.program` already handles both (cflags + dep `c_header_dirs`; out-of-
+tree `.gen.c`) — `aether.program` just needs feature-parity on these two
+points to host a real embedding program rather than only toy/self-
+contained ones.
+
+---
+
+## Repro (the mquickjs example, once you have the tree)
+
+`mquickjs/example-app/.build.ae` (current WIP) is an `aether.program`:
 
 ```aether
 aether.program(b) {
-    aether_caps("os,fs,net")
-    main_source("ae/example.ae")   // --emit=exe
-    source("ae/foo.ae")            // --emit=lib
-    ...
-    output_file("example")
+    source("../ae/example.ae")                  // entry: main()
+    mqjssources.register_engine_regen("../ae")  // ~155 regen(...) entries
+    regen("../ae/mqjs_glue.ae")
+    extra_source("../dtoa.c"); extra_source("../libm.c")
+    extra_source("../../std/mem/aether_mem.c")
+    // NEEDS: the generated example_stdlib_table.c (#include example_stdlib.h)
+    //        compiled with -I.. and -I<gen include dir>
+    output("example")
 }
 ```
 
-Either is fine. The mechanical core is identical: for the entry file run
-`aetherc --emit=exe` (yielding the C with `main`), for the rest run
-`--emit=lib`, compile all the `.gen.c` to objects, link with
-`-laether -lpthread -lm` (+ the dup-symbol flag aeb already adds), done.
-
-### Notes / gotchas to honor
-
-- **argv must reach Aether.** `--emit=exe` already calls
-  `aether_args_init(argc,argv)`; the Aether entry reads args via
-  `import std.os` (`os.aether_args_count()` / `os.aether_args_get(i)`).
-  Please verify the linked binary actually sees argv (a one-arg smoke
-  test: `bin foo.js` prints argc=2, argv1=foo.js).
-- **Only one entry.** Emitting `--emit=exe` for more than one source = two
-  `main`s = link error. The builder should enforce/expect exactly one
-  entry source.
-- **Mixing C is still allowed** — if a program has both an Aether entry
-  and some C `sources()`, just don't *also* expect a C `main`. (For
-  mquickjs there'll be no C at all once this lands.)
-- **`--with=<caps>`**: the entry compile needs the same capability flag
-  the lib compiles get (aeb already computes `_with_flag`). `--emit=exe`
-  may gate caps differently than `--emit=lib` — check aetherc doesn't
-  reject the entry over caps.
-- Don't regress the existing `--emit=lib` path or `c.program` with a C
-  `main` (the current mqjs build, and every C itest, must keep working).
+Building it today: the `regen` pass drops `ae/*_generated.c` all over the
+source tree (Gap 2), and there's no way to give the table wrapper `.c` its
+`-I` paths (Gap 1).
 
 ---
 
 ## Acceptance criteria
 
-1. An `aether_source`-only program (no C `sources()`) whose entry `.ae`
-   has `main()` builds and runs, and sees argv:
-   ```
-   bin script.js   →   argc=2, argv1=script.js
-   ```
-2. The mquickjs `example` binary builds from `ae/example.ae` (+ the shared
-   engine sources) with **zero** committed C, and `example foo.js`
-   evaluates the script.
-3. Existing targets unaffected: `c.program` with a C `main`, `c.compile`,
-   `c.aether_objects`, `c.generated_header`, and the C itests all still
-   pass (`tests/run.sh`).
-4. A new itest under `itests/` covering an Aether-`main()` program (with
-   an argv assertion).
+1. An `aether.program` can compile an `extra_source` C file that
+   `#include`s a header from a `dep`'s `c_header_dirs` (and/or a
+   `cflag("-I…")`), and from a project `-I` — i.e. the wrapper `.c` for a
+   generated data table compiles and links.
+2. `aether.program`'s `regen(...)` output does not appear in the source
+   tree (lands under `target/` like `c.program`'s codegen), so a build
+   leaves the committed tree clean.
+3. The mquickjs `example` binary builds as a pure `aether.program` with
+   **zero committed C** and `example foo.js` evaluates the script
+   (registers Rectangle/FilledRectangle, runs JS that uses them).
+4. Existing `aether.program` users (the spike, any itests) and
+   `c.program` unaffected; `tests/run.sh` green.
 
 ---
 
 ## Key files
 
-- `lib/c/module.ae` — `c.program` builder body (~line 82–128) is where
-  `--emit=lib` is hardcoded for every Aether source and where the link
-  happens; `aetherc_emit_lib_cmd` (~line 769) builds that command. The
-  entry-file path would call an `--emit=exe`/`--emit-main` variant here.
-- `lib/aether/module.ae` — if you prefer a first-class `aether.program`
-  target, this is its natural home (currently only has test-harness
-  builders).
-- `std/os/module.ae` — `aether_args_count` / `aether_args_get` exports
-  (how the Aether entry reads argv).
-- `runtime/aether_runtime.c` — `aether_args_init` / `aether_args_count` /
-  `aether_args_get` (already wired by `--emit=exe`).
-- `aetherc --help` — `--emit=<exe|lib|both>` and `--emit-main=<func>` are
-  the two routes; both already work standalone.
+- `lib/aether/module.ae`:
+  - `_compile_and_link` / `aether_link_cmd` (~line 1409-1417) — where
+    `inc_flags` is built from the runtime root only (Gap 1).
+  - the regen pass / `regen(...)` doc (~line 243-291) — `X.ae` →
+    `X_generated.c` in the source dir (Gap 2).
+  - `extra_source` (~line 199) — the C-file link list the wrapper rides.
+- `lib/c/module.ae` — `_collect_dep_header_dirs` (consumes a dep's
+  `c_header_dirs`) and the out-of-`target` `.gen.c` handling are the
+  existing patterns to mirror into `aether.program`.
+- `mquickjs/example-app/.build.ae` + `mquickjs/example-app/gen/.build.ae`
+  — the consumer (the gen node publishes `c_header_dirs` and emits the
+  `example_stdlib_table.c` wrapper).
 
 ---
 
 ## Payoff
 
-Lands this and **both** mquickjs binaries shed their committed C entry
-shims — `example` is born pure-Aether, and `mqjs.c`'s `main` shim can be
-deleted. More broadly: aeb finally gets shoes — "build an Aether program"
-becomes a thing aeb can do, which (gently noted) it arguably should have
-been able to do before it could build Angular.
+Lands these two and the mquickjs `example` is a fully pure-Aether
+embedding program — no committed C anywhere — and `aether.program` gains
+parity with `c.program` for the (common) case of an Aether program that
+embeds a generated C data table. The cobbler's child gets *shoes that
+fit*, not just shoes.
