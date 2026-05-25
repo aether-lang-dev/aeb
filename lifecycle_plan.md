@@ -267,3 +267,57 @@ call-stack `finally` that doesn't fit a DAG runner. Slices 4–5 (new
 scheduling, crash-safe atexit) are genuine design commitments and
 should be taken deliberately, only when a concrete need lands, not
 bundled into the glue.
+
+## 9. Process isolation & timeouts (Bazel-style)
+
+Adjacent to teardown: keeping a step's *processes* from outliving it.
+A step that backgrounds a native server (or leaks any helper) can leave
+it running past the step — and a lingering native server has been seen
+to poison a sandboxed harness's exit code (`server-daemon-snafu.md`,
+`../aether/std-http-server-background-sigurg-poisons-harness.md`). The
+mature build systems converge on **process-group reaping**: Bazel/Buck
+run each action in its own process group and SIGKILL the group on
+completion/timeout; Maven/Gradle mostly daemonize into Docker; Cargo
+leaves it to the test author (RAII `Drop`, a known footgun).
+
+**Done — build-level reap + `--timeout` (the aeb trampoline).** The whole
+build (`aeb-main` → `aeb-link` → orchestrator → anything a step spawned)
+runs as one `set -m` job in its own process group; when it finishes the
+trampoline group-kills survivors (`TERM` → grace → `KILL`), so nothing
+lingers into `aeb`'s own exit. `--timeout N` / `AEB_TIMEOUT=N` caps total
+wall-clock (watchdog TERM→KILL; exit 124). This is *invocation-level*:
+from a sandbox's view `aeb` is one command, so reaping leaks before
+`aeb` exits is what fixes the poisoned exit. Always on (no-op when a
+build leaks nothing). The fixture runner (`fixture_server`) also reaps
+its declared servers; this catches the *undeclared* leaks too.
+
+**Deferred — true per-step reaping + `timeout { … }` grammar.** Bazel's
+finer granularity (each *action* group-reaped on *its own* completion,
+per-action timeout) would also give clean mid-build isolation and a
+per-target wall-clock. The natural grammar is a closure that carries
+both duration and the force-quit reserve:
+
+```aether
+c.tests(b) {
+    timeout { after(30)  grace_ms(2000) }   // per-step cap + graceful window
+    run("svc/.build.ae", "...")
+}
+```
+
+The blocker is architectural: aeb runs every node **in-process** in the
+one orchestrator (they share the in-memory session map — §1's status
+machine depends on it), so a node can't be preempted mid-`os.system`.
+Real per-step reaping needs either:
+
+- **nodes as subprocesses** — each node forked into its own process
+  group, reaped/timed-out individually. Loses the shared in-memory
+  session (recoverable: state is also disk-backed via artifacts), but
+  it's a real re-architecture of the orchestrator; or
+- **runtime process-group hooks** — aether-side `setpgid`/`killpg`
+  exposed through `std.os`, so the orchestrator can open/close a group
+  around each node's shell-outs without forking the node itself.
+
+Don't ship `timeout { … }` grammar before one of those lands — per-step
+grammar with only build-level enforcement would be grammar that lies.
+Until then, build-level `--timeout` + the reap cover the load-bearing
+case (a hung or leaky build never wedges or poisons CI).

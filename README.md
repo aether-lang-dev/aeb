@@ -368,6 +368,26 @@ positions `0, M, 2M...`; shard `2/M` receives `1, M+1...`, and so on.
 Empty shards exit 0 with a clear note. CI owns runner allocation and
 parallel job scheduling; aeb owns the deterministic partitioning.
 
+#### Wall-clock cap + process reaping (`aeb --timeout`)
+
+`--timeout N` (or `AEB_TIMEOUT=N`, seconds) caps the whole build's
+wall-clock. On overrun aeb terminates the build and exits **124** (the
+coreutils `timeout` convention):
+
+```bash
+aeb --timeout 600                 # fail the build if it runs > 10 min
+AEB_TIMEOUT=600 aeb --since main  # same, via env (CI-friendly)
+```
+
+Independently of `--timeout`, aeb runs the whole build in its **own
+process group** and group-reaps it on completion — so a step that
+backgrounds a server or leaks a helper can't leave a process lingering
+into aeb's exit (which, under a sandboxed agent/CI harness, can
+otherwise poison the exit code). This reap is always on and is a no-op
+when a build leaves nothing running. Per-*step* timeouts and isolation
+are a deferred design (see `lifecycle_plan.md` §9) — today the cap and
+reap are build-wide.
+
 #### Composite targets via `build.scan()`
 
 Where `--pattern` is the imperative one-shot ("filter to .tests.ae

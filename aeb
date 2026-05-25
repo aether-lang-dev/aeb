@@ -141,6 +141,17 @@ while [[ $i -le $# ]]; do
             exit 1
         fi
         export AEB_TESTS_JSON="${!i}"
+    elif [[ "$a" == "--timeout" ]]; then
+        i=$((i + 1))
+        if [[ $i -gt $# ]]; then
+            echo "aeb: --timeout requires a value in seconds (e.g. --timeout 600)" >&2
+            exit 1
+        fi
+        if ! [[ "${!i}" =~ ^[0-9]+$ ]]; then
+            echo "aeb: --timeout must be a whole number of seconds, got '${!i}'" >&2
+            exit 1
+        fi
+        export AEB_TIMEOUT="${!i}"
     else
         ARGS+=("$a")
     fi
@@ -148,9 +159,78 @@ while [[ $i -le $# ]]; do
 done
 set -- "${ARGS[@]+"${ARGS[@]}"}"
 
-# --- Normal build: lazy-build and exec the main tool ---
+# --- Normal build: lazy-build the main tool ---
 AEB_MAIN_BIN="$AEB_HOME/tools/aeb-main"
 if [[ ! -x "$AEB_MAIN_BIN" ]]; then
     "$AETHER" build "$AEB_HOME/tools/aeb-main.ae" -o "$AEB_MAIN_BIN" 2>/dev/null
 fi
-exec "$AEB_MAIN_BIN" "$AETHER" "$AEB_HOME" "$ROOT" "$@"
+
+# --- Run the build in its own process group, then reap survivors -----
+# Bazel-style: the whole build (aeb-main -> aeb-link -> orchestrator ->
+# any process a step spawned) runs as one backgrounded job, which `set -m`
+# places in its own process group (pid == pgid). When the build finishes
+# we group-kill anything still alive — a step that leaked a backgrounded
+# server, a stray helper — so nothing lingers into aeb's own exit (a
+# lingering native server has been seen to poison a sandboxed harness's
+# exit; see server-daemon-snafu.md). The reap is a no-op when a build
+# leaves nothing running, so it's always on.
+#
+# `--timeout N` / AEB_TIMEOUT=N (seconds, unset/0 = none) caps total
+# wall-clock: a watchdog TERMs then KILLs the build group on overrun.
+#
+# We can no longer `exec` (we must outlive the build to reap it), so
+# capture its status and propagate it. set +e: a non-zero build result
+# must not abort the trampoline before the reap runs.
+set +e
+set -m
+"$AEB_MAIN_BIN" "$AETHER" "$AEB_HOME" "$ROOT" "$@" &
+__aeb_pid=$!
+# Forward interactive signals to the whole build group.
+trap 'kill -INT  -"$__aeb_pid" 2>/dev/null' INT
+trap 'kill -TERM -"$__aeb_pid" 2>/dev/null' TERM
+
+__aeb_wd=""
+__aeb_to_marker=""
+if [[ -n "${AEB_TIMEOUT:-}" ]] && [[ "$AEB_TIMEOUT" -gt 0 ]]; then
+    __aeb_to_marker="$(mktemp 2>/dev/null || echo "/tmp/aeb_timeout_$$")"
+    rm -f "$__aeb_to_marker"
+    # On overrun: mark that we timed out, then TERM the build group, give
+    # it 5s, then KILL. (The marker lets us report the conventional
+    # timeout exit code 124 rather than a raw signal status.)
+    ( sleep "$AEB_TIMEOUT"
+      : > "$__aeb_to_marker"
+      echo "aeb: build exceeded timeout ${AEB_TIMEOUT}s; terminating" >&2
+      kill -TERM -"$__aeb_pid" 2>/dev/null
+      sleep 5
+      kill -KILL -"$__aeb_pid" 2>/dev/null ) &
+    __aeb_wd=$!
+fi
+
+wait "$__aeb_pid"
+__aeb_rc=$?
+
+# Cancel the watchdog if the build finished on its own.
+if [[ -n "$__aeb_wd" ]]; then
+    kill -- -"$__aeb_wd" 2>/dev/null
+    wait "$__aeb_wd" 2>/dev/null
+fi
+
+# Reap any process the build leaked into its group: TERM, brief grace,
+# then an uncatchable KILL. No-op when the group is already empty.
+kill -TERM -"$__aeb_pid" 2>/dev/null
+__g=0
+while [[ $__g -lt 10 ]]; do
+    kill -0 -"$__aeb_pid" 2>/dev/null || break
+    sleep 0.1
+    __g=$((__g + 1))
+done
+kill -KILL -"$__aeb_pid" 2>/dev/null
+
+# A timeout reports 124 (coreutils `timeout` convention), regardless of
+# the exact signal the build died from.
+if [[ -n "$__aeb_to_marker" && -f "$__aeb_to_marker" ]]; then
+    rm -f "$__aeb_to_marker"
+    exit 124
+fi
+rm -f "$__aeb_to_marker" 2>/dev/null
+exit "$__aeb_rc"

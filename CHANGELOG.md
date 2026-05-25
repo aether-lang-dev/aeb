@@ -4,6 +4,22 @@
 
 ### Added
 
+- **Build-level process-group reaping + `aeb --timeout`** (the `aeb`
+  trampoline). The whole build now runs in its own process group and is
+  group-reaped (`TERM` → grace → `KILL`) on completion, so a step that
+  backgrounds a server or leaks a helper can't leave a process lingering
+  into aeb's exit — which under a sandboxed agent/CI harness can poison
+  the exit code (`server-daemon-snafu.md`;
+  `../aether/std-http-server-background-sigurg-poisons-harness.md`). The
+  reap is always on and a no-op when a build leaks nothing. `--timeout N`
+  / `AEB_TIMEOUT=N` (seconds) caps total wall-clock and exits 124 on
+  overrun. Bazel-style; per-step isolation is a deferred design
+  (`lifecycle_plan.md` §9).
+
+- **`fixture_server` teardown hardened** (`lib/build`): servers launch
+  with stdin detached and tear down `TERM` → grace-poll → `KILL` → reap,
+  so a server is gone before the step returns even if it ignores `TERM`.
+
 - **`lib/copy`: file/directory-staging SDK** (`copy.file(b)`,
   `copy.tree(b)`) — Bazel `copy_file` / `copy_directory` analogue.
   Closure-DSL setters `from(...)` / `to(...)`; mtime-skip when the
