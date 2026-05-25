@@ -14,6 +14,15 @@ public-API promise; the surface is still moving. Don't worry about
 version bumps in a contribution — just describe the change in
 [`CHANGELOG.md`](CHANGELOG.md) under `## Unreleased`.
 
+Every push to `main` is auto-tagged `v0.NNN` (sequential:
+`v0.001`, `v0.002`, …) by `.github/workflows/autotag.yml`. These are
+**pinnable markers, not sem-ver compatibility promises** — a higher
+number just means "later," nothing about API stability. GitHub serves a
+source tarball per tag (`…/archive/refs/tags/v0.NNN.tar.gz`), so a
+downstream repo can pin its aeb to an exact, human-ordered ref
+(`AEB_REF=v0.042`) instead of an anonymous commit SHA. You don't tag by
+hand; the workflow does it.
+
 ## Who can push, and how
 
 - **Paul and Nic** commit and push directly to `main`.

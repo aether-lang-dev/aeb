@@ -1,0 +1,57 @@
+name: autotag
+
+# Tag every push to main with the next sequential v0.NNN, so each
+# pushed commit is a human-meaningful, ordered, pinnable ref. GitHub then
+# serves a source tarball for it automatically
+# (…/archive/refs/tags/v0.NNN.tar.gz), which an installer / a using-repo's
+# bootstrap can pin to (`AEB_REF=v0.042`). These tags are pinnable
+# markers, NOT sem-ver compatibility promises (aeb is pre-1.0, no
+# sem-ver — see CONTRIBUTING.md).
+#
+# Pushing a tag does not re-trigger this workflow (it listens on branch
+# pushes only), so there is no loop.
+
+on:
+  push:
+    branches: [main]
+
+# Serialize runs so two quick pushes can't both compute the same next
+# number and collide on the tag.
+concurrency:
+  group: autotag
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # push the new tag via the default GITHUB_TOKEN
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # full history + all tags for the counter
+          fetch-tags: true
+
+      - name: Tag next v0.NNN
+        run: |
+          set -euo pipefail
+
+          # Skip if this commit is already tagged v0.* (re-run / manual tag).
+          if git tag --points-at HEAD | grep -q '^v0\.'; then
+            echo "HEAD already carries a v0.* tag — nothing to do."
+            exit 0
+          fi
+
+          # Highest existing counter (numeric, leading zeros stripped), or 0.
+          latest=$(git tag --list 'v0.*' \
+            | sed -n 's/^v0\.0*\([0-9][0-9]*\)$/\1/p' \
+            | sort -n | tail -1)
+          latest=${latest:-0}
+          tag=$(printf 'v0.%03d' "$((latest + 1))")
+
+          git config user.name  "aeb-autotag[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "aeb $tag (auto-tagged from $(git rev-parse --short HEAD))"
+          git push origin "$tag"
+          echo "Tagged and pushed $tag"

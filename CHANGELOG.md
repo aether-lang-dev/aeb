@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Auto-tagging on push to `main`** (`.github/workflows/autotag.yml`).
+  Every push gets the next sequential `v0.NNN` tag — a human-ordered,
+  pinnable ref (GitHub serves a source tarball per tag), so a downstream
+  repo can pin aeb to `AEB_REF=v0.042` rather than an anonymous SHA.
+  Pinnable markers, not sem-ver promises (see CONTRIBUTING.md).
+
 - **Build-level process-group reaping + `aeb --timeout`** (the `aeb`
   trampoline). The whole build now runs in its own process group and is
   group-reaped (`TERM` → grace → `KILL`) on completion, so a step that
