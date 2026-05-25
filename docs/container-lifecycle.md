@@ -124,8 +124,9 @@ step launches it with a hand-rolled `os.system("./server &")` and doesn't
 reliably reap it, the server can outlive the step. Under a sandboxed
 agent/CI harness a lingering native server has been observed to **poison
 the build's exit code** (a SIGURG/`144` or `1` with truncated output),
-even though the build logic itself succeeded — see
-[`server-daemon-snafu.md`](../server-daemon-snafu.md).
+even though the build logic itself succeeded. (aeb now group-reaps the
+whole build on completion, so a leak no longer poisons aeb's *own* exit —
+but a one-shot or reaped fixture is still the right shape.)
 
 Two safe shapes, in order of preference:
 

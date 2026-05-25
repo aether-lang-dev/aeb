@@ -187,7 +187,7 @@ main() {
     // --- _synth_fixture_post: teardown + rm in correct order ---
     // Each server now lowers to 4 teardown lines (TERM, grace-poll,
     // KILL, wait) so a server that ignores TERM still dies and is
-    // reaped before the step returns (server-daemon-snafu.md).
+    // reaped before the step returns.
     seeds_with_server = list.new()
     list.add(seeds_with_server, _pack_seed("primary", "/tmp/r1", ""))
     servers_one = list.new()

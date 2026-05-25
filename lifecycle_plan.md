@@ -273,7 +273,7 @@ bundled into the glue.
 Adjacent to teardown: keeping a step's *processes* from outliving it.
 A step that backgrounds a native server (or leaks any helper) can leave
 it running past the step — and a lingering native server has been seen
-to poison a sandboxed harness's exit code (`server-daemon-snafu.md`,
+to poison a sandboxed harness's exit code (root cause filed aether-side:
 `../aether/std-http-server-background-sigurg-poisons-harness.md`). The
 mature build systems converge on **process-group reaping**: Bazel/Buck
 run each action in its own process group and SIGKILL the group on

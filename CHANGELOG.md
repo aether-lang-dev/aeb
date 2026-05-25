@@ -22,8 +22,7 @@
   group-reaped (`TERM` → grace → `KILL`) on completion, so a step that
   backgrounds a server or leaks a helper can't leave a process lingering
   into aeb's exit — which under a sandboxed agent/CI harness can poison
-  the exit code (`server-daemon-snafu.md`;
-  `../aether/std-http-server-background-sigurg-poisons-harness.md`). The
+  the exit code. The
   reap is always on and a no-op when a build leaks nothing. `--timeout N`
   / `AEB_TIMEOUT=N` (seconds) caps total wall-clock and exits 124 on
   overrun. Bazel-style; per-step isolation is a deferred design

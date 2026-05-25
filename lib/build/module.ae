@@ -1046,7 +1046,7 @@ _synth_fixture_pre(seeds: ptr, servers: ptr) {
             // Redirect stdin from /dev/null so the backgrounded server
             // never shares the controlling terminal (a server holding
             // the tty can interfere with the foreground command under a
-            // sandboxed harness — see server-daemon-snafu.md).
+            // sandboxed harness).
             spawn_line = string.concat(spawn_line, "\" 2>&1 < /dev/null & export ")
             spawn_line = string.concat(spawn_line, up)
             spawn_line = string.concat(spawn_line, "_PID=")
@@ -1099,7 +1099,7 @@ _synth_fixture_post(seeds: ptr, servers: ptr) {
             pid_ref = string.concat(pid_ref, "_PID}")
             // Robust teardown so no server outlives the step. A native
             // server left running past the step poisons a sandboxed
-            // harness's exit (server-daemon-snafu.md), so don't depend
+            // harness's exit, so don't depend
             // on the server honoring any particular signal: send TERM
             // for a graceful stop, poll up to ~1s, then an uncatchable
             // KILL, then reap. Renders, per server:
