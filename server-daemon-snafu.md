@@ -173,3 +173,44 @@ What aeb *can* own — never leave a server lingering past the step:
 Caveat: (1)/(2) ensure the server doesn't *linger*; during the window it
 must be alive to be probed, a harness can still observe the SIGURG. The
 durable fix is the aether-side quiet/embedded mode.
+
+---
+
+## Update (2026-05-25): build-level reaping + `--timeout` landed
+
+aeb now reaps the **whole build's process group** on completion, so this
+is contained even for a *hand-rolled* `os.system("server &")` — not just
+declared `fixture_server`s:
+
+- The trampoline runs the entire build (`aeb-main` → `aeb-link` →
+  orchestrator → anything a step spawned) as one `set -m` job in its own
+  process group, and on completion group-kills survivors
+  (`TERM` → grace → `KILL`). So a leaked native server is **killed before
+  `aeb` exits**, and can't poison aeb's exit code. Always on; a no-op
+  when a build leaks nothing.
+- `aeb --timeout N` (or `AEB_TIMEOUT=N`, seconds) caps total wall-clock
+  and exits **124** on overrun — so a wedged server-poll can't hang CI.
+
+### Advice for servirtium-go (in priority order)
+
+1. **Keep the one-shot `vcrdemo` (`up_poke_down` in a single process).**
+   Still the best shape — deterministic, nothing backgrounded, nothing to
+   race. You don't need to change it.
+2. **If a test needs the server *standing* while it runs**, use
+   `bash.test`'s `fixture_server { bin(...); port(...); ready_after_ms(...) }`
+   (or `aether.driver_test`). aeb launches it stdin-detached and reaps it
+   (`TERM → grace → KILL → wait`) when the test step ends.
+3. **If you must hand-roll a background server in a step**, you're now
+   safe from the *poisoned-exit* symptom — aeb group-reaps it at build
+   end. But still avoid it where you can: while the server is alive
+   *during* the build a harness can still observe the SIGURG, so a
+   one-shot or fixture is cleaner. Never rely on your own ad-hoc `kill`.
+4. **In CI**, set `aeb --timeout <seconds>` so a hung probe fails fast
+   (124) instead of wedging the runner.
+
+The **durable** fix is still aether-side: a quiet/embedded
+`std.http.server` mode that installs no SIGINT handler / banner when
+started via `http_server_start_background_raw`
+(`../aether/std-http-server-background-sigurg-poisons-harness.md`). Until
+that lands, aeb's reaping + `--timeout` keep it from breaking your build;
+they don't stop the server from *emitting* the SIGURG while it's alive.
