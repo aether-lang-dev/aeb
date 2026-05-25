@@ -4,6 +4,13 @@
 
 ### Added
 
+- **`install.sh` + `docs/bootstrap-from-source.md`** — a `curl … | sh`
+  installer (`AEB_REF`/`PREFIX`/`AETHER` knobs; defaults to the latest tag
+  and `~/.local`, no sudo) that fetches the GitHub source tarball for a
+  pinned ref and `make install`s it, plus a consumer bootstrap guide
+  (one-liner, clone, in-tree `./aeb`, pinning aeb in CI, tracking HEAD).
+  README gains an Installing section.
+
 - **Auto-tagging on push to `main`** (`.github/workflows/autotag.yml`).
   Every push gets the next sequential `v0.NNN` tag — a human-ordered,
   pinnable ref (GitHub serves a source tarball per tag), so a downstream

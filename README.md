@@ -150,12 +150,29 @@ java/components/vowelbase/.build.ae
 
 (`/` → `_`, `.` → `_D_`, `-` → `_H_`, `_` → `__`.)
 
+## Installing
+
+aeb is written in Aether, so it needs the [Aether toolchain](https://github.com/aether-lang-org/aether)
+(`ae`) first. Then, to a no-sudo prefix (`~/.local`):
+
+```bash
+# Latest tag (or pin one for CI: AEB_REF=v0.042):
+curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh | sh
+
+# Or from a clone:
+git clone https://github.com/aether-lang-org/aeb.git && cd aeb && make install
+```
+
+Ensure `~/.local/bin` is on your `PATH`. Full guide — pinning in CI,
+tracking HEAD, an automation recipe — in
+[docs/bootstrap-from-source.md](docs/bootstrap-from-source.md).
+
 ## Setup
 
 Initialize a repo to use aeb:
 
 ```bash
-/path/to/aeb/aeb --init
+aeb --init
 ```
 
 This creates symlinks in `.aeb/lib/` for every shipped SDK module and
