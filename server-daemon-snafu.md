@@ -202,15 +202,60 @@ declared `fixture_server`s:
    (`TERM → grace → KILL → wait`) when the test step ends.
 3. **If you must hand-roll a background server in a step**, you're now
    safe from the *poisoned-exit* symptom — aeb group-reaps it at build
-   end. But still avoid it where you can: while the server is alive
-   *during* the build a harness can still observe the SIGURG, so a
-   one-shot or fixture is cleaner. Never rely on your own ad-hoc `kill`.
+   end. Still avoid it where you can (a one-shot or fixture is cleaner),
+   and never rely on your own ad-hoc `kill`.
 4. **In CI**, set `aeb --timeout <seconds>` so a hung probe fails fast
    (124) instead of wedging the runner.
 
-The **durable** fix is still aether-side: a quiet/embedded
-`std.http.server` mode that installs no SIGINT handler / banner when
-started via `http_server_start_background_raw`
-(`../aether/std-http-server-background-sigurg-poisons-harness.md`). Until
-that lands, aeb's reaping + `--timeout` keep it from breaking your build;
-they don't stop the server from *emitting* the SIGURG while it's alive.
+## Upstream: delivered + a correction to this report (2026-05-25)
+
+The aether side delivered the requested change (branch
+`fix/http-server-background-quiet`): `http_server_start_background_raw`
+no longer prints the `Server running…/Press Ctrl+C` banner, and its
+detached accept/worker threads now **block async signals**
+(SIGURG/SIGINT/SIGTERM/SIGPIPE) so they can't intercept a
+process-directed signal. Good embedded-server hygiene, as asked.
+
+But the maintainer's investigation **corrects a premise of this report**,
+and it's worth recording honestly:
+
+- **The 144/SIGURG is the supervising harness's accounting of a
+  *lingering child* — not Aether crashing or emitting SIGURG.** Aether
+  installs no SIGURG/SIGINT handler. Under their agent harness even a
+  lingering `/bin/sleep` yields 144, so the "only the Aether server
+  poisons, a plain `sleep &` is fine" discriminator in the table above
+  was **harness-specific** (my Bash-tool harness happened to show that
+  split; theirs doesn't). The robust truth is simpler: *any* lingering
+  background child can poison a sandbox harness's exit.
+- Which means **reaping the lingering child is the actual cure** — and
+  that's aeb's build-level group-reap (above), which kills *whatever* a
+  step leaked, server or not. The aether-side quiet/signal-clean change
+  is hygiene for embedded use, not the thing that fixes the exit code.
+
+Net, two-sided and complete: **aeb reaps** any leaked process before it
+exits (the cure), and **aether's background server is now quiet +
+signal-clean** (so an embedded server behaves like a library). Neither
+"stops a SIGURG mid-flight" because there was never an Aether-emitted
+SIGURG to stop — just a lingering child the harness charged for.
+
+---
+
+## Downstream confirmation (servirtium-go, 2026-05-25)
+
+Confirmed against the installed aeb (`e3e11e4`, 2026-05-25, build-level
+group-reaping present) and ae 0.184.0:
+
+- servirtium-go's `demo/.up_poke_down.ae` already uses the one-shot
+  `vcrdemo` (advice #1) — no backgrounded daemon — and `AEB_TIMEOUT` is
+  documented for its CI. No change needed there.
+- **The residual still bites this agent harness as predicted.** Even a
+  *one-shot* whose `std.http.server` is alive for <1s (start → in-process
+  GET → stop) still emits the SIGURG during that window, which kills the
+  *capturing* shell (`aeb` invoked under the agent's Bash tool exits with
+  no output). aeb's group-reaping correctly protects aeb's *own* exit, but
+  it can't suppress the emission — so a capturing harness can't observe a
+  clean `aeb` run that exercises an in-tree `std.http.server` at all, even
+  via a one-shot. The aether-side quiet/embedded mode is therefore the
+  load-bearing fix for agent/CI capture, not just a nicety. (Confirmed the
+  aether request doc exists but the quiet mode has **not** landed in the
+  CHANGELOG yet.)
