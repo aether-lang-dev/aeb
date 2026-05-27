@@ -1,0 +1,146 @@
+// aeb-driver — per-node runner for AEB_PER_NODE mode
+// (nodes-as-subprocesses, docs/nodes-as-subprocesses.md, slice B).
+//
+// Runs each build node as its OWN invocation of the linked orchestrator
+// binary (`out_bin <root> <label>`, the selector from slice A),
+// redirecting that node's stdout+stderr into a per-node log under
+// target/.aeb/logs/. aeb's own stdout then carries only the driver's
+// progress lines + the telemetry summary — the per-target tool output
+// (javac/junit/jest…) is compartmentalized into the logs instead of
+// interleaving onto aeb's stdout.
+//
+// Usage: aeb-driver <root> <out_bin> <file1.ae> <file2.ae> ...
+// The files are the topo-sorted .ae build files (same list
+// gen-orchestrator gets); file_to_label(file) is the selector.
+//
+// Reuses lib/build's marker readers + render so the summary is identical
+// to the all-in-one path; the only difference is where tool output goes.
+import build
+import aeblabel (file_to_label, infer_type)
+import std.string
+import std.os
+import std.io
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+
+// Flat, filesystem-safe log filename for a label (which contains '/' and
+// ':'). Keeps alnum/./-, maps everything else to '_'.
+_log_name(label: string) {
+    keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"
+    out = ""
+    n = string.length(label)
+    i = 0
+    while i < n {
+        ch = string.substring(label, i, i + 1)
+        if string.index_of(keep, ch) >= 0 { out = string.concat(out, ch) }
+        else { out = string.concat(out, "_") }
+        i = i + 1
+    }
+    return string.concat(out, ".log")
+}
+
+main() {
+    argc = aether_args_count()
+    if argc < 3 {
+        println("usage: aeb-driver <root> <out_bin> <file.ae>...")
+        exit(1)
+    }
+    root = aether_args_get(1)
+    out_bin = aether_args_get(2)
+
+    logs_dir = path.join(path.join(path.join(root, "target"), ".aeb"), "logs")
+    build._mkdirs(logs_dir)
+
+    records = list.new()
+    session_start = clock_ns()
+    any_failed = 0
+
+    i = 3
+    while i < argc {
+        file = aether_args_get(i)
+        i = i + 1
+        label = file_to_label(file)
+        type = infer_type(file)
+        type_word = "compile"
+        if type == "test" { type_word = "test" }
+        if type == "dist" { type_word = "dist" }
+
+        log = path.join(logs_dir, _log_name(label))
+
+        // Run this node only; its stdout+stderr → its own log.
+        cmd = string.concat("'", out_bin)
+        cmd = string.concat(cmd, "' '")
+        cmd = string.concat(cmd, root)
+        cmd = string.concat(cmd, "' '")
+        cmd = string.concat(cmd, label)
+        cmd = string.concat(cmd, "' > '")
+        cmd = string.concat(cmd, log)
+        cmd = string.concat(cmd, "' 2>&1")
+
+        println("  ${type_word}: ${label}")
+        start = clock_ns()
+        rc = os.system(cmd)
+        endt = clock_ns()
+
+        node_failed = 0
+        if rc != 0 { node_failed = 1 }
+
+        // Telemetry record from on-disk markers (mirrors gen-orchestrator).
+        rec = map.new()
+        _rl = map.put(rec, "label", string.copy(label))
+        _rt = map.put(rec, "type", string.copy(type_word))
+        _rw = map.put(rec, "wall_ms", string.from_int((endt - start) / 1000000))
+        td = build._label_to_target_dir(root, label)
+        _rc2 = map.put(rec, "cache", build._read_cache_outcome(td))
+        if type == "test" {
+            tp, tf, thr = build._read_test_result(td)
+            if thr == 1 {
+                _rp = map.put(rec, "test_passed", string.from_int(tp))
+                _rf = map.put(rec, "test_failed", string.from_int(tf))
+                if tf > 0 { node_failed = 1 }
+            }
+            tfn = build._read_test_failures(td)
+            if string.length(tfn) > 0 { _rn = map.put(rec, "test_failed_names", tfn) }
+        }
+        _ra = list.add(records, rec)
+
+        if node_failed == 1 {
+            any_failed = 1
+            println("  ${type_word}: ${label} — FAILED (see ${log}):")
+            _cat = os.system(string.concat(string.concat("cat '", log), "' 2>/dev/null"))
+        }
+    }
+
+    session_end = clock_ns()
+    total_ms = (session_end - session_start) / 1000000
+
+    // JSON dumps — parity with the orchestrator's all-in-one path.
+    telemetry_json = os.getenv("AEB_TELEMETRY_JSON")
+    if string.length(telemetry_json) > 0 {
+        tj_dir = path.dirname(telemetry_json)
+        if string.length(tj_dir) > 0 { build._mkdirs(tj_dir) }
+        tj_body = build.render_telemetry_json(records, total_ms)
+        _tje = fs.write_atomic(telemetry_json, tj_body, string.length(tj_body))
+    }
+    tests_json = os.getenv("AEB_TESTS_JSON")
+    if string.length(tests_json) > 0 {
+        testj_dir = path.dirname(tests_json)
+        if string.length(testj_dir) > 0 { build._mkdirs(testj_dir) }
+        testj_body = build.render_tests_json(records)
+        _testje = fs.write_atomic(tests_json, testj_body, string.length(testj_body))
+    }
+    artifacts_json = os.getenv("AEB_ARTIFACTS_JSON")
+    if string.length(artifacts_json) > 0 {
+        artj_dir = path.dirname(artifacts_json)
+        if string.length(artj_dir) > 0 { build._mkdirs(artj_dir) }
+        artj_body = build.render_artifacts_json(root, records)
+        _artje = fs.write_atomic(artifacts_json, artj_body, string.length(artj_body))
+    }
+
+    println(build.render_telemetry(records, total_ms))
+    if any_failed == 1 { exit(1) }
+    return 0
+}

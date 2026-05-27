@@ -457,6 +457,41 @@ main() {
     }
     os.system(cc)
 
+    // --- Run: per-node driver (AEB_PER_NODE) or all-in-one orchestrator ---
+    // AEB_PER_NODE=1 (nodes-as-subprocesses, docs/nodes-as-subprocesses.md):
+    // run each node as its own `out_bin <root> <label>` via aeb-driver,
+    // which redirects per-node tool output into target/.aeb/logs/ and
+    // renders the same summary — compartmentalized output. Default
+    // (unset) is the unchanged all-in-one run below.
+    if string.length(os.getenv("AEB_PER_NODE")) > 0 {
+        aeb_driver = string.concat(aebhome, "/tools/aeb-driver")
+        if file.exists(aeb_driver) == 0 {
+            // Lazy-build: aeb-driver imports `build` (lib) + aeblabel (tools).
+            db = string.concat(aether_bin, " build ")
+            db = string.concat(db, string.concat(aebhome, "/tools/aeb-driver.ae -o "))
+            db = string.concat(db, aeb_driver)
+            db = string.concat(db, string.concat(" --lib ", compile_lib))
+            db = string.concat(db, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null")))
+            os.system(db)
+        }
+        dcmd = string.concat("'", aeb_driver)
+        dcmd = string.concat(dcmd, "' '")
+        dcmd = string.concat(dcmd, root)
+        dcmd = string.concat(dcmd, "' '")
+        dcmd = string.concat(dcmd, out_bin)
+        dcmd = string.concat(dcmd, "'")
+        di = 0
+        while di < n {
+            df, _ = list.get(files, di)
+            di = di + 1
+            dcmd = string.concat(dcmd, " '")
+            dcmd = string.concat(dcmd, df)
+            dcmd = string.concat(dcmd, "'")
+        }
+        rc = os.system(dcmd)
+        exit(rc)
+    }
+
     // --- Run the orchestrator binary (child process) and propagate exit ---
     // We don't have execv in stdlib so this stays a fork+wait rather than a
     // true exec. The parent process holds for the duration; otherwise it's

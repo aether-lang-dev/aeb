@@ -62,8 +62,10 @@ install: $(INSTALL_TOOLS)
 	@# binaries match the current toolchain.
 	@for src in tools/*.ae; do \
 	    bin="$${src%.ae}"; \
+	    extra=""; \
+	    case "$$src" in tools/aeb-driver.ae) extra="--lib lib";; esac; \
 	    echo "  rebuild $$bin"; \
-	    $(AETHER) build "$$src" -o "$$bin" $(AEFLAGS) >/dev/null || { echo "install: failed to build $$src" >&2; exit 1; }; \
+	    $(AETHER) build "$$src" -o "$$bin" $(AEFLAGS) $$extra >/dev/null || { echo "install: failed to build $$src" >&2; exit 1; }; \
 	done
 	rm -f $(BINDIR)/aeb
 	rm -rf $(SHAREDIR)/lib $(SHAREDIR)/tools
