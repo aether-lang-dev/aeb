@@ -106,6 +106,11 @@ while [[ $i -le $# ]]; do
     a="${!i}"
     if [[ "$a" == "--coverage" ]]; then
         export AEB_COVERAGE=1
+    elif [[ "$a" == "--in-process" ]]; then
+        # Opt out of the default per-node subprocess mode: run the
+        # all-in-one in-process orchestrator (faster for small builds,
+        # simplest to debug; tool output streams onto aeb's stdout).
+        export AEB_IN_PROCESS=1
     elif [[ "$a" == "--pattern" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then

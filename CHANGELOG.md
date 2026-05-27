@@ -2,19 +2,21 @@
 
 ## Unreleased
 
-### Added
+### Changed
 
-- **`AEB_PER_NODE=1` — compartmentalized per-node output (experimental,
-  opt-in).** Runs each build node as its own subprocess and redirects
-  that node's tool output (javac/junit/jest/…) into
+- **Per-node output is now the default; `aeb --in-process` opts out.**
+  aeb runs each build node as its own subprocess and redirects that
+  node's tool output (javac/junit/jest/…) into
   `target/.aeb/logs/<label>.log`, so aeb's own stdout carries only its
   framing + the telemetry summary instead of interleaving every tool's
-  chatter. Same results and summary as the default all-in-one path
-  (validated on `google-monorepo-sim`: identical `32 compile + 2 dist +
-  22 test`, zero tool-noise on stdout). Currently ~1/3 slower (per-node
-  process-spawn overhead, no parallelism yet), so it's opt-in until
-  per-node parallelism lands. Design + remaining slices:
-  `docs/nodes-as-subprocesses.md`.
+  chatter. Same results/summary as before (validated on
+  `google-monorepo-sim`: identical `32 compile + 2 dist + 22 test`, zero
+  tool-noise on stdout). `--in-process` (or `AEB_IN_PROCESS=1`,
+  `AEB_PER_NODE=0`) runs the older all-in-one in-process orchestrator —
+  faster for small builds, simplest to debug. Per-node currently costs
+  ~1/3 more wall-clock (process-spawn, no parallelism yet); per-node
+  parallelism is the planned change that turns that into a speedup.
+  Design: `docs/nodes-as-subprocesses.md`.
 
 ### Fixed
 

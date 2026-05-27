@@ -84,12 +84,15 @@ fd redirection, process groups, and timeout the trampoline reaper uses;
 ## Risk & rollback
 
 This reshapes aeb's core execution, on which every itest and
-`google-monorepo-sim` depend. So it lands **behind a flag, default-off**,
-proven green before it becomes default:
+`google-monorepo-sim` depend. It landed incrementally, proven green at
+each step:
 
-- the all-in-one orchestrator path stays the default and untouched;
-- per-node mode is opt-in (`AEB_PER_NODE=1`) until validated against the
-  sim + itests, then the default flips, then the old path is removed.
+- per-node was opt-in (`AEB_PER_NODE=1`) first, validated against the
+  sim;
+- then per-node became the **default**, with the all-in-one path kept
+  permanently as the `--in-process` (`AEB_IN_PROCESS=1`) opt-out — not
+  removed: it's the faster path for small builds and the simplest to
+  debug. `AEB_PER_NODE` still forces the choice (1 / 0).
 
 ## Slices
 
@@ -105,8 +108,12 @@ proven green before it becomes default:
 - **C. Status machine → disk-backed.** Move `status_of`/`any_failed`/
   `reason_of` to `target/.aeb/status/<label>` so cross-node queries work
   across the process boundary (folds in `lifecycle_plan.md` Slice 3).
-- **D. Validate + flip.** Run sim + itests under `AEB_PER_NODE=1`,
-  compare results/timings, then make per-node the default; later remove
-  the all-in-one path (or keep it as a `--in-process` fast mode).
+- **D. Validate + flip. DONE.** Validated per-node on the sim (identical
+  `32 compile + 2 dist + 22 test`, zero tool-noise on stdout, ~⅓ slower),
+  then flipped per-node to the **default**; the all-in-one path is kept
+  as `aeb --in-process` (the fast/simple mode), not removed.
+  *Caveat:* the broad `itests/` set was not re-run under per-node before
+  the flip — `--in-process` is the escape hatch if any itest greps aeb
+  stdout for tool output.
 - **E. (then) per-step `timeout { … }` + per-step reaping** ride on the
   per-node child — `lifecycle_plan.md` §9 grammar becomes enforceable.

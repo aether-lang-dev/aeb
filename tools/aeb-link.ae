@@ -457,13 +457,22 @@ main() {
     }
     os.system(cc)
 
-    // --- Run: per-node driver (AEB_PER_NODE) or all-in-one orchestrator ---
-    // AEB_PER_NODE=1 (nodes-as-subprocesses, docs/nodes-as-subprocesses.md):
-    // run each node as its own `out_bin <root> <label>` via aeb-driver,
-    // which redirects per-node tool output into target/.aeb/logs/ and
-    // renders the same summary — compartmentalized output. Default
-    // (unset) is the unchanged all-in-one run below.
-    if string.length(os.getenv("AEB_PER_NODE")) > 0 {
+    // --- Run: per-node driver (default) or all-in-one orchestrator ---
+    // Per-node (nodes-as-subprocesses, docs/nodes-as-subprocesses.md) is
+    // the DEFAULT: each node runs as its own `out_bin <root> <label>` via
+    // aeb-driver, redirecting per-node tool output into target/.aeb/logs/
+    // (compartmentalized stdout). Opt back to the all-in-one in-process
+    // run with `aeb --in-process` (AEB_IN_PROCESS=1) or AEB_PER_NODE=0 —
+    // faster for small builds, simplest to debug. AEB_PER_NODE, if set,
+    // wins (1=per-node, 0=in-process).
+    per_node = 1
+    if string.equals(os.getenv("AEB_IN_PROCESS"), "1") == 1 { per_node = 0 }
+    _pn = os.getenv("AEB_PER_NODE")
+    if string.length(_pn) > 0 {
+        per_node = 1
+        if string.equals(_pn, "0") == 1 { per_node = 0 }
+    }
+    if per_node == 1 {
         aeb_driver = string.concat(aebhome, "/tools/aeb-driver")
         if file.exists(aeb_driver) == 0 {
             // Lazy-build: aeb-driver imports `build` (lib) + aeblabel (tools).

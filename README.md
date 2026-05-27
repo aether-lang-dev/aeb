@@ -405,28 +405,31 @@ when a build leaves nothing running. Per-*step* timeouts and isolation
 are a deferred design (see `lifecycle_plan.md` §9) — today the cap and
 reap are build-wide.
 
-#### Compartmentalized per-node output (`AEB_PER_NODE`, experimental)
+#### Per-node output, and `--in-process`
 
-By default a build's tool output (javac, junit, jest, cargo, …) streams
-straight onto aeb's own stdout, interleaved with aeb's framing — so a
-chatty tool (an SLF4J binding warning, npm notices) clutters the run.
-
-`AEB_PER_NODE=1` runs each node as its **own subprocess** and redirects
-that node's stdout+stderr into a **per-node log**, leaving aeb's stdout
-to carry only its framing + the telemetry summary:
+By default aeb runs each build node as its **own subprocess** and
+redirects that node's tool output (javac, junit, jest, cargo, …) into a
+**per-node log**, so aeb's own stdout carries only its framing + the
+telemetry summary — chatty tools (an SLF4J binding warning, npm notices)
+no longer interleave onto it:
 
 ```bash
-AEB_PER_NODE=1 aeb               # tool output → target/.aeb/logs/<label>.log
+aeb                              # tool output → target/.aeb/logs/<label>.log
 cat target/.aeb/logs/<label>.log # inspect one node's full output
+aeb --in-process                 # opt out: all-in-one, tool output on stdout
 ```
 
-The summary, JSON dumps, and pass/fail are identical to the default run
-(it reuses the same renderers); only the *location* of tool output
-changes. A failing node's log is surfaced inline.
+The summary, JSON dumps, and pass/fail are identical either way (same
+renderers); only the *location* of tool output differs, and a failing
+node's log is surfaced inline.
 
-It's **opt-in** for now: per-node spawning currently costs ~⅓ more
-wall-clock (no parallelism yet), so it isn't the default until per-node
-parallelism lands. Design + roadmap: [`docs/nodes-as-subprocesses.md`](docs/nodes-as-subprocesses.md).
+**`--in-process`** (or `AEB_IN_PROCESS=1`) runs the older all-in-one
+orchestrator — one process, all nodes in-process, tool output streamed
+inline. It's **faster for small builds** (no per-node process-spawn) and
+the simplest to debug. Per-node currently costs ~⅓ more wall-clock
+(process spawn, no parallelism yet); planned per-node **parallelism** is
+what turns that cost into a speedup. Design + roadmap:
+[`docs/nodes-as-subprocesses.md`](docs/nodes-as-subprocesses.md).
 
 #### Composite targets via `build.scan()`
 
