@@ -7,6 +7,7 @@ tools/*.c
 
 # Built tool binaries (rebuilt lazily by aeb on first run)
 tools/aeb-init
+tools/aeb-driver
 tools/aeb-link
 tools/aeb-main
 tools/aeb-graph
