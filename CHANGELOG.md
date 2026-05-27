@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Transitive-regen no longer shadows explicit `regen_with` caps**
+  (`lib/aether` `_expand_transitive_regens`). An explicit
+  `regen_with("../x/module.ae", caps)` (relative) was re-added by the
+  import-closure walk as an absolute path with weaker auto-detected caps,
+  because the dedup compared paths as raw strings; aetherc 0.190's
+  `--emit=lib` cap-gate then rejected the duplicate. Now dedups by a
+  canonical path (`_canonical_path`, collapsing `.`/`..`), so the
+  explicit entry stands and its caps win
+  (`asks/transitive-regen-caps-shadowed-by-duplicate.md`;
+  `tests/test_aether_canonical_path.ae`).
+
 ### Added
 
 - **`install.sh` + `docs/bootstrap-from-source.md`** — a `curl … | sh`

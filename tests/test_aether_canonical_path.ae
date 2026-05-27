@@ -1,0 +1,52 @@
+// Tests for _canonical_path — the '.'/'..'/empty-segment collapser that
+// lets transitive-regen dedup recognise an explicit relative
+// regen_with("../client/module.ae") (joined onto source_dir) as the same
+// module the import walk resolves to a clean absolute path. Without this
+// the duplicate is re-added with weaker auto-detected caps and aetherc
+// 0.190's emit=lib cap-gate rejects it
+// (asks/transitive-regen-caps-shadowed-by-duplicate.md).
+
+import aether (_canonical_path)
+import std.string
+
+extern println(s: string)
+
+_assert(label: string, actual: string, expected: string) {
+    if string.equals(actual, expected) == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected: '${expected}'")
+        println("  actual:   '${actual}'")
+    }
+}
+
+main() {
+    // The motivating case: source_dir + "../client/module.ae" must
+    // canonicalise to the same thing the import walk resolves.
+    _assert("collapse ../ against a dir",
+        _canonical_path("/home/x/avnserver/../client/module.ae"),
+        "/home/x/client/module.ae")
+    _assert("clean path is unchanged (the match target)",
+        _canonical_path("/home/x/client/module.ae"),
+        "/home/x/client/module.ae")
+
+    // General behaviour.
+    _assert("single dot dropped",        _canonical_path("/a/./b/c"),        "/a/b/c")
+    _assert("two .. collapse",           _canonical_path("/a/b/../../c"),    "/c")
+    _assert("cannot ascend past root",   _canonical_path("/a/../../c"),      "/c")
+    _assert("double slash",              _canonical_path("/a//b"),           "/a/b")
+    _assert("trailing slash",            _canonical_path("/a/b/"),           "/a/b")
+    _assert("root stays root",           _canonical_path("/"),               "/")
+    _assert("bare name",                 _canonical_path("foo"),             "foo")
+
+    // Relative paths: leading .. is preserved (no base to pop).
+    _assert("relative collapses inner ..", _canonical_path("a/b/../c"),      "a/c")
+    _assert("relative keeps leading ..",   _canonical_path("../x/y"),        "../x/y")
+    _assert("relative .. then descend",    _canonical_path("../a/../b"),     "../b")
+
+    // Empty in, empty out (guard).
+    _assert("empty stays empty",         _canonical_path(""),                "")
+
+    println("canonical-path tests done")
+}

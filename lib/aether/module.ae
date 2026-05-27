@@ -1097,6 +1097,80 @@ _detect_caps_from_content(content: string) {
 //   - Unresolvable imports — silently dropped, same as
 //     `_resolve_import_ae`. A genuinely missing module surfaces
 //     at the aetherc step.
+
+// _canonical_path(p) — collapse '.' / '..' / empty segments to a
+// canonical spelling, so two paths to the same file compare equal. The
+// motivating bug: an explicit `regen_with("../client/module.ae")` joins
+// onto source_dir as `…/avnserver/../client/module.ae`, while the
+// transitive-import walk resolves the same module to the clean
+// `…/client/module.ae`; a raw string dedup misses the match and re-adds
+// the module with weaker auto-detected caps, which aetherc 0.190's
+// emit=lib cap-gate then rejects. Pure string work, NO filesystem /
+// symlink resolution — it must agree with how `_resolve_import_ae`
+// builds paths (plain joins, no realpath), not with the on-disk inode.
+// Index of the last '/' in s, or -1. (No std.string rindex; small scan.)
+_last_slash(s: string) {
+    i = string.length(s) - 1
+    while i >= 0 {
+        if string.equals(string.substring(s, i, i + 1), "/") == 1 { return i }
+        i = i - 1
+    }
+    return -1
+}
+
+_canonical_path(p: string) {
+    if string.length(p) == 0 { return p }
+    is_abs = 0
+    if string.equals(string.substring(p, 0, 1), "/") == 1 { is_abs = 1 }
+    // Walk segments by chopping `rest` with index_of/substring,
+    // accumulating the canonical path into one owned string `acc`
+    // (cf. _extract_undefined_refs's single-scratch-string idiom).
+    acc = ""
+    rest = p
+    seg = ""
+    sl = 0
+    while string.length(rest) > 0 {
+        sl = string.index_of(rest, "/")
+        if sl < 0 {
+            seg = string.substring(rest, 0, string.length(rest))
+            rest = string.concat("", "")
+        } else {
+            seg = string.substring(rest, 0, sl)
+            rest = string.substring(rest, sl + 1, string.length(rest))
+        }
+        if string.length(seg) == 0 { continue }
+        if string.equals(seg, ".") == 1 { continue }
+        if string.equals(seg, "..") == 1 {
+            ls = _last_slash(acc)
+            top = acc
+            if ls >= 0 { top = string.substring(acc, ls + 1, string.length(acc)) }
+            if string.length(acc) > 0 {
+                if string.equals(top, "..") == 0 {
+                    // pop the last segment
+                    if ls < 0 { acc = string.concat("", "") }
+                    else { acc = string.substring(acc, 0, ls) }
+                    continue
+                }
+            }
+            // nothing to pop: keep a leading '..' only for relative paths
+            if is_abs == 0 {
+                if string.length(acc) > 0 { acc = string.concat(acc, "/") }
+                acc = string.concat(acc, "..")
+            }
+            continue
+        }
+        if string.length(acc) > 0 { acc = string.concat(acc, "/") }
+        acc = string.concat(acc, seg)
+    }
+    out = acc
+    if is_abs == 1 { out = string.concat("/", acc) }
+    if string.length(out) == 0 {
+        if is_abs == 1 { return string.concat("/", "") }
+        return string.concat(".", "")
+    }
+    return out
+}
+
 _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string) {
     if builder_map == null { return 0 }
 
@@ -1125,7 +1199,7 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
                 abs_p = path.join(source_dir, rel)
             }
         }
-        _km = map.put(known, abs_p, "1")
+        _km = map.put(known, _canonical_path(abs_p), "1")
         i = i + 1
     }
 
@@ -1177,11 +1251,12 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
     di = 0
     while di < nd {
         f2, _ = list.get(discovered, di)
-        if map.has(known, f2) == 0 {
+        cf2 = _canonical_path(f2)
+        if map.has(known, cf2) == 0 {
             caps = _detect_caps(f2)
             list.add(regens, f2)
             list.add(regen_caps, caps)
-            _kma = map.put(known, f2, "1")
+            _kma = map.put(known, cf2, "1")
         }
         di = di + 1
     }
