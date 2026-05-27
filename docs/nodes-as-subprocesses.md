@@ -115,5 +115,22 @@ each step:
   *Caveat:* the broad `itests/` set was not re-run under per-node before
   the flip — `--in-process` is the escape hatch if any itest greps aeb
   stdout for tool output.
-- **E. (then) per-step `timeout { … }` + per-step reaping** ride on the
+- **E. Per-node parallelism. DONE.** aeb-driver emits a Makefile (one
+  PHONY target per node, prerequisites = its dep nodes from `_edges.txt`,
+  recipe = the per-node `out_bin` run → its log + an rc marker) and runs
+  `make -jN` — make is the dep-respecting scheduler + job-cap, portably,
+  with no scheduler reinvented in Aether. `AEB_JOBS` caps it (default
+  `nproc`, `1` = sequential); falls back to a sequential loop when `make`
+  is absent. Validated on `google-monorepo-sim`: identical results, and
+  the build-execution phase **40.4s** vs 85.7s all-in-one / 114.6s
+  sequential per-node (~2× over the old default, 218% CPU on 4 cores) —
+  this is what makes per-node-default a net win, not a tax.
+- **F. (then) per-step `timeout { … }` + per-step reaping** ride on the
   per-node child — `lifecycle_plan.md` §9 grammar becomes enforceable.
+
+## Cost note
+
+The `make -jN` phase is the *build-execution* phase. aeb still compiles
+every node's `.ae` and links one orchestrator binary up front
+(single-threaded, identical in all modes) — that fixed cost dominates the
+*total* `aeb` wall time and is a separate optimization target.

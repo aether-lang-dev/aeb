@@ -483,20 +483,19 @@ main() {
             db = string.concat(db, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null")))
             os.system(db)
         }
+        // aeb-driver reads the edges file (node + its deps per line) to
+        // generate the parallel Makefile. NB: aeb-link's arg1
+        // (`edges_file`) is actually the topo-sorted *list* (_sorted.txt,
+        // no deps); the real deps live in build_dir/_edges.txt.
+        real_edges = string.concat(build_dir, "/_edges.txt")
         dcmd = string.concat("'", aeb_driver)
         dcmd = string.concat(dcmd, "' '")
         dcmd = string.concat(dcmd, root)
         dcmd = string.concat(dcmd, "' '")
         dcmd = string.concat(dcmd, out_bin)
+        dcmd = string.concat(dcmd, "' '")
+        dcmd = string.concat(dcmd, real_edges)
         dcmd = string.concat(dcmd, "'")
-        di = 0
-        while di < n {
-            df, _ = list.get(files, di)
-            di = di + 1
-            dcmd = string.concat(dcmd, " '")
-            dcmd = string.concat(dcmd, df)
-            dcmd = string.concat(dcmd, "'")
-        }
         rc = os.system(dcmd)
         exit(rc)
     }

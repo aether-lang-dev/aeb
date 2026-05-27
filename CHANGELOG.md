@@ -13,10 +13,17 @@
   `google-monorepo-sim`: identical `32 compile + 2 dist + 22 test`, zero
   tool-noise on stdout). `--in-process` (or `AEB_IN_PROCESS=1`,
   `AEB_PER_NODE=0`) runs the older all-in-one in-process orchestrator —
-  faster for small builds, simplest to debug. Per-node currently costs
-  ~1/3 more wall-clock (process-spawn, no parallelism yet); per-node
-  parallelism is the planned change that turns that into a speedup.
-  Design: `docs/nodes-as-subprocesses.md`.
+  simplest to debug, fine for small builds. Design:
+  `docs/nodes-as-subprocesses.md`.
+
+- **Per-node builds run in parallel** (`make -jN` as the scheduler). aeb
+  emits a Makefile (one target per node, prerequisites from the dep DAG)
+  and lets make schedule dep-respecting concurrency; `AEB_JOBS=<n>` caps
+  it (default `nproc`; `1` = sequential), and it falls back to a
+  sequential loop if `make` isn't present. On `google-monorepo-sim` the
+  build-execution phase dropped from 85.7s (all-in-one) / 114.6s
+  (sequential per-node) to **40.4s** (~2× faster than the old default) —
+  so per-node is now both cleaner *and* faster.
 
 ### Fixed
 

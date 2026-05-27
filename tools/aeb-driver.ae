@@ -1,20 +1,24 @@
-// aeb-driver — per-node runner for AEB_PER_NODE mode
-// (nodes-as-subprocesses, docs/nodes-as-subprocesses.md, slice B).
+// aeb-driver — per-node runner for nodes-as-subprocesses
+// (docs/nodes-as-subprocesses.md).
 //
-// Runs each build node as its OWN invocation of the linked orchestrator
-// binary (`out_bin <root> <label>`, the selector from slice A),
-// redirecting that node's stdout+stderr into a per-node log under
-// target/.aeb/logs/. aeb's own stdout then carries only the driver's
-// progress lines + the telemetry summary — the per-target tool output
-// (javac/junit/jest…) is compartmentalized into the logs instead of
-// interleaving onto aeb's stdout.
+// Runs each build node as its own invocation of the linked orchestrator
+// binary (`out_bin <root> <label>`, slice A's selector), redirecting that
+// node's stdout+stderr into target/.aeb/logs/<label>.log. aeb's own
+// stdout then carries only framing + the telemetry summary — per-target
+// tool output (javac/junit/jest…) is compartmentalized into the logs.
 //
-// Usage: aeb-driver <root> <out_bin> <file1.ae> <file2.ae> ...
-// The files are the topo-sorted .ae build files (same list
-// gen-orchestrator gets); file_to_label(file) is the selector.
+// Parallelism: the driver emits a Makefile (one PHONY target per node,
+// prerequisites = its dep nodes from the edges file, recipe = the per-node
+// run) and lets `make -jN` schedule it — dep-respecting concurrency + the
+// job cap, for free. If `make` is unavailable (or AEB_JOBS=1) it falls
+// back to the sequential loop, so the default path never hard-breaks.
+//
+// Usage: aeb-driver <root> <out_bin> <edges_file>
+//   edges_file: one line per node — "<node.ae> <dep1.ae> <dep2.ae> ..."
+//   (topo-ordered, first word is the node). Same file aeb-link consumes.
 //
 // Reuses lib/build's marker readers + render so the summary is identical
-// to the all-in-one path; the only difference is where tool output goes.
+// to the all-in-one path.
 import build
 import aeblabel (file_to_label, infer_type)
 import std.string
@@ -26,75 +30,215 @@ import std.list
 import std.map
 import std.path
 
-// Flat, filesystem-safe log filename for a label (which contains '/' and
-// ':'). Keeps alnum/./-, maps everything else to '_'.
-_log_name(label: string) {
+// Map any string to a flat, safe token (non-[alnum._-] -> '_').
+_san(s: string) {
     keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"
     out = ""
-    n = string.length(label)
+    n = string.length(s)
     i = 0
     while i < n {
-        ch = string.substring(label, i, i + 1)
+        ch = string.substring(s, i, i + 1)
         if string.index_of(keep, ch) >= 0 { out = string.concat(out, ch) }
         else { out = string.concat(out, "_") }
         i = i + 1
     }
-    return string.concat(out, ".log")
+    return out
+}
+
+_log_name(label: string) { return string.concat(_san(label), ".log") }
+
+// First whitespace-separated word of a line, and the remainder (deps).
+_first_word(line: string) {
+    sp = string.index_of(line, " ")
+    if sp < 0 { return line }
+    return string.substring(line, 0, sp)
+}
+
+// One per-node shell command: run the node, log it, record rc, fail with
+// the node's rc. Written for a Makefile recipe (`$` -> `$$`) AND reused
+// verbatim by the sequential fallback (where `$$`/`$?` are plain shell).
+_node_cmd(out_bin: string, root: string, label: string, log: string, rcmark: string) {
+    c = string.concat("'", out_bin)
+    c = string.concat(c, "' '")
+    c = string.concat(c, root)
+    c = string.concat(c, "' '")
+    c = string.concat(c, label)
+    c = string.concat(c, "' > '")
+    c = string.concat(c, log)
+    c = string.concat(c, "' 2>&1; _r=$$?; echo $$_r > '")
+    c = string.concat(c, rcmark)
+    c = string.concat(c, "'; exit $$_r")
+    return c
 }
 
 main() {
     argc = aether_args_count()
-    if argc < 3 {
-        println("usage: aeb-driver <root> <out_bin> <file.ae>...")
+    if argc < 4 {
+        println("usage: aeb-driver <root> <out_bin> <edges_file>")
         exit(1)
     }
     root = aether_args_get(1)
     out_bin = aether_args_get(2)
+    edges_file = aether_args_get(3)
 
-    logs_dir = path.join(path.join(path.join(root, "target"), ".aeb"), "logs")
+    aeb_dir = path.join(path.join(root, "target"), ".aeb")
+    logs_dir = path.join(aeb_dir, "logs")
+    rc_dir = path.join(aeb_dir, "rc")
     build._mkdirs(logs_dir)
+    build._mkdirs(rc_dir)
 
-    records = list.new()
+    // --- Parse the edges file: ordered node list + per-node deps ---
+    content, rerr = io.read_file(edges_file)
+    if string.equals(rerr, "") == 0 {
+        println("aeb-driver: cannot read edges file ${edges_file}")
+        exit(1)
+    }
+    nodes = list.new()
+    deps_of = map.new()      // node file -> newline-joined dep files
+    rest = content
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 { line = rest  rest = "" }
+        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            node = _first_word(line)
+            deps = ""
+            if string.length(node) < string.length(line) {
+                deps = string.trim(string.substring(line, string.length(node), string.length(line)))
+            }
+            _na = list.add(nodes, string.copy(node))
+            _da = map.put(deps_of, string.copy(node), string.copy(deps))
+        }
+    }
+    nn = list.size(nodes)
+
+    // --- Choose parallel (make) or sequential ---
+    jobs = os.getenv("AEB_JOBS")
+    if string.length(jobs) == 0 {
+        np, _npe = os.exec("nproc 2>/dev/null || echo 4")
+        jobs = string.trim(np)
+    }
+    have_make = 0
+    if string.equals(jobs, "1") == 0 {
+        mk_probe, _mpe = os.exec("command -v make >/dev/null 2>&1 && echo y || echo n")
+        if string.equals(string.trim(mk_probe), "y") == 1 { have_make = 1 }
+    }
+
     session_start = clock_ns()
-    any_failed = 0
 
-    i = 3
-    while i < argc {
-        file = aether_args_get(i)
+    if have_make == 1 {
+        // --- Emit the Makefile and let `make -jN` schedule it ---
+        mk = ".PHONY: all"
+        i = 0
+        while i < nn {
+            node, _ = list.get(nodes, i)
+            mk = string.concat(mk, " ")
+            mk = string.concat(mk, _san(node))
+            i = i + 1
+        }
+        mk = string.concat(mk, "\nall:")
+        i = 0
+        while i < nn {
+            node, _ = list.get(nodes, i)
+            mk = string.concat(mk, " ")
+            mk = string.concat(mk, _san(node))
+            i = i + 1
+        }
+        mk = string.concat(mk, "\n")
+        i = 0
+        while i < nn {
+            node, _ = list.get(nodes, i)
+            i = i + 1
+            label = file_to_label(node)
+            log = path.join(logs_dir, _log_name(label))
+            rcmark = path.join(rc_dir, string.concat(_san(node), ".rc"))
+            // target line: <san(node)>: <san(dep)>...
+            mk = string.concat(mk, _san(node))
+            mk = string.concat(mk, ":")
+            mdeps, _ = map.get(deps_of, node)
+            drest = string.concat(mdeps, "")
+            while string.length(drest) > 0 {
+                dsp = string.index_of(drest, " ")
+                dep = ""
+                if dsp < 0 { dep = drest  drest = "" }
+                else { dep = string.substring(drest, 0, dsp)  drest = string.trim(string.substring(drest, dsp + 1, string.length(drest))) }
+                if string.length(dep) > 0 {
+                    mk = string.concat(mk, " ")
+                    mk = string.concat(mk, _san(dep))
+                }
+            }
+            mk = string.concat(mk, "\n\t@")
+            mk = string.concat(mk, _node_cmd(out_bin, root, label, log, rcmark))
+            mk = string.concat(mk, "\n")
+        }
+        mk_path = path.join(aeb_dir, "build.mk")
+        _we = fs.write_atomic(mk_path, mk, string.length(mk))
+        // -k: keep building independent nodes after a failure (parity with
+        // the all-in-one run-everything behavior); rc != 0 if any failed.
+        run = string.concat("make -j", jobs)
+        run = string.concat(run, " -k -f '")
+        run = string.concat(run, mk_path)
+        run = string.concat(run, "' all")
+        _mrc = os.system(run)
+    } else {
+        // --- Sequential fallback (no make / AEB_JOBS=1) ---
+        i = 0
+        while i < nn {
+            node, _ = list.get(nodes, i)
+            i = i + 1
+            label = file_to_label(node)
+            log = path.join(logs_dir, _log_name(label))
+            rcmark = path.join(rc_dir, string.concat(_san(node), ".rc"))
+            // _node_cmd uses $$ for the Makefile; a plain `sh -c` collapses
+            // $$ to the shell's PID, so run it through bash where the
+            // intent ($?) still works by stripping one '$'. Simpler: run
+            // the node directly and write the rc ourselves.
+            cmd = string.concat("'", out_bin)
+            cmd = string.concat(cmd, "' '")
+            cmd = string.concat(cmd, root)
+            cmd = string.concat(cmd, "' '")
+            cmd = string.concat(cmd, label)
+            cmd = string.concat(cmd, "' > '")
+            cmd = string.concat(cmd, log)
+            cmd = string.concat(cmd, "' 2>&1")
+            rc1 = os.system(cmd)
+            _we = io.write_file(rcmark, string.from_int(rc1))
+        }
+    }
+
+    session_end = clock_ns()
+    total_ms = (session_end - session_start) / 1000000
+
+    // --- Collect records from on-disk markers + render (uniform) ---
+    records = list.new()
+    any_failed = 0
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)
         i = i + 1
-        label = file_to_label(file)
-        type = infer_type(file)
+        label = file_to_label(node)
+        type = infer_type(node)
         type_word = "compile"
         if type == "test" { type_word = "test" }
         if type == "dist" { type_word = "dist" }
 
-        log = path.join(logs_dir, _log_name(label))
-
-        // Run this node only; its stdout+stderr → its own log.
-        cmd = string.concat("'", out_bin)
-        cmd = string.concat(cmd, "' '")
-        cmd = string.concat(cmd, root)
-        cmd = string.concat(cmd, "' '")
-        cmd = string.concat(cmd, label)
-        cmd = string.concat(cmd, "' > '")
-        cmd = string.concat(cmd, log)
-        cmd = string.concat(cmd, "' 2>&1")
-
-        println("  ${type_word}: ${label}")
-        start = clock_ns()
-        rc = os.system(cmd)
-        endt = clock_ns()
-
         node_failed = 0
-        if rc != 0 { node_failed = 1 }
+        rcmark = path.join(rc_dir, string.concat(_san(node), ".rc"))
+        if file.exists(rcmark) == 1 {
+            rctxt, _rce = io.read_file(rcmark)
+            if string.equals(string.trim(rctxt), "0") == 0 { node_failed = 1 }
+        } else {
+            // No rc marker: make skipped it (a dependency failed).
+            node_failed = 1
+        }
 
-        // Telemetry record from on-disk markers (mirrors gen-orchestrator).
         rec = map.new()
         _rl = map.put(rec, "label", string.copy(label))
         _rt = map.put(rec, "type", string.copy(type_word))
-        _rw = map.put(rec, "wall_ms", string.from_int((endt - start) / 1000000))
         td = build._label_to_target_dir(root, label)
-        _rc2 = map.put(rec, "cache", build._read_cache_outcome(td))
+        _rcc = map.put(rec, "cache", build._read_cache_outcome(td))
         if type == "test" {
             tp, tf, thr = build._read_test_result(td)
             if thr == 1 {
@@ -109,13 +253,11 @@ main() {
 
         if node_failed == 1 {
             any_failed = 1
+            log = path.join(logs_dir, _log_name(label))
             println("  ${type_word}: ${label} — FAILED (see ${log}):")
             _cat = os.system(string.concat(string.concat("cat '", log), "' 2>/dev/null"))
         }
     }
-
-    session_end = clock_ns()
-    total_ms = (session_end - session_start) / 1000000
 
     // JSON dumps — parity with the orchestrator's all-in-one path.
     telemetry_json = os.getenv("AEB_TELEMETRY_JSON")

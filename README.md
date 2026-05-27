@@ -423,12 +423,17 @@ The summary, JSON dumps, and pass/fail are identical either way (same
 renderers); only the *location* of tool output differs, and a failing
 node's log is surfaced inline.
 
+Per-node runs **in parallel**: aeb emits a Makefile (one target per node,
+prerequisites from the dep DAG) and lets `make -jN` schedule it — so
+independent nodes build concurrently while deps are respected. Job count
+defaults to `nproc`; cap it with `AEB_JOBS=<n>` (`AEB_JOBS=1` forces
+sequential). On the polyglot sim this is **~2× faster** than the
+all-in-one path, not slower. If `make` isn't on PATH it falls back to a
+sequential per-node loop.
+
 **`--in-process`** (or `AEB_IN_PROCESS=1`) runs the older all-in-one
 orchestrator — one process, all nodes in-process, tool output streamed
-inline. It's **faster for small builds** (no per-node process-spawn) and
-the simplest to debug. Per-node currently costs ~⅓ more wall-clock
-(process spawn, no parallelism yet); planned per-node **parallelism** is
-what turns that cost into a speedup. Design + roadmap:
+inline. Simplest to debug, and fine for small builds. Design:
 [`docs/nodes-as-subprocesses.md`](docs/nodes-as-subprocesses.md).
 
 #### Composite targets via `build.scan()`
