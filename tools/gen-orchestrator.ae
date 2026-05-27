@@ -84,6 +84,12 @@ main() {
     println("main() {")
     println("    s = build.session(aether_args_get(1))")
     println("    _root = aether_args_get(1)")
+    // Optional per-node selector (nodes-as-subprocesses, slice A): when a
+    // second arg is present, run ONLY the node whose label matches it and
+    // skip the end-of-run summary (the per-node driver renders). With no
+    // selector this is the unchanged all-in-one run.
+    println("    _sel = string.concat(\"\", \"\")")
+    println("    if aether_args_count() > 2 { _sel = aether_args_get(2) }")
     println("    _records = list.new()")
     println("    _session_start = clock_ns()")
 
@@ -96,6 +102,12 @@ main() {
         type_word = "compile"
         if type == "test" { type_word = "test" }
         if type == "dist" { type_word = "dist" }
+        // Per-node selector gate (slice A): run this node iff no
+        // selector was given (all-in-one) or it names this label.
+        println("    _run = 0")
+        println("    if string.length(_sel) == 0 { _run = 1 }")
+        println("    if string.equals(_sel, \"${label}\") == 1 { _run = 1 }")
+        println("    if _run == 1 {")
         println("    _start = clock_ns()")
         // NOTE: auto-recording node status from the return code
         // (`_rc = ${fname}(s)` + build.record_status) is deferred —
@@ -132,11 +144,15 @@ main() {
             println("    }")
         }
         println("    list.add(_records, _rec)")
+        println("    }")
         i = i + 1
     }
 
     println("    _session_end = clock_ns()")
     println("    _total_ms = (_session_end - _session_start) / 1000000")
+    // Summary + JSON dumps only in all-in-one mode; the per-node driver
+    // renders the summary itself from on-disk markers.
+    println("    if string.length(_sel) == 0 {")
     println("    _telemetry_json = os.getenv(\"AEB_TELEMETRY_JSON\")")
     println("    if string.length(_telemetry_json) > 0 {")
     println("        _tj_dir = path.dirname(_telemetry_json)")
@@ -159,5 +175,6 @@ main() {
     println("        _artj_err = fs.write_atomic(_artifacts_json, _artj_body, string.length(_artj_body))")
     println("    }")
     println("    println(build.render_telemetry(_records, _total_ms))")
+    println("    }")
     println("}")
 }
