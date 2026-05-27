@@ -405,6 +405,29 @@ when a build leaves nothing running. Per-*step* timeouts and isolation
 are a deferred design (see `lifecycle_plan.md` §9) — today the cap and
 reap are build-wide.
 
+#### Compartmentalized per-node output (`AEB_PER_NODE`, experimental)
+
+By default a build's tool output (javac, junit, jest, cargo, …) streams
+straight onto aeb's own stdout, interleaved with aeb's framing — so a
+chatty tool (an SLF4J binding warning, npm notices) clutters the run.
+
+`AEB_PER_NODE=1` runs each node as its **own subprocess** and redirects
+that node's stdout+stderr into a **per-node log**, leaving aeb's stdout
+to carry only its framing + the telemetry summary:
+
+```bash
+AEB_PER_NODE=1 aeb               # tool output → target/.aeb/logs/<label>.log
+cat target/.aeb/logs/<label>.log # inspect one node's full output
+```
+
+The summary, JSON dumps, and pass/fail are identical to the default run
+(it reuses the same renderers); only the *location* of tool output
+changes. A failing node's log is surfaced inline.
+
+It's **opt-in** for now: per-node spawning currently costs ~⅓ more
+wall-clock (no parallelism yet), so it isn't the default until per-node
+parallelism lands. Design + roadmap: [`docs/nodes-as-subprocesses.md`](docs/nodes-as-subprocesses.md).
+
 #### Composite targets via `build.scan()`
 
 Where `--pattern` is the imperative one-shot ("filter to .tests.ae
