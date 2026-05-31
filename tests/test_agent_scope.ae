@@ -5,7 +5,8 @@
 
 import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _decision, dispatch_request_json, dispatch_reply_json,
-              _json_field, run_on, max_jobs, accept_scope)
+              _json_field, run_on, max_jobs, accept_scope,
+              _parse_tokens, _token_ok, _bearer_strip)
 import std.string
 import std.list
 import std.map
@@ -73,5 +74,22 @@ main() {
 
     _eq("missing field => empty", _json_field(rep, "nope"), "")
 
-    println("agent scope + wire tests done")
+    // --- naive token auth ---
+    tf = "# comment line\ns3cr3t-alice\n\ns3cr3t-ci\n  plain-token  \n"
+    toks = _parse_tokens(tf)
+    _assert("known token alice", _token_ok(toks, "s3cr3t-alice"))
+    _assert("known token ci", _token_ok(toks, "s3cr3t-ci"))
+    _assert("known token trimmed", _token_ok(toks, "plain-token"))
+    _assert("comment line not a token", 1 - _token_ok(toks, "# comment line"))
+    _assert("unknown token rejected", 1 - _token_ok(toks, "nope"))
+    _assert("empty presented rejected", 1 - _token_ok(toks, ""))
+
+    // _bearer_strip: handles both "Bearer X" and a raw value.
+    _eq("bearer strip prefix", _bearer_strip("Bearer s3cr3t-alice"), "s3cr3t-alice")
+    _eq("bearer strip raw value", _bearer_strip("s3cr3t-ci"), "s3cr3t-ci")
+    _eq("bearer strip trims", _bearer_strip("  Bearer  s3cr3t-ci  "), "s3cr3t-ci")
+    _assert("stripped-then-checked end to end",
+        _token_ok(toks, _bearer_strip("Bearer s3cr3t-alice")))
+
+    println("agent scope + wire + token tests done")
 }

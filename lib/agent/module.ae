@@ -30,6 +30,7 @@
 
 import build
 import std.http
+import std.http.client
 import std.string
 import std.io
 import std.os
@@ -54,6 +55,14 @@ target(_ctx: ptr, path: string) {
 // scopes' accept rules. Optional in the skeleton; defaults to "preint".
 purpose(_ctx: ptr, scope: string) {
     _e = map.put(_ctx, "purpose", scope)
+}
+
+// token(t) — the naive bearer token presented to the agent (must appear
+// in the agent's --tokens file). Source it from the run context in the
+// .ae: token(env "AEB_AGENT_TOKEN"). Sent as the X-AEB-Token header.
+// Interim shared-secret auth — see the token-auth note below.
+token(_ctx: ptr, t: string) {
+    _e = map.put(_ctx, "token", t)
 }
 
 // --- Agent-side scope DSL setters (live on a scope map) ---
@@ -165,6 +174,67 @@ _decision(scope_map: ptr, purpose: string, active: int) {
     return "accept"
 }
 
+// --- Naive token auth (pure helpers; tested) ---
+//
+// INTERIM, NAIVE: a flat file of bearer tokens, one per line (# comments
+// and blank lines ignored). A presented token is authorized iff it
+// appears in the file. This authenticates only "you hold a shared
+// secret" — NO signing, NO expiry, NO embedded/verified scope, NO
+// per-principal issuance. It is the stand-in for the real
+// claim→verify→veto / purpose-in-the-token model
+// (docs/run-policy-class-and-cloud-leverage.md), so a sysop has a real
+// on/off today. Scope stays the agent's --accept; a token only gates
+// "may dispatch at all." Do NOT mistake this for the designed model.
+
+// _parse_tokens(content) — the set of tokens from a token-file's text.
+// One token per non-blank, non-comment line; surrounding whitespace
+// trimmed. Returns a map (token -> "1") used as a set.
+_parse_tokens(content: string) {
+    toks = map.new()
+    rest = content
+    line = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            first = string.substring(line, 0, 1)
+            if string.equals(first, "#") == 0 {
+                _p = map.put(toks, line, "1")
+            }
+        }
+    }
+    return toks
+}
+
+// _token_ok(toks, presented) — 1 if the presented token is in the set
+// AND is non-empty. An empty presented token is never ok.
+_token_ok(toks: ptr, presented: string) {
+    if string.length(presented) == 0 { return 0 }
+    if map.has(toks, presented) == 1 { return 1 }
+    return 0
+}
+
+// _bearer_strip(header_value) — pull the token out of an
+// "Authorization: Bearer <tok>" value, or return the value verbatim if
+// it has no "Bearer " prefix (so an X-AEB-Token raw value also works).
+_bearer_strip(header_value: string) {
+    v = string.trim(header_value)
+    pfx = "Bearer "
+    if string.length(v) >= string.length(pfx) {
+        if string.equals(string.substring(v, 0, string.length(pfx)), pfx) == 1 {
+            return string.trim(string.substring(v, string.length(pfx), string.length(v)))
+        }
+    }
+    return v
+}
+
 // --- Wire payloads (pure builders; tested) ---
 
 // dispatch_request_json(guid, target, purpose) — the skinny fire payload
@@ -257,23 +327,51 @@ builder dispatch(ctx: ptr) {
         build.fail(ctx, "agent.dispatch: no target")
         return 1
     }
+    tok = ""
+    if _builder != null {
+        if map.has(_builder, "token") == 1 {
+            tok, _ = map.get(_builder, "token")
+        }
+    }
 
     guid = _gen_guid()
     url = string.concat(ep, "/dispatch")
     req_body = dispatch_request_json(guid, tgt, purp)
     println("${mod_dir}: dispatch ${guid} → ${url} target=${tgt} purpose=${purp}")
 
-    resp, err = http.post(url, req_body, "application/json")
+    // v2 client: lets us send the X-AEB-Token header AND read the status
+    // code (v1 http.post collapses any 4xx/5xx into a generic error, so we
+    // couldn't tell reject(403) from busy(503) from a real outage).
+    creq = client.request("POST", url)
+    _sh = client.set_header(creq, "X-AEB-Token", tok)
+    _sb = client.set_body(creq, req_body, string.length(req_body), "application/json")
+    cresp, err = client.send_request(creq)
     if string.length(err) > 0 {
-        // Non-2xx (reject 403 / busy 503 surface here as http error) or a
-        // transport failure (agent down). v1: fail back to the user.
-        println("${mod_dir}: dispatch ${guid} FAILED — ${err} (agent unreachable, busy, or rejected)")
-        build.fail(ctx, "agent dispatch failed: ${err}")
+        // Transport failure — agent unreachable. v1: fail back to user.
+        client.request_free(creq)
+        println("${mod_dir}: dispatch ${guid} FAILED — ${err} (agent unreachable)")
+        build.fail(ctx, "agent unreachable: ${err}")
         return 1
     }
+    // Parse BEFORE freeing: response_body returns a borrowed buffer owned
+    // by cresp; response_free invalidates it (LLM.md borrowed-string rule).
+    // Reading status/result first keeps the parse off freed memory.
+    code = client.response_status(cresp)
+    body = client.response_body(cresp)
+    status = _json_field(body, "status")
+    result = _json_field(body, "result")
+    client.response_free(cresp)
+    client.request_free(creq)
 
-    status = _json_field(resp, "status")
-    result = _json_field(resp, "result")
+    // 401 = token rejected; 403 = out of scope; 503 = busy. All fail back
+    // to the user in v1 (no retry). 200 = done → check the build result.
+    if code != 200 {
+        reason = status
+        if string.length(reason) == 0 { reason = "http ${code}" }
+        println("${mod_dir}: dispatch ${guid} REFUSED — ${reason} (HTTP ${code})")
+        build.fail(ctx, "agent refused: ${reason}")
+        return 1
+    }
     if string.equals(status, "done") == 0 {
         println("${mod_dir}: dispatch ${guid} unexpected status '${status}'")
         build.fail(ctx, "agent dispatch status ${status}")

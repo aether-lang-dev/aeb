@@ -4,28 +4,42 @@
 
 ### Added
 
-- **Remote-aeb: `aeb agent` + `agent.dispatch` (walking skeleton).** A
+- **Remote-aeb: `aeb-agent` + `agent.dispatch` (walking skeleton).** A
   sovereign build-agent server and the originator dispatch to it — the
   first running slice of the run-policy / cloud-leverage design
-  (`docs/run-policy-class-and-cloud-leverage.md`). `aeb agent --port N
-  --accept '<glob>' --workdir DIR [--max-jobs N]` (`tools/aeb-agent`)
-  listens over HTTP; on `POST /dispatch {guid,target,purpose}` it decides
+  (`docs/run-policy-class-and-cloud-leverage.md`). `aeb-agent` is a
+  **standalone binary** (installed at `$PREFIX/bin/aeb-agent`), NOT an
+  `aeb agent` subcommand — so a sysop probes "does this machine have the
+  agent capability" by whether `aeb-agent` is on `PATH`.
+  `aeb-agent --port N --accept '<glob>' --workdir DIR [--max-jobs N]
+  --tokens <file>` listens over HTTP; on `POST /dispatch
+  {guid,target,purpose}` it **authenticates** (see below), decides
   **accept / busy / reject** against its scope (purpose glob + job-slot
   cap), runs `aeb <target>` on the bare host, and returns a terse verdict.
   The agent's ability to refuse is what makes it a sovereign peer, not a
   worker — aeb is never a fleet control plane. The originator side is
-  `agent.dispatch(b) { endpoint(...) target(...) purpose(...) }` in a
-  fan-out `.ae` target: it fires the request, awaits the verdict, and
+  `agent.dispatch(b) { endpoint(...) target(...) purpose(...) token(...) }`
+  in a fan-out `.ae` target: it fires the request, awaits the verdict, and
   folds pass/fail into `build.fail`/`any_failed` (trustworthy only because
   of the silent-green fix — the remote `aeb` actually reddens on failure).
   v1: synchronous request/response, scope from CLI flags, busy/reject/
   unreachable fail back to the user. Composable scope-tree data model
   (`run_on("host")` now; `podman`/`vm` kinds slot in later). Shared
   decision core in `lib/agent` (`_decision`, scope-glob match, slot cap,
-  wire payloads), unit-tested offline in `tests/test_agent_scope.ae` (26
-  assertions). Deliberately NOT yet: token auth, cache partitioning,
-  fire-async + webhook-back + `details_url` split (all designed, flagged
-  as thickenings).
+  wire payloads, token parse/check), unit-tested offline in
+  `tests/test_agent_scope.ae` (36 assertions).
+
+  **Naive `--tokens` auth (interim, fail-closed).** The agent takes
+  `--tokens <file>` (one bearer token per line, `#` comments); a dispatch
+  must present a token (`X-AEB-Token` or `Authorization: Bearer`) that is
+  in the file. **No `--tokens` file → the agent refuses ALL dispatches**
+  (fail-closed) with a clear startup line. This is shared-secret auth only
+  — NO signing, expiry, embedded/verified scope, or per-principal
+  issuance; the interim stand-in for the designed claim→verify→veto /
+  purpose-in-the-token model, giving a sysop a real on/off today.
+  Deliberately still NOT: cache partitioning, fire-async + webhook-back +
+  `details_url` split, the `.ae` closure-DSL agent config (all designed,
+  flagged as thickenings).
 
 ### Fixed
 
