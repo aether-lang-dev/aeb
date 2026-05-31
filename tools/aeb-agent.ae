@@ -226,8 +226,11 @@ main() {
     if max_jobs > 0 { mj_disp = string.from_int(max_jobs) }
     println("aeb-agent: listening on ${host}:${port} scope=${scope_name} accept=${accept_glob} max_jobs=${mj_disp} workdir=${workdir}")
 
-    a = spawn(SrvActor())
-    a ! StartSrv { raw: raw }
+    // Distinct name: `a` was the arg-loop string above; reusing it for the
+    // actor handle is a const-char*-vs-actor* type conflict that a strict
+    // gcc (e.g. Debian's, -Wincompatible-pointer-types as an error) rejects.
+    srv = spawn(SrvActor())
+    srv ! StartSrv { raw: raw }
     sleep(86400000)
     exit(0)
 }
