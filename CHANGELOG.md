@@ -43,6 +43,21 @@
 
 ### Fixed
 
+- **Silent-green follow-up: don't trust the node fn's implicit return.**
+  The first cut of the silent-green fix captured `_rc = <node>(s)` and
+  `record_status(_rc)`. But a `.build.ae main()` whose last statement is a
+  bare trailing-block builder call with no explicit `return` (the common
+  shape, e.g. `aether.program(b) { ... }`) yields that block-expression's
+  value as the fn's implicit return — which is NOT the builder's rc and
+  can be garbage-nonzero (verified: `aether.program` tail-call → garbage
+  1, while `c.program` → 0 — builder-dependent and latent). That
+  spuriously failed PASSING builds. Fixed: the orchestrator no longer
+  reads/records the node return; failures redden solely via the EXPLICIT
+  `build.fail()` channel (every SDK builder calls it on `os.system`
+  failure — the sweep), which the `any_failed` exit gate reads. Verified:
+  a passing trailing-block build exits 0, a real compile failure still
+  exits 1, clean builds stay 0.
+
 - **Silent-green eliminated: a failed build step now reddens the build.**
   Previously a failed `javac`/`gcc`/test exited 0 — `gen-orchestrator`
   discarded each node's outcome and never exited non-zero, and builders

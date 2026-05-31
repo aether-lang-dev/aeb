@@ -114,21 +114,21 @@ main() {
         println("    if string.equals(_sel, \"${label}\") == 1 { _run = 1 }")
         println("    if _run == 1 {")
         println("    _start = clock_ns()")
-        // Capture the node's return code and record status. transform-ae
-        // injects the `if b == 0 { return 0 }` begin-guard into every
-        // builder fn, which makes it int-typed — so reading its return is
-        // well-defined (a fall-off-the-end yields 0 = success; an explicit
-        // non-zero `return` from a failing builder propagates here). This
-        // is what lets a failed compile actually redden the build:
-        // record_status marks the label failed, and the any_failed gate
-        // below exits non-zero (per-node: this node's process exits
-        // non-zero → its rc mark is non-zero → aeb-driver aggregates;
-        // in-process: the whole run exits non-zero). build.fail() inside a
-        // builder still wins — record_status never downgrades an explicit
-        // failure to passed. (Supersedes the old "typed void, deferred"
-        // note: the begin-guard injection resolved the int-return concern.)
-        println("    _rc = ${fname}(s)")
-        println("    build.record_status(s, \"${label}\", _rc)")
+        // Run the node. We deliberately do NOT capture/record its return
+        // value: a `.build.ae` main() whose LAST statement is a bare
+        // trailing-block builder call with no explicit `return` (the
+        // common shape, e.g. `aether.program(b) { ... }`) yields that
+        // block-expression's value as the fn's implicit return — which is
+        // NOT the builder's rc and can be garbage-nonzero (verified:
+        // `aether.program` tail-call → garbage 1, while `c.program` →
+        // 0; builder-dependent and latent). Trusting `_rc =
+        // ${fname}(s)` therefore spuriously failed PASSING builds.
+        // Failures redden via the EXPLICIT build.fail() channel instead —
+        // every SDK builder calls build.fail(ctx, reason) on os.system
+        // failure (the SDK sweep), which sets the session status that the
+        // any_failed gate below reads. That channel is correct and does
+        // not depend on the fragile implicit-return value.
+        println("    ${fname}(s)")
         println("    build.done(s, \"${label}\")")
         println("    _end = clock_ns()")
         println("    _rec = map.new()")
