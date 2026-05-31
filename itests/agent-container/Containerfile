@@ -1,0 +1,75 @@
+# aeb-agent container — Debian, soup-to-nuts.
+#
+# Builds the full stack from a clean Debian base:
+#   build deps -> Aether toolchain (ae/aetherc, source-built) -> aeb ->
+#   the remote build agent (aeb-agent) -> EXPOSE 9440.
+#
+# Build:
+#   podman build -t aeb-agent itests/agent-container
+#
+# Run (publishes 9440 to the host; --host 0.0.0.0 + --tokens are baked
+# into CMD so the agent is reachable + fail-closed out of the box):
+#   podman run -d --name aeb-agent -p 9440:9440 \
+#       -v "$PWD/agent.tokens:/etc/aeb/agent.tokens:ro" \
+#       aeb-agent
+#
+#   # agent.tokens = one bearer token per line, e.g.:  printf 'ping-secret-123\n' > agent.tokens
+#
+# Then from another host:
+#   curl http://<host>:9440/health                                  # ok
+#   curl -H 'X-AEB-Token: ping-secret-123' http://<host>:9440/ping   # capability JSON
+#
+# Pin the toolchains for reproducibility via build args:
+#   podman build --build-arg AEB_REF=v0.042 -t aeb-agent itests/agent-container
+
+FROM debian:trixie-slim
+
+# AEB_REF: aeb tag/branch/sha (default: main). AETHER_REF: aether ref.
+ARG AEB_REF=main
+ARG AETHER_REF=main
+
+# 1. Build deps. gcc/make/bc build Aether; zlib+openssl give std.net TLS
+#    (the agent imports std.http.client); curl/tar/git fetch sources;
+#    ca-certificates for HTTPS. NB: Debian trixie ships gcc 14, which
+#    treats -Wincompatible-pointer-types as a hard error — the strict
+#    target aeb is validated against.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        git curl tar gcc make bc pkg-config \
+        zlib1g-dev libssl-dev ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# 2. Aether toolchain (ae/aetherc/libaether.a/stdlib) — aeb's one hard
+#    dependency, source-built, installed to /usr/local.
+RUN git clone --depth 1 --branch "$AETHER_REF" \
+        https://github.com/aether-lang-org/aether.git /tmp/aether \
+    && make -C /tmp/aether -j"$(nproc)" \
+    && make -C /tmp/aether install \
+    && rm -rf /tmp/aether \
+    && ae --version
+
+# 3. aeb itself (clone, so the agent .dist/.install sources are present),
+#    installed to /usr/local so `aeb` is on PATH.
+RUN git clone --depth 1 --branch "$AEB_REF" \
+        https://github.com/aether-lang-org/aeb.git /opt/aeb \
+    && make -C /opt/aeb install PREFIX=/usr/local \
+    && aeb --version
+
+# 4. Build the remote build agent WITH aeb (dogfood: .install deps .dist).
+#    Installs the binary + wrapper to ~/.local (the agent install's
+#    hardcoded prefix for now); symlink it onto PATH for convenience.
+WORKDIR /opt/aeb
+RUN aeb tools/agent/.install.ae \
+    && ln -sf /root/.local/bin/aeb-agent /usr/local/bin/aeb-agent \
+    && aeb-agent --help 2>/dev/null || true
+
+# 5. Runtime layout: a workdir the agent runs builds in, and a default
+#    tokens path (mount your real token file over /etc/aeb/agent.tokens).
+RUN mkdir -p /work && touch /work/.aeb && mkdir -p /etc/aeb
+
+EXPOSE 9440
+
+# Bind 0.0.0.0 (reachable off-box, not just container loopback) and
+# fail-closed via --tokens. Mount a real token file at the path below.
+CMD ["aeb-agent", "--host", "0.0.0.0", "--port", "9440", \
+     "--accept", "preint/*", "--workdir", "/work", \
+     "--tokens", "/etc/aeb/agent.tokens"]
