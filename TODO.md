@@ -533,6 +533,62 @@ production builds, pin every transitive dep to an exact version with
 integrity hashes (like `package-lock.json` or `go.sum`). Detect drift
 between lock file and resolved deps.
 
+### Toolchain selection & generated locks (partially done)
+
+Design: `docs/toolchain-selection-and-locks.md`,
+`asks/versioned-bom-and-self-validating-lock.md`. Subsumes the
+"Lockfiles" section above (that lock should be the *generated*,
+hash-stamped node described here) and is the multi-SDK half of the
+"uses whatever's on PATH" gap.
+
+**Done:**
+- Generic version-match / selection / `lock_validate` core in `lib/build`
+  (`_match_major_version`, `_select_jvm_home`, `_jvm_dir_major`,
+  `_toolchain_not_found_msg`, `lock_validate`); `tests/test_toolchain_select.ae`.
+- `lib/java`: `java.select_jdk("21" | "21+")` — discover-select-or-fail
+  among installed JDKs, end-to-end verified on a multi-JVM box.
+
+**Deferred — could NOT verify on the dev Chromebook (single version /
+SDK wholly absent). Implement + verify on a box that has alternates:**
+- **`python(...)` / `ruby(...)` runtime selection.** The generic core is
+  done; the per-SDK setter + discover-select-or-fail is not. This box has
+  only Python 3.11 and Ruby 3.1 — no second version to *select between*,
+  so only the "use the one present" and "fail for a missing version"
+  paths are testable here. Needs a box with e.g. pyenv 3.11+3.12+3.13 /
+  rbenv multi-Ruby to verify a real pick. CRITICAL difference from Java
+  (do not copy Java's semantics): the interpreter version is part of
+  wheel/gem identity (`cp312` ABI), so `python(...)` must feed the
+  wheel-resolution cache key and a version bump must re-resolve — NOT an
+  orthogonal axis the way `select_jdk` is. See the fidelity-asymmetry
+  table in the design doc.
+- **`_ensure_venv` hardcodes `python3` from PATH** (`lib/python`). Until
+  `python(...)` lands, every Python build is silently bound to PATH's
+  interpreter and nothing records which version built the venv. The fix
+  is version-tagged venvs (`.aeb/venv-py312`) driven by the selected
+  interpreter.
+- **`.NET` selection + anything dotnet-shaped is unverifiable here —
+  `dotnet` is wholly absent on this box.** `lib/dotnet` exists but the
+  SDK-version-selection story (global.json-style pinning / multiple
+  installed SDKs) was never exercised. Verify on a box with the .NET SDK
+  (ideally multiple) installed.
+- Other multi-version-capable toolchains worth a selection setter once
+  the pattern is proven: Go (multiple `go` via gvm/asdf), Node (nvm),
+  Rust (rustup toolchains). All would reuse the generic `lib/build` core;
+  each is orthogonal-vs-entangled per its own dep model (Node/npm ≈
+  entangled like Python; Go/Rust ≈ mostly orthogonal like Java).
+
+**Lock generator — produce side (the consume side `lock_validate` is
+done + tested):**
+- A versions BOM node (`pip_versions.ae` / `gem_versions.ae`; Java reuses
+  the existing `.bom.ae`) + a generator target `aeb .<lang>_make_lockfile.ae`
+  that resolves the closure *for the BOM's runtime* and emits a generated
+  lock node carrying `generated_from("<bom>", "sha256:…")` + `locked_for("<tag>")`
+  + the closure. The lock self-validates on visit (re-hash the BOM,
+  hard-fail on drift / missing / runtime-mismatch), so a consumer deps
+  the lock alone. Expressed as an embedded content hash, NOT a `dep()`
+  edge, so the consumer needn't also dep the BOM. Generic mechanism in
+  `lib/build`; SDKs provide a `<lang>.make_lockfile` builder.
+
 ## Aether compiler issues to fix upstream
 
 - [x] **0.146 regression: `string.substring` return aliased + outer
@@ -1030,6 +1086,16 @@ tags/describes and exposes `${version}` in the build context. Language
 SDKs use it for jar manifests, NuGet package versions, npm versions, etc.
 
 ### Test result reporting
+
+Build-failure propagation is now wired (was a repo-wide silent-green
+bug — a failed compile/test exited 0). The orchestrator captures each
+node's rc + `build.record_status` and `exit(1)`s on `build.any_failed`,
+and every `builder` failure site across all SDKs calls
+`build.fail(ctx, reason)`. See `asks/node-failure-propagation.md`.
+Remaining follow-ups there: distinguishing "test failed" from "test
+errored" (depends on the structured-output migration below), and
+exercising the `record_status`-from-explicit-`return` path (rarely hit,
+since users seldom `return` from a builder call).
 
 aeb today has two layers of test reporting:
 
