@@ -79,6 +79,22 @@ source_layout(_ctx: ptr, layout: string) {
     _e = map.put(_ctx, "source_layout", layout)
 }
 
+// classpath_file(path) — contribute a PRE-RESOLVED classpath, read from a
+// file (a single line of `:`-separated jar paths, e.g. the output of
+// `mvn dependency:build-classpath -Dmdep.outputFile=...`). Appended to the
+// javac/shade classpath WITHOUT invoking the Maven resolver. The escape
+// hatch for a pre-resolved or vendored classpath — and specifically the
+// bootstrap path for building aeb's OWN resolver (tools/resolver), which
+// can't resolve its own Maven deps via aeb-resolve.jar (the artifact being
+// built). Path is module-relative; resolved at build time. Repeatable.
+classpath_file(_ctx: ptr, path: string) {
+    if map.has(_ctx, "classpath_file") == 0 {
+        _e1 = map.put(_ctx, "classpath_file", list.new())
+    }
+    cfs, _ = map.get(_ctx, "classpath_file")
+    _e2 = list.add(cfs, path)
+}
+
 processor_path(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "processor_path", path)
 }
@@ -290,6 +306,41 @@ _jdk_version() {
     if string.length(cached) > 0 { return cached }
     raw, _err = os.exec("javac -version 2>&1 | head -1")
     return string.trim(raw)
+}
+
+// _read_classpath_files(builder_map, source_dir) — read every
+// classpath_file(...) entry and join their contents into one
+// `:`-separated classpath string. Each file holds a single line of
+// `:`-separated jar paths (the `mvn dependency:build-classpath` shape).
+// Trailing newline trimmed. Missing/unreadable file contributes nothing.
+// Relative paths resolve against source_dir.
+_read_classpath_files(builder_map: ptr, source_dir: string) {
+    if builder_map == null { return "" }
+    if map.has(builder_map, "classpath_file") == 0 { return "" }
+    cfs, _ = map.get(builder_map, "classpath_file")
+    n = list.size(cfs)
+    out = ""
+    i = 0
+    while i < n {
+        rel, _ = list.get(cfs, i)
+        p = rel
+        if string.length(rel) > 0 {
+            first = string.substring(rel, 0, 1)
+            if string.equals(first, "/") == 0 {
+                p = path.join(source_dir, rel)
+            }
+        }
+        if file.exists(p) == 1 {
+            raw, _e = io.read_file(p)
+            piece = string.trim(raw)
+            if string.length(piece) > 0 {
+                if string.length(out) > 0 { out = string.concat(out, ":") }
+                out = string.concat(out, piece)
+            }
+        }
+        i = i + 1
+    }
+    return out
 }
 
 // _discover_jvm_root() — the directory holding side-by-side JDKs. Linux:
@@ -552,9 +603,10 @@ builder javac(ctx: ptr) {
 
     println("${mod_dir}: compiling prod code")
 
-    // Build classpath: dep modules + maven deps
+    // Build classpath: dep modules + maven deps + pre-resolved file(s)
     dep_cp = build._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
+    file_cp = _read_classpath_files(_builder, source_dir)
     classpath = classes_dir
     if string.length(dep_cp) > 0 {
         tmp = string.concat(classpath, ":")
@@ -563,6 +615,10 @@ builder javac(ctx: ptr) {
     if string.length(maven_cp) > 0 {
         tmp_m = string.concat(classpath, ":")
         classpath = string.concat(tmp_m, maven_cp)
+    }
+    if string.length(file_cp) > 0 {
+        tmp_f = string.concat(classpath, ":")
+        classpath = string.concat(tmp_f, file_cp)
     }
 
     // Create generated sources dir if requested (for annotation processors like QueryDSL)
@@ -689,6 +745,10 @@ builder javac(ctx: ptr) {
     if string.length(maven_cp) > 0 {
         tmp3 = string.concat(cp_out, "\n")
         cp_out = string.concat(tmp3, maven_cp)
+    }
+    if string.length(file_cp) > 0 {
+        tmp4 = string.concat(cp_out, "\n")
+        cp_out = string.concat(tmp4, file_cp)
     }
     build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
 

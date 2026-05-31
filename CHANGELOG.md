@@ -4,6 +4,24 @@
 
 ### Added
 
+- **aeb builds its own Java component (`aeb-resolve.jar`) with aeb.** The
+  Maven coordinate resolver (`tools/resolver/`, the one JVM artifact aeb
+  ships) was built by an unscripted `mvn package`. Now
+  `aeb tools/resolver/.dist.ae` builds it with aeb's own Java SDK
+  (`java.javac` + `java.shade`) — dogfooding the JVM toolchain on a real
+  multi-dep program. `make` builds the *Aether* parts of aeb (the tools);
+  aeb builds aeb's *Java* part. Bootstrap cycle handled honestly: the
+  resolver's own Maven deps can't be resolved via `aeb-resolve.jar` (the
+  artifact being built), so `mvn dependency:build-classpath` resolves them
+  (Maven bootstrapping the Maven resolver — like a C compiler needing a C
+  compiler) and the classpath is fed to javac via the new
+  **`java.classpath_file(path)`** setter, which contributes a pre-resolved
+  `:`-separated classpath WITHOUT invoking the resolver. Verified: the
+  aeb-built jar resolves `junit-jupiter:5.10.0` to its full 8-jar
+  transitive closure. `classpath_file` is generically useful (any
+  pre-resolved/vendored classpath); `_read_classpath_files` +
+  three assertions in `tests/test_javac_cmd.ae`.
+
 - **Remote-aeb: `aeb-agent` + `agent.dispatch` (walking skeleton).** A
   sovereign build-agent server and the originator dispatch to it — the
   first running slice of the run-policy / cloud-leverage design

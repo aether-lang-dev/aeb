@@ -11,7 +11,7 @@ import std.dir
 import build
 // Tests for javac_cmd() — command string builder
 
-import java (javac_cmd)
+import java (javac_cmd, classpath_file, _read_classpath_files)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -118,6 +118,28 @@ main() {
     map_put(opts11, "_javac_bin", "")
     _assert_eq("empty _javac_bin falls back to PATH", javac_cmd("out", "cp", "A.java", opts11),
         "javac -d out -cp cp A.java")
+
+    // --- classpath_file: pre-resolved classpath, no resolver invocation
+    // (the bootstrap path for building aeb's own resolver). ---
+    os.system("mkdir -p /tmp/aeb_cpf_test")
+    _w1 = io.write_file("/tmp/aeb_cpf_test/a.cp", "/m2/x.jar:/m2/y.jar\n")
+    _w2 = io.write_file("/tmp/aeb_cpf_test/b.cp", "/m2/z.jar")
+    cpb = map_new()
+    classpath_file(cpb, "a.cp")
+    classpath_file(cpb, "b.cp")
+    _assert_eq("classpath_file joins file contents",
+        _read_classpath_files(cpb, "/tmp/aeb_cpf_test"),
+        "/m2/x.jar:/m2/y.jar:/m2/z.jar")
+    // absolute path passes through; missing file contributes nothing
+    cpb2 = map_new()
+    classpath_file(cpb2, "/tmp/aeb_cpf_test/a.cp")
+    classpath_file(cpb2, "nope.cp")
+    _assert_eq("classpath_file abs + missing",
+        _read_classpath_files(cpb2, "/tmp/aeb_cpf_test"),
+        "/m2/x.jar:/m2/y.jar")
+    _assert_eq("no classpath_file -> empty",
+        _read_classpath_files(map_new(), "/tmp/aeb_cpf_test"), "")
+    os.system("rm -rf /tmp/aeb_cpf_test")
 
     println("javac_cmd tests done")
 }

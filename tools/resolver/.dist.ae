@@ -1,0 +1,50 @@
+// Build aeb-resolve.jar — aeb's Maven coordinate resolver — WITH aeb's
+// own Java SDK (java.javac + java.shade), dogfooding the JVM toolchain on
+// a real multi-dep Java program. Replaces the unscripted `mvn package`
+// that produced tools/aeb-resolve.jar.
+//
+// BOOTSTRAP NOTE: the resolver's own Maven deps cannot be resolved by
+// aeb's normal path, because that path shells out to aeb-resolve.jar —
+// the very artifact being built (chicken-and-egg). So we get the
+// classpath from `mvn dependency:build-classpath` (Maven resolving its
+// own tool's deps, which is fair — Maven is the bootstrap for the Maven
+// resolver, like a C compiler needs a C compiler) and feed it to
+// java.javac via classpath_file(...), which bypasses aeb-resolve.jar.
+// aeb does the compile + shade; mvn only resolves. Requires the resolver
+// deps in ~/.m2 (mvn populates them) and a JDK on PATH.
+//
+//   aeb tools/resolver/.dist.ae   # → target/tools/resolver/bin/aeb-resolve.jar
+//
+// NOT wired into make (make builds the Aether parts of aeb; this Java
+// component is built by aeb). Output is the shaded fat jar; copy it to
+// $AEB_HOME/tools/aeb-resolve.jar (a .install.ae could automate that).
+import build
+import java
+import java (source_layout, classpath_file, shade)
+import std.os
+
+extern println(s: string)
+
+main() {
+    b = build.start()
+
+    // Stage 0 (bootstrap): mvn resolves the resolver's OWN deps and dumps
+    // the classpath next to the source. Inline build step — aeb shelling
+    // the tool that already parses pom.xml, same as `ae build` for
+    // aether.toml. The file is then fed to javac via classpath_file().
+    src_dir = build.source_dir(b)
+    cp_file = string.concat(src_dir, "/.deps.classpath")
+    mvn_cmd = string.concat(string.concat("cd '", src_dir), "' && mvn -q dependency:build-classpath -Dmdep.outputFile=.deps.classpath")
+    rc = os.system(mvn_cmd)
+    if rc != 0 {
+        println("resolver: mvn dependency:build-classpath failed (need mvn + resolver deps in ~/.m2)")
+        build.fail(b, "resolver: mvn build-classpath failed")
+        return 1
+    }
+
+    java.javac(b) {
+        source_layout("maven idiomatic")
+        classpath_file(".deps.classpath")
+    }
+    java.shade(b, "aeb.maven.MavenResolver", "aeb-resolve.jar")
+}
