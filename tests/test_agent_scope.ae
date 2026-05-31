@@ -63,10 +63,15 @@ main() {
     _eq("out-of-scope + full => reject (not busy)", _decision(sc, "ci/main", 9), "reject")
 
     // --- wire payloads round-trip through the skeleton extractor ---
-    req = dispatch_request_json("G123", "app/.tests.ae", "preint/x")
+    req = dispatch_request_json("G123", "app/.tests.ae", "preint/x", "main", "abc123", "")
     _eq("req guid", _json_field(req, "guid"), "G123")
     _eq("req target", _json_field(req, "target"), "app/.tests.ae")
     _eq("req purpose", _json_field(req, "purpose"), "preint/x")
+    _eq("req ref", _json_field(req, "ref"), "main")
+    _eq("req hash", _json_field(req, "hash"), "abc123")
+    _eq("req patch_b64 empty", _json_field(req, "patch_b64"), "")
+    req2 = dispatch_request_json("G2", "t.ae", "p", "", "", "YmFzZTY0")
+    _eq("req2 patch_b64", _json_field(req2, "patch_b64"), "YmFzZTY0")
 
     rep = dispatch_reply_json("G123", "done", "fail")
     _eq("reply guid", _json_field(rep, "guid"), "G123")

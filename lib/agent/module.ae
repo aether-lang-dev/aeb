@@ -36,6 +36,8 @@ import std.io
 import std.os
 import std.list
 import std.map
+import std.path
+import std.file
 
 // --- Originator-side DSL setters (live on _builder) ---
 
@@ -63,6 +65,30 @@ purpose(_ctx: ptr, scope: string) {
 // Interim shared-secret auth — see the token-auth note below.
 token(_ctx: ptr, t: string) {
     _e = map.put(_ctx, "token", t)
+}
+
+// ref(r) / hash(h) — fetch-base for the remote build: the agent does
+// `git fetch origin <ref> && git checkout <hash>` in its --repo before
+// building. Source from the run context, e.g. ref(env "GIT_REF") /
+// hash("$(git rev-parse HEAD)") expanded in the .ae. Both empty => the
+// agent builds its workdir as-is (no checkout). The agent owns WHERE it
+// fetches from (its configured origin); the originator only names what.
+ref(_ctx: ptr, r: string) {
+    _e = map.put(_ctx, "ref", r)
+}
+
+hash(_ctx: ptr, h: string) {
+    _e = map.put(_ctx, "hash", h)
+}
+
+// patch_file(path) — a unified-diff file applied (git apply) onto the
+// checked-out base on the agent, AFTER fetch+checkout. The pre-integration
+// delta: "build origin@<hash> PLUS my working-tree diff on your node."
+// The originator base64-encodes the file's bytes into the wire (so the
+// diff's newlines/quotes survive the flat-JSON payload); the agent
+// decodes + git-applies. Path is module-relative.
+patch_file(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "patch_file", path)
 }
 
 // on_platform(p) — require the leased node to self-report this platform
@@ -308,9 +334,26 @@ _bearer_strip(header_value: string) {
 
 // --- Wire payloads (pure builders; tested) ---
 
-// dispatch_request_json(guid, target, purpose) — the skinny fire payload
-// the originator POSTs to the agent's /dispatch.
-dispatch_request_json(guid: string, target: string, purpose: string) {
+// dispatch_request_json — the fire payload the originator POSTs to the
+// agent's /dispatch. Carries (all string fields, flat JSON):
+//   guid, target, purpose            — always
+//   ref, hash                        — fetch-base: agent does
+//                                      `git fetch origin <ref> && git
+//                                      checkout <hash>` in its --repo
+//                                      before building ("" = skip, build
+//                                      the workdir as-is)
+//   patch_b64                        — base64 of a unified diff applied
+//                                      (git apply) onto the checked-out
+//                                      base ("" = no patch). Base64 so the
+//                                      diff's newlines/quotes don't break
+//                                      the flat-JSON wire; the agent
+//                                      decodes via shell `base64 -d` to a
+//                                      temp file (no Aether string handling
+//                                      of the binary-ish diff).
+// (Pre-integration model: trusted base from origin + the requester's
+// untrusted patch delta — which maybe_veto_build then scrutinizes.)
+dispatch_request_json(guid: string, target: string, purpose: string,
+                      ref: string, hash: string, patch_b64: string) {
     out = "{"
     out = string.concat(out, "\"guid\":\"")
     out = string.concat(out, guid)
@@ -318,6 +361,12 @@ dispatch_request_json(guid: string, target: string, purpose: string) {
     out = string.concat(out, target)
     out = string.concat(out, "\",\"purpose\":\"")
     out = string.concat(out, purpose)
+    out = string.concat(out, "\",\"ref\":\"")
+    out = string.concat(out, ref)
+    out = string.concat(out, "\",\"hash\":\"")
+    out = string.concat(out, hash)
+    out = string.concat(out, "\",\"patch_b64\":\"")
+    out = string.concat(out, patch_b64)
     out = string.concat(out, "\"}")
     return out
 }
@@ -519,10 +568,45 @@ builder dispatch(ctx: ptr) {
         println("${mod_dir}: leased agent ${ep} for purpose='${purp}'")
     }
 
+    // Fetch-base + patch fields. ref/hash tell the agent to
+    // `git fetch origin <ref> && git checkout <hash>` before building;
+    // patch_file is a unified diff applied on top. The diff is base64'd
+    // into the wire (via shell `base64`, no Aether handling of the binary-
+    // ish diff) so its newlines/quotes don't break the flat-JSON payload.
+    gref = ""
+    ghash = ""
+    patch_b64 = ""
+    if _builder != null {
+        if map.has(_builder, "ref") == 1 { gref, _ = map.get(_builder, "ref") }
+        if map.has(_builder, "hash") == 1 { ghash, _ = map.get(_builder, "hash") }
+        if map.has(_builder, "patch_file") == 1 {
+            pf, _ = map.get(_builder, "patch_file")
+            pf_abs = pf
+            if string.length(pf) > 0 {
+                first = string.substring(pf, 0, 1)
+                if string.equals(first, "/") == 0 {
+                    pf_abs = path.join(build._get(ctx, "source_dir"), pf)
+                }
+                if file.exists(pf_abs) == 0 {
+                    println("${mod_dir}: agent.dispatch patch_file not found: ${pf_abs}")
+                    build.fail(ctx, "agent.dispatch: patch_file not found")
+                    return 1
+                }
+                // base64 (single line, -w0) so it's one clean JSON value.
+                enc_raw, _ee = os.exec("base64 -w0 '${pf_abs}' 2>/dev/null || base64 '${pf_abs}' | tr -d '\n'")
+                patch_b64 = string.trim(enc_raw)
+            }
+        }
+    }
+
     guid = _gen_guid()
     url = string.concat(ep, "/dispatch")
-    req_body = dispatch_request_json(guid, tgt, purp)
-    println("${mod_dir}: dispatch ${guid} → ${url} target=${tgt} purpose=${purp}")
+    req_body = dispatch_request_json(guid, tgt, purp, gref, ghash, patch_b64)
+    pdisp = "no-patch"
+    if string.length(patch_b64) > 0 { pdisp = "+patch" }
+    cdisp = "workdir"
+    if string.length(ghash) > 0 { cdisp = ghash }
+    println("${mod_dir}: dispatch ${guid} → ${url} target=${tgt} purpose=${purp} base=${cdisp} ${pdisp}")
 
     // v2 client: lets us send the X-AEB-Token header AND read the status
     // code (v1 http.post collapses any 4xx/5xx into a generic error, so we

@@ -110,6 +110,75 @@ handle_ping(req: ptr, res: ptr, ud: ptr) {
     return 0
 }
 
+// _prepare_tree(guid, repo, ref, hash, patch_b64) — materialize the tree
+// to build, in the agent's own repo, BEFORE the build runs. Returns "" on
+// success or an error string. Steps (each skipped when its field is ""):
+//   - git fetch origin <ref> && git checkout <hash>  (trusted base)
+//   - decode patch_b64 (shell base64 -d -> temp file) && git apply
+//     (the untrusted pre-integration delta)
+// The agent owns the origin (the dispatch never names a remote URL), so
+// fetch pulls only from where the operator configured the clone.
+_prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64: string) {
+    if string.length(ghash) > 0 {
+        // ref is optional (fetch a specific ref before checkout); default
+        // to fetching all from origin when ref is empty.
+        fr = gref
+        if string.length(fr) == 0 { fr = "" }
+        fetch_cmd = string.concat("cd '", repo)
+        if string.length(fr) > 0 {
+            fetch_cmd = string.concat(fetch_cmd, "' && git fetch origin '")
+            fetch_cmd = string.concat(fetch_cmd, fr)
+            fetch_cmd = string.concat(fetch_cmd, "'")
+        } else {
+            fetch_cmd = string.concat(fetch_cmd, "' && git fetch origin")
+        }
+        frc = os.system(fetch_cmd)
+        if frc != 0 { return "git fetch failed" }
+
+        co_cmd = string.concat(string.concat("cd '", repo), string.concat("' && git checkout --quiet '", string.concat(ghash, "'")))
+        crc = os.system(co_cmd)
+        if crc != 0 { return "git checkout ${ghash} failed" }
+    }
+
+    if string.length(patch_b64) > 0 {
+        // Decode via shell (no Aether handling of the binary-ish diff) to
+        // a temp file, then git apply. printf the b64 then base64 -d.
+        pf = string.concat("/tmp/aeb-agent-patch-", string.concat(guid, ".diff"))
+        dec_cmd = string.concat(string.concat("printf '%s' '", patch_b64), string.concat("' | base64 -d > '", string.concat(pf, "'")))
+        drc = os.system(dec_cmd)
+        if drc != 0 { return "patch base64 decode failed" }
+        ap_cmd = string.concat(string.concat("cd '", repo), string.concat("' && git apply '", string.concat(pf, "'")))
+        arc = os.system(ap_cmd)
+        os.system(string.concat("rm -f '", string.concat(pf, "'")))
+        if arc != 0 { return "git apply failed (patch does not apply to base)" }
+    }
+
+    return ""
+}
+
+// _maybe_veto_build(repo, target, purpose) — the agent's OWN gate, run
+// after the tree is prepared and BEFORE the build. Returns "" to allow,
+// or a non-empty reason to VETO (refuse to build). This is the agent
+// exercising sovereign policy over what it will run — distinct from the
+// orchestrator and from whether the build would pass.
+//
+// Walking skeleton: a single, conservative example veto (reject a tree
+// that contains an obvious committed secret marker) to prove the
+// architecture. The real design is a PLUGGABLE list of veto checks
+// (dependency CVE / OWASP scan, secret scan, banned-pattern, size caps),
+// each able to refuse; this is the seam they slot into. Veto rules are
+// the agent operator's policy, not the requester's.
+_maybe_veto_build(repo: string, target: string, purpose: string) {
+    // Example veto: a hard-coded private-key marker anywhere in the tree.
+    // grep is best-effort; a hit -> veto. (Placeholder for the real
+    // pluggable scanners; intentionally tiny.)
+    probe = string.concat(string.concat("grep -rqI 'BEGIN RSA PRIVATE KEY' '", repo), "' 2>/dev/null")
+    if os.system(probe) == 0 {
+        return "tree contains a private-key marker (veto-secret-scan)"
+    }
+    return ""
+}
+
 handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     body = http.request_body(req)
     guid = _json_field(body, "guid")
@@ -146,10 +215,43 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         return 0
     }
 
-    // accept → run aeb <target> in the agent's workdir, capture rc.
+    // accept → prepare the tree, then run aeb <target>.
     workdir = os.getenv("AEB_AGENT_WORKDIR")
     if string.length(workdir) == 0 { workdir = "." }
+    repo = os.getenv("AEB_AGENT_REPO")
+    if string.length(repo) == 0 { repo = workdir }
     println("agent: ACCEPT guid=${guid} purpose=${purpose} target=${target}")
+
+    // --- Prepare (wire ops, the agent's own lifecycle — NOT build grammar):
+    //   1. git fetch origin <ref> && git checkout <hash>  (fetch-base)
+    //   2. git apply <patch>                              (pre-integration delta)
+    //   3. maybe_veto_build                               (agent's OWN gate)
+    // Each step can fail/veto and short-circuit BEFORE the build runs. ---
+    gref = _json_field(body, "ref")
+    ghash = _json_field(body, "hash")
+    patch_b64 = _json_field(body, "patch_b64")
+
+    prep_err = _prepare_tree(guid, repo, gref, ghash, patch_b64)
+    if string.length(prep_err) > 0 {
+        println("agent: PREP-FAILED guid=${guid} (${prep_err})")
+        http.response_set_status(res, 409)
+        http.response_set_header(res, "Content-Type", "application/json")
+        http.response_set_body(res, dispatch_reply_json(guid, "prep-failed", ""))
+        return 0
+    }
+
+    // maybe_veto_build — the agent decides, on ITS OWN authority, whether
+    // to build the prepared tree. Independent of whether the build would
+    // succeed. A vetoed dispatch is NOT a build failure — it's a refusal.
+    veto = _maybe_veto_build(repo, target, purpose)
+    if string.length(veto) > 0 {
+        println("agent: VETOED guid=${guid} (${veto})")
+        http.response_set_status(res, 422)
+        http.response_set_header(res, "Content-Type", "application/json")
+        http.response_set_body(res, dispatch_reply_json(guid, "vetoed", ""))
+        return 0
+    }
+
     cmd = "cd '${workdir}' && aeb '${target}'"
     rc = os.system(cmd)
 
@@ -185,6 +287,7 @@ main() {
     accept_glob = "preint/*"
     max_jobs = 0
     workdir = "."
+    repo_dir = ""
     tokens_file = ""
 
     i = 1
@@ -201,14 +304,19 @@ main() {
         if string.equals(a, "--accept") == 1 { i = i + 1; accept_glob = aether_args_get(i) }
         if string.equals(a, "--max-jobs") == 1 { i = i + 1; max_jobs = _atoi(aether_args_get(i)) }
         if string.equals(a, "--workdir") == 1 { i = i + 1; workdir = aether_args_get(i) }
+        if string.equals(a, "--repo") == 1 { i = i + 1; repo_dir = aether_args_get(i) }
         if string.equals(a, "--tokens") == 1 { i = i + 1; tokens_file = aether_args_get(i) }
         i = i + 1
     }
+    // --repo defaults to --workdir (the agent's clone IS the build dir
+    // unless an operator separates them).
+    if string.length(repo_dir) == 0 { repo_dir = workdir }
 
     // Publish the single scope's config to the env the handler reads.
     _e1 = os.setenv("AEB_AGENT_ACCEPT", accept_glob)
     if max_jobs > 0 { _e2 = os.setenv("AEB_AGENT_MAX_JOBS", string.from_int(max_jobs)) }
     _e3 = os.setenv("AEB_AGENT_WORKDIR", workdir)
+    _e3b = os.setenv("AEB_AGENT_REPO", repo_dir)
     if string.length(tokens_file) > 0 { _e4 = os.setenv("AEB_AGENT_TOKENS", tokens_file) }
 
     // Fail-closed auth posture announcement. Distinguish the three
