@@ -55,6 +55,7 @@ builder bundle(ctx: ptr) {
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: webpack failed")
+        build.fail(ctx, "webpack failed")
         return exit_code
     }
     println("${mod_dir}: bundle complete")

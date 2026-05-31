@@ -167,6 +167,7 @@ builder scalac(ctx: ptr) {
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: scalac failed")
+        build.fail(ctx, "scalac failed")
         return exit_code
     }
 
@@ -242,6 +243,7 @@ builder scalac_test(ctx: ptr) {
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: scalac (test) failed")
+        build.fail(ctx, "scalac (test) failed")
         return exit_code
     }
 
@@ -279,10 +281,12 @@ builder assembly(ctx: ptr) {
 
     if _builder == null {
         println("${mod_dir}: scala.assembly: empty builder block — declare main_class(...)")
+        build.fail(ctx, "scala.assembly: empty builder block — declare main_class(...)")
         return 1
     }
     if map.has(_builder, "main_class") == 0 {
         println("${mod_dir}: scala.assembly: missing main_class(\"...\")")
+        build.fail(ctx, "scala.assembly: missing main_class(\"...\")")
         return 1
     }
     main_cls, _ = map.get(_builder, "main_class")
@@ -313,6 +317,7 @@ builder assembly(ctx: ptr) {
         rc_cls = os.system(assembly_copy_classes_cmd(classes_dir, stage_dir))
         if rc_cls != 0 {
             println("${mod_dir}: scala.assembly: copying classes failed")
+            build.fail(ctx, "scala.assembly: copying classes failed")
             return rc_cls
         }
     }
@@ -356,6 +361,7 @@ builder assembly(ctx: ptr) {
                 rc_uz = os.system(assembly_unzip_jar_cmd(entry, stage_dir))
                 if rc_uz != 0 {
                     println("${mod_dir}: scala.assembly: unzipping ${entry} failed")
+                    build.fail(ctx, "scala.assembly: unzipping ${entry} failed")
                     string.array_free(parts)
                     return rc_uz
                 }
@@ -364,6 +370,7 @@ builder assembly(ctx: ptr) {
                     rc_cp = os.system(assembly_copy_classes_cmd(entry, stage_dir))
                     if rc_cp != 0 {
                         println("${mod_dir}: scala.assembly: copying ${entry} failed")
+                        build.fail(ctx, "scala.assembly: copying ${entry} failed")
                         string.array_free(parts)
                         return rc_cp
                     }
@@ -386,6 +393,7 @@ builder assembly(ctx: ptr) {
     rc = os.system(assembly_jar_cmd(jar_path, stage_dir))
     if rc != 0 {
         println("${mod_dir}: scala.assembly: jar command failed")
+        build.fail(ctx, "scala.assembly: jar command failed")
         return rc
     }
 
@@ -450,6 +458,7 @@ builder munit(ctx: ptr) {
         // munit per-test count parsing not yet wired; coarse record.
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "munit tests FAILED")
         return exit_code
     }
     build._record_test_result(ctx, 1, 0)

@@ -277,6 +277,7 @@ builder fire(ctx: ptr) {
     }
     if string.length(url_tmpl) == 0 {
         println("${mod_dir}: webhook.fire requires url(\"...\")")
+        build.fail(ctx, "webhook.fire requires url(\"...\")")
         return 1
     }
 

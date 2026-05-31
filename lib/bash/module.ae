@@ -444,6 +444,7 @@ builder run(ctx: ptr) {
     n = list.size(scripts)
     if n == 0 {
         println("${mod_dir}: no scripts declared")
+        build.fail(ctx, "no scripts declared")
         return 1
     }
 
@@ -455,6 +456,7 @@ builder run(ctx: ptr) {
         rc = os.system("bash ${full}")
         if rc != 0 {
             println("${mod_dir}: ${s} FAILED (exit ${rc})")
+            build.fail(ctx, "${s} FAILED (exit ${rc})")
             return rc
         }
         i = i + 1
@@ -790,6 +792,7 @@ builder test(ctx: ptr) {
 
     if failed > 0 {
         println("${mod_dir}: tests FAILED (${passed} passed, ${failed} failed)")
+        build.fail(ctx, "tests FAILED (${passed} passed, ${failed} failed)")
         return 1
     }
     println("${mod_dir}: tests PASSED (${passed}/${n})")

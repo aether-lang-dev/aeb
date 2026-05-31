@@ -220,6 +220,7 @@ builder install(ctx: ptr) {
     rc = os.system(cmd)
     if rc != 0 {
         println("${mod_dir}: pnpm install FAILED")
+        build.fail(ctx, "pnpm install FAILED")
         return rc
     }
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -242,6 +243,7 @@ builder run(ctx: ptr, script: string) {
     rc = os.system(cmd)
     if rc != 0 {
         println("${mod_dir}: pnpm run ${script} FAILED")
+        build.fail(ctx, "pnpm run ${script} FAILED")
         return rc
     }
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")

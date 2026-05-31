@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Silent-green eliminated: a failed build step now reddens the build.**
+  Previously a failed `javac`/`gcc`/test exited 0 — `gen-orchestrator`
+  discarded each node's outcome and never exited non-zero, and builders
+  swallowed their own return code (a `.build.ae main()` calls
+  `java.javac(b)` without `return`). A test target whose compile dep
+  failed would run against no classes, report `0/0 PASS`, and the whole
+  build went green. Fixed in two coordinated parts: (1) the orchestrator
+  now captures each node's rc, calls `build.record_status`, and
+  `exit(1)`s on `build.any_failed` (outside the per-node selector guard,
+  so it fires in both per-node and `--in-process` modes); (2) every
+  `os.system`-failure / missing-required-setter site inside a `builder`
+  body across all 16 SDKs now calls `build.fail(ctx, reason)` — the
+  channel that reaches the shared session, since the return path is
+  swallowed. ~69 sites swept (java, python, ruby, c, kotlin, scala,
+  clojure, jest, ts, pnpm, webpack, bash, copy, webhook, approval).
+  Verified: a broken compile dep now exits non-zero in both modes, the
+  driver prints `FAILED (see <log>)`, dependents are skipped, and a clean
+  build still exits 0. Design: `asks/node-failure-propagation.md`.
+
 ### Added
 
 - **`no_closure_regen()` setter for `aether.program(b)`** — opt out of

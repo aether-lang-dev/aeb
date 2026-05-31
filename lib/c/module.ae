@@ -371,6 +371,7 @@ builder compile(ctx: ptr) {
     n = list.size(srcs)
     if n == 0 {
         println("${mod_dir}: c.compile: no sources — call c.sources(b, \"*.c\")")
+        build.fail(ctx, "c.compile: no sources declared")
         return 1
     }
 
@@ -394,6 +395,7 @@ builder compile(ctx: ptr) {
         exit_code = os.system(cmd)
         if exit_code != 0 {
             println("${mod_dir}: C compile failed on ${src}")
+            build.fail(ctx, "C compile failed on ${src}")
             return exit_code
         }
         if string.length(objects) > 0 {
@@ -437,6 +439,7 @@ builder aether_objects(ctx: ptr) {
     n = list.size(ae_srcs)
     if n == 0 {
         println("${mod_dir}: c.aether_objects: no aether_source() declared")
+        build.fail(ctx, "c.aether_objects: no aether_source() declared")
         return 1
     }
 
@@ -449,6 +452,7 @@ builder aether_objects(ctx: ptr) {
     lib_dir = _libaether_dir(_builder)
     if string.length(lib_dir) == 0 {
         println("${mod_dir}: c.aether_objects: cannot locate libaether.a")
+        build.fail(ctx, "c.aether_objects: cannot locate libaether.a")
         return 1
     }
     ae_inc = _aether_incs(_builder)
@@ -609,6 +613,7 @@ builder generated_header(ctx: ptr) {
     headers_raw = _opt_str(_builder, "c_emit_headers")
     if string.length(headers_raw) == 0 {
         println("${mod_dir}: c.generated_header: no emit() declared")
+        build.fail(ctx, "c.generated_header: no emit() declared")
         return 1
     }
 
@@ -641,6 +646,7 @@ builder generated_header(ctx: ptr) {
     tool_bin = path.join(target_dir, tool_name)
     rc = _build_tool_binary(source_dir, target_dir, mod_dir, _builder, tool_bin)
     if rc != 0 {
+        build.fail(ctx, "c.generated_header: tool build failed")
         return rc
     }
     // Fresh handle to the tool path for the run loop below.
@@ -680,6 +686,7 @@ builder generated_header(ctx: ptr) {
         er = os.system(run_cmd)
         if er != 0 {
             println("${mod_dir}: generator tool failed for header ${header} (rc=${er})")
+            build.fail(ctx, "generator tool failed for header ${header}")
             return er
         }
         println("${mod_dir}: generated ${header}")
@@ -713,6 +720,7 @@ builder program(ctx: ptr) {
     out_name = _opt_str(_builder, "c_output")
     if string.length(out_name) == 0 {
         println("${mod_dir}: c.program: output_file() is required")
+        build.fail(ctx, "c.program: output_file() is required")
         return 1
     }
     out_name = string.concat(out_name, build._exe_suffix())
@@ -756,6 +764,7 @@ builder program(ctx: ptr) {
         if string.length(dep_objs) == 0 {
             if list.size(ae_for_check) == 0 {
                 println("${mod_dir}: c.program: no sources and no dep objects")
+                build.fail(ctx, "c.program: no sources and no dep objects")
                 return 1
             }
         }
@@ -776,6 +785,7 @@ builder program(ctx: ptr) {
         ec = os.system(ccmd)
         if ec != 0 {
             println("${mod_dir}: C compile failed on ${src}")
+            build.fail(ctx, "C compile failed on ${src}")
             return ec
         }
         own_objs = string.concat(own_objs, " '")
@@ -794,6 +804,7 @@ builder program(ctx: ptr) {
         lib_dir = _libaether_dir(_builder)
         if string.length(lib_dir) == 0 {
             println("${mod_dir}: c.program: cannot locate libaether.a — is Aether installed?")
+            build.fail(ctx, "c.program: cannot locate libaether.a")
             return 1
         }
         ae_inc = _aether_incs(_builder)
@@ -814,12 +825,14 @@ builder program(ctx: ptr) {
             ecg = os.system(emit_cmd)
             if ecg != 0 {
                 println("${mod_dir}: aetherc --emit=lib failed for ${ae_rel}")
+                build.fail(ctx, "aetherc --emit=lib failed for ${ae_rel}")
                 return ecg
             }
             ocmd = "${compiler} ${cflags}${ae_inc} -c -o '${gen_o}' '${gen_c}'"
             eco = os.system(ocmd)
             if eco != 0 {
                 println("${mod_dir}: C compile of generated ${gen_c} failed")
+                build.fail(ctx, "C compile of generated ${gen_c} failed")
                 return eco
             }
             ae_objs = string.concat(ae_objs, " '")
@@ -842,6 +855,7 @@ builder program(ctx: ptr) {
             ldir = build._resolve_libaether_dir(adir)
             if string.length(ldir) == 0 {
                 println("${mod_dir}: c.program: a dep needs libaether.a but it cannot be located")
+                build.fail(ctx, "c.program: a dep needs libaether.a but it cannot be located")
                 return 1
             }
             dup2 = build._dup_symbol_link_flag()
@@ -854,6 +868,7 @@ builder program(ctx: ptr) {
     ec2 = os.system(link_cmd)
     if ec2 != 0 {
         println("${mod_dir}: C link failed")
+        build.fail(ctx, "C link failed")
         return ec2
     }
 
@@ -889,6 +904,7 @@ builder tests(ctx: ptr) {
     args_raw = _opt_str(_builder, "c_run_args")
     if string.length(progs_raw) == 0 {
         println("${mod_dir}: c.tests: no run() declared")
+        build.fail(ctx, "c.tests: no run() declared")
         return 1
     }
 
@@ -941,6 +957,7 @@ builder tests(ctx: ptr) {
     build._record_test_result(ctx, passed, failed)
     println("${mod_dir}: c.tests — ${passed} passed, ${failed} failed")
     if failed > 0 {
+        build.fail(ctx, "c.tests — ${failed} failed")
         return 1
     }
     return 0

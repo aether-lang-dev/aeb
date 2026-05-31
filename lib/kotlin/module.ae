@@ -187,6 +187,7 @@ builder kotlinc(ctx: ptr) {
     exit_code = os.system(kc_cmd)
     if exit_code != 0 {
         println("${mod_dir}: kotlinc failed")
+        build.fail(ctx, "kotlinc failed")
         return exit_code
     }
 
@@ -266,6 +267,7 @@ builder kotlinc_test(ctx: ptr) {
     exit_code = os.system(kc_cmd)
     if exit_code != 0 {
         println("${mod_dir}: kotlinc (test) failed")
+        build.fail(ctx, "kotlinc (test) failed")
         return exit_code
     }
 
@@ -312,6 +314,7 @@ builder kotlin_test(ctx: ptr, test_class: string) {
     if exit_code != 0 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
         return exit_code
     }
     build._record_test_result(ctx, 1, 0)

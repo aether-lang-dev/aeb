@@ -137,7 +137,10 @@ builder file(ctx: ptr) {
     target_dir = build._get(ctx, "target_dir")
     build._mkdirs(target_dir)
 
-    if _validate_setters(_builder, mod_dir, "file") == 0 { return 1 }
+    if _validate_setters(_builder, mod_dir, "file") == 0 {
+        build.fail(ctx, "copy.file: missing from(...) or to(...)")
+        return 1
+    }
 
     src_rel, _ = map.get(_builder, "copy_from")
     dst_rel, _ = map.get(_builder, "copy_to")
@@ -146,6 +149,7 @@ builder file(ctx: ptr) {
 
     if file.exists(src_abs) == 0 {
         println("${mod_dir}: copy.file: source not found at ${src_abs}")
+        build.fail(ctx, "copy.file: source not found at ${src_abs}")
         return 1
     }
 
@@ -161,6 +165,7 @@ builder file(ctx: ptr) {
     rc = os.system(cp_file_cmd(src_abs, dst_abs))
     if rc != 0 {
         println("${mod_dir}: copy.file: cp failed")
+        build.fail(ctx, "copy.file: cp failed")
         return rc
     }
     return 0
@@ -177,7 +182,10 @@ builder tree(ctx: ptr) {
     target_dir = build._get(ctx, "target_dir")
     build._mkdirs(target_dir)
 
-    if _validate_setters(_builder, mod_dir, "tree") == 0 { return 1 }
+    if _validate_setters(_builder, mod_dir, "tree") == 0 {
+        build.fail(ctx, "copy.tree: missing from(...) or to(...)")
+        return 1
+    }
 
     src_rel, _ = map.get(_builder, "copy_from")
     dst_rel, _ = map.get(_builder, "copy_to")
@@ -186,6 +194,7 @@ builder tree(ctx: ptr) {
 
     if dir.exists(src_abs) == 0 {
         println("${mod_dir}: copy.tree: source directory not found at ${src_abs}")
+        build.fail(ctx, "copy.tree: source directory not found at ${src_abs}")
         return 1
     }
 
@@ -203,6 +212,7 @@ builder tree(ctx: ptr) {
     rc = os.system(cp_tree_cmd(src_abs, dst_abs))
     if rc != 0 {
         println("${mod_dir}: copy.tree: cp failed")
+        build.fail(ctx, "copy.tree: cp failed")
         return rc
     }
     return 0

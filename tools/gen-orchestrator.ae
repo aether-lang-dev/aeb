@@ -55,6 +55,11 @@ main() {
     println("import std.path")
     println("import std.dir")
     println("")
+    // exit(code) for non-zero termination when a node fails. Declared
+    // extern (matching tools/aeb-driver) so the orchestrator can redden
+    // the build — see the record_status + any_failed wiring in main().
+    println("extern exit(code: int)")
+    println("")
 
     // Extern declarations for all per-module entry points. These ARE
     // cross-TU calls because each user .build.ae compiles to a separate
@@ -109,13 +114,21 @@ main() {
         println("    if string.equals(_sel, \"${label}\") == 1 { _run = 1 }")
         println("    if _run == 1 {")
         println("    _start = clock_ns()")
-        // NOTE: auto-recording node status from the return code
-        // (`_rc = ${fname}(s)` + build.record_status) is deferred —
-        // a `.build.ae` main() with no explicit `return` is typed void,
-        // so reading its "int" return would be garbage. Nodes record
-        // failure explicitly via build.fail() until transform-ae
-        // guarantees an int return (lifecycle_plan.md).
-        println("    ${fname}(s)")
+        // Capture the node's return code and record status. transform-ae
+        // injects the `if b == 0 { return 0 }` begin-guard into every
+        // builder fn, which makes it int-typed — so reading its return is
+        // well-defined (a fall-off-the-end yields 0 = success; an explicit
+        // non-zero `return` from a failing builder propagates here). This
+        // is what lets a failed compile actually redden the build:
+        // record_status marks the label failed, and the any_failed gate
+        // below exits non-zero (per-node: this node's process exits
+        // non-zero → its rc mark is non-zero → aeb-driver aggregates;
+        // in-process: the whole run exits non-zero). build.fail() inside a
+        // builder still wins — record_status never downgrades an explicit
+        // failure to passed. (Supersedes the old "typed void, deferred"
+        // note: the begin-guard injection resolved the int-return concern.)
+        println("    _rc = ${fname}(s)")
+        println("    build.record_status(s, \"${label}\", _rc)")
         println("    build.done(s, \"${label}\")")
         println("    _end = clock_ns()")
         println("    _rec = map.new()")
@@ -176,5 +189,12 @@ main() {
     println("    }")
     println("    println(build.render_telemetry(_records, _total_ms))")
     println("    }")
+    // Redden the build on any recorded failure. OUTSIDE the _sel guard so
+    // it fires in BOTH modes: per-node, this node-subprocess exits
+    // non-zero → aeb-driver's rc mark for it is non-zero → the driver's
+    // any_failed gate (aeb-driver.ae) catches it; in-process (all-in-one),
+    // this is the whole run, so the build exits non-zero directly. A
+    // green run still falls through to the implicit 0 return.
+    println("    if build.any_failed(s) == 1 { exit(1) }")
     println("}")
 }

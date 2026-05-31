@@ -187,6 +187,7 @@ builder compile(ctx: ptr) {
             exit_code = os.system(cmd)
             if exit_code != 0 {
                 println("${mod_dir}: clojure AOT compilation failed")
+                build.fail(ctx, "clojure AOT compilation failed")
                 return exit_code
             }
             _e1 = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -199,6 +200,7 @@ builder compile(ctx: ptr) {
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: clojure load-check failed")
+        build.fail(ctx, "clojure load-check failed")
         return exit_code
     }
 
@@ -270,6 +272,7 @@ builder test(ctx: ptr) {
     if exit_code != 0 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "clojure tests FAILED")
         return exit_code
     }
     build._record_test_result(ctx, 1, 0)
@@ -313,10 +316,12 @@ builder uberjar(ctx: ptr) {
 
     if _builder == null {
         println("${mod_dir}: clojure.uberjar: empty builder block — declare main_ns(...)")
+        build.fail(ctx, "clojure.uberjar: empty builder block — declare main_ns(...)")
         return 1
     }
     if map.has(_builder, "main_ns") == 0 {
         println("${mod_dir}: clojure.uberjar: missing main_ns(\"...\")")
+        build.fail(ctx, "clojure.uberjar: missing main_ns(\"...\")")
         return 1
     }
     ns, _ = map.get(_builder, "main_ns")
@@ -361,6 +366,7 @@ builder uberjar(ctx: ptr) {
     rc_aot = os.system(aot_cmd)
     if rc_aot != 0 {
         println("${mod_dir}: clojure.uberjar: AOT compile failed")
+        build.fail(ctx, "clojure.uberjar: AOT compile failed")
         return rc_aot
     }
 
@@ -369,6 +375,7 @@ builder uberjar(ctx: ptr) {
         rc_src = os.system(uber_copy_tree_cmd(src_root, stage_dir))
         if rc_src != 0 {
             println("${mod_dir}: clojure.uberjar: staging sources failed")
+            build.fail(ctx, "clojure.uberjar: staging sources failed")
             return rc_src
         }
     }
@@ -386,6 +393,7 @@ builder uberjar(ctx: ptr) {
                     rc_uz = os.system(uber_unzip_jar_cmd(entry, stage_dir))
                     if rc_uz != 0 {
                         println("${mod_dir}: clojure.uberjar: unzipping ${entry} failed")
+                        build.fail(ctx, "clojure.uberjar: unzipping ${entry} failed")
                         string.array_free(parts)
                         return rc_uz
                     }
@@ -410,6 +418,7 @@ builder uberjar(ctx: ptr) {
     rc = os.system(uber_jar_cmd(jar_path, stage_dir))
     if rc != 0 {
         println("${mod_dir}: clojure.uberjar: jar command failed")
+        build.fail(ctx, "clojure.uberjar: jar command failed")
         return rc
     }
 

@@ -135,18 +135,39 @@ a **single Python (3.11)** and **single Ruby (3.1)**. So:
   `select_jdk("99")` printed the actionable not-found message naming
   installed 17/21/24 and skipped the compile.
 
-### Known limitation (pre-existing, not introduced here)
+### Node-failure propagation — now wired (was a repo-wide silent-green bug)
 
-A builder's `return 1` does NOT redden the build today: `gen-orchestrator`
-deliberately does not propagate node return codes (a `.build.ae` `main()`
-with no explicit `return` is typed void — see the note at
-`tools/gen-orchestrator.ae` ~line 112 and `lifecycle_plan.md`). So
-`select_jdk`'s "hard-fail" currently fails *soft*: it prints the
-actionable message and skips the compile (no artifact produced, so
-downstream deps that need the classes break), but the node's rc stays 0.
-Making this a true hard-fail depends on the separate node-status-
-propagation work, not on this feature. The Python/Ruby lock-validation
-hard-fails inherit the same caveat until that lands.
+Earlier, a builder's failure did NOT redden the build: `gen-orchestrator`
+discarded the node function's return, always exited 0, so a failed
+`javac`/`gcc`/test still produced a green build (a dependent test target
+ran against no classes and reported `0/0 PASS`, top-level exit 0). The
+root cause was twofold and it affected EVERY SDK, not just `select_jdk`:
+
+1. **The orchestrator never inspected node outcome.** Fixed: it now
+   captures `_rc = <node>(s)`, calls `build.record_status`, and
+   `exit(1)`s when `build.any_failed(s)` — OUTSIDE the per-node `_sel`
+   guard, so it fires in both per-node (the subprocess exits non-zero →
+   its rc mark is non-zero → `aeb-driver` aggregates and `exit(1)`s) and
+   in-process modes. (The old "typed void, deferred" note at
+   `gen-orchestrator.ae` was stale: `transform-ae` already injects the
+   `if b == 0 { return 0 }` begin-guard, which makes every builder fn
+   int-typed — verified.)
+
+2. **Builders swallowed their own rc.** A user's `.build.ae` `main()`
+   calls `java.javac(b)` WITHOUT `return`, so the builder's non-zero
+   return falls off the end as 0 — the orchestrator's `record_status`
+   never saw it. Fixed by the sweep: every `os.system`-failure (and
+   missing-required-setter guard) inside a `builder` body across all
+   SDKs now calls `build.fail(ctx, "<reason>")`, which records into the
+   shared session that `any_failed` reads. ~69 sites across 16 SDKs.
+
+Verified end-to-end: a test target whose compile dep fails now exits
+non-zero in BOTH per-node and in-process modes, the driver prints
+`FAILED (see <log>)` and cats the log, the failed compile's rc mark is
+1, `make -k` skips the dependent (no rc mark → flagged failed), and a
+clean build still exits 0. `select_jdk("99")`'s not-found is now a true
+hard-fail (`build.fail` + non-zero exit), not a soft skip. Design record
+for the propagation fix: this section + `asks/node-failure-propagation.md`.
 
 ### Not implemented here (follow-up)
 

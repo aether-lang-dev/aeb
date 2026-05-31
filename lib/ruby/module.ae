@@ -239,6 +239,7 @@ builder install(ctx: ptr) {
     rc = os.system(cmd)
     if rc != 0 {
         println("${mod_dir}: bundle install FAILED")
+        build.fail(ctx, "bundle install FAILED")
         return rc
     }
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -264,6 +265,7 @@ builder rspec(ctx: ptr) {
         // `--format=json` output for per-example pass/fail counts.
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
         return rc
     }
     build._record_test_result(ctx, 1, 0)
@@ -292,6 +294,7 @@ builder rubocop(ctx: ptr) {
     rc = os.system(cmd)
     if rc != 0 {
         println("${mod_dir}: lint FAILED")
+        build.fail(ctx, "lint FAILED")
         return rc
     }
     println("${mod_dir}: lint PASSED")
@@ -314,15 +317,20 @@ builder package(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
 
-    if _builder == null { return 1 }
+    if _builder == null {
+        build.fail(ctx, "ruby.package: no builder context")
+        return 1
+    }
     if map.has(_builder, "ruby_gemspec") == 0 {
         println("${mod_dir}: ruby.package requires gemspec(\"<name>.gemspec\")")
+        build.fail(ctx, "ruby.package requires gemspec")
         return 1
     }
     gemspec_rel, _ = map.get(_builder, "ruby_gemspec")
     gemspec_abs = path.join(source_dir, gemspec_rel)
     if file.exists(gemspec_abs) == 0 {
         println("${mod_dir}: ruby.package: gemspec not found at ${gemspec_abs}")
+        build.fail(ctx, "gemspec not found")
         return 1
     }
 
@@ -336,6 +344,7 @@ builder package(ctx: ptr) {
     rc = os.system(cmd)
     if rc != 0 {
         println("${mod_dir}: gem build FAILED")
+        build.fail(ctx, "gem build FAILED")
         return rc
     }
     println("${mod_dir}: packaging done → ${dist_dir}")

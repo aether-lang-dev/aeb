@@ -74,12 +74,14 @@ builder test(ctx: ptr) {
     if exit_code == 124 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests TIMEOUT")
+        build.fail(ctx, "jest tests TIMEOUT")
         return exit_code
     }
     pj, fj = _parse_jest_counts(out_text)
     build._record_test_result(ctx, pj, fj)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "jest tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")

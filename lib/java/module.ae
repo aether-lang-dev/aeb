@@ -269,6 +269,7 @@ builder jar_registry_finalize(ctx: ptr) {
     cp = maven.resolve(ctx)
     if string.length(cp) == 0 {
         println("${mod_dir}: no maven deps resolved")
+        build.fail(ctx, "no maven deps resolved")
         return 1
     }
 
@@ -608,6 +609,7 @@ builder javac(ctx: ptr) {
     }
     javac_bin = _javac_bin_for(want_jdk, _builder)
     if string.length(javac_bin) == 0 {
+        build.fail(ctx, "no matching JDK found")
         return 1
     }
     _e = map.put(_builder, "_javac_bin", javac_bin)
@@ -662,6 +664,7 @@ builder javac(ctx: ptr) {
         exit_code = os.system(cmd)
         if exit_code != 0 {
             println("${mod_dir}: javac failed")
+            build.fail(ctx, "javac failed")
             return exit_code
         }
         // Populate the cache with the freshly-compiled tree. Best-effort.
@@ -824,6 +827,7 @@ builder javac_test(ctx: ptr) {
         exit_code = os.system(cmd)
         if exit_code != 0 {
             println("${mod_dir}: javac (test) failed")
+            build.fail(ctx, "javac (test) failed")
             return exit_code
         }
         if string.length(cache_key) > 0 {
@@ -936,6 +940,7 @@ builder junit(ctx: ptr) {
     build._record_test_result(ctx, p4, f4)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -1127,6 +1132,7 @@ builder junit5(ctx: ptr) {
     if exit_code == 124 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests TIMEOUT (killed after timeout)")
+        build.fail(ctx, "tests TIMEOUT")
         return exit_code
     }
     // Parse the summary table. Lines look like:
@@ -1137,6 +1143,7 @@ builder junit5(ctx: ptr) {
     build._record_test_result(ctx, passed_n, failed_n)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")

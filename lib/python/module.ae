@@ -464,6 +464,7 @@ builder pytest(ctx: ptr) {
     build._record_test_result(ctx, pp, pf)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -549,6 +550,7 @@ builder lint(ctx: ptr) {
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: lint FAILED")
+        build.fail(ctx, "lint FAILED")
         return exit_code
     }
     println("${mod_dir}: lint PASSED")
@@ -580,6 +582,7 @@ builder typecheck(ctx: ptr) {
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: typecheck FAILED")
+        build.fail(ctx, "typecheck FAILED")
         return exit_code
     }
     println("${mod_dir}: typecheck PASSED")
@@ -660,6 +663,7 @@ builder package(ctx: ptr) {
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: packaging failed")
+        build.fail(ctx, "packaging failed")
         return exit_code
     }
     println("${mod_dir}: packaging done → ${dist_dir}")
@@ -724,6 +728,7 @@ builder package_existing(ctx: ptr) {
     if file.exists(pyproject_abs) == 0 {
         println("${mod_dir}: python.package_existing: pyproject.toml not found at ${pyproject_abs}")
         println("${mod_dir}: did you mean python.package(b) (which generates one) or set pyproject_path(\"...\")?")
+        build.fail(ctx, "pyproject.toml not found at ${pyproject_abs}")
         return 1
     }
 
@@ -747,6 +752,7 @@ builder package_existing(ctx: ptr) {
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: packaging failed")
+        build.fail(ctx, "packaging failed")
         return exit_code
     }
     println("${mod_dir}: packaging done → ${dist_dir}")
@@ -833,6 +839,7 @@ builder codegen(ctx: ptr) {
     }
     if string.length(driver_form) == 0 {
         println("${mod_dir}: codegen: declare codegen_driver(\"module\") or codegen_script(\"path.py\")")
+        build.fail(ctx, "codegen: no codegen_driver() or codegen_script() declared")
         return 1
     }
 
@@ -869,6 +876,7 @@ builder codegen(ctx: ptr) {
         rc = os.system(cmd)
         if rc != 0 {
             println("${mod_dir}: codegen FAILED")
+            build.fail(ctx, "codegen FAILED")
             return rc
         }
     } else {
@@ -879,6 +887,7 @@ builder codegen(ctx: ptr) {
     missing = _codegen_check_outputs(cwd, outputs, mod_dir)
     if missing > 0 {
         println("${mod_dir}: codegen: ${missing} declared output(s) missing — check codegen_output() vs the tool's actual output set")
+        build.fail(ctx, "codegen: ${missing} declared output(s) missing")
         return 1
     }
 
