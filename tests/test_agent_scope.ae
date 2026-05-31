@@ -6,7 +6,8 @@
 import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _decision, dispatch_request_json, dispatch_reply_json,
               _json_field, run_on, max_jobs, accept_scope,
-              _parse_tokens, _token_ok, _bearer_strip, ping_json)
+              _parse_tokens, _token_ok, _bearer_strip, ping_json,
+              _parse_pool, _pool_url_of, _pool_token_of)
 import std.string
 import std.list
 import std.map
@@ -103,5 +104,20 @@ main() {
     pj0 = ping_json("linux", "*", "false", "", "open")
     _assert("ping empty max_jobs -> 0", string.index_of(pj0, "\"max_jobs\":0") >= 0)
 
-    println("agent scope + wire + token + ping tests done")
+    // --- agent pool parsing (the --agents file) ---
+    pool = "# my agents\nhttp://192.168.0.57:9440 - ping-secret-123\n\nhttp://mac.local:9440 - mac-tok\nhttp://nostoken:9440\n"
+    lines = _parse_pool(pool)
+    _assert("pool: 3 non-comment lines", list.size(lines) == 3)
+    l0, _ = list.get(lines, 0)
+    _eq("pool line0 url", _pool_url_of(l0), "http://192.168.0.57:9440")
+    _eq("pool line0 token", _pool_token_of(l0), "ping-secret-123")
+    l1, _ = list.get(lines, 1)
+    _eq("pool line1 url", _pool_url_of(l1), "http://mac.local:9440")
+    _eq("pool line1 token", _pool_token_of(l1), "mac-tok")
+    l2, _ = list.get(lines, 2)
+    _eq("pool line2 url (no token)", _pool_url_of(l2), "http://nostoken:9440")
+    _eq("pool line2 token empty", _pool_token_of(l2), "")
+    _assert("pool skips comments + blanks", 1)
+
+    println("agent scope + wire + token + ping + pool tests done")
 }

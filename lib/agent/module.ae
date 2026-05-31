@@ -65,6 +65,18 @@ token(_ctx: ptr, t: string) {
     _e = map.put(_ctx, "token", t)
 }
 
+// on_platform(p) — require the leased node to self-report this platform
+// (the /ping `platform` field, from the agent's os.platform(): "linux",
+// "darwin", "windows", ...). When set, the lease skips pool nodes whose
+// authenticated platform doesn't match — so an intention that needs macOS
+// (`on_platform("darwin")`) discovers WHICH pool node is the Mac from its
+// /ping, rather than the operator hardcoding it. Empty/unset = any
+// platform. Only meaningful with the --agents pool (lease) path; with an
+// explicit endpoint(...) the node is already chosen.
+on_platform(_ctx: ptr, p: string) {
+    _e = map.put(_ctx, "on_platform", p)
+}
+
 // --- Agent-side scope DSL setters (live on a scope map) ---
 
 run_on(_ctx: ptr, kind: string) {
@@ -213,6 +225,65 @@ _parse_tokens(content: string) {
     return toks
 }
 
+// --- Agent pool (originator-side; --agents file) -------------------
+//
+// A pool file lists candidate agent nodes, one per line:
+//   <url> - <token>     e.g.  http://192.168.0.57:9440 - ping-secret-123
+//   <url>               (token then comes from token()/env)
+// `#` comments and blank lines ignored. The originator leases the FIRST
+// node that is reachable + accepts the purpose + not busy (probed via
+// /ping), falling through to the next on busy/unreachable/reject.
+
+// _pool_url_of(line) / _pool_token_of(line) — split a pool line on the
+// first " - " (space-dash-space) separator. URL is the part before;
+// token the part after (trimmed), or "" if there's no separator. Pure.
+_pool_sep_index(line: string) {
+    // find " - " (the documented separator); -1 if absent.
+    return string.index_of(line, " - ")
+}
+
+_pool_url_of(line: string) {
+    t = string.trim(line)
+    idx = _pool_sep_index(t)
+    if idx < 0 { return t }
+    return string.trim(string.substring(t, 0, idx))
+}
+
+_pool_token_of(line: string) {
+    t = string.trim(line)
+    idx = _pool_sep_index(t)
+    if idx < 0 { return "" }
+    return string.trim(string.substring(t, idx + 3, string.length(t)))
+}
+
+// _parse_pool(content) — newline-split a pool file into a list of
+// non-blank, non-comment lines (each still in `<url> - <token>` form;
+// use _pool_url_of / _pool_token_of to split). Preserves order (lease
+// tries them in file order). Pure.
+_parse_pool(content: string) {
+    out = list.new()
+    rest = content
+    line = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            first = string.substring(line, 0, 1)
+            if string.equals(first, "#") == 0 {
+                _a = list.add(out, line)
+            }
+        }
+    }
+    return out
+}
+
 // _token_ok(toks, presented) — 1 if the presented token is in the set
 // AND is non-empty. An empty presented token is never ok.
 _token_ok(toks: ptr, presented: string) {
@@ -313,13 +384,79 @@ _gen_guid() {
     return string.concat(string.concat("aeb-", string.from_int(pid)), string.concat("-", string.from_long(ns)))
 }
 
+// _ping_node(url, token, purpose) -> 1 if this node is usable for the
+// purpose: reachable, authenticated, accepts the purpose, not busy.
+// Probes GET /ping (auth-gated) and inspects the capability JSON.
+// Returns 0 on any miss (unreachable / 401 / wrong scope / busy) so the
+// lease loop falls through to the next node. Best-effort + side-effect-
+// free beyond the network probe.
+_ping_node(url: string, token: string, purp: string, want_platform: string) {
+    ping_url = string.concat(url, "/ping")
+    creq = client.request("GET", ping_url)
+    _h = client.set_header(creq, "X-AEB-Token", token)
+    cresp, err = client.send_request(creq)
+    if string.length(err) > 0 {
+        client.request_free(creq)
+        return 0
+    }
+    code = client.response_status(cresp)
+    body = client.response_body(cresp)
+    accept = _json_field(body, "accept")
+    busy = _json_field(body, "busy")
+    platform = _json_field(body, "platform")
+    client.response_free(cresp)
+    client.request_free(creq)
+    if code != 200 { return 0 }
+    // accept scope must admit the purpose (reuse the agent-side matcher).
+    if _scope_glob_match(accept, purp) == 0 { return 0 }
+    // busy is "true"/"false" in the capability JSON.
+    if string.equals(busy, "true") == 1 { return 0 }
+    // platform requirement (on_platform): the node's SELF-REPORTED,
+    // authenticated platform must match. "" means no requirement (any).
+    // This is how a darwin-needing intention discovers which pool node
+    // is the Mac — the env-var/file order is just candidate order; the
+    // authenticated /ping platform is the fact that decides.
+    if string.length(want_platform) > 0 {
+        if string.equals(platform, want_platform) == 0 { return 0 }
+    }
+    return 1
+}
+
+// _lease_node(pool_content, purp, token_hint) -> "url\ttoken" of the
+// FIRST node in the pool that _ping_node accepts, or "" if none. The
+// per-line token wins; token_hint (from token()/env) is the fallback for
+// url-only lines. Pure-ish (network probes via _ping_node, no other I/O).
+_lease_node(pool_content: string, purp: string, token_hint: string, want_platform: string) {
+    nodes = _parse_pool(pool_content)
+    n = list.size(nodes)
+    i = 0
+    while i < n {
+        line, _ = list.get(nodes, i)
+        url = _pool_url_of(line)
+        tok = _pool_token_of(line)
+        if string.length(tok) == 0 { tok = token_hint }
+        if string.length(url) > 0 {
+            if _ping_node(url, tok, purp, want_platform) == 1 {
+                return string.concat(string.concat(url, "\t"), tok)
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}
+
 // --- Originator builder: agent.dispatch(b) { endpoint(...) target(...) }
 //
 // Fires one dispatch at a remote aeb-agent and folds the verdict into the
-// build. Walking skeleton: synchronous http.post (the agent replies with
-// the final verdict in-band); the fire-async + webhook-back + details_url
-// split is a later thickening. v1 backpressure: a "busy", a "rejected",
-// or an unreachable agent FAILS BACK to the user (build.fail), no retry.
+// build. Endpoint resolution, in order:
+//   1. explicit endpoint(...) on the builder, OR
+//   2. LEASE from the --agents pool ($AEB_AGENTS, set by the trampoline):
+//      /ping each node in file order, dispatch to the FIRST reachable +
+//      authenticated + purpose-accepting + non-busy node.
+// Walking skeleton: synchronous http (the agent replies with the final
+// verdict in-band); fire-async + webhook-back is a later thickening.
+// v1 backpressure: busy / rejected / unreachable / no-leasable-node all
+// FAIL BACK to the user (build.fail), no retry.
 builder dispatch(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
 
@@ -330,6 +467,8 @@ builder dispatch(ctx: ptr) {
     ep = ""
     tgt = ""
     purp = "preint"
+    tok = ""
+    want_platform = ""
     if _builder != null {
         if map.has(_builder, "endpoint") == 1 {
             ep, _ = map.get(_builder, "endpoint")
@@ -340,22 +479,44 @@ builder dispatch(ctx: ptr) {
         if map.has(_builder, "purpose") == 1 {
             purp, _ = map.get(_builder, "purpose")
         }
-    }
-    if string.length(ep) == 0 {
-        println("${mod_dir}: agent.dispatch requires endpoint(...)")
-        build.fail(ctx, "agent.dispatch: no endpoint")
-        return 1
+        if map.has(_builder, "token") == 1 {
+            tok, _ = map.get(_builder, "token")
+        }
+        if map.has(_builder, "on_platform") == 1 {
+            want_platform, _ = map.get(_builder, "on_platform")
+        }
     }
     if string.length(tgt) == 0 {
         println("${mod_dir}: agent.dispatch requires target(...)")
         build.fail(ctx, "agent.dispatch: no target")
         return 1
     }
-    tok = ""
-    if _builder != null {
-        if map.has(_builder, "token") == 1 {
-            tok, _ = map.get(_builder, "token")
+
+    // Endpoint: explicit endpoint(...) wins; else LEASE from the
+    // --agents pool ($AEB_AGENTS). The lease /pings each node and picks
+    // the first reachable + authenticated + purpose-accepting + non-busy
+    // node that ALSO matches on_platform(...) if set.
+    if string.length(ep) == 0 {
+        pool_file = os.getenv("AEB_AGENTS")
+        if string.length(pool_file) == 0 {
+            println("${mod_dir}: agent.dispatch needs endpoint(...) or a pool via --agents/$AEB_AGENTS")
+            build.fail(ctx, "agent.dispatch: no endpoint and no --agents pool")
+            return 1
         }
+        pool_content, _pe = io.read_file(pool_file)
+        leased = _lease_node(pool_content, purp, tok, want_platform)
+        if string.length(leased) == 0 {
+            disp = want_platform
+            if string.length(disp) == 0 { disp = "any platform" }
+            println("${mod_dir}: no leasable agent in pool for purpose='${purp}' platform='${disp}' (all busy/unreachable/incompatible)")
+            build.fail(ctx, "agent.dispatch: no leasable node in pool")
+            return 1
+        }
+        // leased = "url\ttoken"
+        tabi = string.index_of(leased, "\t")
+        ep = string.substring(leased, 0, tabi)
+        tok = string.substring(leased, tabi + 1, string.length(leased))
+        println("${mod_dir}: leased agent ${ep} for purpose='${purp}'")
     }
 
     guid = _gen_guid()

@@ -138,6 +138,25 @@ while [[ $i -le $# ]]; do
             exit 1
         fi
         export AEB_TELEMETRY_JSON="${!i}"
+    elif [[ "$a" == "--agents" ]]; then
+        # --agents <file>: a pool of remote build-agent nodes for
+        # agent.dispatch to LEASE from (one `<url> - <token>` per line;
+        # # comments + blanks ignored). lib/agent /pings each node in
+        # file order and dispatches to the first reachable + authenticated
+        # + purpose-accepting + non-busy node (matching on_platform if
+        # set). Resolved to an absolute path so it survives aeb's chdir
+        # into module dirs at build time. See docs.
+        i=$((i + 1))
+        if [[ $i -gt $# ]]; then
+            echo "aeb: --agents requires a pool file path" >&2
+            exit 1
+        fi
+        _agents_file="${!i}"
+        if [[ ! -f "$_agents_file" ]]; then
+            echo "aeb: --agents file not found: $_agents_file" >&2
+            exit 1
+        fi
+        export AEB_AGENTS="$(cd "$(dirname "$_agents_file")" && pwd)/$(basename "$_agents_file")"
     elif [[ "$a" == "--artifacts-json" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then
