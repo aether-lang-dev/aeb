@@ -22,6 +22,24 @@
   transitive-regen-expansion auto-expansion. Ask:
   `asks/thin-aether-over-c-backend.md`.
 
+- **`java.select_jdk("21")` — select among installed JDKs.** Pick which
+  JDK compiles a module by major version (exact `"21"` or floor `"21+"`),
+  independent of which `javac` is on `PATH`. Discover-select-or-fail: aeb
+  probes `/usr/lib/jvm` (and macOS `/Library/Java/...`) for a matching
+  JDK and runs `javac` from that home; if none matches it prints an
+  actionable message naming what *is* installed. Never downloads — install
+  the JDK yourself (sdkman/apt/setup-java). Orthogonal to `release(...)`
+  (the bytecode/API level): `select_jdk` picks the compiler, `release`
+  picks the target level. The selected JDK home + its probed version fold
+  into the javac cache key. Generic version-match/selection core lives in
+  `lib/build` (`_match_major_version`, `_select_jvm_home`,
+  `_jvm_dir_major`, …), shared so other SDKs can reuse it. Also adds
+  `build.lock_validate(...)` — the consume-side check for a future
+  generated, hash-stamped lock node (a lock declares the hash of the BOM
+  it was generated from and hard-fails if that BOM drifted). Design:
+  `docs/toolchain-selection-and-locks.md`,
+  `asks/versioned-bom-and-self-validating-lock.md`.
+
 ### Changed
 
 - **Per-node output is now the default; `aeb --in-process` opts out.**
@@ -46,6 +64,11 @@
   so per-node is now both cleaner *and* faster.
 
 ### Fixed
+
+- **`lib/webhook`: `client.set_timeout` now takes a `Duration` literal.**
+  A newer Aether type-checker rejects a bare int for the timeout arg;
+  `set_timeout(req, 10)` → `set_timeout(req, 10s)`. Unblocks
+  `tests/test_webhook_fire`.
 
 - **Transitive-regen no longer shadows explicit `regen_with` caps**
   (`lib/aether` `_expand_transitive_regens`). An explicit

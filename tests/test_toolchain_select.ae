@@ -1,0 +1,110 @@
+// Unit tests for the generic toolchain-selection + lock-validation core
+// in lib/build. All pure (I/O-free) — no toolchains required.
+//
+// Design: docs/toolchain-selection-and-locks.md
+//         asks/versioned-bom-and-self-validating-lock.md
+
+import build (_digits_prefix, _version_is_floor, _match_major_version,
+              _jvm_dir_major, _select_jvm_home, _toolchain_not_found_msg,
+              lock_validate)
+import std.string
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+_assert_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label} (got '${got}' want '${want}')")
+    }
+}
+
+main() {
+    // --- _digits_prefix ---
+    _assert("digits_prefix '21' = 21", _digits_prefix("21") == 21)
+    _assert("digits_prefix '24.0.2' = 24", _digits_prefix("24.0.2") == 24)
+    _assert("digits_prefix '21+' = 21", _digits_prefix("21+") == 21)
+    _assert("digits_prefix '3.11' = 3", _digits_prefix("3.11") == 3)
+    _assert("digits_prefix 'abc' = -1", _digits_prefix("abc") == -1)
+    _assert("digits_prefix '' = -1", _digits_prefix("") == -1)
+
+    // --- _version_is_floor ---
+    _assert("floor '21+' = 1", _version_is_floor("21+") == 1)
+    _assert("floor '21' = 0", _version_is_floor("21") == 0)
+    _assert("floor '' = 0", _version_is_floor("") == 0)
+
+    // --- _match_major_version ---
+    _assert("match 21 vs 21", _match_major_version("21", "21") == 1)
+    _assert("match 21 vs 24 = no", _match_major_version("21", "24") == 0)
+    _assert("match 21+ vs 24 = yes (floor)", _match_major_version("21+", "24") == 1)
+    _assert("match 21+ vs 17 = no (floor)", _match_major_version("21+", "17") == 0)
+    _assert("match 21+ vs 21 = yes (floor, equal)", _match_major_version("21+", "21") == 1)
+    _assert("match 21 vs 21.0.2 = yes (minor ignored)", _match_major_version("21", "21.0.2") == 1)
+    _assert("match garbage want = no", _match_major_version("x", "21") == 0)
+
+    // --- _jvm_dir_major (the real shapes on this box) ---
+    _assert_eq("jvm major amazon-corretto", _jvm_dir_major("java-21-amazon-corretto"), "21")
+    _assert_eq("jvm major openjdk", _jvm_dir_major("java-17-openjdk-amd64"), "17")
+    _assert_eq("jvm major legacy 1.17.0", _jvm_dir_major("java-1.17.0-openjdk-amd64"), "17")
+    _assert_eq("jvm major jdk-21.0.2", _jvm_dir_major("jdk-21.0.2"), "21")
+    _assert_eq("jvm major temurin-25.0.1", _jvm_dir_major("temurin-25.0.1"), "25")
+    _assert_eq("jvm major non-version 'default-java'", _jvm_dir_major("default-java"), "")
+
+    // --- _select_jvm_home (mirrors /usr/lib/jvm on this Chromebook) ---
+    listing = "default-java\njava-1.17.0-openjdk-amd64\njava-17-openjdk-amd64\njava-21-amazon-corretto\njava-24-amazon-corretto"
+    _assert_eq("select jdk 21",
+        _select_jvm_home("/usr/lib/jvm", listing, "21"),
+        "/usr/lib/jvm/java-21-amazon-corretto")
+    _assert_eq("select jdk 24",
+        _select_jvm_home("/usr/lib/jvm", listing, "24"),
+        "/usr/lib/jvm/java-24-amazon-corretto")
+    // floor: 21+ should pick the first satisfying entry in listing order.
+    // Entries 17,17 fail; java-21 is first to satisfy 21+.
+    _assert_eq("select jdk 21+ (first satisfying in order)",
+        _select_jvm_home("/usr/lib/jvm", listing, "21+"),
+        "/usr/lib/jvm/java-21-amazon-corretto")
+    // a version not installed → "" (caller turns this into a hard-fail)
+    _assert_eq("select jdk 99 = none",
+        _select_jvm_home("/usr/lib/jvm", listing, "99"),
+        "")
+
+    // --- _toolchain_not_found_msg ---
+    msg = _toolchain_not_found_msg("jdk", "99", "17\n21\n24")
+    _assert("not-found names the request", string.index_of(msg, "need jdk 99") >= 0)
+    _assert("not-found lists installed", string.index_of(msg, "17, 21, 24") >= 0)
+    msg_none = _toolchain_not_found_msg("jdk", "99", "")
+    _assert("not-found handles empty install set", string.index_of(msg_none, "(none)") >= 0)
+
+    // --- lock_validate ---
+    // consistent: embedded == current, no runtime gate
+    _assert_eq("lock ok (hash match, no runtime gate)",
+        lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "", ""),
+        "")
+    // missing source
+    miss = lock_validate("pip_versions.ae", "sha256:aaa", "", "", "")
+    _assert("lock missing-source fails", string.index_of(miss, "missing or unreadable") >= 0)
+    // stale hash
+    stale = lock_validate("pip_versions.ae", "sha256:aaa", "sha256:bbb", "", "")
+    _assert("lock stale-hash fails", string.index_of(stale, "stale vs") >= 0)
+    // runtime mismatch (Python-style gate)
+    rt = lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "cp313", "cp312")
+    _assert("lock runtime-mismatch fails", string.index_of(rt, "generated for cp312") >= 0)
+    // runtime match (gate satisfied)
+    _assert_eq("lock runtime-match ok",
+        lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "cp312", "cp312"),
+        "")
+    // Java-style: runtime_tag "" means no gate even if lock declares one
+    _assert_eq("lock no-gate when runtime_tag empty (Java orthogonal)",
+        lock_validate("deps.bom.ae", "sha256:aaa", "sha256:aaa", "", "maven-x"),
+        "")
+
+    println("toolchain selection + lock validation tests done")
+}
