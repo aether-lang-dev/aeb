@@ -164,9 +164,16 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
 //
 // Walking skeleton: a single, conservative example veto (reject a tree
 // that contains an obvious committed secret marker) to prove the
-// architecture. The real design is a PLUGGABLE list of veto checks
-// (dependency CVE / OWASP scan, secret scan, banned-pattern, size caps),
-// each able to refuse; this is the seam they slot into. Veto rules are
+// architecture. The real design is a PLUGGABLE three-tier list — see
+// docs/veto-alternates.md:
+//   A. tree scan (this stub)         — cheap, raw tree
+//   B. resolved-coordinate / SBOM    — dependency CVE/OWASP (design)
+//   C. doppelganger-compile trace    — build-grammar intent via a
+//      `--lib <doppelganger>` swap recording os.system/dep/link_flag
+//      instead of executing (the Action!/tsyne-designer trick; design)
+// CRITICAL scope: these guard BUILD-GRAMMAR escapes (what the .build.ae
+// orchestration does), NOT the application being built. A clean veto is
+// not a clean program — see the SCOPE section of the doc. Veto rules are
 // the agent operator's policy, not the requester's.
 _maybe_veto_build(repo: string, target: string, purpose: string) {
     // Example veto: a hard-coded private-key marker anywhere in the tree.
