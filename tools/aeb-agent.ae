@@ -32,6 +32,7 @@ import agent (_decision, dispatch_reply_json, ping_json, _json_field,
               _parse_tokens, _token_ok, _bearer_strip)
 import std.io
 import std.file
+import std.json
 
 extern println(s: string)
 extern exit(code: int)
@@ -120,6 +121,19 @@ handle_ping(req: ptr, res: ptr, ud: ptr) {
 // fetch pulls only from where the operator configured the clone.
 _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64: string) {
     if string.length(ghash) > 0 {
+        // Inter-dispatch isolation: scrub the worktree to a pristine state
+        // BEFORE checkout, so dispatch N is not poisoned by dispatch N-1's
+        // build outputs or applied patch. Without this, a prior `git apply`
+        // leaves local modifications that make this checkout fail (git
+        // refuses to clobber them) or, worse, silently build on stale state.
+        //   reset --hard      → discard tracked-file modifications
+        //   clean -ffdx       → remove untracked + ignored (build outputs)
+        // This is a correctness property (repeatable builds), independent of
+        // the security hardening in docs/agent-lifecycle.md.
+        scrub_cmd = string.concat(string.concat("cd '", repo), "' && git reset --hard --quiet && git clean -ffdxq")
+        src = os.system(scrub_cmd)
+        if src != 0 { return "git worktree scrub failed (reset/clean)" }
+
         // ref is optional (fetch a specific ref before checkout); default
         // to fetching all from origin when ref is empty.
         fr = gref
@@ -259,16 +273,111 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         return 0
     }
 
-    cmd = "cd '${workdir}' && aeb '${target}'"
+    // Run the build, but DON'T throw away what it did — inform the developer.
+    // aeb already produces structured output if asked: AEB_ARTIFACTS_JSON
+    // lists what landed in target/ (the answer to "what got built"),
+    // AEB_TELEMETRY_JSON the per-module timing. Point both at per-guid temp
+    // files, tee stdout+stderr to a log, and keep os.system for the EXIT CODE
+    // (os.exec swallows it). Then fold log-tail + artifacts into the reply so
+    // a `result:fail` says WHY and a `result:pass` says WHAT was produced.
+    artifacts_path = string.concat(string.concat("/tmp/aeb-agent-", guid), ".artifacts.json")
+    log_path = string.concat(string.concat("/tmp/aeb-agent-", guid), ".log")
+    _ea = os.setenv("AEB_ARTIFACTS_JSON", artifacts_path)
+
+    cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
     rc = os.system(cmd)
 
     result = "pass"
     if rc != 0 { result = "fail" }
+
+    // Read back what the build told us (best-effort; absent files → empty).
+    // Pass aeb's RAW {"artifacts":[...]} body straight to the reply builder,
+    // which parses it with std.json (no string surgery here).
+    artifacts_body = ""
+    if file.exists(artifacts_path) == 1 {
+        aj_raw, _aje = io.read_file(artifacts_path)
+        artifacts_body = aj_raw
+    }
+    log_tail = ""
+    if file.exists(log_path) == 1 {
+        log_tail = _tail_capture(log_path, 40)
+    }
+    // Tidy the per-guid temp files now that we've read them.
+    os.system(string.concat("rm -f '", string.concat(artifacts_path, string.concat("' '", string.concat(log_path, "'")))))
+
     println("agent: DONE guid=${guid} result=${result} (rc=${rc})")
     http.response_set_status(res, 200)
     http.response_set_header(res, "Content-Type", "application/json")
-    http.response_set_body(res, dispatch_reply_json(guid, "done", result))
+    http.response_set_body(res, _dispatch_reply_rich(guid, "done", result, artifacts_body, log_tail))
     return 0
+}
+
+// _tail_capture(path, n) — last n lines of the build log, shelled out (tail
+// is simplest + robust for an arbitrarily large log). Returns "" on failure.
+_tail_capture(path: string, n: int) {
+    tmp = string.concat(path, ".tail")
+    _r = os.system(string.concat(string.concat("tail -n ", string.from_int(n)), string.concat(string.concat(" '", path), string.concat("' > '", string.concat(tmp, "' 2>/dev/null")))))
+    out = ""
+    if file.exists(tmp) == 1 {
+        out_raw, _e = io.read_file(tmp)
+        out = out_raw
+        os.system(string.concat("rm -f '", string.concat(tmp, "'")))
+    }
+    return out
+}
+
+// _dispatch_reply_rich(guid, status, result, artifacts_body, log) — the
+// "inform the developer" reply: the terse verdict PLUS what got built
+// (the artifacts array, lifted straight from aeb's AEB_ARTIFACTS_JSON) and a
+// log tail (so a fail says why, a pass says what). Built with std.json, so
+// the log's arbitrary build output is escaped correctly and the artifacts
+// nest as a real JSON value — no hand-rolled string surgery. The skinny
+// dispatch_reply_json (in lib/agent) stays for the policy-class "skinny
+// callback + details_url" path.
+//
+// artifacts_body is aeb's raw {"artifacts":[...]} file content (or "" if the
+// build wrote none). We parse it and graft its "artifacts" array onto our
+// reply; a parse failure / absent file degrades to an empty array.
+_dispatch_reply_rich(guid: string, status: string, result: string, artifacts_body: string, log: string) {
+    reply_obj = json.create_object()
+    _s1 = json.object_set(reply_obj, "guid", json.create_string(guid))
+    _s2 = json.object_set(reply_obj, "status", json.create_string(status))
+    _s3 = json.object_set(reply_obj, "result", json.create_string(result))
+    _s4 = json.object_set(reply_obj, "log", json.create_string(log))
+
+    // Lift the artifacts array out of aeb's wrapper object, if present.
+    arts = json.create_array()
+    if string.length(artifacts_body) > 0 {
+        parsed, perr = json.parse(artifacts_body)
+        if string.length(perr) == 0 {
+            inner, _ge = json.object_get(parsed, "artifacts")
+            if inner != null {
+                // Re-home each element onto our owned array (the parsed
+                // tree is freed below; array_add takes ownership, so we
+                // copy via stringify/parse-free-of-ownership avoidance:
+                // simplest is to move the whole parsed array by detaching).
+                m = json.array_size(inner)
+                k = 0
+                while k < m {
+                    el, _ae = json.array_get(inner, k)
+                    if el != null {
+                        // Deep-copy the element by round-tripping its text,
+                        // so freeing `parsed` doesn't invalidate our array.
+                        el_txt, _se = json.stringify(el)
+                        el_copy, _pe = json.parse(el_txt)
+                        if el_copy != null { _aa = json.array_add(arts, el_copy) }
+                    }
+                    k = k + 1
+                }
+            }
+            json.free(parsed)
+        }
+    }
+    _s5 = json.object_set(reply_obj, "artifacts", arts)
+
+    body, _serr = json.stringify(reply_obj)
+    json.free(reply_obj)
+    return body
 }
 
 handle_health(req: ptr, res: ptr, ud: ptr) {
