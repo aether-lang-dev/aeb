@@ -157,6 +157,13 @@ while [[ $i -le $# ]]; do
             exit 1
         fi
         export AEB_AGENTS="$(cd "$(dirname "$_agents_file")" && pwd)/$(basename "$_agents_file")"
+    elif [[ "$a" == "--use-remote-agents" ]]; then
+        # --use-remote-agents: offload THIS build to a leased remote
+        # aeb-agent instead of building locally. Routes to tools/aeb-remote,
+        # which names the current git HEAD as the base + sends `git diff
+        # HEAD` as the patch, leases from the --agents pool, dispatches, and
+        # folds the remote verdict. Requires --agents (a pool to lease from).
+        export AEB_USE_REMOTE_AGENTS=1
     elif [[ "$a" == "--artifacts-json" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then
@@ -188,6 +195,18 @@ while [[ $i -le $# ]]; do
     i=$((i + 1))
 done
 set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+# --- Remote offload: --use-remote-agents routes to aeb-remote instead of
+# building locally. It leases from the --agents pool, names git HEAD as the
+# base, sends `git diff HEAD` as the patch, dispatches, and folds the
+# remote verdict (exiting with the remote build's pass/fail).
+if [[ -n "${AEB_USE_REMOTE_AGENTS:-}" ]]; then
+    AEB_REMOTE_BIN="$AEB_HOME/tools/aeb-remote"
+    if [[ ! -x "$AEB_REMOTE_BIN" ]]; then
+        "$AETHER" build "$AEB_HOME/tools/aeb-remote.ae" --lib "$AEB_HOME/lib" -o "$AEB_REMOTE_BIN" 2>/dev/null
+    fi
+    exec "$AEB_REMOTE_BIN" "$@"
+fi
 
 # --- Normal build: lazy-build the main tool ---
 AEB_MAIN_BIN="$AEB_HOME/tools/aeb-main"

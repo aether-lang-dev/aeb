@@ -1,0 +1,184 @@
+// aeb-remote — `aeb --use-remote-agents <target>`: offload a build to a
+// leased remote aeb-agent instead of building locally.
+//
+// The canonical "build my in-flight work on the NUC" path. A plain local
+// build runs the DAG here; with --use-remote-agents the trampoline routes
+// to THIS driver, which:
+//   1. computes the BASE the agent should build on: ref = current branch,
+//      hash = `git rev-parse HEAD` (must be pushed — the agent fetches it
+//      from its own origin);
+//   2. computes the PATCH = `git diff HEAD` (the developer's uncommitted
+//      working-tree delta), base64'd for the wire;
+//   3. LEASES a node from the --agents pool ($AEB_AGENTS) via lib/agent's
+//      /ping-based _lease_node;
+//   4. POSTs the dispatch (base + patch) with the X-AEB-Token header;
+//   5. prints the agent's RICH reply (remote build log + what landed in
+//      target/) and folds pass/fail into this process's exit code.
+//
+// So the agent gets "trusted base (named revision it fetches) + the
+// requester's untrusted patch" — exactly the pre-integration model that
+// maybe_veto_build + the prepare lifecycle on the agent expect.
+//
+// Reuses lib/agent: _lease_node, dispatch_request_json, _json_field. The
+// explicit-DSL path (agent.dispatch{...} in a .build.ae) still exists for
+// callers that want to name endpoint/ref/patch by hand; this is the
+// zero-ceremony flag form over the same wire + lease machinery.
+
+import std.os
+import std.string
+import std.io
+import std.http.client
+
+import agent (_lease_node, dispatch_request_json, _json_field, _gen_guid)
+import std.json
+
+extern println(s: string)
+extern exit(code: int)
+extern aether_args_count() -> int
+extern aether_args_get(i: int) -> string
+
+// _capture(cmd) -> trimmed stdout of a shell command ("" on failure).
+_capture(cmd: string) {
+    out, _e = os.exec(cmd)
+    return string.trim(out)
+}
+
+main() {
+    argc = aether_args_count()
+    // argv[1..] — the target (first non-flag arg). The trampoline strips
+    // --use-remote-agents and --agents before exec'ing us, so a positional
+    // target is all that's left.
+    target = ""
+    i = 1
+    while i < argc {
+        a = aether_args_get(i)
+        if string.length(target) == 0 { target = a }
+        i = i + 1
+    }
+    if string.length(target) == 0 { target = ".build.ae" }
+
+    pool_file = os.getenv("AEB_AGENTS")
+    if string.length(pool_file) == 0 {
+        println("aeb --use-remote-agents: needs a pool via --agents <file> ($AEB_AGENTS)")
+        exit(2)
+    }
+    pool_content, _pe = io.read_file(pool_file)
+    if string.length(pool_content) == 0 {
+        println("aeb --use-remote-agents: pool file empty/unreadable: ${pool_file}")
+        exit(2)
+    }
+
+    // --- 1. base revision the agent fetches + checks out. ---
+    // ref = branch (what to `git fetch origin <ref>`), hash = exact commit
+    // (what to `git checkout`). The hash MUST be on the agent's origin —
+    // i.e. pushed — or the agent's fetch/checkout fails (prep-failed).
+    gref = _capture("git rev-parse --abbrev-ref HEAD 2>/dev/null")
+    ghash = _capture("git rev-parse HEAD 2>/dev/null")
+    if string.length(ghash) == 0 {
+        println("aeb --use-remote-agents: not a git repo / no HEAD — can't name a base")
+        exit(2)
+    }
+
+    // --- 2. patch = uncommitted working-tree delta vs HEAD. ---
+    // base64 single-line so the diff's newlines/quotes survive flat JSON.
+    // Empty diff (clean tree) → no patch; the agent just builds the base.
+    patch_b64 = _capture("git diff HEAD 2>/dev/null | base64 -w0 2>/dev/null")
+
+    // --- 3. lease a node from the pool for purpose 'preint'. ---
+    purpose = "preint"
+    leased = _lease_node(pool_content, purpose, "", "")
+    if string.length(leased) == 0 {
+        println("aeb --use-remote-agents: no leasable agent in pool (all busy/unreachable/unauthorized)")
+        exit(1)
+    }
+    tabi = string.index_of(leased, "\t")
+    ep = string.substring(leased, 0, tabi)
+    tok = string.substring(leased, tabi + 1, string.length(leased))
+
+    // --- 4. dispatch (base + patch). ---
+    guid = _gen_guid()
+    pdisp = "no-patch"
+    if string.length(patch_b64) > 0 { pdisp = "+patch" }
+    println("aeb --use-remote-agents: ${guid} → ${ep} target=${target} base=${gref}@${ghash} ${pdisp}")
+
+    req_body = dispatch_request_json(guid, target, purpose, gref, ghash, patch_b64)
+    url = string.concat(ep, "/dispatch")
+    creq = client.request("POST", url)
+    _sh = client.set_header(creq, "X-AEB-Token", tok)
+    _sb = client.set_body(creq, req_body, string.length(req_body), "application/json")
+    cresp, err = client.send_request(creq)
+    if string.length(err) > 0 {
+        client.request_free(creq)
+        println("aeb --use-remote-agents: dispatch FAILED — ${err} (agent unreachable)")
+        exit(1)
+    }
+    code = client.response_status(cresp)
+    body = client.response_body(cresp)
+    // Copy the body before freeing (borrowed buffer).
+    body_copy = string.concat(body, "")
+    client.response_free(cresp)
+    client.request_free(creq)
+
+    status = _json_field(body_copy, "status")
+    result = _json_field(body_copy, "result")
+
+    // --- 5. surface the RICH reply to the LOCAL developer. ---
+    _print_remote_report(body_copy)
+
+    if code != 200 {
+        reason = status
+        if string.length(reason) == 0 { reason = "http ${code}" }
+        println("aeb --use-remote-agents: REFUSED — ${reason} (HTTP ${code})")
+        exit(1)
+    }
+    if string.equals(result, "pass") == 1 {
+        println("aeb --use-remote-agents: remote build PASSED on ${ep}")
+        exit(0)
+    }
+    println("aeb --use-remote-agents: remote build FAILED on ${ep}")
+    exit(1)
+}
+
+// _print_remote_report(body) — render the agent's rich reply (the
+// _dispatch_reply_rich shape: {guid,status,result,log,artifacts[]}) for the
+// developer: the build log (so a fail says WHY) and the artifacts the
+// remote build produced (so a pass says WHAT). Best-effort: a reply that
+// doesn't parse / lacks the fields just prints nothing extra.
+_print_remote_report(body: string) {
+    parsed, perr = json.parse(body)
+    if string.length(perr) > 0 { return 0 }
+
+    log_v, _le = json.object_get(parsed, "log")
+    if log_v != null {
+        log_s, _gse = json.get_string(log_v)
+        if string.length(log_s) > 0 {
+            println("--- remote build log ---")
+            println(log_s)
+            println("--- end remote log ---")
+        }
+    }
+
+    arts_v, _ae = json.object_get(parsed, "artifacts")
+    if arts_v != null {
+        m = json.array_size(arts_v)
+        if m > 0 {
+            println("remote artifacts (${string.from_int(m)}):")
+            k = 0
+            while k < m {
+                el, _ge = json.array_get(arts_v, k)
+                if el != null {
+                    nm_v, _ne = json.object_get(el, "name")
+                    pth_v, _pe2 = json.object_get(el, "path")
+                    nm = ""
+                    pth = ""
+                    if nm_v != null { nm, _nse = json.get_string(nm_v) }
+                    if pth_v != null { pth, _pse = json.get_string(pth_v) }
+                    println("  - ${nm}  (${pth})")
+                }
+                k = k + 1
+            }
+        }
+    }
+    json.free(parsed)
+    return 0
+}
