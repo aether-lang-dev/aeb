@@ -338,7 +338,7 @@ builder fire(ctx: ptr) {
         }
         hi = hi + 1
     }
-    _st = client.set_timeout(req, 10)
+    _st = client.set_timeout(req, 10s)
     resp, err = client.send_request(req)
     if err != "" {
         println("${mod_dir}: webhook WARNING — ${err} (build not failed)")
