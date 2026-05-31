@@ -31,3 +31,18 @@ the program build, skipped when the output is newer than the input.
 It does not run unconditionally and is not a post-build hook.
 
 Pattern: literal-name `regen`
+
+## `no_closure_regen` is for extern-backed (thin-over-C) imports
+
+`no_closure_regen()` suppresses the transitive import-closure regen
+pass — the auto-`--emit=lib` of every project-local imported `.ae`.
+Reach for it ONLY when the entry imports modules whose Aether bodies
+are `extern` declarations of a C ABI (the implementations live in C,
+linked via `extra_source`). Those modules can't be `--emit=lib`'d
+standalone — that fails with `E0301 Undefined function`. With this set
+the entry is plain-compiled and your `extra_source` C + `link_flag`s
+do the linking. A pure-Aether project does NOT want this — it would
+have to enumerate every sibling import by hand. Explicit `regen(...)`
+entries still run; the import closure still feeds the cache key.
+
+Pattern: literal-name `no_closure_regen`

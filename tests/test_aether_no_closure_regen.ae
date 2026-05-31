@@ -1,0 +1,153 @@
+// Regression test for asks/thin-aether-over-c-backend.md.
+//
+// The "thin Aether over a C backend" shape: the entry imports modules
+// whose Aether bodies are `extern` declarations of a C ABI, with the
+// implementations in C files linked via extra_source. Such a module
+// can't be `--emit=lib`'d standalone — aetherc fails with a wall of
+// `E0301 Undefined function` because the externs are only defined once
+// linked with the C backend. The transitive import-closure regen pass
+// (`_expand_transitive_regens`) would try exactly that, so it must be
+// suppressible.
+//
+// `no_closure_regen()` is the opt-out setter. This test pins three
+// contracts:
+//   1. The setter records the flag on the builder map.
+//   2. `_has_manual_overrides` returns 1 when only no_closure_regen is
+//      set (so the manual aetherc+gcc path is entered).
+//   3. The gate behaviour: when the flag is NOT set, expansion adds
+//      transitive siblings (the transitive-regen-expansion.md contract);
+//      when it IS set, the consumer's gate skips expansion entirely, so
+//      no sibling import gets added — while explicit regen(...) entries
+//      the user declared by hand still survive untouched.
+//
+// The gate itself is a one-liner in `_compile_and_link`; this test
+// mirrors that decision (skip _expand_transitive_regens when the flag
+// is present) against the same fixture used by
+// test_aether_transitive_regen, so the two stay in lockstep.
+
+import aether (_expand_transitive_regens)
+import aether (_has_manual_overrides)
+import aether (no_closure_regen)
+import std.string
+import std.os
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+_regen_contains(bm: ptr, needle: string) {
+    if map.has(bm, "regen") == 0 { return 0 }
+    regens, _ = map.get(bm, "regen")
+    n = list.size(regens)
+    i = 0
+    e = ""
+    while i < n {
+        e, _ = list.get(regens, i)
+        if string.index_of(e, needle) >= 0 {
+            return 1
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+_regen_size(bm: ptr) {
+    if map.has(bm, "regen") == 0 { return 0 }
+    regens, _ = map.get(bm, "regen")
+    return list.size(regens)
+}
+
+// Mirror the gate in lib/aether's `_compile_and_link`: run the
+// closure-expansion pass only when no_closure_regen() was NOT called.
+_maybe_expand(bm: ptr, appdir: string, entry: string) {
+    skip = 0
+    if map.has(bm, "no_closure_regen") == 1 { skip = 1 }
+    if skip == 0 {
+        _expand_transitive_regens(bm, appdir, entry)
+    }
+}
+
+main() {
+    base = "/tmp/aeb_test_no_closure_regen"
+    os.system("rm -rf ${base}; mkdir -p ${base}/app ${base}/ui ${base}/util")
+
+    // Layout: app/main.ae --(import ui)--> ui/module.ae (extern-backed:
+    // its bodies live in C, can't be --emit=lib'd) --(import util)-->
+    // util/module.ae. The cap-detect / content of ui doesn't matter for
+    // this test; what matters is whether the closure walk reaches it.
+    appdir = "${base}/app"
+    entry = "${base}/app/main.ae"
+    os.system("printf 'import ui\\nmain() {}\\n' > ${entry}")
+    os.system("printf 'import util\\nextern ui_init()\\nrender() { return 1 }\\n' > ${base}/ui/module.ae")
+    os.system("printf 'helper() { return 1 }\\n' > ${base}/util/module.ae")
+
+    // --- Test 1: the setter records the flag.
+    bm = map.new()
+    no_closure_regen(bm)
+    _assert("no_closure_regen() sets the flag on the builder map",
+        map.has(bm, "no_closure_regen"))
+
+    // --- Test 2: presence of the flag opts into the manual path even
+    // with no extra_source/link_flag yet declared (a consumer might set
+    // it before adding the C backend, or rely on extra_source added
+    // separately). The flag alone is enough to mean "manual path".
+    _assert("no_closure_regen alone triggers the manual path",
+        _has_manual_overrides(bm) == 1)
+
+    // --- Test 3a: WITHOUT the flag, expansion reaches the extern-backed
+    // ui module and its transitive util sibling (baseline — this is the
+    // transitive-regen-expansion.md behaviour the opt-out turns off).
+    baseline = map.new()
+    _maybe_expand(baseline, appdir, entry)
+    _assert("baseline (no flag): ui added by closure walk",
+        _regen_contains(baseline, "/ui/module.ae"))
+    _assert("baseline (no flag): util added by closure walk",
+        _regen_contains(baseline, "/util/module.ae"))
+
+    // --- Test 3b: WITH the flag, the gate skips expansion. No import
+    // gets pulled into the regen list, so ui (which can't be
+    // --emit=lib'd) is never handed to aetherc --emit=lib.
+    gated = map.new()
+    no_closure_regen(gated)
+    _maybe_expand(gated, appdir, entry)
+    _assert("flagged: ui NOT added (no --emit=lib attempted on it)",
+        1 - _regen_contains(gated, "/ui/module.ae"))
+    _assert("flagged: util NOT added either",
+        1 - _regen_contains(gated, "/util/module.ae"))
+    _assert("flagged: regen list stays empty (no closure expansion)",
+        _regen_size(gated) == 0)
+
+    // --- Test 3c: explicit regen(...) entries survive the opt-out.
+    // The flag suppresses only the auto-discovery of siblings, not a
+    // hand-declared regen the consumer wants built (e.g. a pure-Aether
+    // codegen module alongside the extern-backed C wrapper).
+    mixed = map.new()
+    no_closure_regen(mixed)
+    rl = list.new()
+    list.add(rl, "../util/module.ae")
+    map.put(mixed, "regen", rl)
+    cl = list.new()
+    list.add(cl, "")
+    map.put(mixed, "regen_caps", cl)
+    _maybe_expand(mixed, appdir, entry)
+    _assert("flagged: explicit regen entry survives",
+        _regen_contains(mixed, "/util/module.ae"))
+    _assert("flagged: explicit-only list not grown by closure walk",
+        _regen_size(mixed) == 1)
+    // ui is imported by main but reached only via the closure walk —
+    // with the flag set it must NOT have been auto-added alongside the
+    // explicit util entry.
+    _assert("flagged: ui NOT auto-added next to explicit regen",
+        1 - _regen_contains(mixed, "/ui/module.ae"))
+
+    os.system("rm -rf ${base}")
+    println("no_closure_regen opt-out tests done")
+}

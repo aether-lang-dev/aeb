@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+### Added
+
+- **`no_closure_regen()` setter for `aether.program(b)`** — opt out of
+  the transitive import-closure regen pass for the "thin Aether over a C
+  backend" shape, where a module's Aether bodies are `extern`
+  declarations of a C ABI (e.g. a GUI toolkit's `ui.ae` over a
+  GTK/AppKit/Win32 backend). Such modules can't be `--emit=lib`'d
+  standalone — aetherc fails with a wall of `E0301 Undefined function`
+  because the externs are only resolved once linked with the C backend.
+  With this flag the manual path compiles the entry with plain
+  `aetherc entry.ae entry.c` (tolerating unresolved externs, exactly as
+  `ae build` does for a plain program) and links the declared
+  `extra_source` C + `link_flag`s, without attempting `--emit=lib` on any
+  import. The import closure still feeds the cache key (imported `.ae`
+  content is hashed independently of the regen list), so staleness
+  tracking is unaffected; explicit `regen(...)` / `regen_with(...)`
+  entries still run. Counterpart opt-out to the
+  transitive-regen-expansion auto-expansion. Ask:
+  `asks/thin-aether-over-c-backend.md`.
+
 ### Changed
 
 - **Per-node output is now the default; `aeb --in-process` opts out.**

@@ -1074,7 +1074,7 @@ bash.run(b) {               // non-test runner: codegen, asset prep, etc.
 
 ```aether
 import aether
-import aether (source, output, extra_source, extra_source_glob, link_flag, regen, regen_with)
+import aether (source, output, extra_source, extra_source_glob, link_flag, regen, regen_with, no_closure_regen)
 
 aether.program(b) {                   // shells out to `ae build` by default —
     source("main.ae")                 //   honours aether.toml [[bin]].
@@ -1114,6 +1114,16 @@ aether.program(b) {                   // extra_source_glob expands a glob at
     extra_source_glob("contrib/*.c")  //   into the cache key, so adding/removing
     extra_source_glob("gen/*.c")      //   matched files invalidates the cache.
 }
+aether.program(b) {                   // no_closure_regen() — for "thin Aether
+    source("ui_live.ae")              //   over a C backend": the entry imports
+    output("app")                       //   modules that are extern declarations
+    no_closure_regen()                //   of a C ABI (ui.ae over GTK/AppKit/…).
+    extra_source("backend_gtk4.c")    //   Such modules can't be --emit=lib'd, so
+    extra_source("backend_extras.c")  //   the closure-regen pass is suppressed:
+    link_flag("$(pkg-config --cflags --libs gtk4)")  // the entry is plain-
+}                                     //   compiled, your extra_source C + flags
+                                      //   link it. The closure still feeds the
+                                      //   cache key; explicit regen(...) still runs.
 aether.program_test(b) { ... }        // same as program, plus runs the binary
 
 aether.driver_test(b) {                    // Aether driver program that

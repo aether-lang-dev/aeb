@@ -310,6 +310,36 @@ _regen_append(_ctx: ptr, ae_path: string, caps: string) {
     _e4 = list.add(regen_caps, caps)
 }
 
+// no_closure_regen() — opt OUT of the transitive import-closure regen
+// pass (the BFS in `_expand_transitive_regens` that auto-`--emit=lib`s
+// every project-local imported `.ae`). Use when the entry imports
+// extern-backed modules — modules whose Aether bodies are `extern`
+// declarations of a C ABI, with the implementations in C files linked
+// via `extra_source`. `--emit=lib` on such a module fails with a wall
+// of `E0301 Undefined function`, because the externs are only defined
+// once linked with the C backend, which `--emit=lib` does not do.
+//
+// With this flag set the manual path compiles the entry with plain
+// `aetherc entry.ae entry.c` (tolerates unresolved externs, exactly as
+// `ae build` does for a plain program) and links the declared
+// `extra_source` C + `link_flag`s — without attempting `--emit=lib` on
+// any import. Explicit `regen(...)` / `regen_with(...)` entries the
+// user declared by hand still run; only the auto-discovery of sibling
+// imports is suppressed.
+//
+// The import closure still feeds the cache key
+// (`_cache_key_for_aether_link` hashes every transitively-imported
+// `.ae` independently of the regen list), so a change to an imported
+// module still busts the key and triggers a rebuild. This flag only
+// suppresses the regen-feeding use of the closure, not its
+// staleness-tracking use. See asks/thin-aether-over-c-backend.md.
+//
+// Presence opts into the manual aetherc + gcc path (like
+// extra_source / link_flag).
+no_closure_regen(_ctx: ptr) {
+    _e1 = map.put(_ctx, "no_closure_regen", "1")
+}
+
 // --- Helpers ---
 
 // Aether toolchain resolution now lives in lib/build (shared with
@@ -777,6 +807,7 @@ _has_manual_overrides(builder_map: ptr) {
     if map.has(builder_map, "link_flag") == 1 { return 1 }
     if map.has(builder_map, "include_dir") == 1 { return 1 }
     if map.has(builder_map, "regen") == 1 { return 1 }
+    if map.has(builder_map, "no_closure_regen") == 1 { return 1 }
     return 0
 }
 
@@ -1535,7 +1566,20 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // project-local sibling import. Without this the consumer has to
     // enumerate every `regen_with("../util/module.ae", ...)` by hand
     // (transitive-regen-expansion.md).
-    _expand_transitive_regens(builder_map, source_dir, src_path)
+    //
+    // Suppressed by no_closure_regen() — the "thin Aether over a C
+    // backend" shape, where imports are extern declarations of a C ABI
+    // and can't be `--emit=lib`'d standalone. The closure still feeds
+    // the cache key below (hashed independently in
+    // _cache_key_for_aether_link), so staleness tracking is unaffected.
+    // See asks/thin-aether-over-c-backend.md.
+    skip_closure_regen = 0
+    if builder_map != null {
+        if map.has(builder_map, "no_closure_regen") == 1 { skip_closure_regen = 1 }
+    }
+    if skip_closure_regen == 0 {
+        _expand_transitive_regens(builder_map, source_dir, src_path)
+    }
 
     // Phase 0b: regen .ae → _generated.c (under target/, not beside the
     // source) for each entry (declared + discovered).
@@ -1602,7 +1646,23 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     }
 
     // Phase 1: aetherc src.ae → src.c
-    ac_cmd = "${aetherc} ${src_path} ${c_path}"
+    //
+    // Thread the orchestrator's search path (AEB_COMPILE_LIB, set by
+    // tools/aeb-link as <aeb_lib>:<repo_root>) onto this standalone
+    // compile so the entry's `import`s resolve. Without it, an entry
+    // importing an extern-backed sibling module (the no_closure_regen
+    // thin-Aether-over-C shape) fails here with E0301 — the import
+    // resolves to nothing because aetherc only searches cwd + --lib,
+    // and the entry's siblings live under the repo root, not cwd.
+    // Absent the env var (e.g. a direct lib/aether unit invocation),
+    // fall back to no --lib, preserving prior behaviour for the
+    // self-contained-entry case.
+    lib_flag = ""
+    compile_lib_env = os.getenv("AEB_COMPILE_LIB")
+    if string.length(compile_lib_env) > 0 {
+        lib_flag = " --lib ${compile_lib_env}"
+    }
+    ac_cmd = "${aetherc}${lib_flag} ${src_path} ${c_path}"
     rc = os.system(ac_cmd)
     if rc != 0 {
         println("${mod_dir}: aetherc failed")

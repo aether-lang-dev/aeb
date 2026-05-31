@@ -285,6 +285,17 @@ main() {
     if string.length(repo_root) > 0 {
         compile_lib = string.concat(aeb_lib, string.concat(":", repo_root))
     }
+    // Export the same search path the per-file orchestrator compile uses
+    // so the `aether.program` manual path (lib/aether's _compile_and_link)
+    // can resolve the entry's `import`s when it runs its own standalone
+    // `aetherc entry.ae entry.c`. Without this, an entry that imports an
+    // extern-backed sibling module (the no_closure_regen / thin-Aether-
+    // over-C shape) fails the plain compile with E0301 — the import
+    // resolves to nothing because the relocated/standalone compile never
+    // had the SDK lib + repo root on its search path. Inherited by the
+    // orchestrator binary / aeb-driver / make / per-node children through
+    // the process env (all spawned via os.system after this point).
+    _sl = os.setenv("AEB_COMPILE_LIB", compile_lib)
     transform_ae   = string.concat(aebhome, "/tools/transform-ae")
     gen_orchestrator = string.concat(aebhome, "/tools/gen-orchestrator")
 
