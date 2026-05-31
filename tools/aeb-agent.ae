@@ -28,7 +28,7 @@ import std.os
 import std.map
 import std.list
 
-import agent (_decision, dispatch_reply_json, _json_field,
+import agent (_decision, dispatch_reply_json, ping_json, _json_field,
               _parse_tokens, _token_ok, _bearer_strip)
 import std.io
 import std.file
@@ -71,6 +71,45 @@ _load_tokens() {
     return _parse_tokens(content)
 }
 
+// _authed(req) — the naive token gate (fail-closed), shared by /dispatch
+// and /ping. Returns 1 when the request presents a known token, 0 when it
+// must be refused (no --tokens file, or bad/missing token).
+_authed(req: ptr) {
+    toks = _load_tokens()
+    if toks == null { return 0 }
+    presented = _bearer_strip(http_get_header(req, "X-AEB-Token"))
+    if string.length(presented) == 0 {
+        presented = _bearer_strip(http_get_header(req, "Authorization"))
+    }
+    return _token_ok(toks, presented)
+}
+
+// GET /ping — auth-gated identity + capability descriptor. An authorized
+// originator/sysop confirms this is really an aeb-agent and learns its
+// platform / accept-scope / busy / auth posture BEFORE committing a
+// dispatch. Gated like /dispatch: no/ bad token => 401, reveals nothing
+// (an unauthenticated prober can't even fingerprint the agent). The
+// dumb unauthenticated liveness check stays at /health.
+handle_ping(req: ptr, res: ptr, ud: ptr) {
+    if _authed(req) == 0 {
+        http.response_set_status(res, 401)
+        http.response_set_header(res, "Content-Type", "application/json")
+        http.response_set_body(res, "{\"error\":\"unauthorized\"}")
+        return 0
+    }
+    accept = os.getenv("AEB_AGENT_ACCEPT")
+    if string.length(accept) == 0 { accept = "preint/*" }
+    mj = os.getenv("AEB_AGENT_MAX_JOBS")
+    // auth is always "required" here — /ping only succeeds when authed,
+    // and the agent is fail-closed, so a reachable authed ping implies
+    // tokens are configured.
+    body = ping_json(os.platform(), accept, "false", mj, "required")
+    http.response_set_status(res, 200)
+    http.response_set_header(res, "Content-Type", "application/json")
+    http.response_set_body(res, body)
+    return 0
+}
+
 handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     body = http.request_body(req)
     guid = _json_field(body, "guid")
@@ -81,20 +120,8 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     // --- Naive token gate (fail-closed) — BEFORE the scope decision. ---
     // No --tokens file => refuse ALL dispatches. With a file => the
     // presented X-AEB-Token (or Authorization: Bearer) must be in it.
-    toks = _load_tokens()
-    if toks == null {
-        println("agent: REFUSE guid=${guid} (no --tokens; fail-closed)")
-        http.response_set_status(res, 401)
-        http.response_set_header(res, "Content-Type", "application/json")
-        http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
-        return 0
-    }
-    presented = _bearer_strip(http_get_header(req, "X-AEB-Token"))
-    if string.length(presented) == 0 {
-        presented = _bearer_strip(http_get_header(req, "Authorization"))
-    }
-    if _token_ok(toks, presented) == 0 {
-        println("agent: REFUSE guid=${guid} (bad or missing token)")
+    if _authed(req) == 0 {
+        println("agent: REFUSE guid=${guid} (no/bad token; fail-closed)")
         http.response_set_status(res, 401)
         http.response_set_header(res, "Content-Type", "application/json")
         http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
@@ -192,6 +219,7 @@ main() {
     if raw == 0 { println("aeb-agent: FAIL server_create"); exit(1) }
     http.server_set_host(raw, host)
     http.server_post(raw, "/dispatch", handle_dispatch, 0)
+    http.server_get(raw, "/ping", handle_ping, 0)
     http.server_get(raw, "/health", handle_health, 0)
 
     mj_disp = "unbounded"

@@ -6,7 +6,7 @@
 import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _decision, dispatch_request_json, dispatch_reply_json,
               _json_field, run_on, max_jobs, accept_scope,
-              _parse_tokens, _token_ok, _bearer_strip)
+              _parse_tokens, _token_ok, _bearer_strip, ping_json)
 import std.string
 import std.list
 import std.map
@@ -91,5 +91,17 @@ main() {
     _assert("stripped-then-checked end to end",
         _token_ok(toks, _bearer_strip("Bearer s3cr3t-alice")))
 
-    println("agent scope + wire + token tests done")
+    // --- ping_json identity + capability descriptor ---
+    pj = ping_json("linux", "preint/*", "false", "2", "required")
+    _eq("ping agent field", _json_field(pj, "agent"), "aeb-agent")
+    _eq("ping platform", _json_field(pj, "platform"), "linux")
+    _eq("ping accept", _json_field(pj, "accept"), "preint/*")
+    _eq("ping auth", _json_field(pj, "auth"), "required")
+    _assert("ping carries busy:false", string.index_of(pj, "\"busy\":false") >= 0)
+    _assert("ping carries max_jobs:2", string.index_of(pj, "\"max_jobs\":2") >= 0)
+    // empty max_jobs renders 0 (unbounded)
+    pj0 = ping_json("linux", "*", "false", "", "open")
+    _assert("ping empty max_jobs -> 0", string.index_of(pj0, "\"max_jobs\":0") >= 0)
+
+    println("agent scope + wire + token + ping tests done")
 }

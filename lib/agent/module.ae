@@ -251,6 +251,30 @@ dispatch_request_json(guid: string, target: string, purpose: string) {
     return out
 }
 
+// ping_json(platform, accept, busy, max_jobs, auth) — the agent's
+// identity + capability descriptor, returned by an (auth-gated) GET
+// /ping. Lets an authorized originator confirm it's really an aeb-agent
+// and learn the platform / accept-scope / busy / auth posture BEFORE
+// committing a dispatch. `busy` and `auth` are pre-rendered strings
+// ("true"/"false", "required"/"open"). Pure.
+ping_json(platform: string, accept: string, busy: string, max_jobs: string, auth: string) {
+    out = "{\"agent\":\"aeb-agent\""
+    out = string.concat(out, ",\"platform\":\"")
+    out = string.concat(out, platform)
+    out = string.concat(out, "\",\"accept\":\"")
+    out = string.concat(out, accept)
+    out = string.concat(out, "\",\"busy\":")
+    out = string.concat(out, busy)
+    out = string.concat(out, ",\"max_jobs\":")
+    mj = max_jobs
+    if string.length(mj) == 0 { mj = "0" }
+    out = string.concat(out, mj)
+    out = string.concat(out, ",\"auth\":\"")
+    out = string.concat(out, auth)
+    out = string.concat(out, "\"}")
+    return out
+}
+
 // dispatch_reply_json(guid, status, result) — the skinny terse verdict the
 // agent returns. status ∈ accepted|busy|rejected|done; result ∈ pass|fail
 // (only meaningful when status=done). The details_url field is a later
