@@ -163,35 +163,89 @@ not another's), per the embedded principal in the purpose path.
 
 ## Cloud leverage / job fan-out
 
-The "borrow GHA to go faster" capability, IF it exists, is **governed by
-the grant + class**, and aeb is the **callee, never the control plane**:
+### The model: agent self-orchestrates; originator fires-and-reconciles
 
-- aeb does **not** own triggers (the `on:` block — that's the CI system's;
-  aeb has no daemon to watch a remote ref), and does **not** own the
-  matrix as a thing it *waits on*. A model where aeb-on-laptop spins up N
-  runners, polls them, and aggregates is **rejected** — that is rebuilding
-  the Actions control plane inside aeb, the exact over-reach the
-  generic-vs-domain line forbids.
-- What IS in scope: aeb as the **`run:` step inside a cell** that some
-  outer system (GHA matrix, or a dev's granted offload) already
-  provisioned. GitHub owns *when/where/with-what-installed*; aeb owns
-  *what happens in the cell*. This needs ~zero new aeb code now that exit
-  codes are correct (the silent-green fix) — a `run: aeb --since` step is
-  already a truthful CI participant.
-- A pre-integration **fan-out** (dev splits their pre-push check across
-  several granted cloud workers) is permissible **only** within the
-  pre-integration cache partition and **only** under grant=yes, and the
-  cloud may veto the offload request as inauthentic exactly as it vetoes a
-  cache write. It buys speed + confidence; it never writes ci truth and
-  never shares cache with ci or with another principal's pre-integration
-  runs (cross-principal isolation, not just cross-class).
+The key insight (and the correction to an earlier-draft over-flat
+rejection): the control-plane concern only arises if the **originating
+aeb supervises the remote runs**. It does not. The **agent owns the
+orchestration of its own request** — accept / "busy, try again later" /
+reject, run, lifecycle, results. The originator fires a request and is
+done driving. There is no fleet scheduler in aeb because the supervising
+lives on each agent, locally, where it belongs.
 
-The litmus test for "can aeb own this duty," unchanged from the CI
-discussion: **does it happen inside a single `aeb` invocation, or does it
-require something outside aeb to invoke aeb?** Provisioning, triggers, and
-the matrix are *about invoking aeb* → outside, vetoable, not aeb's to own.
-Cache-partition selection, claim-presentation, and the per-cell build are
-*inside* → aeb's, governed by the conferred class.
+The proof that this is a peer relationship and not a control plane: **the
+agent can say "busy, try again later" or "reject".** A thing that can
+decline or defer is sovereign over its own queue — the opposite of a
+worker a scheduler commands. aeb is a *requester of a sovereign peer*,
+exactly as it is a requester of `gcc` or a one-shot `container.run` today.
+
+So a fan-out target (e.g. `.local_then_repeat_on_mac_win_lin.ae`) is the
+greppable, declarative *intent* to fan out; the run **context (env)**
+confers *whether it may, where the agents are, and with what token*. The
+target is the request; the context is the grant. `.all_tests_locally.ae`
+never leaves the machine and raises none of this.
+
+### Protocol (v1 decisions)
+
+- **Topology from env, no middleman, no discovery service.** The
+  originator gets the **full agent list from env vars** (e.g.
+  `AEB_AGENT_MAC=host:port`, `AEB_AGENT_LINUX=...`). aeb fires directly at
+  each; nothing brokers in between.
+- **Agents self-report OS under authentication.** The env-var *label* is
+  only a hint; the originator asks each agent its platform and the agent's
+  **authenticated** answer is ground truth (same claim→verify spine: a
+  hint is not a fact until the peer proves it). This is how the originator
+  maps "which agent covered which platform."
+- **Correlation = a GUID per request.** The originator **listens on a
+  socket for the duration of the intention ONLY** — opened when the
+  fan-out target starts, closed when it resolves. NOT a persistent daemon;
+  aeb has no long-lived service. The GUID ties the fire, the terse
+  callback, and the follow-up detail-pull together (and lets a
+  re-fire-after-busy avoid double-counting).
+- **Fire-async → terse webhook back → sync-pull details.** aeb fires a
+  scant request (GUID + token + target + originator callback socket). The
+  agent runs it and **webhooks back a terse outcome**. aeb then makes a
+  **follow-up sync call** to pull the full structured detail. Reuses what
+  exists: `lib/webhook` (the outbound-trigger SDK — aeb is already "the
+  producer side of a webhook-centric system") for the fire and the
+  agent's callback, and aeb's existing structured build data
+  (`AEB_TELEMETRY_JSON` / `AEB_TESTS_JSON` / `AEB_ARTIFACTS_JSON`, per-node
+  logs, rc marks) as what the detail-pull serves.
+- **Skinny webhook payload (chosen — start minimal).** The terse callback
+  carries only: `guid`, `status` ∈ {`accepted`,`busy`,`rejected`,`done`},
+  `result` ∈ {`pass`,`fail`} (when `done`), and a `details_url` to sync-
+  pull the rest. Everything heavier (the telemetry/tests/artifacts JSON,
+  per-node logs, intermediate event stream) is behind the `details_url`,
+  fetched only if/when the originator wants it. Grow the payload later
+  only if a real need appears; do not front-load it.
+- **Busy/backpressure: fail back to the user (v1).** A "busy" or an
+  unreachable agent **fails the fan-out target back to the user** — no
+  retry/backoff machinery yet. (Future: retry policy, or drop-that-
+  platform-with-a-logged-skip per the no-silent-cap rule. v1 is the
+  simple, honest behaviour: can't reach a declared agent → fail loud.)
+- **Verdict folds into `any_failed`.** Each agent's `done/fail` (or a
+  busy/reject/unreachable, per above) reddens the originator's build via
+  the same `build.fail`/`any_failed` path the local nodes use.
+
+### Still aeb's, still not aeb's
+
+- aeb does **not** own triggers (the `on:` block — no daemon to watch a
+  remote ref) or runner/OS provisioning or the matrix-as-a-thing-it-
+  supervises. Those invoke aeb; they are not aeb's.
+- aeb **does** own: firing the request, presenting the token, opening the
+  duration-scoped correlation socket, consuming the terse callback,
+  pulling+folding the detail. All inside the fan-out target's run.
+- The agent (a separate daemon on oldnuc / macmini — NOT part of aeb the
+  CLI) owns: authenticating the token + its own OS claim, accept/busy/
+  reject, running aeb locally as the per-cell callee, holding its
+  policy-class-partitioned cache, webhooking back, serving `details_url`.
+
+The litmus test, refined: **does aeb *supervise* the remote run, or merely
+*request* it and *reconcile* its reported verdict?** Supervising a fleet
+(schedule/poll/aggregate) → control plane → rejected. Firing a request to
+a sovereign agent and folding back its self-reported outcome → ordinary
+client behaviour → fine. The agent's ability to refuse is what keeps aeb
+on the right side of that line.
 
 ## What aeb implements vs. what the resource owns
 
@@ -240,6 +294,33 @@ verification* — it is neither issuer nor verifier.
    signature is checked? (Likely: parse for *local* partition choice is
    advisory/harmless; only the remote resource's post-signature parse is
    authoritative.)
+
+### Fan-out protocol — v1 decisions (settled)
+
+7. ~~Correlation / idempotency.~~ **RESOLVED**: a GUID per request;
+   originator listens on a socket for the **duration of the intention
+   only** (not a persistent daemon).
+8. ~~Backpressure semantics.~~ **RESOLVED (v1)**: "busy"/unreachable **fails
+   back to the user** — no retry/backoff yet. (Future: retry, or
+   drop-platform-with-logged-skip per no-silent-cap.)
+9. ~~Terse-vs-detailed split.~~ **RESOLVED**: skinny webhook
+   (`guid`, `status`, `result`, `details_url`); everything heavier behind
+   the sync `details_url`. Grow only on real need.
+10. ~~Topology / discovery.~~ **RESOLVED**: full agent list from env vars,
+    no middleman; agents self-report OS under authentication (label is a
+    hint, authenticated `platform()` is the fact).
+
+### Fan-out — still open
+
+11. Agent daemon protocol surface (the wire format of the fire request and
+    the `details_url` response) — and whether it's literally HTTP +
+    `lib/webhook` or a thinner socket protocol for the
+    duration-scoped originator listener.
+12. Authentication handshake specifics for the agent's OS self-report and
+    the token presentation (ties to OQ3/OQ5 — the token mechanism).
+13. The new dispatch primitive's DSL shape — e.g.
+    `agent.dispatch(b) { endpoint(env "AEB_AGENT_MAC") token(...) target(".tests.ae") }`
+    — fixed-arity setters, verdict folds into `any_failed`.
 
 ## Relationship to existing aeb pieces
 
