@@ -29,6 +29,17 @@
   wire payloads, token parse/check), unit-tested offline in
   `tests/test_agent_scope.ae` (36 assertions).
 
+  **Install is opt-in: `make install` does NOT build the agent.** The
+  remote agent is a network-listening server, not core build machinery,
+  and `make` must not recurse into `aeb` to build it (that would couple
+  the install to a freshly-built aeb being correct). So `make install`
+  builds aeb + tools but skips `aeb-agent`; a human opts in with
+  **`make install-agent`** (builds via `ae build --lib lib`, bootstrap-
+  safe, installs the `$PREFIX/bin/aeb-agent` wrapper). Alternatively, the
+  dogfood path `aeb tools/agentbuild/.build.ae` builds it *with* aeb once
+  aeb works. A sysop probes the capability by whether `aeb-agent` is on
+  PATH — and it's absent unless deliberately installed.
+
   **Naive `--tokens` auth (interim, fail-closed).** The agent takes
   `--tokens <file>` (one bearer token per line, `#` comments); a dispatch
   must present a token (`X-AEB-Token` or `Authorization: Bearer`) that is
