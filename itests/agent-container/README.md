@@ -16,10 +16,20 @@ printf 'ping-secret-123\n' > agent.tokens
 # 2. build the image
 podman build -t aeb-agent itests/agent-container
 
-# 3. run it — publish 9440, mount the tokens
-podman run -d --name aeb-agent -p 9440:9440 \
-    -v "$PWD/agent.tokens:/etc/aeb/agent.tokens:ro" \
+# 3. run it — publish 9440, mount the tokens.
+#    The :Z on the mount is REQUIRED on SELinux hosts (Bazzite, Fedora,
+#    RHEL/atomic) — it relabels the file so the container can read it.
+#    Without :Z the container gets "Permission denied" on the tokens
+#    file, the agent goes fail-closed, and every request 401s — including
+#    a correct token. :Z is harmless on non-SELinux hosts, so always use
+#    it. --replace recreates cleanly if the container already exists.
+podman run -d --name aeb-agent -p 9440:9440 --replace \
+    -v "$PWD/agent.tokens:/etc/aeb/agent.tokens:ro,Z" \
     aeb-agent
+
+# verify the container can actually READ the tokens (must print the token,
+# NOT "Permission denied"); also visible in:  podman logs aeb-agent | grep token
+podman exec aeb-agent cat /etc/aeb/agent.tokens
 ```
 
 Pin toolchains for reproducibility:

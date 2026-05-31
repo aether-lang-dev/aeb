@@ -8,9 +8,12 @@
 #   podman build -t aeb-agent itests/agent-container
 #
 # Run (publishes 9440 to the host; --host 0.0.0.0 + --tokens are baked
-# into CMD so the agent is reachable + fail-closed out of the box):
-#   podman run -d --name aeb-agent -p 9440:9440 \
-#       -v "$PWD/agent.tokens:/etc/aeb/agent.tokens:ro" \
+# into CMD so the agent is reachable + fail-closed out of the box).
+# The :Z on the mount is REQUIRED on SELinux hosts (Bazzite/Fedora/RHEL):
+# without it the container can't read the tokens file -> fail-closed ->
+# every request 401s, even a correct token. :Z is harmless elsewhere.
+#   podman run -d --name aeb-agent -p 9440:9440 --replace \
+#       -v "$PWD/agent.tokens:/etc/aeb/agent.tokens:ro,Z" \
 #       aeb-agent
 #
 #   # agent.tokens = one bearer token per line, e.g.:  printf 'ping-secret-123\n' > agent.tokens
