@@ -211,12 +211,25 @@ main() {
     _e3 = os.setenv("AEB_AGENT_WORKDIR", workdir)
     if string.length(tokens_file) > 0 { _e4 = os.setenv("AEB_AGENT_TOKENS", tokens_file) }
 
-    // Fail-closed auth posture announcement.
+    // Fail-closed auth posture announcement. Distinguish the three
+    // operator-visible states so a MISCONFIGURATION (unreadable mount)
+    // doesn't masquerade as intended fail-closed:
+    //   - no --tokens          → intended: no auth configured
+    //   - --tokens, unreadable → likely a bad mount / permissions /
+    //     SELinux (on Fedora-atomic e.g. Bazzite, a bind mount needs :Z)
+    //   - --tokens, N tokens   → armed
     if string.length(tokens_file) == 0 {
         println("aeb-agent: no --tokens given; REFUSING ALL dispatches (fail-closed). Pass --tokens <file> to enable.")
     } else {
-        if file.exists(tokens_file) == 0 {
-            println("aeb-agent: --tokens file not found: ${tokens_file} — REFUSING ALL dispatches until it exists.")
+        probe, perr = io.read_file(tokens_file)
+        if string.length(perr) > 0 {
+            println("aeb-agent: --tokens file UNREADABLE: ${tokens_file} (${perr})")
+            println("aeb-agent:   REFUSING ALL dispatches. Check the file exists, is readable, and — for a")
+            println("aeb-agent:   container bind mount on SELinux (Bazzite/Fedora) — was mounted with :Z, e.g.")
+            println("aeb-agent:   -v host/agent.tokens:${tokens_file}:ro,Z")
+        } else {
+            ntok = map.size(_parse_tokens(probe))
+            println("aeb-agent: --tokens loaded ${ntok} token(s) from ${tokens_file}")
         }
     }
 
