@@ -29,16 +29,18 @@
   wire payloads, token parse/check), unit-tested offline in
   `tests/test_agent_scope.ae` (36 assertions).
 
-  **Install is opt-in: `make install` does NOT build the agent.** The
-  remote agent is a network-listening server, not core build machinery,
-  and `make` must not recurse into `aeb` to build it (that would couple
-  the install to a freshly-built aeb being correct). So `make install`
-  builds aeb + tools but skips `aeb-agent`; a human opts in with
-  **`make install-agent`** (builds via `ae build --lib lib`, bootstrap-
-  safe, installs the `$PREFIX/bin/aeb-agent` wrapper). Alternatively, the
-  dogfood path `aeb tools/agentbuild/.build.ae` builds it *with* aeb once
-  aeb works. A sysop probes the capability by whether `aeb-agent` is on
-  PATH — and it's absent unless deliberately installed.
+  **Install is opt-in and aeb-native: `make` does NOT touch the agent.**
+  The remote agent is a network-listening server, not core build
+  machinery, and `make` must not recurse into `aeb` to build it. So
+  `make install` builds aeb + tools but skips `aeb-agent`. The agent is
+  built AND installed BY aeb, as two dep-linked nodes:
+  `aeb tools/agent/.dist.ae` builds the binary (dogfood — `aether.program`
+  on a real multi-import program), and `aeb tools/agent/.install.ae`
+  (which `dep`s `.dist`) places the binary + writes the `~/.local/bin/
+  aeb-agent` wrapper. There is no `make install-agent` — if aeb builds the
+  agent, aeb installs it. A sysop probes the capability by whether
+  `aeb-agent` is on PATH; absent unless deliberately installed. (Prefix is
+  `~/.local` for now; a `PREFIX` knob is a later thickening.)
 
   **Naive `--tokens` auth (interim, fail-closed).** The agent takes
   `--tokens <file>` (one bearer token per line, `#` comments); a dispatch
