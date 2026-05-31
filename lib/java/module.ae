@@ -18,6 +18,23 @@ release(_ctx: ptr, ver: string) {
     _e = map.put(_ctx, "release", ver)
 }
 
+// select_jdk(version) — select among ALREADY-INSTALLED JDKs by major
+// version (exact "21", or floor "21+"). Discover-select-or-fail: aeb
+// probes /usr/lib/jvm (and $JAVA_HOME) for a matching JDK and runs javac
+// from THAT home instead of PATH's. Never downloads — install the JDK
+// yourself (sdkman/apt/setup-java) and this picks it.
+//
+// Orthogonal to release(): release() sets the bytecode/API LEVEL
+// (--release 21 works on any JDK >= 21); select_jdk() picks WHICH javac
+// compiles. On a single-JDK box this is a no-op-or-fail check; on a
+// multi-JDK box it disambiguates. Java's classpath is JDK-independent,
+// so this does NOT participate in dependency resolution — it only changes
+// the compiler binary (and the cache key, via the selected javac version).
+// Design: docs/toolchain-selection-and-locks.md
+select_jdk(_ctx: ptr, version: string) {
+    _e = map.put(_ctx, "select_jdk", version)
+}
+
 source_ver(_ctx: ptr, ver: string) {
     _e = map.put(_ctx, "source", ver)
 }
@@ -88,7 +105,19 @@ jvm_args(_ctx: ptr, arg: string) {
 // --- Command builders ---
 
 javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) {
-    cmd = "javac -d ${classes_dir}"
+    // javac binary: PATH "javac" by default, or an absolute
+    // "<selected-jdk-home>/bin/javac" when select_jdk(...) resolved one
+    // (stashed on the opts map as "_javac_bin" by the builder). Keeping
+    // it on the opts map preserves javac_cmd's existing 4-arg signature
+    // and keeps the helper pure / testable.
+    javac_bin = "javac"
+    if opts != null {
+        if map.has(opts, "_javac_bin") == 1 {
+            jb, _ = map.get(opts, "_javac_bin")
+            if string.length(jb) > 0 { javac_bin = jb }
+        }
+    }
+    cmd = "${javac_bin} -d ${classes_dir}"
 
     if opts != null {
         if map.has(opts, "release") == 1 {
@@ -262,6 +291,81 @@ _jdk_version() {
     return string.trim(raw)
 }
 
+// _discover_jvm_root() — the directory holding side-by-side JDKs. Linux:
+// /usr/lib/jvm. macOS: /Library/Java/JavaVirtualMachines (homes nested
+// under <entry>/Contents/Home). Returns the root, or "" if none exists.
+_discover_jvm_root() {
+    if dir.exists("/usr/lib/jvm") == 1 { return "/usr/lib/jvm" }
+    if dir.exists("/Library/Java/JavaVirtualMachines") == 1 {
+        return "/Library/Java/JavaVirtualMachines"
+    }
+    return ""
+}
+
+// _installed_jvm_majors(jvm_root) — newline-separated major versions of
+// the JDKs under jvm_root, for the not-found diagnostic. Best-effort.
+_installed_jvm_majors(jvm_root: string) {
+    if string.length(jvm_root) == 0 { return "" }
+    out, _e = os.exec("ls -1 '${jvm_root}' 2>/dev/null")
+    majors = ""
+    rest = string.trim(out)
+    name = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 {
+            name = rest
+            rest = ""
+        } else {
+            name = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        m = build._jvm_dir_major(string.trim(name))
+        if string.length(m) > 0 {
+            if string.length(majors) > 0 { majors = string.concat(majors, "\n") }
+            majors = string.concat(majors, m)
+        }
+    }
+    return majors
+}
+
+// _resolve_jdk_home(want) — discover-select-or-fail. Returns the selected
+// JDK home (a directory containing bin/javac), or "" if none matches —
+// the caller hard-fails with build._toolchain_not_found_msg. Honours a
+// macOS Contents/Home nesting. An empty `want` means "no selection" → "".
+_resolve_jdk_home(want: string) {
+    if string.length(want) == 0 { return "" }
+    root = _discover_jvm_root()
+    if string.length(root) == 0 { return "" }
+    listing_raw, _e = os.exec("ls -1 '${root}' 2>/dev/null")
+    home = build._select_jvm_home(root, string.trim(listing_raw), want)
+    if string.length(home) == 0 { return "" }
+    // macOS: the real home is <entry>/Contents/Home.
+    mac_home = path.join(home, "Contents/Home")
+    if dir.exists(mac_home) == 1 { return mac_home }
+    return home
+}
+
+// _javac_bin_for(want, builder_map) — resolve the javac path to run.
+// Returns the absolute "<home>/bin/javac" when select_jdk is set and a
+// match is found; "javac" (PATH) when no selection; and "" (with a hint
+// already printed) when a selection was requested but unsatisfiable.
+// Memoises the resolved home onto the builder map under "_selected_jdk_home"
+// so the cache key and any sibling java invocation reuse it.
+_javac_bin_for(want: string, builder_map: ptr) {
+    if string.length(want) == 0 { return "javac" }
+    home = _resolve_jdk_home(want)
+    if string.length(home) == 0 {
+        root = _discover_jvm_root()
+        found = _installed_jvm_majors(root)
+        println(build._toolchain_not_found_msg("jdk", want, found))
+        return ""
+    }
+    if builder_map != null {
+        _e = map.put(builder_map, "_selected_jdk_home", home)
+    }
+    return path.join(home, "bin/javac")
+}
+
 // _read_argfile_lines(path) — read a javac argfile (one source path
 // per line) into a sorted list. Sorted because `find`'s order isn't
 // deterministic across filesystems and we want stable cache keys.
@@ -345,8 +449,21 @@ _read_argfile_lines(argfile_path: string) {
 _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd_str: string) {
     parts = list.new()
 
-    // Toolchain version
-    list.add(parts, string.concat("javac:", _jdk_version()))
+    // Toolchain version. When select_jdk(...) resolved a specific JDK
+    // home, probe THAT javac's version (and key on the home path) so the
+    // cache correctly distinguishes a selected JDK from PATH's javac —
+    // otherwise the key would claim PATH's version while compiling with a
+    // different one.
+    jdk_ver = _jdk_version()
+    if builder_map != null {
+        if map.has(builder_map, "_selected_jdk_home") == 1 {
+            sel_home, _ = map.get(builder_map, "_selected_jdk_home")
+            sel_javac = path.join(sel_home, "bin/javac")
+            jv_raw, _jverr = os.exec("'${sel_javac}' -version 2>&1 | head -1")
+            jdk_ver = string.concat(string.concat(sel_home, "|"), string.trim(jv_raw))
+        }
+    }
+    list.add(parts, string.concat("javac:", jdk_ver))
 
     // The canonical command string captures every flag and
     // classpath path. This is the action discriminator.
@@ -480,6 +597,20 @@ builder javac(ctx: ptr) {
             _e = map.put(_builder, "processor_path", maven_cp)
         }
     }
+
+    // Resolve the javac binary: select_jdk(...) picks among installed JDKs
+    // (discover-select-or-fail); absent it, PATH's javac. "" means a
+    // selection was requested but no installed JDK matched — hard-fail
+    // (the helper already printed the actionable not-found message).
+    want_jdk = ""
+    if map.has(_builder, "select_jdk") == 1 {
+        want_jdk, _ = map.get(_builder, "select_jdk")
+    }
+    javac_bin = _javac_bin_for(want_jdk, _builder)
+    if string.length(javac_bin) == 0 {
+        return 1
+    }
+    _e = map.put(_builder, "_javac_bin", javac_bin)
 
     cmd = javac_cmd(classes_dir, classpath, file_ref, _builder)
 

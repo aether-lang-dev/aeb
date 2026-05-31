@@ -2003,3 +2003,238 @@ load_third_party_deps(ctx: ptr, rel_path: string) {
     }
     return 1
 }
+
+// =====================================================================
+// Toolchain selection + generated-lock validation (generic core)
+//
+// Shared, pure (I/O-free) helpers used by the language SDKs to:
+//   (a) select among already-installed runtime versions
+//       (discover-select-or-fail — never provisions), and
+//   (b) validate a generated lock node against the BOM it was generated
+//       from (hash-stamped self-check).
+// One implementation here so the SDKs cannot drift into divergent copies
+// (cf. the historical three-copy file_to_label duplication).
+//
+// Design: docs/toolchain-selection-and-locks.md
+//         asks/versioned-bom-and-self-validating-lock.md
+// =====================================================================
+
+// _digits_prefix(s) — leading run of ASCII digits of s as an int, or -1
+// if s does not start with a digit. Pure. Used to pull a major version
+// out of "21", "24.0.2", "21+", "3.11", a JVM dir's "21" segment, etc.
+_digits_prefix(s: string) {
+    n = string.length(s)
+    if n == 0 { return -1 }
+    i = 0
+    val = 0
+    saw = 0
+    digits = "0123456789"
+    while i < n {
+        c = string.substring(s, i, i + 1)
+        d = string.index_of(digits, c)
+        if d < 0 {
+            i = n
+        } else {
+            val = val * 10 + d
+            saw = 1
+            i = i + 1
+        }
+    }
+    if saw == 0 { return -1 }
+    return val
+}
+
+// _version_is_floor(want) — does the requested spec end in '+' (a
+// minimum, e.g. "21+" = "21 or newer")? Pure.
+_version_is_floor(want: string) {
+    n = string.length(want)
+    if n == 0 { return 0 }
+    if string.equals(string.substring(want, n - 1, n), "+") == 1 { return 1 }
+    return 0
+}
+
+// _match_major_version(want, have) — does an installed major version
+// `have` satisfy the requested spec `want`? Pure.
+//   want="21",  have="21"     → 1   (exact major)
+//   want="21",  have="24"     → 0
+//   want="21+", have="24"     → 1   (floor, newer ok)
+//   want="21+", have="17"     → 0
+//   want="21",  have="21.0.2" → 1   (major matches; minor ignored)
+// Both args are compared on their leading-digit major only; a request
+// with no parsable digits never matches (returns 0).
+_match_major_version(want: string, have: string) {
+    wn = _digits_prefix(want)
+    hn = _digits_prefix(have)
+    if wn < 0 { return 0 }
+    if hn < 0 { return 0 }
+    if _version_is_floor(want) == 1 {
+        if hn >= wn { return 1 }
+        return 0
+    }
+    if hn == wn { return 1 }
+    return 0
+}
+
+// _jvm_dir_major(dirname) — extract a JDK major version from a JVM
+// install directory's basename. Pure. Handles the conventional shapes:
+//   "java-21-amazon-corretto"   → "21"
+//   "java-17-openjdk-amd64"     → "17"
+//   "java-1.17.0-openjdk-amd64" → "17"  (legacy 1.X.0 → X)
+//   "jdk-21.0.2"                → "21"
+//   "temurin-25.0.1"            → "25"
+// Returns "" when no version-looking segment is found. The rule: scan
+// '-'-separated segments for the first that begins with a digit; if it is
+// the legacy "1.X.0" shape (leading "1." then more), take the X.
+_jvm_dir_major(dirname: string) {
+    rest = dirname
+    seg = ""
+    out = ""
+    done = 0
+    while done == 0 {
+        if string.length(rest) == 0 {
+            done = 1
+        } else {
+            dash = string.index_of(rest, "-")
+            if dash < 0 {
+                seg = rest
+                rest = ""
+            } else {
+                seg = string.substring(rest, 0, dash)
+                rest = string.substring(rest, dash + 1, string.length(rest))
+            }
+            // Is seg a version-looking segment (starts with a digit)?
+            if _digits_prefix(seg) >= 0 {
+                // Legacy "1.X.0": leading "1." then a real major after.
+                if string.length(seg) >= 2 {
+                    if string.equals(string.substring(seg, 0, 2), "1.") == 1 {
+                        afterdot = string.substring(seg, 2, string.length(seg))
+                        m = _digits_prefix(afterdot)
+                        if m >= 0 {
+                            out = string.from_int(m)
+                            done = 1
+                        }
+                    }
+                }
+                if done == 0 {
+                    out = string.from_int(_digits_prefix(seg))
+                    done = 1
+                }
+            }
+        }
+    }
+    return out
+}
+
+// _select_jvm_home(jvm_root, listing_newline, want) — given the JVM
+// root dir, a newline-separated listing of its entries (basenames), and
+// the requested version spec, return the absolute home path of the first
+// matching JDK, or "" if none match. Pure: the caller supplies the
+// listing (so this is testable without a filesystem). Skips non-version
+// entries like "default-java".
+_select_jvm_home(jvm_root: string, listing_newline: string, want: string) {
+    rest = listing_newline
+    name = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 {
+            name = rest
+            rest = ""
+        } else {
+            name = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        name = string.trim(name)
+        if string.length(name) > 0 {
+            major = _jvm_dir_major(name)
+            if string.length(major) > 0 {
+                if _match_major_version(want, major) == 1 {
+                    return path.join(jvm_root, name)
+                }
+            }
+        }
+    }
+    return ""
+}
+
+// _toolchain_not_found_msg(lang, want, found_newline) — the hard-fail
+// message naming what was requested and what was actually installed.
+// Pure. found_newline is a newline-separated list of discovered version
+// majors (possibly empty).
+_toolchain_not_found_msg(lang: string, want: string, found_newline: string) {
+    found = string.trim(found_newline)
+    found_disp = found
+    if string.length(found_disp) == 0 { found_disp = "(none)" }
+    // Flatten newlines to ", " for a one-line message.
+    flat = ""
+    rest = found_disp
+    part = ""
+    first = 1
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 {
+            part = rest
+            rest = ""
+        } else {
+            part = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        part = string.trim(part)
+        if string.length(part) > 0 {
+            if first == 0 { flat = string.concat(flat, ", ") }
+            flat = string.concat(flat, part)
+            first = 0
+        }
+    }
+    if string.length(flat) == 0 { flat = found_disp }
+    return string.concat(string.concat(string.concat(string.concat(
+        "toolchain not found: need ", lang), " "), want),
+        string.concat(string.concat("; installed: ", flat),
+                      " (aeb selects among installed runtimes — install the requested version, e.g. via sdkman/apt/setup-java)"))
+}
+
+// --- Generated-lock self-validation ---------------------------------
+
+// lock_validate(gen_from_path, embedded_hash, current_hash,
+//               runtime_tag, locked_for_tag) -> string
+//
+// Returns "" when the lock is consistent, else a hard-fail message. Pure
+// — the caller computes current_hash by re-reading gen_from_path (or
+// passes "" to signal the source file is missing/unreadable).
+//
+//   gen_from_path  : the BOM path the lock declared it was generated from
+//   embedded_hash  : the sha256 the generated lock carries (generated_from)
+//   current_hash   : freshly-computed hash of gen_from_path now, or "" if
+//                     the file is missing/unreadable
+//   runtime_tag    : the runtime tag aeb is actually building with
+//                     (e.g. "cp312"); "" when the SDK does not gate on it
+//                     (Java: classpath is runtime-independent)
+//   locked_for_tag : the tag the generated lock was produced for
+//
+// Order of checks (most-actionable first): missing source, stale hash,
+// runtime mismatch.
+lock_validate(gen_from_path: string, embedded_hash: string, current_hash: string,
+              runtime_tag: string, locked_for_tag: string) {
+    if string.length(current_hash) == 0 {
+        return string.concat(string.concat(
+            "lockfile references ", gen_from_path),
+            " which is missing or unreadable — re-run the lock generator")
+    }
+    if string.equals(embedded_hash, current_hash) == 0 {
+        return string.concat(string.concat(
+            "lockfile is stale vs ", gen_from_path),
+            " (it changed since the lock was generated) — re-run the lock generator")
+    }
+    // Runtime gate only when the SDK supplies a current runtime tag AND
+    // the lock declares one. Java passes "" for runtime_tag (orthogonal).
+    if string.length(runtime_tag) > 0 {
+        if string.length(locked_for_tag) > 0 {
+            if string.equals(runtime_tag, locked_for_tag) == 0 {
+                return string.concat(string.concat(string.concat(string.concat(
+                    "lockfile was generated for ", locked_for_tag),
+                    " but this build selects "), runtime_tag),
+                    " — re-run the lock generator for the selected runtime")
+            }
+        }
+    }
+    return ""
+}
