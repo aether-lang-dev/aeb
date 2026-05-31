@@ -1,0 +1,77 @@
+// Unit tests for the remote-aeb agent scope-decision + wire helpers.
+// All pure (I/O-free) — no networking, no agent process.
+//
+// Design: docs/run-policy-class-and-cloud-leverage.md
+
+import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
+              _decision, dispatch_request_json, dispatch_reply_json,
+              _json_field, run_on, max_jobs, accept_scope)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- _scope_glob_match ---
+    _assert("glob * matches anything", _scope_glob_match("*", "ci/aether/main"))
+    _assert("preint/* matches preint/x", _scope_glob_match("preint/*", "preint/phammant/feat"))
+    _assert("preint/* matches bare preint", _scope_glob_match("preint/*", "preint"))
+    _assert("preint/* rejects ci/x", 1 - _scope_glob_match("preint/*", "ci/aether/main"))
+    _assert("preint/* rejects preintXYZ (prefix not boundary)",
+        1 - _scope_glob_match("preint/*", "preintXYZ"))
+    _assert("exact match", _scope_glob_match("preint", "preint"))
+    _assert("exact mismatch", 1 - _scope_glob_match("preint", "ci"))
+
+    // --- _scope_accepts: no accept_scope => open ---
+    open_scope = map.new()
+    _assert("scope with no accept_scope accepts all",
+        _scope_accepts(open_scope, "anything/goes"))
+
+    // --- _scope_accepts: with globs ---
+    s = map.new()
+    accept_scope(s, "preint/*")
+    accept_scope(s, "adhoc/phammant/*")
+    _assert("accepts preint/x", _scope_accepts(s, "preint/x"))
+    _assert("accepts adhoc/phammant/exp7", _scope_accepts(s, "adhoc/phammant/exp7"))
+    _assert("rejects ci/main", 1 - _scope_accepts(s, "ci/aether/main"))
+
+    // --- _has_free_slot ---
+    _assert("unbounded ('') always free", _has_free_slot(99, ""))
+    _assert("cap 0 = unbounded", _has_free_slot(99, "0"))
+    _assert("2/2 busy", 1 - _has_free_slot(2, "2"))
+    _assert("1/2 free", _has_free_slot(1, "2"))
+
+    // --- _decision: accept / busy / reject ---
+    sc = map.new()
+    accept_scope(sc, "preint/*")
+    max_jobs(sc, 2)
+    _eq("in-scope + slot => accept", _decision(sc, "preint/x", 1), "accept")
+    _eq("in-scope + no slot => busy", _decision(sc, "preint/x", 2), "busy")
+    _eq("out-of-scope => reject", _decision(sc, "ci/main", 0), "reject")
+    // reject takes precedence over busy: out-of-scope AND full => reject
+    _eq("out-of-scope + full => reject (not busy)", _decision(sc, "ci/main", 9), "reject")
+
+    // --- wire payloads round-trip through the skeleton extractor ---
+    req = dispatch_request_json("G123", "app/.tests.ae", "preint/x")
+    _eq("req guid", _json_field(req, "guid"), "G123")
+    _eq("req target", _json_field(req, "target"), "app/.tests.ae")
+    _eq("req purpose", _json_field(req, "purpose"), "preint/x")
+
+    rep = dispatch_reply_json("G123", "done", "fail")
+    _eq("reply guid", _json_field(rep, "guid"), "G123")
+    _eq("reply status", _json_field(rep, "status"), "done")
+    _eq("reply result", _json_field(rep, "result"), "fail")
+
+    _eq("missing field => empty", _json_field(rep, "nope"), "")
+
+    println("agent scope + wire tests done")
+}

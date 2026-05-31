@@ -67,6 +67,20 @@ if [[ "${1:-}" == "gcheckout" ]]; then
     exec "$GCHECKOUT_BIN" "$@"
 fi
 
+# --- agent: lazy-build and exec the remote-aeb listener ---
+# Routes `aeb agent [--port N] ...` to tools/aeb-agent, the sovereign
+# build-agent server. It imports the `agent` SDK from lib/, so the lazy
+# build needs `--lib lib` (like aeb-driver). See
+# docs/run-policy-class-and-cloud-leverage.md.
+if [[ "${1:-}" == "agent" ]]; then
+    AGENT_BIN="$AEB_HOME/tools/aeb-agent"
+    if [[ ! -x "$AGENT_BIN" ]]; then
+        "$AETHER" build "$AEB_HOME/tools/aeb-agent.ae" -o "$AGENT_BIN" --lib "$AEB_HOME/lib" 2>/dev/null
+    fi
+    shift
+    exec "$AGENT_BIN" "$@"
+fi
+
 # --- --watch: dev-loop wrapper, watches source dirs and re-runs aeb ---
 # Composes with cache + affected-target detection: a save fires inotify
 # (or fswatch on macOS), the changed paths flow through the

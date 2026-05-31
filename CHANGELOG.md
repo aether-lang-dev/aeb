@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Added
+
+- **Remote-aeb: `aeb agent` + `agent.dispatch` (walking skeleton).** A
+  sovereign build-agent server and the originator dispatch to it — the
+  first running slice of the run-policy / cloud-leverage design
+  (`docs/run-policy-class-and-cloud-leverage.md`). `aeb agent --port N
+  --accept '<glob>' --workdir DIR [--max-jobs N]` (`tools/aeb-agent`)
+  listens over HTTP; on `POST /dispatch {guid,target,purpose}` it decides
+  **accept / busy / reject** against its scope (purpose glob + job-slot
+  cap), runs `aeb <target>` on the bare host, and returns a terse verdict.
+  The agent's ability to refuse is what makes it a sovereign peer, not a
+  worker — aeb is never a fleet control plane. The originator side is
+  `agent.dispatch(b) { endpoint(...) target(...) purpose(...) }` in a
+  fan-out `.ae` target: it fires the request, awaits the verdict, and
+  folds pass/fail into `build.fail`/`any_failed` (trustworthy only because
+  of the silent-green fix — the remote `aeb` actually reddens on failure).
+  v1: synchronous request/response, scope from CLI flags, busy/reject/
+  unreachable fail back to the user. Composable scope-tree data model
+  (`run_on("host")` now; `podman`/`vm` kinds slot in later). Shared
+  decision core in `lib/agent` (`_decision`, scope-glob match, slot cap,
+  wire payloads), unit-tested offline in `tests/test_agent_scope.ae` (26
+  assertions). Deliberately NOT yet: token auth, cache partitioning,
+  fire-async + webhook-back + `details_url` split (all designed, flagged
+  as thickenings).
+
 ### Fixed
 
 - **Silent-green eliminated: a failed build step now reddens the build.**

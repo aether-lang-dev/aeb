@@ -1,9 +1,20 @@
 # Run policy class, cloud leverage, and job fan-out
 
-Status: **design draft** — no implementation yet. This is the larger
-write-up requested after the CI-duties discussion; it supersedes the
-sketch in `asks/run-policy-class.md` (keep that ask as the one-paragraph
-pointer, this doc as the design).
+Status: **design draft; walking skeleton landed.** This is the larger
+write-up requested after the CI-duties discussion. A first running slice
+exists — `aeb agent` (`tools/aeb-agent`) + `agent.dispatch` (`lib/agent`),
+covering the sovereign-agent shape (accept/busy/reject → run → terse
+verdict → fold into `any_failed`). What's implemented vs. still design:
+
+- **Implemented (skeleton):** the agent listener, scope decision
+  (accept/busy/reject), bare-host run, originator dispatch + verdict fold,
+  the composable scope-tree data model, fail-back-on-busy/reject/
+  unreachable. Synchronous wire (HTTP), scope from CLI flags.
+- **Still design (this doc):** policy class + token/purpose trust model
+  (claim→verify→veto), cache partitioning by embedded purpose,
+  fire-async + webhook-back + `details_url` split, `podman`/`vm` run_on
+  kinds, agent OS self-report under auth, the `.ae` closure-DSL agent
+  config (skeleton uses flags).
 
 ## The thing being modelled
 

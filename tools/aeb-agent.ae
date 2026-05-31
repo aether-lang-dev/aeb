@@ -1,0 +1,172 @@
+// aeb-agent — remote-aeb listener (walking skeleton).
+//
+// A sovereign build agent: listens on HTTP, decides accept/busy/reject
+// for an incoming dispatch against its scope, runs `aeb <target>`
+// locally on the bare host, and returns a terse verdict. Stood up on a
+// remote box (oldnuc / mac-mini / bazzite); an originating aeb's
+// `agent.dispatch` fires requests at it.
+//
+// Usage:
+//   aeb agent [--port N] [--host H] [--scope NAME] [--accept GLOB]
+//             [--max-jobs N] [--workdir DIR]
+//
+// Walking skeleton — synchronous: POST /dispatch decides, runs aeb
+// inline, and returns the final verdict in the same response (the
+// fire-async + webhook-back + details_url split from the design doc is a
+// later thickening). One scope from CLI flags for now; the composable
+// scope-TREE config (.ae closure DSL, podman/vm run_on kinds) slots in
+// without reshaping the decision core, which lives in lib/agent and is
+// shared + unit-tested.
+//
+// Decision core (pure): agent._decision(scope, purpose, active).
+// NOT yet: token auth, cache partitioning. See
+// docs/run-policy-class-and-cloud-leverage.md.
+
+import std.http
+import std.string
+import std.os
+import std.map
+import std.list
+
+import agent (_decision, dispatch_reply_json, _json_field)
+
+extern println(s: string)
+extern exit(code: int)
+extern http_server_start_raw(server: ptr) -> int
+
+// Config travels to the (state-less, can't-close-over-locals) route
+// handler through the process env, set by main() before the server
+// starts: AEB_AGENT_ACCEPT (glob), AEB_AGENT_MAX_JOBS, AEB_AGENT_WORKDIR.
+// The handler reconstructs the scope map per request from these — cheap,
+// and avoids module-level mutable globals (which Aether doesn't have).
+// max_jobs enforcement is exercised by the lib/agent unit tests; under
+// the skeleton's synchronous handling `active` is effectively 0, so the
+// gate becomes load-bearing only when the handler goes async (a later
+// thickening).
+
+_scope_from_env() {
+    s = map.new()
+    _r = map.put(s, "run_on", "host")
+    mj = os.getenv("AEB_AGENT_MAX_JOBS")
+    if string.length(mj) > 0 { _m = map.put(s, "max_jobs", mj) }
+    glob = os.getenv("AEB_AGENT_ACCEPT")
+    if string.length(glob) == 0 { glob = "preint/*" }
+    globs = list.new()
+    _g = list.add(globs, glob)
+    _a = map.put(s, "accept_scope", globs)
+    return s
+}
+
+handle_dispatch(req: ptr, res: ptr, ud: ptr) {
+    body = http.request_body(req)
+    guid = _json_field(body, "guid")
+    target = _json_field(body, "target")
+    purpose = _json_field(body, "purpose")
+    if string.length(purpose) == 0 { purpose = "preint" }
+
+    scope = _scope_from_env()
+    decision = _decision(scope, purpose, 0)
+
+    if string.equals(decision, "reject") == 1 {
+        println("agent: REJECT guid=${guid} purpose=${purpose} (out of scope)")
+        http.response_set_status(res, 403)
+        http.response_set_header(res, "Content-Type", "application/json")
+        http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
+        return 0
+    }
+    if string.equals(decision, "busy") == 1 {
+        println("agent: BUSY guid=${guid} (no free slot)")
+        http.response_set_status(res, 503)
+        http.response_set_header(res, "Content-Type", "application/json")
+        http.response_set_body(res, dispatch_reply_json(guid, "busy", ""))
+        return 0
+    }
+
+    // accept → run aeb <target> in the agent's workdir, capture rc.
+    workdir = os.getenv("AEB_AGENT_WORKDIR")
+    if string.length(workdir) == 0 { workdir = "." }
+    println("agent: ACCEPT guid=${guid} purpose=${purpose} target=${target}")
+    cmd = "cd '${workdir}' && aeb '${target}'"
+    rc = os.system(cmd)
+
+    result = "pass"
+    if rc != 0 { result = "fail" }
+    println("agent: DONE guid=${guid} result=${result} (rc=${rc})")
+    http.response_set_status(res, 200)
+    http.response_set_header(res, "Content-Type", "application/json")
+    http.response_set_body(res, dispatch_reply_json(guid, "done", result))
+    return 0
+}
+
+handle_health(req: ptr, res: ptr, ud: ptr) {
+    http.response_set_status(res, 200)
+    http.response_set_body(res, "ok")
+    return 0
+}
+
+// Run the blocking server loop off an actor, mirroring the stdlib
+// integration-test idiom (a plain call to http_server_start_raw in main
+// ties up the scheduler before the bind is observable).
+message StartSrv { raw: ptr }
+actor SrvActor {
+    state s = 0
+    receive { StartSrv(raw) -> { s = raw; http_server_start_raw(raw) } }
+}
+
+main() {
+    argc = aether_args_count()
+    port = 9440
+    host = "127.0.0.1"
+    scope_name = "preint"
+    accept_glob = "preint/*"
+    max_jobs = 0
+    workdir = "."
+
+    i = 1
+    while i < argc {
+        a = aether_args_get(i)
+        if string.equals(a, "--port") == 1 { i = i + 1; port = _atoi(aether_args_get(i)) }
+        if string.equals(a, "--host") == 1 { i = i + 1; host = aether_args_get(i) }
+        if string.equals(a, "--scope") == 1 { i = i + 1; scope_name = aether_args_get(i) }
+        if string.equals(a, "--accept") == 1 { i = i + 1; accept_glob = aether_args_get(i) }
+        if string.equals(a, "--max-jobs") == 1 { i = i + 1; max_jobs = _atoi(aether_args_get(i)) }
+        if string.equals(a, "--workdir") == 1 { i = i + 1; workdir = aether_args_get(i) }
+        i = i + 1
+    }
+
+    // Publish the single scope's config to the env the handler reads.
+    _e1 = os.setenv("AEB_AGENT_ACCEPT", accept_glob)
+    if max_jobs > 0 { _e2 = os.setenv("AEB_AGENT_MAX_JOBS", string.from_int(max_jobs)) }
+    _e3 = os.setenv("AEB_AGENT_WORKDIR", workdir)
+
+    raw = http.server_create(port)
+    if raw == 0 { println("aeb-agent: FAIL server_create"); exit(1) }
+    http.server_set_host(raw, host)
+    http.server_post(raw, "/dispatch", handle_dispatch, 0)
+    http.server_get(raw, "/health", handle_health, 0)
+
+    mj_disp = "unbounded"
+    if max_jobs > 0 { mj_disp = string.from_int(max_jobs) }
+    println("aeb-agent: listening on ${host}:${port} scope=${scope_name} accept=${accept_glob} max_jobs=${mj_disp} workdir=${workdir}")
+
+    a = spawn(SrvActor())
+    a ! StartSrv { raw: raw }
+    sleep(86400000)
+    exit(0)
+}
+
+_atoi(s: string) {
+    n = string.length(s)
+    if n == 0 { return 0 }
+    i = 0
+    v = 0
+    digits = "0123456789"
+    while i < n {
+        c = string.substring(s, i, i + 1)
+        d = string.index_of(digits, c)
+        if d < 0 { return v }
+        v = v * 10 + d
+        i = i + 1
+    }
+    return v
+}

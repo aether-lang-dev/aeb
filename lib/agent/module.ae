@@ -1,0 +1,289 @@
+// agent — remote-aeb dispatch SDK (walking skeleton).
+//
+// Two sides, one module:
+//   - ORIGINATOR: `agent.dispatch(b) { endpoint(...) target(...) }` in a
+//     fan-out .ae target. Fires a request to a remote aeb-agent, awaits a
+//     terse verdict, folds pass/fail into build.fail/any_failed.
+//   - AGENT-side decision helpers (pure): does an incoming request's
+//     purpose match a scope's accept rule? is a job slot free? These are
+//     consumed by tools/aeb-agent (the listener exe) and tested offline.
+//
+// Design: docs/run-policy-class-and-cloud-leverage.md.
+// Walking skeleton — deliberately NOT yet: token auth, cache
+// partitioning, the details_url sync-pull, the duration-scoped callback
+// socket (the skeleton does a synchronous request/response). Those
+// thicken this spine later.
+//
+// The agent's capabilities are a COMPOSABLE SCOPE TREE
+// (dsl-with-scope): one host can offer several scopes (bare host now;
+// podman / vm scopes slot in later as new run_on kinds without reshaping
+// the model). The first scope is trivial; the data model is a tree from
+// day one.
+//
+//   agent {
+//       scope("preint") {
+//           run_on("host")            // later: "podman" | "vm"
+//           max_jobs(2)
+//           accept_scope("preint/*")  // glob over the request purpose
+//       }
+//   }
+
+import build
+import std.http
+import std.string
+import std.io
+import std.os
+import std.list
+import std.map
+
+// --- Originator-side DSL setters (live on _builder) ---
+
+// endpoint(url) — the remote aeb-agent base URL (host:port). Typically
+// sourced from an env var in the .build.ae: endpoint(env "AEB_AGENT_MAC").
+endpoint(_ctx: ptr, url: string) {
+    _e = map.put(_ctx, "endpoint", url)
+}
+
+// target(path) — the .ae target the remote agent should build/run.
+target(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "target", path)
+}
+
+// purpose(scope) — the policy/purpose string this request claims
+// (e.g. "preint/phammant/feature-x"). The agent matches it against its
+// scopes' accept rules. Optional in the skeleton; defaults to "preint".
+purpose(_ctx: ptr, scope: string) {
+    _e = map.put(_ctx, "purpose", scope)
+}
+
+// --- Agent-side scope DSL setters (live on a scope map) ---
+
+run_on(_ctx: ptr, kind: string) {
+    _e = map.put(_ctx, "run_on", kind)
+}
+
+max_jobs(_ctx: ptr, n: int) {
+    _e = map.put(_ctx, "max_jobs", string.from_int(n))
+}
+
+accept_scope(_ctx: ptr, glob: string) {
+    if map.has(_ctx, "accept_scope") == 0 {
+        _e1 = map.put(_ctx, "accept_scope", list.new())
+    }
+    globs, _ = map.get(_ctx, "accept_scope")
+    _e2 = list.add(globs, glob)
+}
+
+// --- Pure decision helpers (I/O-free; tested in tests/) ---
+
+// _scope_glob_match(glob, purpose) — does a request `purpose` satisfy an
+// accept_scope `glob`? Skeleton grammar: a trailing "/*" matches any
+// purpose with that prefix; "*" matches anything; otherwise exact match.
+// (Intentionally small — the full hierarchical token grammar from the
+// design doc is a later thickening.)
+_scope_glob_match(glob: string, purpose: string) {
+    if string.equals(glob, "*") == 1 { return 1 }
+    n = string.length(glob)
+    if n >= 2 {
+        tail = string.substring(glob, n - 2, n)
+        if string.equals(tail, "/*") == 1 {
+            prefix = string.substring(glob, 0, n - 2)
+            // "preint/*" matches "preint" and "preint/anything".
+            if string.equals(purpose, prefix) == 1 { return 1 }
+            pf = string.concat(prefix, "/")
+            pfn = string.length(pf)
+            if string.length(purpose) >= pfn {
+                if string.equals(string.substring(purpose, 0, pfn), pf) == 1 {
+                    return 1
+                }
+            }
+            return 0
+        }
+    }
+    if string.equals(glob, purpose) == 1 { return 1 }
+    return 0
+}
+
+// _scope_accepts(scope_map, purpose) — 1 if any of the scope's
+// accept_scope globs match the purpose. A scope with NO accept_scope
+// declared accepts everything (open by default in the skeleton).
+_scope_accepts(scope_map: ptr, purpose: string) {
+    if map.has(scope_map, "accept_scope") == 0 { return 1 }
+    globs, _ = map.get(scope_map, "accept_scope")
+    n = list.size(globs)
+    if n == 0 { return 1 }
+    i = 0
+    while i < n {
+        g, _ = list.get(globs, i)
+        if _scope_glob_match(g, purpose) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// _has_free_slot(active, max_jobs_str) — capacity check. `active` is the
+// count of in-flight jobs in this scope; max_jobs_str is the scope's
+// declared cap ("" or "0" = unbounded). Returns 1 if a slot is free.
+_has_free_slot(active: int, max_jobs_str: string) {
+    if string.length(max_jobs_str) == 0 { return 1 }
+    cap = _to_int(max_jobs_str)
+    if cap <= 0 { return 1 }
+    if active < cap { return 1 }
+    return 0
+}
+
+_to_int(s: string) {
+    n = string.length(s)
+    if n == 0 { return 0 }
+    i = 0
+    v = 0
+    digits = "0123456789"
+    while i < n {
+        c = string.substring(s, i, i + 1)
+        d = string.index_of(digits, c)
+        if d < 0 { return v }
+        v = v * 10 + d
+        i = i + 1
+    }
+    return v
+}
+
+// _decision(scope_map, purpose, active) -> "accept" | "busy" | "reject"
+// The agent's per-request verdict, decided purely:
+//   - reject : purpose not in any accept_scope of the scope
+//   - busy   : accepted by scope but no free job slot
+//   - accept : in-scope and a slot is free
+// (Token authentication, when added, gates BEFORE this — an unauthenticated
+// request never reaches the scope decision.)
+_decision(scope_map: ptr, purpose: string, active: int) {
+    if _scope_accepts(scope_map, purpose) == 0 { return "reject" }
+    mj = ""
+    if map.has(scope_map, "max_jobs") == 1 {
+        mj, _ = map.get(scope_map, "max_jobs")
+    }
+    if _has_free_slot(active, mj) == 0 { return "busy" }
+    return "accept"
+}
+
+// --- Wire payloads (pure builders; tested) ---
+
+// dispatch_request_json(guid, target, purpose) — the skinny fire payload
+// the originator POSTs to the agent's /dispatch.
+dispatch_request_json(guid: string, target: string, purpose: string) {
+    out = "{"
+    out = string.concat(out, "\"guid\":\"")
+    out = string.concat(out, guid)
+    out = string.concat(out, "\",\"target\":\"")
+    out = string.concat(out, target)
+    out = string.concat(out, "\",\"purpose\":\"")
+    out = string.concat(out, purpose)
+    out = string.concat(out, "\"}")
+    return out
+}
+
+// dispatch_reply_json(guid, status, result) — the skinny terse verdict the
+// agent returns. status ∈ accepted|busy|rejected|done; result ∈ pass|fail
+// (only meaningful when status=done). The details_url field is a later
+// thickening; omitted in the skeleton.
+dispatch_reply_json(guid: string, status: string, result: string) {
+    out = "{"
+    out = string.concat(out, "\"guid\":\"")
+    out = string.concat(out, guid)
+    out = string.concat(out, "\",\"status\":\"")
+    out = string.concat(out, status)
+    out = string.concat(out, "\",\"result\":\"")
+    out = string.concat(out, result)
+    out = string.concat(out, "\"}")
+    return out
+}
+
+// _json_field(body, key) — minimal flat-JSON string-field extractor for
+// the skeleton's own payloads (no nested objects). Returns "" if absent.
+// (Skeleton-grade; a real JSON parse replaces this when payloads grow.)
+_json_field(body: string, key: string) {
+    needle = string.concat(string.concat("\"", key), "\":\"")
+    idx = string.index_of(body, needle)
+    if idx < 0 { return "" }
+    rest = string.substring(body, idx + string.length(needle), string.length(body))
+    end = string.index_of(rest, "\"")
+    if end < 0 { return "" }
+    return string.substring(rest, 0, end)
+}
+
+// _gen_guid() — a unique-enough request id for correlation (pid +
+// monotonic ns). Not a cryptographic UUID; the skeleton only needs it to
+// tie a fire to its reply.
+_gen_guid() {
+    pid = os.getpid()
+    ns = os.now_monotonic_ns()
+    return string.concat(string.concat("aeb-", string.from_int(pid)), string.concat("-", string.from_long(ns)))
+}
+
+// --- Originator builder: agent.dispatch(b) { endpoint(...) target(...) }
+//
+// Fires one dispatch at a remote aeb-agent and folds the verdict into the
+// build. Walking skeleton: synchronous http.post (the agent replies with
+// the final verdict in-band); the fire-async + webhook-back + details_url
+// split is a later thickening. v1 backpressure: a "busy", a "rejected",
+// or an unreachable agent FAILS BACK to the user (build.fail), no retry.
+builder dispatch(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+
+    // NB: locals must NOT be named target/purpose — those are setter
+    // function names in this module, and string interpolation of a bare
+    // `${target}` binds to the FUNCTION (a pointer → garbage), not the
+    // local. (Same reason endpoint is read into `ep`.) Use tgt/purp.
+    ep = ""
+    tgt = ""
+    purp = "preint"
+    if _builder != null {
+        if map.has(_builder, "endpoint") == 1 {
+            ep, _ = map.get(_builder, "endpoint")
+        }
+        if map.has(_builder, "target") == 1 {
+            tgt, _ = map.get(_builder, "target")
+        }
+        if map.has(_builder, "purpose") == 1 {
+            purp, _ = map.get(_builder, "purpose")
+        }
+    }
+    if string.length(ep) == 0 {
+        println("${mod_dir}: agent.dispatch requires endpoint(...)")
+        build.fail(ctx, "agent.dispatch: no endpoint")
+        return 1
+    }
+    if string.length(tgt) == 0 {
+        println("${mod_dir}: agent.dispatch requires target(...)")
+        build.fail(ctx, "agent.dispatch: no target")
+        return 1
+    }
+
+    guid = _gen_guid()
+    url = string.concat(ep, "/dispatch")
+    req_body = dispatch_request_json(guid, tgt, purp)
+    println("${mod_dir}: dispatch ${guid} → ${url} target=${tgt} purpose=${purp}")
+
+    resp, err = http.post(url, req_body, "application/json")
+    if string.length(err) > 0 {
+        // Non-2xx (reject 403 / busy 503 surface here as http error) or a
+        // transport failure (agent down). v1: fail back to the user.
+        println("${mod_dir}: dispatch ${guid} FAILED — ${err} (agent unreachable, busy, or rejected)")
+        build.fail(ctx, "agent dispatch failed: ${err}")
+        return 1
+    }
+
+    status = _json_field(resp, "status")
+    result = _json_field(resp, "result")
+    if string.equals(status, "done") == 0 {
+        println("${mod_dir}: dispatch ${guid} unexpected status '${status}'")
+        build.fail(ctx, "agent dispatch status ${status}")
+        return 1
+    }
+    if string.equals(result, "pass") == 0 {
+        println("${mod_dir}: dispatch ${guid} → remote build FAILED")
+        build.fail(ctx, "remote build failed on agent")
+        return 1
+    }
+    println("${mod_dir}: dispatch ${guid} → remote build PASSED")
+    return 0
+}
