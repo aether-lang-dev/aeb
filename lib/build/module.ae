@@ -61,18 +61,31 @@ begin(s: ptr, module_dir: string) {
     // there, which is correct (no DAG, nothing to query).
     _es = map.put(ctx, "_session", s)
 
+    // Strip the optional "@<subdir>" output-routing segment FIRST, before
+    // the test:/dist:/:tag parsing (which expects the historical label
+    // shape). The subdir is the //aeb:output_subdir directive, read at scan
+    // time by aeb-link and ridden into the label (the addressing contract —
+    // docs/label-is-the-addressing-contract.md). "" when no directive.
+    declared_subdir = ""
+    at_idx = string.index_of(module_dir, "@")
+    label_core = module_dir
+    if at_idx >= 0 {
+        declared_subdir = string.substring(module_dir, at_idx + 1, string.length(module_dir))
+        label_core = string.substring(module_dir, 0, at_idx)
+    }
+
     // Handle "test:" prefix for co-located tests
-    fs_dir = module_dir
+    fs_dir = label_core
     is_colocated_test = 0
-    test_prefix = string.index_of(module_dir, "test:")
+    test_prefix = string.index_of(label_core, "test:")
     if test_prefix == 0 {
-        fs_dir = string.substring(module_dir, 5, string.length(module_dir))
+        fs_dir = string.substring(label_core, 5, string.length(label_core))
         is_colocated_test = 1
     }
     // Handle "dist:" prefix for packaging targets
-    dist_prefix = string.index_of(module_dir, "dist:")
+    dist_prefix = string.index_of(label_core, "dist:")
     if dist_prefix == 0 {
-        fs_dir = string.substring(module_dir, 5, string.length(module_dir))
+        fs_dir = string.substring(label_core, 5, string.length(label_core))
     }
     // Strip the optional ":tag" suffix used to disambiguate multiple
     // .build*.ae files in the same directory (e.g. .build-seed.ae →
@@ -99,18 +112,23 @@ begin(s: ptr, module_dir: string) {
     _e4 = map.put(ctx, "source_dir", source_dir)
 
     target_base = path.join(root, "target")
-    // Test artifacts route to target/tests/ — but ONLY when the file is
-    // classified a test by its .tests.ae SUFFIX (the test: label →
-    // is_colocated_test). The old dir-name heuristic — is_test =
-    // ends_with(lang_prefix, "tests") — was deleted: it caught nothing the
-    // label channel misses, mislabelled any dir merely ENDING in "tests"
-    // (itests/, *tests/ in Google-style monorepos), and DOUBLE-nested a
-    // real test (both flags firing → target/tests/tests/...), which then
-    // mismatched _label_to_target_dir's single-tests/ path and silently
-    // killed caching for every such test. Directory names never decide
-    // test-vs-prod; the .tests.ae suffix does.
-    if is_colocated_test == 1 {
-        target_base = path.join(target_base, "tests")
+    // Output routing, in priority order:
+    //   1. an explicit //aeb:output_subdir directive (declared_subdir) — the
+    //      author DECLARED where artifacts go; rides the label as @<sub>.
+    //   2. else the .tests.ae suffix (is_colocated_test) → target/tests/ —
+    //      the historical filename-inferred default, kept for the ~349 files
+    //      that don't (yet) carry the directive.
+    // Either way the routing is LABEL-derivable, so _label_to_target_dir and
+    // every dependent's _read_dep_artifact compute the SAME path (the
+    // addressing contract — docs/label-is-the-addressing-contract.md). The
+    // old is_test dir-name heuristic (ends_with lang_prefix "tests") was
+    // deleted earlier: it double-nested and killed caching for *tests/ dirs.
+    if string.length(declared_subdir) > 0 {
+        target_base = path.join(target_base, declared_subdir)
+    } else {
+        if is_colocated_test == 1 {
+            target_base = path.join(target_base, "tests")
+        }
     }
     // Use full module path for target dir to avoid collisions
     // (e.g. mongodb/util vs cassandra/util)
@@ -1501,24 +1519,38 @@ _parse_aeocha_report(text: string) {
 // of fs_dir + tgt_dir). Used by the orchestrator to find the
 // right .aeb_cache marker for each module after running.
 _label_to_target_dir(root: string, module_dir: string) {
-    fs_dir = module_dir
+    // Strip the @<subdir> output-routing segment first (mirrors build.begin),
+    // so the same label yields the same target dir from both sites — the
+    // addressing contract. declared_subdir wins; else the test: default.
+    declared_subdir = ""
+    at_idx = string.index_of(module_dir, "@")
+    label_core = module_dir
+    if at_idx >= 0 {
+        declared_subdir = string.substring(module_dir, at_idx + 1, string.length(module_dir))
+        label_core = string.substring(module_dir, 0, at_idx)
+    }
+    fs_dir = label_core
     is_test = 0
-    test_pre = string.index_of(module_dir, "test:")
+    test_pre = string.index_of(label_core, "test:")
     if test_pre == 0 {
-        fs_dir = string.substring(module_dir, 5, string.length(module_dir))
+        fs_dir = string.substring(label_core, 5, string.length(label_core))
         is_test = 1
     }
-    dist_pre = string.index_of(module_dir, "dist:")
+    dist_pre = string.index_of(label_core, "dist:")
     if dist_pre == 0 {
-        fs_dir = string.substring(module_dir, 5, string.length(module_dir))
+        fs_dir = string.substring(label_core, 5, string.length(label_core))
     }
     colon = string.index_of(fs_dir, ":")
     if colon >= 0 {
         fs_dir = string.substring(fs_dir, 0, colon)
     }
     target_base = path.join(root, "target")
-    if is_test == 1 {
-        target_base = path.join(target_base, "tests")
+    if string.length(declared_subdir) > 0 {
+        target_base = path.join(target_base, declared_subdir)
+    } else {
+        if is_test == 1 {
+            target_base = path.join(target_base, "tests")
+        }
     }
     return path.join(target_base, fs_dir)
 }

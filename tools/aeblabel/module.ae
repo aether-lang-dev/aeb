@@ -137,3 +137,42 @@ file_to_label(file: string) {
     }
     return string.concat(dir, suffix)
 }
+
+// --- Output-subdir label segment (the //aeb:output_subdir directive) ---
+//
+// A build file may DECLARE where its artifacts go via a scan-time
+// `//aeb:output_subdir <sub>` comment (read by aeb-link, NOT here — this
+// module is pure/I-O-free). The declared subdir rides the LABEL as an
+// `@<sub>` segment, because the label is how every consumer addresses a
+// node's target/ dir (dependents' _read_dep_artifact, the cache/test
+// finders, build.begin) — none of which hold the node's ctx. See
+// docs/label-is-the-addressing-contract.md.
+//
+//   "test:path/to"          (no directive)        → subdir ""
+//   "test:path/to@tests"    (//aeb:output_subdir tests) → subdir "tests"
+//   "path/to:seed@out"      (tag seed, subdir out) → subdir "out"
+//
+// '@' is the segment delimiter (free in the existing :-based grammar).
+// The segment is LAST, so it composes with the test:/dist: prefix and the
+// :tag suffix without ambiguity.
+
+// with_output_subdir(label, sub) — append the @sub segment (no-op if sub "").
+with_output_subdir(label: string, sub: string) {
+    if string.length(sub) == 0 { return label }
+    return string.concat(string.concat(label, "@"), sub)
+}
+
+// output_subdir_of(label) — the declared subdir, or "" if none.
+output_subdir_of(label: string) {
+    at = string.index_of(label, "@")
+    if at < 0 { return string.concat("", "") }
+    return string.substring(label, at + 1, string.length(label))
+}
+
+// strip_output_subdir(label) — the label without its @sub segment, so the
+// existing test:/dist:/:tag parsing sees the label shape it always has.
+strip_output_subdir(label: string) {
+    at = string.index_of(label, "@")
+    if at < 0 { return label }
+    return string.substring(label, 0, at)
+}

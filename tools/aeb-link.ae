@@ -35,10 +35,29 @@ import std.strbuilder
 
 // Label / tag derivation is shared via the aeblabel module (built
 // with `--lib tools`) — one canonical copy, no drift across tools.
-import aeblabel (infer_type, dirname_pure, extract_tag, file_to_label)
+import aeblabel (infer_type, dirname_pure, extract_tag, file_to_label, with_output_subdir)
 
 extern println(s: string)
 extern exit(code: int)
+
+// _read_output_subdir(path) — scan a .ae file for a `//aeb:output_subdir
+// <sub>` directive and return <sub> (trimmed), or "" if absent. Static read
+// only (io.read_file + string scan), the same trick extract-deps uses for
+// dep() lines — no Aether execution. First match wins. The directive
+// DECLARES where this node's artifacts go; aeb-link folds it into the label
+// (the addressing contract — docs/label-is-the-addressing-contract.md).
+_read_output_subdir(path: string) {
+    content, rerr = io.read_file(path)
+    if string.length(rerr) > 0 { return string.concat("", "") }
+    needle = "//aeb:output_subdir"
+    idx = string.index_of(content, needle)
+    if idx < 0 { return string.concat("", "") }
+    // Take the rest of that line past the needle, trim spaces.
+    rest = string.substring(content, idx + string.length(needle), string.length(content))
+    nl = string.index_of(rest, "\n")
+    if nl >= 0 { rest = string.substring(rest, 0, nl) }
+    return string.trim(rest)
+}
 
 // Discover the project root to use as an extra aetherc module-search
 // root, so a build script can share a source module in another directory
@@ -336,6 +355,11 @@ main() {
         type      = infer_type(file_path)
         fname     = encode_name(file_path)
         label     = file_to_label(file_path)
+        // Fold any //aeb:output_subdir directive into the label (@<sub>), so
+        // build.begin, _label_to_target_dir, and every dependent's
+        // _read_dep_artifact derive the SAME target dir from the label.
+        // Read statically (like extract-deps greps dep() lines) — no run.
+        label     = with_output_subdir(label, _read_output_subdir(file_path))
         src       = string.concat("./", file_path)
         ae_tmp    = string.concat(string.concat(build_dir, "/"), string.concat(fname, ".ae"))
         c_out     = string.concat(string.concat(build_dir, "/"), string.concat(fname, ".c"))
