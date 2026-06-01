@@ -150,3 +150,17 @@ at scan time. If it's to be author-declared rather than filename-inferred, the
 declaration belongs in a **scan-time structured comment folded into the
 label**, not a runtime body setter. The label is the addressing contract; keep
 it the single source of where a node's output lives.
+
+## Postscript: the filename was already the declaration
+
+The structured-comment channel (`//aeb:output_subdir` / `//aeb:classify`) was
+built per this doc, then **retired**. The realisation:
+`docs/filename-is-the-route.md` showed the **build-file name itself** is the
+scan-time, label-resident declaration this doc was looking for —
+`.tests.ae` → `target/tests/`, `.staging.ae` → `target/staging/`. It satisfies
+the addressing contract by construction (every consumer derives the path from
+the same filename) and needs no comment, no inference layer, no override. The
+contract's requirement ("declaration must be label-derivable at scan time")
+stands exactly; the simplest thing that meets it turned out to be the name the
+author already chose. Comment directives were a more elaborate answer to a
+question the filename had already answered.

@@ -130,3 +130,23 @@ already present at every site that needs it, in the build-file name.
 
 No structured comments. No inference. The route is the name. The author
 already declared it by naming the file — we just stop translating it.
+
+## Update: implemented, and the directives retired
+
+The `target/<buildtype>/<dir>` layout shipped (the buildtype is the first
+segment, derived from the build-file name via `infer_type`/the label prefix).
+Then the `//aeb:output_subdir` and `//aeb:classify` directives were **retired
+entirely** — `aeblabel`'s `@segment` helpers (`with_output_subdir`,
+`output_subdir_of`, `strip_output_subdir`, `label_with_type`, `type_of_label`)
+and the three-copy `_read_directive` scan-time reader (aeb-link,
+gen-orchestrator, aeb-driver) are gone. They were read once, folded into the
+label, then never read again — and once the filename IS the route, they only
+fired in a "name disagrees with intent" case that the filename can express
+directly (want `target/staging/`? name the file `.staging.ae`). With no real
+need found in any repo, they were dead weight + a three-copy drift hazard.
+
+So the end state is a single mechanism: **the build-file name determines the
+type and the route, full stop.** No inference layer, no override channel, no
+comment grammar. `docs/label-is-the-addressing-contract.md` remains the *why*
+(routing must be label-derivable); this is the *how*, and it turned out the
+filename alone suffices.

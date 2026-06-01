@@ -61,24 +61,12 @@ begin(s: ptr, module_dir: string) {
     // there, which is correct (no DAG, nothing to query).
     _es = map.put(ctx, "_session", s)
 
-    // Strip the optional "@<subdir>" output-routing segment FIRST, before
-    // the test:/dist:/:tag parsing (which expects the historical label
-    // shape). The subdir is the //aeb:output_subdir directive, read at scan
-    // time by aeb-link and ridden into the label (the addressing contract —
-    // docs/label-is-the-addressing-contract.md). "" when no directive.
-    declared_subdir = ""
-    at_idx = string.index_of(module_dir, "@")
+    // Determine the buildtype segment (build/tests/dist) and the dir. The
+    // buildtype is the FIRST path segment of target/ — uniform across all
+    // types (docs/filename-is-the-route.md). It's carried by the label's
+    // test:/dist: prefix (build = no prefix), which is a pure function of the
+    // build-file name (.tests.ae → tests etc.). The route IS the filename.
     label_core = module_dir
-    if at_idx >= 0 {
-        declared_subdir = string.substring(module_dir, at_idx + 1, string.length(module_dir))
-        label_core = string.substring(module_dir, 0, at_idx)
-    }
-
-    // Determine the buildtype segment (build/tests/dist/...) and the dir.
-    // The buildtype is the FIRST path segment of target/ — uniform across
-    // all types (docs/filename-is-the-route.md). It's carried by the label's
-    // test:/dist: prefix (build = no prefix); declared_subdir (the
-    // //aeb:output_subdir directive) overrides it for a custom segment.
     fs_dir = label_core
     buildtype = "build"
     is_colocated_test = 0
@@ -94,8 +82,6 @@ begin(s: ptr, module_dir: string) {
         fs_dir = string.substring(label_core, 5, string.length(label_core))
         buildtype = "dist"
     }
-    // A declared subdir (//aeb:output_subdir) is the explicit buildtype seg.
-    if string.length(declared_subdir) > 0 { buildtype = declared_subdir }
     // Strip the optional ":tag" suffix used to disambiguate multiple
     // .build*.ae files in the same directory (e.g. .build-seed.ae →
     // label "ae/myserver:seed"). The tag exists for visited-set
@@ -1558,16 +1544,10 @@ _parse_aeocha_report(text: string) {
 // of fs_dir + tgt_dir). Used by the orchestrator to find the
 // right .aeb_cache marker for each module after running.
 _label_to_target_dir(root: string, module_dir: string) {
-    // Strip the @<subdir> output-routing segment first (mirrors build.begin),
-    // so the same label yields the same target dir from both sites — the
-    // addressing contract. declared_subdir wins; else the test: default.
-    declared_subdir = ""
-    at_idx = string.index_of(module_dir, "@")
+    // target/<buildtype>/<dir> — mirrors build.begin exactly so writer and
+    // finder agree (the addressing contract). Buildtype from the label's
+    // test:/dist: prefix (build = none). See docs/filename-is-the-route.md.
     label_core = module_dir
-    if at_idx >= 0 {
-        declared_subdir = string.substring(module_dir, at_idx + 1, string.length(module_dir))
-        label_core = string.substring(module_dir, 0, at_idx)
-    }
     fs_dir = label_core
     buildtype = "build"
     test_pre = string.index_of(label_core, "test:")
@@ -1584,9 +1564,6 @@ _label_to_target_dir(root: string, module_dir: string) {
     if colon >= 0 {
         fs_dir = string.substring(fs_dir, 0, colon)
     }
-    if string.length(declared_subdir) > 0 { buildtype = declared_subdir }
-    // target/<buildtype>/<dir> — mirrors build.begin exactly (addressing
-    // contract). See docs/filename-is-the-route.md.
     target_base = path.join(path.join(root, "target"), buildtype)
     return path.join(target_base, fs_dir)
 }
@@ -1608,15 +1585,12 @@ _label_to_target_dir(root: string, module_dir: string) {
 // are independent — a test row can have both [hit] and 17/17 PASS.
 // _label_display(label) — the clean human label for a telemetry/summary
 // row: strip the test:/dist: type prefix (the type is shown in its own
-// column) and any @<subdir> routing segment (an addressing detail, not a
-// name). "test:javatests/velar@tests" → "javatests/velar". The :tag suffix
-// is KEPT (it distinguishes co-located build files in display).
+// column). "test:javatests/velar" → "javatests/velar". The :tag suffix is
+// KEPT (it distinguishes co-located build files in display).
 _label_display(label: string) {
     s = label
     if string.index_of(s, "test:") == 0 { s = string.substring(s, 5, string.length(s)) }
     if string.index_of(s, "dist:") == 0 { s = string.substring(s, 5, string.length(s)) }
-    at = string.index_of(s, "@")
-    if at >= 0 { s = string.substring(s, 0, at) }
     return s
 }
 

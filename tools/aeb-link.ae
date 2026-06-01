@@ -35,38 +35,10 @@ import std.strbuilder
 
 // Label / tag derivation is shared via the aeblabel module (built
 // with `--lib tools`) — one canonical copy, no drift across tools.
-import aeblabel (infer_type, dirname_pure, extract_tag, file_to_label, with_output_subdir, label_with_type, type_of_label)
+import aeblabel (infer_type, dirname_pure, extract_tag, file_to_label)
 
 extern println(s: string)
 extern exit(code: int)
-
-// _read_directive(path, needle) — scan a .ae file for a `<needle> <value>`
-// header comment and return <value> (trimmed), or "" if absent. Static read
-// only (io.read_file + string scan), the same trick extract-deps uses for
-// dep() lines — no Aether execution. First match wins. These directives
-// DECLARE node metadata that must be LABEL-resident (addressing); aeb-link
-// folds them into the label. See docs/label-is-the-addressing-contract.md.
-_read_directive(path: string, needle: string) {
-    content, rerr = io.read_file(path)
-    if string.length(rerr) > 0 { return string.concat("", "") }
-    idx = string.index_of(content, needle)
-    if idx < 0 { return string.concat("", "") }
-    rest = string.substring(content, idx + string.length(needle), string.length(content))
-    nl = string.index_of(rest, "\n")
-    if nl >= 0 { rest = string.substring(rest, 0, nl) }
-    return string.trim(rest)
-}
-
-// _read_output_subdir(path) — the //aeb:output_subdir <sub> directive.
-_read_output_subdir(path: string) {
-    return _read_directive(path, "//aeb:output_subdir")
-}
-
-// _read_classify(path) — the //aeb:classify <test|dist|build> directive,
-// overriding the filename-inferred build type.
-_read_classify(path: string) {
-    return _read_directive(path, "//aeb:classify")
-}
 
 // Discover the project root to use as an extra aetherc module-search
 // root, so a build script can share a source module in another directory
@@ -342,8 +314,6 @@ main() {
     n = list.size(files)
 
     // --- Build display counts (compile / dist / test) ---
-    // Type honours the //aeb:classify directive: count by the directive's
-    // value when present, else the filename-inferred type.
     nb = 0
     nt = 0
     nd = 0
@@ -351,8 +321,6 @@ main() {
     while i < n {
         f, _ = list.get(files, i)
         t = infer_type(f)
-        cls = _read_classify(f)
-        if string.length(cls) > 0 { t = cls }
         if t == "build" { nb = nb + 1 }
         if t == "test"  { nt = nt + 1 }
         if t == "dist"  { nd = nd + 1 }
@@ -367,20 +335,7 @@ main() {
         file_path, _ = list.get(files, i)
         fname     = encode_name(file_path)
         label     = file_to_label(file_path)
-        // Fold any //aeb:output_subdir directive into the label (@<sub>), so
-        // build.begin, _label_to_target_dir, and every dependent's
-        // _read_dep_artifact derive the SAME target dir from the label.
-        // Read statically (like extract-deps greps dep() lines) — no run.
-        label     = with_output_subdir(label, _read_output_subdir(file_path))
-        // Fold any //aeb:classify directive into the label's type prefix,
-        // overriding the filename-inferred type. Derive `type` from the
-        // FINAL label so display + the orchestrator's type_word agree (the
-        // orchestrator reads type from the label too — type_of_label).
-        classify  = _read_classify(file_path)
-        if string.length(classify) > 0 {
-            label = label_with_type(label, classify)
-        }
-        type      = type_of_label(label)
+        type      = infer_type(file_path)
         src       = string.concat("./", file_path)
         ae_tmp    = string.concat(string.concat(build_dir, "/"), string.concat(fname, ".ae"))
         c_out     = string.concat(string.concat(build_dir, "/"), string.concat(fname, ".c"))
