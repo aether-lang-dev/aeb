@@ -1570,6 +1570,20 @@ _label_to_target_dir(root: string, module_dir: string) {
 // trailing "<P>/<T> PASS" or "<P>/<T> FAIL" is appended (P passed
 // out of T total, where T = passed + failed). Cache and test-result
 // are independent — a test row can have both [hit] and 17/17 PASS.
+// _label_display(label) — the clean human label for a telemetry/summary
+// row: strip the test:/dist: type prefix (the type is shown in its own
+// column) and any @<subdir> routing segment (an addressing detail, not a
+// name). "test:javatests/velar@tests" → "javatests/velar". The :tag suffix
+// is KEPT (it distinguishes co-located build files in display).
+_label_display(label: string) {
+    s = label
+    if string.index_of(s, "test:") == 0 { s = string.substring(s, 5, string.length(s)) }
+    if string.index_of(s, "dist:") == 0 { s = string.substring(s, 5, string.length(s)) }
+    at = string.index_of(s, "@")
+    if at >= 0 { s = string.substring(s, 0, at) }
+    return s
+}
+
 _format_telemetry_line(label: string, type_word: string, wall_ms: int, cache: string, test_passed: int, test_failed: int, has_test_result: int) {
     // Label column: pad to 32 chars for visual alignment of the
     // duration. Truncates if longer (no point fighting it).
@@ -1662,7 +1676,7 @@ render_telemetry(records: ptr, total_ms: int) {
             failed, _ = string.to_int(tf_s)
             has_test_result = 1
         }
-        line = _format_telemetry_line(label, type_word, wall_ms, cache, passed, failed, has_test_result)
+        line = _format_telemetry_line(_label_display(label), type_word, wall_ms, cache, passed, failed, has_test_result)
         out = string.concat(out, line)
         out = string.concat(out, "\n")
 

@@ -14,7 +14,7 @@ import std.string
 
 extern println(s: string)
 
-import aeblabel (extract_tag, file_to_label, with_output_subdir, output_subdir_of, strip_output_subdir)
+import aeblabel (extract_tag, file_to_label, with_output_subdir, output_subdir_of, strip_output_subdir, type_of_label, label_with_type)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -79,6 +79,20 @@ main() {
     _assert_eq("strip: present", strip_output_subdir("test:jt/velar@tests"), "test:jt/velar")
     _assert_eq("strip: absent",  strip_output_subdir("test:jt/velar"),       "test:jt/velar")
     _assert_eq("strip: with tag",strip_output_subdir("a/b:seed@out"),        "a/b:seed")
+
+    // --- type_of_label: the inverse of file_to_label's prefix encoding ---
+    _assert_eq("type_of: test prefix",  type_of_label("test:jt/velar"),       "test")
+    _assert_eq("type_of: dist prefix",  type_of_label("dist:pkg/foo"),        "dist")
+    _assert_eq("type_of: no prefix",    type_of_label("a/b/c"),               "build")
+    _assert_eq("type_of: with subdir",  type_of_label("test:jt/velar@tests"), "test")
+
+    // --- label_with_type: the //aeb:classify directive's effect on a label ---
+    _assert_eq("classify: build→test",  label_with_type("foo", "test"),        "test:foo")
+    _assert_eq("classify: build→dist",  label_with_type("foo", "dist"),        "dist:foo")
+    _assert_eq("classify: test→build",  label_with_type("test:foo", "build"),  "foo")
+    _assert_eq("classify: test→dist",   label_with_type("test:foo", "dist"),   "dist:foo")
+    _assert_eq("classify: preserves subdir", label_with_type("foo@out", "test"), "test:foo@out")
+    _assert_eq("classify: preserves tag",    label_with_type("a/b:seed", "test"), "test:a/b:seed")
 
     println("file_to_label tests done")
 }

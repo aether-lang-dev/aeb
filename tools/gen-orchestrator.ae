@@ -9,11 +9,27 @@
 
 import std.string
 import std.os
+import std.io
+
+// _read_directive(path, needle) — static read of a `<needle> <value>` header
+// comment (mirrors aeb-link's). gen-orchestrator gets FILES as argv and
+// re-derives labels, so it must apply the SAME //aeb: directives aeb-link
+// does, or the two tools' labels diverge for a directive-bearing file.
+_read_directive(path: string, needle: string) {
+    content, rerr = io.read_file(path)
+    if string.length(rerr) > 0 { return string.concat("", "") }
+    idx = string.index_of(content, needle)
+    if idx < 0 { return string.concat("", "") }
+    rest = string.substring(content, idx + string.length(needle), string.length(content))
+    nl = string.index_of(rest, "\n")
+    if nl >= 0 { rest = string.substring(rest, 0, nl) }
+    return string.trim(rest)
+}
 
 // Label / tag derivation comes from the shared aeblabel module
 // (built with `--lib tools`) — the single source of truth, so this
 // tool can never drift from tools/file-to-label.ae or aeb-link.ae.
-import aeblabel (file_to_label, infer_type)
+import aeblabel (file_to_label, infer_type, type_of_label, with_output_subdir, label_with_type)
 
 // encode_name: path → C-safe identifier
 // Matches the bash encode_name in aeb:
@@ -103,7 +119,13 @@ main() {
         file = aether_args_get(i)
         fname = encode_name(file)
         label = file_to_label(file)
-        type = infer_type(file)
+        // Apply the same //aeb: directives aeb-link does, so labels match.
+        label = with_output_subdir(label, _read_directive(file, "//aeb:output_subdir"))
+        _cls = _read_directive(file, "//aeb:classify")
+        if string.length(_cls) > 0 { label = label_with_type(label, _cls) }
+        // Type comes from the FINAL label (honours //aeb:classify), not a
+        // re-inference from the filename.
+        type = type_of_label(label)
         type_word = "compile"
         if type == "test" { type_word = "test" }
         if type == "dist" { type_word = "dist" }

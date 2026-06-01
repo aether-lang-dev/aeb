@@ -20,7 +20,22 @@
 // Reuses lib/build's marker readers + render so the summary is identical
 // to the all-in-one path.
 import build
-import aeblabel (file_to_label, infer_type)
+import aeblabel (file_to_label, infer_type, type_of_label, with_output_subdir, label_with_type)
+
+// _read_directive(path, needle) — static read of a `<needle> <value>` header
+// comment, mirroring aeb-link / gen-orchestrator. The per-node driver
+// re-derives labels from filenames, so it must apply the SAME //aeb:
+// directives or its label (hence type AND target-dir lookup) diverges.
+_read_directive(path: string, needle: string) {
+    content, rerr = io.read_file(path)
+    if string.length(rerr) > 0 { return string.concat("", "") }
+    idx = string.index_of(content, needle)
+    if idx < 0 { return string.concat("", "") }
+    rest = string.substring(content, idx + string.length(needle), string.length(content))
+    nl = string.index_of(rest, "\n")
+    if nl >= 0 { rest = string.substring(rest, 0, nl) }
+    return string.trim(rest)
+}
 import std.string
 import std.os
 import std.io
@@ -219,7 +234,12 @@ main() {
         node, _ = list.get(nodes, i)
         i = i + 1
         label = file_to_label(node)
-        type = infer_type(node)
+        // Apply the same //aeb: directives aeb-link/gen-orchestrator do, so
+        // the label (and thus type + _label_to_target_dir lookup) matches.
+        label = with_output_subdir(label, _read_directive(node, "//aeb:output_subdir"))
+        _cls = _read_directive(node, "//aeb:classify")
+        if string.length(_cls) > 0 { label = label_with_type(label, _cls) }
+        type = type_of_label(label)
         type_word = "compile"
         if type == "test" { type_word = "test" }
         if type == "dist" { type_word = "dist" }
