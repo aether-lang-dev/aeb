@@ -1,12 +1,20 @@
 // container — Container image SDK for aether.build
 // Supports OCI images (podman/docker) and LXC containers.
-// Note: does NOT import build to avoid double-import type conflicts.
 import std.string
 import std.io
 import std.os
 import std.file
 import std.map
 import std.path
+// Narrow import of build.fail ONLY: the orchestrator ignores a builder's
+// return value (tools/gen-orchestrator.ae explains why — a trailing-block
+// builder's implicit return is garbage), so failures redden the build ONLY
+// via the explicit build.fail() channel. A container build that returned
+// non-zero but didn't call build.fail() reported a green build with no image
+// (observed). Every other SDK calls build.fail; container must too. (The old
+// "no import build — double-import conflicts" note predated the narrow-import
+// support; `import build (fail)` resolves cleanly.)
+import build (fail)
 
 // --- OCI image DSL setters ---
 
@@ -46,14 +54,20 @@ entrypoint(_ctx: ptr, cmd: string) {
     _e = map.put(_ctx, "entrypoint", cmd)
 }
 
+// workdir(dir) — dual-write: the "workdir" key (artifact-packaging path)
+// AND an ordered WORKDIR step (full-recipe path), so a WORKDIR between two
+// RUNs lands in the right place in the generated Dockerfile.
 workdir(_ctx: ptr, dir: string) {
     _e = map.put(_ctx, "workdir", dir)
+    _append_step(_ctx, "WORKDIR", dir)
 }
 
 tag(_ctx: ptr, t: string) {
     _e = map.put(_ctx, "tag", t)
 }
 
+// copy(src, dst) — dual-write: the "copies" key (artifact-packaging path)
+// AND an ordered COPY step (full-recipe path).
 copy(_ctx: ptr, src: string, dst: string) {
     entry = string.concat(src, ":")
     entry = string.concat(entry, dst)
@@ -65,10 +79,86 @@ copy(_ctx: ptr, src: string, dst: string) {
     } else {
         _e2 = map.put(_ctx, "copies", entry)
     }
+    cp_payload = string.concat(src, " ")
+    cp_payload = string.concat(cp_payload, dst)
+    _append_step(_ctx, "COPY", cp_payload)
 }
 
 dockerfile(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "dockerfile", path)
+}
+
+// --- Full-recipe DSL setters (Containerfile lines inline) ---
+// These let a .build.ae/.dist.ae express a whole Dockerfile as aeb grammar
+// instead of pointing at a hand-written file: from() + repeatable run() +
+// expose(), etc. When from()/run() is present, container.image generates a
+// FULL recipe Dockerfile (dockerfile_full_content) in declared order rather
+// than the artifact-packaging default. Single-arg-per-call (Aether is
+// fixed-arity); repeated calls append.
+//
+// Ordering is load-bearing: run/workdir/copy interleave (a RUN must see the
+// WORKDIR set before it), so they accumulate into ONE ordered "recipe_steps"
+// string, each line "TYPE\tpayload", rendered in order.
+
+// from(img) — the base image. Synonym for base() but named for the
+// full-recipe idiom (and it flips image() into recipe mode).
+from(_ctx: ptr, img: string) {
+    _e = map.put(_ctx, "base", img)
+    _e2 = map.put(_ctx, "recipe", "1")
+}
+
+// arg(name, default) — a build-time ARG with a default. Repeatable.
+arg(_ctx: ptr, name: string, default_val: string) {
+    entry = string.concat(name, "=")
+    entry = string.concat(entry, default_val)
+    if map.has(_ctx, "args") == 1 {
+        prev, _ = map.get(_ctx, "args")
+        combined = string.concat(prev, "\n")
+        combined = string.concat(combined, entry)
+        _e1 = map.put(_ctx, "args", combined)
+    } else {
+        _e2 = map.put(_ctx, "args", entry)
+    }
+}
+
+// run_step(cmd) — a RUN step. Repeatable; emitted in call order. cmd is the
+// literal shell line (chain with && as in a Containerfile). NOT named `run`:
+// `container.run` is already a BUILDER, and a builder + a function sharing a
+// name mangle to the same symbol (container_run) — a silent shadow pre-0.178,
+// a hard error after. See LLM.md "builder-vs-function name collision".
+run_step(_ctx: ptr, cmd: string) {
+    _append_step(_ctx, "RUN", cmd)
+    _e = map.put(_ctx, "recipe", "1")
+}
+
+// expose(port) — an EXPOSE step. Repeatable.
+expose(_ctx: ptr, p: string) {
+    if map.has(_ctx, "ports") == 1 {
+        prev, _ = map.get(_ctx, "ports")
+        combined = string.concat(prev, " ")
+        combined = string.concat(combined, p)
+        _e1 = map.put(_ctx, "ports", combined)
+    } else {
+        _e2 = map.put(_ctx, "ports", p)
+    }
+}
+
+// _append_step(ctx, type_word, payload) — push one ordered recipe step.
+// Steps are joined by RS (\x1e), NOT newline: a run_step() payload can be a
+// multi-line heredoc (Dockerfile RUN with \-continuations), whose internal
+// newlines would otherwise be mistaken for the step separator. RS can't
+// occur in shell content, so it's a safe record delimiter.
+_append_step(_ctx: ptr, type_word: string, payload: string) {
+    entry = string.concat(type_word, "\t")
+    entry = string.concat(entry, payload)
+    if map.has(_ctx, "recipe_steps") == 1 {
+        prev, _ = map.get(_ctx, "recipe_steps")
+        combined = string.concat(prev, "\x1e")
+        combined = string.concat(combined, entry)
+        _e1 = map.put(_ctx, "recipe_steps", combined)
+    } else {
+        _e2 = map.put(_ctx, "recipe_steps", entry)
+    }
 }
 
 // --- LXC DSL setters ---
@@ -175,6 +265,118 @@ dockerfile_content(artifact_path: string, opts: ptr) {
             df = string.concat(df, ep)
             df = string.concat(df, "\n")
         }
+    }
+
+    return df
+}
+
+// _next_field(s, from, sep) -> (field, next_from). Pull one `sep`-delimited
+// field starting at byte `from`; next_from = index past the separator, or -1
+// at end. Self-contained (no extern). `sep` is "\n" for the single-line maps
+// (args/env) and "\x1e" (RS) for recipe_steps (whose payloads may themselves
+// contain newlines — a multi-line heredoc RUN).
+_next_field(s: string, from: int, sep: string) {
+    n = string.length(s)
+    if from >= n { return "", -1 }
+    nl = string.index_of_from(s, sep, from)
+    if nl < 0 {
+        return string.substring(s, from, n), -1
+    }
+    return string.substring(s, from, nl), nl + string.length(sep)
+}
+
+// dockerfile_full_content(opts) — generate a COMPLETE recipe Dockerfile from
+// the full-recipe setters (from/arg/run/env/expose/entrypoint), emitted in
+// this order: FROM, ARG*, the ordered recipe_steps (RUN etc. in call order —
+// ordering is load-bearing), ENV*, EXPOSE*, ENTRYPOINT. The "Containerfile
+// lines inline" path; chosen by image() when opts has "recipe" set.
+dockerfile_full_content(opts: ptr) {
+    base_img = "debian:trixie-slim"
+    if map.has(opts, "base") == 1 { base_img, _ = map.get(opts, "base") }
+    df = string.concat("FROM ", base_img)
+    df = string.concat(df, "\n")
+
+    // ARG name=default (one per line, in call order)
+    if map.has(opts, "args") == 1 {
+        args_s, _ = map.get(opts, "args")
+        pos = 0
+        while pos >= 0 {
+            line, nxt = _next_field(args_s, pos, "\n")
+            if string.length(line) > 0 {
+                df = string.concat(df, "ARG ")
+                df = string.concat(df, line)
+                df = string.concat(df, "\n")
+            }
+            pos = nxt
+        }
+    }
+
+    // Ordered recipe steps: "TYPE\tpayload" per RS-delimited record (the
+    // payload may itself be multi-line), rendered in call order.
+    if map.has(opts, "recipe_steps") == 1 {
+        steps_s, _ = map.get(opts, "recipe_steps")
+        pos = 0
+        while pos >= 0 {
+            line, nxt = _next_field(steps_s, pos, "\x1e")
+            if string.length(line) > 0 {
+                tabi = string.index_of(line, "\t")
+                if tabi > 0 {
+                    type_word = string.substring(line, 0, tabi)
+                    payload = string.substring(line, tabi + 1, string.length(line))
+                    df = string.concat(df, type_word)
+                    df = string.concat(df, " ")
+                    df = string.concat(df, payload)
+                    df = string.concat(df, "\n")
+                }
+            }
+            pos = nxt
+        }
+    }
+
+    // ENV k=v
+    if map.has(opts, "env_vars") == 1 {
+        env_s, _ = map.get(opts, "env_vars")
+        pos = 0
+        while pos >= 0 {
+            line, nxt = _next_field(env_s, pos, "\n")
+            if string.length(line) > 0 {
+                df = string.concat(df, "ENV ")
+                df = string.concat(df, line)
+                df = string.concat(df, "\n")
+            }
+            pos = nxt
+        }
+    }
+
+    // EXPOSE (space-separated ports → one EXPOSE per port)
+    if map.has(opts, "ports") == 1 {
+        ports_s, _ = map.get(opts, "ports")
+        pos = 0
+        while pos >= 0 {
+            sp = string.index_of_from(ports_s, " ", pos)
+            tok = ""
+            nxt = -1
+            if sp < 0 {
+                tok = string.substring(ports_s, pos, string.length(ports_s))
+            } else {
+                tok = string.substring(ports_s, pos, sp)
+                nxt = sp + 1
+            }
+            if string.length(tok) > 0 {
+                df = string.concat(df, "EXPOSE ")
+                df = string.concat(df, tok)
+                df = string.concat(df, "\n")
+            }
+            pos = nxt
+        }
+    }
+
+    // ENTRYPOINT (verbatim — JSON-array or shell form, caller's choice)
+    if map.has(opts, "entrypoint") == 1 {
+        ep, _ = map.get(opts, "entrypoint")
+        df = string.concat(df, "ENTRYPOINT ")
+        df = string.concat(df, ep)
+        df = string.concat(df, "\n")
     }
 
     return df
@@ -306,14 +508,58 @@ builder image(ctx: ptr) {
     }
     if string.length(df_path) == 0 {
         df_path = path.join(target_dir, "Dockerfile")
-        df_content = dockerfile_content(artifact, _builder)
+        // Full-recipe mode (from()/run() called) generates a complete
+        // Containerfile from the inline DSL; otherwise the artifact-
+        // packaging default (FROM + COPY + ENTRYPOINT).
+        is_recipe = 0
+        if _builder != null {
+            if map.has(_builder, "recipe") == 1 { is_recipe = 1 }
+        }
+        df_content = ""
+        if is_recipe == 1 {
+            df_content = dockerfile_full_content(_builder)
+        } else {
+            df_content = dockerfile_content(artifact, _builder)
+        }
         _e5 = io.write_file(df_path, df_content)
+    }
+
+    // Emit-only mode: write the Dockerfile and STOP — do not `podman build`.
+    // This is the IMMUTABLE-HOST ADAPTER (docs/containment-and-the-control-
+    // plane.md): on a host with no toolchain (Bazzite/Atomic), aeb can't be
+    // the outermost container, so it runs where the toolchain IS — a dev box,
+    // CI, a mutable peer — to GENERATE the Dockerfile from the inline DSL,
+    // and a podman-only host builds it. aeb still owns the recipe end-to-end;
+    // it just can't be co-resident with `podman build`. The grammar degrades
+    // (image = generate-not-build) rather than failing. Gated by env (an
+    // operator/CI choice, not a property of the recipe), so a plain local
+    // `aeb <image>.ae` on a mutable host still builds as before.
+    emit_only = os.getenv("AEB_CONTAINER_EMIT_ONLY")
+    if string.length(emit_only) > 0 {
+        // If the env value looks like a path (not just "1"/"true"), ALSO copy
+        // the generated Dockerfile there — so a caller controls the output
+        // location regardless of aeb's target-dir (which, under itests/,
+        // currently mis-bins to target/tests/ — a separate lib/build bug).
+        // The script-friendly contract: AEB_CONTAINER_EMIT_ONLY=/abs/path.
+        out_path = df_path
+        if string.index_of(emit_only, "/") >= 0 {
+            out_dir = path.dirname(emit_only)
+            if string.length(out_dir) > 0 { os.system(string.concat("mkdir -p '", string.concat(out_dir, "'"))) }
+            _cp = os.system(string.concat(string.concat("cp '", df_path), string.concat("' '", string.concat(emit_only, "'"))))
+            out_path = emit_only
+        }
+        println("${mod_dir}: emit-only — wrote Dockerfile to ${out_path} (skipping podman build)")
+        return 0
     }
 
     // Build image
     build_cmd = image_build_cmd(img_tag, root, df_path, _builder)
     exit_code = os.system(build_cmd)
     if exit_code != 0 {
+        // build.fail is the channel the orchestrator actually reads — a bare
+        // `return exit_code` is silently discarded (see gen-orchestrator),
+        // which is why a failed `podman build` used to report a green build.
+        fail(ctx, string.concat("container build failed (podman build exit ", string.concat(string.from_int(exit_code), ")")))
         println("${mod_dir}: container build failed")
         return exit_code
     }

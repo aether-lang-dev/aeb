@@ -1,0 +1,87 @@
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+import build
+// Tests for dockerfile_full_content() — the "Containerfile lines inline as
+// aeb DSL" generator (from/arg/run_step/workdir/expose/entrypoint), including
+// that ordered steps (WORKDIR between two RUNs) render in call order.
+
+import container
+import container (from, arg, run_step, expose, entrypoint, workdir, dockerfile_full_content)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if actual == expected {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected: [${expected}]")
+        println("  actual:   [${actual}]")
+    }
+}
+
+main() {
+    // Minimal: just FROM.
+    b1 = map_new()
+    from(b1, "alpine:3")
+    _assert_eq("from only",
+        dockerfile_full_content(b1),
+        "FROM alpine:3\n")
+
+    // ARG + a single RUN.
+    b2 = map_new()
+    from(b2, "debian:trixie-slim")
+    arg(b2, "REF", "main")
+    run_step(b2, "apt-get update")
+    _assert_eq("from + arg + run",
+        dockerfile_full_content(b2),
+        "FROM debian:trixie-slim\nARG REF=main\nRUN apt-get update\n")
+
+    // Ordering: WORKDIR must land BETWEEN the two RUNs (call order).
+    b3 = map_new()
+    from(b3, "debian:trixie-slim")
+    run_step(b3, "step-one")
+    workdir(b3, "/opt/aeb")
+    run_step(b3, "step-two")
+    _assert_eq("ordered run/workdir/run",
+        dockerfile_full_content(b3),
+        "FROM debian:trixie-slim\nRUN step-one\nWORKDIR /opt/aeb\nRUN step-two\n")
+
+    // EXPOSE + ENTRYPOINT tail.
+    b4 = map_new()
+    from(b4, "debian:trixie-slim")
+    run_step(b4, "make install")
+    expose(b4, "9440")
+    entrypoint(b4, "[\"aeb-agent\", \"--port\", \"9440\"]")
+    _assert_eq("expose + entrypoint",
+        dockerfile_full_content(b4),
+        "FROM debian:trixie-slim\nRUN make install\nEXPOSE 9440\nENTRYPOINT [\"aeb-agent\", \"--port\", \"9440\"]\n")
+
+    // Multi-line heredoc RUN payloads: the step separator is RS (\x1e), so a
+    // payload's OWN newlines must survive intact (not be mistaken for the
+    // step delimiter). Two multi-line RUNs render with their internal
+    // newlines preserved.
+    b5 = map_new()
+    from(b5, "debian:trixie-slim")
+    run_step(b5, <<SH
+apt-get update \
+    && apt-get install -y git
+SH
+)
+    run_step(b5, <<SH
+git clone foo \
+    && make install
+SH
+)
+    _assert_eq("multi-line heredoc RUNs preserve internal newlines",
+        dockerfile_full_content(b5),
+        "FROM debian:trixie-slim\nRUN apt-get update \\\n    && apt-get install -y git\nRUN git clone foo \\\n    && make install\n")
+
+    println("dockerfile_full_content tests done")
+}
