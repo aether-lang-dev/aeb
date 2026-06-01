@@ -99,10 +99,16 @@ begin(s: ptr, module_dir: string) {
     _e4 = map.put(ctx, "source_dir", source_dir)
 
     target_base = path.join(root, "target")
-    is_test = string.ends_with(lang_prefix, "tests")
-    if is_test == 1 {
-        target_base = path.join(target_base, "tests")
-    }
+    // Test artifacts route to target/tests/ — but ONLY when the file is
+    // classified a test by its .tests.ae SUFFIX (the test: label →
+    // is_colocated_test). The old dir-name heuristic — is_test =
+    // ends_with(lang_prefix, "tests") — was deleted: it caught nothing the
+    // label channel misses, mislabelled any dir merely ENDING in "tests"
+    // (itests/, *tests/ in Google-style monorepos), and DOUBLE-nested a
+    // real test (both flags firing → target/tests/tests/...), which then
+    // mismatched _label_to_target_dir's single-tests/ path and silently
+    // killed caching for every such test. Directory names never decide
+    // test-vs-prod; the .tests.ae suffix does.
     if is_colocated_test == 1 {
         target_base = path.join(target_base, "tests")
     }
