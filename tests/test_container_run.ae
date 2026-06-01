@@ -37,7 +37,7 @@ main() {
         return 0
     }
 
-    os.system("rm -rf ./target/m_container_run")
+    os.system("rm -rf ./target/build/m_container_run")
 
     // Drive the builder the way the orchestrator does — alpine ruby
     // prints a marker on pid-1 stdout. container.run RETURNS that
@@ -54,11 +54,11 @@ main() {
     _assert("container.run returns the captured pid-1 stdout", ret_ok)
 
     // The capture is still mirrored to a target-dir artifact.
-    got, _ = os.exec("cat ./target/m_container_run/container-stdout.txt 2>/dev/null")
+    got, _ = os.exec("cat ./target/build/m_container_run/container-stdout.txt 2>/dev/null")
     art_ok = 0
     if string.index_of(got, "hello-from-aeb-container") >= 0 { art_ok = 1 }
     _assert("container.run also writes the container-stdout.txt artifact", art_ok)
 
-    os.system("rm -rf ./target/m_container_run")
+    os.system("rm -rf ./target/build/m_container_run")
     println("container run tests done")
 }

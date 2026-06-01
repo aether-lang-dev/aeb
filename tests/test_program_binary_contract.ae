@@ -24,9 +24,12 @@ _assert(label: string, cond: int) {
     }
 }
 
-// Write `content` to <root>/target/<dep>/<key>.
+// Write `content` to <root>/target/build/<dep>/<key>. A bare-name dep
+// resolves to the "build" buildtype under the target/<buildtype>/<dir>
+// layout (docs/filename-is-the-route.md), so fakes must live where
+// _read_dep_artifact (via _dep_target_dir) now looks.
 _put_artifact(root: string, dep: string, key: string, content: string) {
-    d = path.join(path.join(root, "target"), dep)
+    d = path.join(path.join(path.join(root, "target"), "build"), dep)
     os.system("mkdir -p '${d}'")
     _w = io.write_file(path.join(d, key), content)
 }

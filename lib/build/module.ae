@@ -74,19 +74,28 @@ begin(s: ptr, module_dir: string) {
         label_core = string.substring(module_dir, 0, at_idx)
     }
 
-    // Handle "test:" prefix for co-located tests
+    // Determine the buildtype segment (build/tests/dist/...) and the dir.
+    // The buildtype is the FIRST path segment of target/ — uniform across
+    // all types (docs/filename-is-the-route.md). It's carried by the label's
+    // test:/dist: prefix (build = no prefix); declared_subdir (the
+    // //aeb:output_subdir directive) overrides it for a custom segment.
     fs_dir = label_core
+    buildtype = "build"
     is_colocated_test = 0
     test_prefix = string.index_of(label_core, "test:")
     if test_prefix == 0 {
         fs_dir = string.substring(label_core, 5, string.length(label_core))
+        buildtype = "tests"
         is_colocated_test = 1
     }
     // Handle "dist:" prefix for packaging targets
     dist_prefix = string.index_of(label_core, "dist:")
     if dist_prefix == 0 {
         fs_dir = string.substring(label_core, 5, string.length(label_core))
+        buildtype = "dist"
     }
+    // A declared subdir (//aeb:output_subdir) is the explicit buildtype seg.
+    if string.length(declared_subdir) > 0 { buildtype = declared_subdir }
     // Strip the optional ":tag" suffix used to disambiguate multiple
     // .build*.ae files in the same directory (e.g. .build-seed.ae →
     // label "ae/myserver:seed"). The tag exists for visited-set
@@ -111,25 +120,13 @@ begin(s: ptr, module_dir: string) {
     source_dir = path.join(root, fs_dir)
     _e4 = map.put(ctx, "source_dir", source_dir)
 
-    target_base = path.join(root, "target")
-    // Output routing, in priority order:
-    //   1. an explicit //aeb:output_subdir directive (declared_subdir) — the
-    //      author DECLARED where artifacts go; rides the label as @<sub>.
-    //   2. else the .tests.ae suffix (is_colocated_test) → target/tests/ —
-    //      the historical filename-inferred default, kept for the ~349 files
-    //      that don't (yet) carry the directive.
-    // Either way the routing is LABEL-derivable, so _label_to_target_dir and
-    // every dependent's _read_dep_artifact compute the SAME path (the
-    // addressing contract — docs/label-is-the-addressing-contract.md). The
-    // old is_test dir-name heuristic (ends_with lang_prefix "tests") was
-    // deleted earlier: it double-nested and killed caching for *tests/ dirs.
-    if string.length(declared_subdir) > 0 {
-        target_base = path.join(target_base, declared_subdir)
-    } else {
-        if is_colocated_test == 1 {
-            target_base = path.join(target_base, "tests")
-        }
-    }
+    // target/<buildtype>/<dir> — the buildtype is ALWAYS the first segment
+    // (build/tests/dist/custom), uniform for every type. No special-case for
+    // build (it's target/build/<dir>, not the old bare target/<dir>). The
+    // route is a total function of the build-file name, derivable identically
+    // by _label_to_target_dir and every dependent's _read_dep_artifact (the
+    // addressing contract). See docs/filename-is-the-route.md.
+    target_base = path.join(path.join(root, "target"), buildtype)
     // Use full module path for target dir to avoid collisions
     // (e.g. mongodb/util vs cassandra/util)
     tgt_dir = path.join(target_base, fs_dir)
@@ -282,7 +279,10 @@ start() {
     source_dir = path.join(root, module_dir)
     _e4 = map.put(ctx, "source_dir", source_dir)
 
-    target_base = path.join(root, "target")
+    // Standalone mode (build.start run directly, not via the orchestrator's
+    // build.begin rewrite) is always a plain build → target/build/<dir>,
+    // uniform with the orchestrated scheme. See docs/filename-is-the-route.md.
+    target_base = path.join(path.join(root, "target"), "build")
     tgt_dir = path.join(target_base, module_dir)
     _e5 = map.put(ctx, "target_dir", tgt_dir)
 
@@ -722,10 +722,49 @@ _strip_lang(dep_path: string) {
     return dep_path
 }
 
+// _dep_target_dir(root, dep_module) — target/<buildtype>/<dir> for a dep.
+// A dep names a build file (".../.build.ae") or a bare dir. Derive the
+// buildtype from a trailing ".<type>.ae" if present (build/tests/dist/...),
+// else default to "build" (you depend on a thing's BUILD output). Strip the
+// build-file basename to leave the dir. Mirrors build.begin's routing so the
+// reader finds what the writer wrote. See docs/filename-is-the-route.md.
+_dep_target_dir(root: string, dep_module: string) {
+    buildtype = "build"
+    dir = dep_module
+    // If dep_module ends in "/.<type>.ae" (or ".<type>-tag.ae"), split it.
+    slash = _last_slash(dep_module)
+    base = dep_module
+    if slash >= 0 { base = string.substring(dep_module, slash + 1, string.length(dep_module)) }
+    if string.index_of(base, ".") == 0 {
+        if string.ends_with(base, ".ae") == 1 {
+            // base = ".<type>[-tag].ae" → extract <type>
+            stem = string.substring(base, 1, string.length(base) - 3)  // drop leading '.' + '.ae'
+            dash = string.index_of(stem, "-")
+            ty = stem
+            if dash >= 0 { ty = string.substring(stem, 0, dash) }
+            if string.length(ty) > 0 { buildtype = ty }
+            // dir = everything before the basename
+            if slash >= 0 { dir = string.substring(dep_module, 0, slash) } else { dir = "." }
+        }
+    }
+    return path.join(path.join(path.join(root, "target"), buildtype), dir)
+}
+
+// _last_slash(s) — index of the last '/', or -1.
+_last_slash(s: string) {
+    n = string.length(s)
+    found = -1
+    i = 0
+    while i < n {
+        if string.equals(string.substring(s, i, i + 1), "/") == 1 { found = i }
+        i = i + 1
+    }
+    return found
+}
+
 _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
     root = _get(ctx, "root")
-    t = path.join(root, "target")
-    t2 = path.join(t, dep_module)
+    t2 = _dep_target_dir(root, dep_module)
     p = path.join(t2, artifact)
     if file.exists(p) == 1 {
         content, _rerr = io.read_file(p)
@@ -1530,28 +1569,25 @@ _label_to_target_dir(root: string, module_dir: string) {
         label_core = string.substring(module_dir, 0, at_idx)
     }
     fs_dir = label_core
-    is_test = 0
+    buildtype = "build"
     test_pre = string.index_of(label_core, "test:")
     if test_pre == 0 {
         fs_dir = string.substring(label_core, 5, string.length(label_core))
-        is_test = 1
+        buildtype = "tests"
     }
     dist_pre = string.index_of(label_core, "dist:")
     if dist_pre == 0 {
         fs_dir = string.substring(label_core, 5, string.length(label_core))
+        buildtype = "dist"
     }
     colon = string.index_of(fs_dir, ":")
     if colon >= 0 {
         fs_dir = string.substring(fs_dir, 0, colon)
     }
-    target_base = path.join(root, "target")
-    if string.length(declared_subdir) > 0 {
-        target_base = path.join(target_base, declared_subdir)
-    } else {
-        if is_test == 1 {
-            target_base = path.join(target_base, "tests")
-        }
-    }
+    if string.length(declared_subdir) > 0 { buildtype = declared_subdir }
+    // target/<buildtype>/<dir> — mirrors build.begin exactly (addressing
+    // contract). See docs/filename-is-the-route.md.
+    target_base = path.join(path.join(root, "target"), buildtype)
     return path.join(target_base, fs_dir)
 }
 
