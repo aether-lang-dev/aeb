@@ -1,0 +1,43 @@
+# aeb-toolchain — adds aeb on top of the aether-builder base image.
+#
+# WHY: aether-build's base image (aether-builder:slim) ships ae/aetherc but
+# NOT aeb — its --aeb mode aborts with "aeb not installed in this image".
+# This layer fills that gap so `aether-build --aeb <target>` actually works
+# on an immutable host (Bazzite/Silverblue): aeb runs IN the container, the
+# host needs only podman.
+#
+# BASE: built first by `aether-build` (which clones+installs Aether). Bump
+# the base/AEB_REF as needed. The base already has gcc + make + git + the
+# -dev libs aeb's tool builds and Aether-emitted C need.
+#
+# BUILD (on a host with podman; the aether-builder base must exist first —
+# run `aether-build hello.ae` once to bootstrap it):
+#   podman build -t aeb-toolchain:slim \
+#       -f tools/container/Containerfile.aeb-toolchain tools/container
+#
+# Then point aether-build at this image:
+#   AETHER_BUILDER_IMAGE=aeb-toolchain:slim aether-build --aeb <target>
+#
+# The itests/ tree (~225 MB of real-world fixtures: Spring Boot, Angular,
+# .NET, rust workspaces, etc.) is DELETED before install — it's test
+# scaffolding, needs toolchains this image doesn't have, and would bloat
+# the image for zero benefit to an aeb-runner.
+
+ARG AETHER_BUILDER_IMAGE=aether-builder:slim
+FROM ${AETHER_BUILDER_IMAGE}
+
+ARG AEB_REF=main
+
+# Clone aeb, drop the heavy itests/ fixtures, build + install aeb to
+# /usr/local so `aeb` is on PATH. make install builds the Aether tools
+# (aeb-main, aeb-link, …) with the in-image ae/aetherc and copies the
+# runtime tree (lib/ + tools/) under the prefix.
+RUN git clone --depth 1 --branch "${AEB_REF}" \
+        https://github.com/aether-lang-org/aeb.git /opt/aeb \
+ && rm -rf /opt/aeb/itests \
+ && make -C /opt/aeb install PREFIX=/usr/local \
+ && aeb --version
+
+# Sanity: --aeb mode's `command -v aeb` will now succeed. The entrypoint
+# is inherited from the aether-builder base (the same dispatcher that
+# routes --aeb vs direct ae-build); nothing to override here.
