@@ -916,6 +916,40 @@ _inc_flags_from_dirs(dirs: ptr) {
 //
 // `ae build` walks up from src_path to find aether.toml, so aeb
 // doesn't need to discover it.
+// _rewrite_under_root(p, root, mountpt) — map a host-absolute path under
+// `root` to its location under `mountpt` (the container's bind target).
+// "/home/u/repo/foo/bar" with root "/home/u/repo", mount "/work" → "/work/foo/bar".
+// Returns p unchanged if it isn't under root (defensive). Pure.
+_rewrite_under_root(p: string, root: string, mountpt: string) {
+    if string.index_of(p, root) != 0 { return p }
+    rest = string.substring(p, string.length(root), string.length(p))
+    return string.concat(mountpt, rest)
+}
+
+// _ae_build_cmd_delegated(ae_build_args, root, image) — wrap an `ae build …`
+// command (paths already rewritten to /work) in a `podman run` against the
+// toolchain image. The image's ENTRYPOINT expects --aeb-style args, so we
+// override it and invoke `ae` directly. root is bind-mounted at /work (:Z for
+// SELinux; the container writes target/ back through the mount → artifacts +
+// cache markers reach the host with mtimes intact). Pure string assembly —
+// unit-tested via tests/test_compile_delegation.ae.
+_ae_build_cmd_delegated(ae_build_args: string, root: string, image: string) {
+    engine = os.getenv("AEB_CONTAINER_ENGINE")
+    if string.length(engine) == 0 { engine = "podman" }
+    selabel = os.getenv("AEB_CONTAINER_SELABEL")
+    if string.length(selabel) == 0 { selabel = "Z" }
+    mount = string.concat(string.concat("-v ", root), string.concat(":/work:", selabel))
+    // --entrypoint ae: bypass the image's aether-build dispatcher, run ae
+    // directly. Args are the `build …` portion (entrypoint supplies the prog).
+    cmd = string.concat(engine, " run --rm ")
+    cmd = string.concat(cmd, mount)
+    cmd = string.concat(cmd, " -w /work --entrypoint ae ")
+    cmd = string.concat(cmd, image)
+    cmd = string.concat(cmd, " ")
+    cmd = string.concat(cmd, ae_build_args)
+    return cmd
+}
+
 _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
     mod_dir = build._get(ctx, "module_dir")
     ae_bin = os.getenv("AETHER")
@@ -931,6 +965,28 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
     if string.length(os.getenv("AEB_COVERAGE")) > 0 {
         cov_flag = " --coverage"
     }
+
+    // COMPILE-DELEGATION (docs/two-aeb-duality.md): when AEB_COMPILE_CONTAINER
+    // names a toolchain image, this compile step runs IN that container
+    // (host-aeb has no toolchain) rather than locally. Paths are rewritten
+    // from root/… to /work/… (root is bind-mounted at /work). Unset → today's
+    // local `ae build`, unchanged for normal hosts.
+    container_image = os.getenv("AEB_COMPILE_CONTAINER")
+    if string.length(container_image) > 0 {
+        root = build._get(ctx, "root")
+        wsrc = _rewrite_under_root(src_path, root, "/work")
+        wbin = _rewrite_under_root(bin_path, root, "/work")
+        args = "build${cov_flag} ${wsrc} -o ${wbin}"
+        cmd = _ae_build_cmd_delegated(args, root, container_image)
+        rc = os.system(cmd)
+        if rc != 0 {
+            println("${mod_dir}: ae build (in ${container_image}) failed")
+            build.fail(ctx, "ae build (containerized) failed")
+            return rc
+        }
+        return 0
+    }
+
     cmd = "${ae_bin} build${cov_flag} ${src_path} -o ${bin_path}"
     rc = os.system(cmd)
     if rc != 0 {

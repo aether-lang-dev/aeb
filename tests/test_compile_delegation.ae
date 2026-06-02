@@ -1,0 +1,43 @@
+// Tests for the compile-delegation pure builders (docs/two-aeb-duality.md):
+// _rewrite_under_root (host path → container /work) and
+// _ae_build_cmd_delegated (wrap `ae build …` in a podman run against the
+// toolchain image). Pure string assembly — no I/O, no container needed.
+
+import std.string
+extern println(s: string)
+
+import aether (_rewrite_under_root, _ae_build_cmd_delegated)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if string.equals(actual, expected) == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected: [${expected}]")
+        println("  actual:   [${actual}]")
+    }
+}
+
+main() {
+    // _rewrite_under_root: map a host-absolute path under root to /work.
+    _assert_eq("rewrite source under root",
+        _rewrite_under_root("/home/u/repo/greeter/greeter_main.ae", "/home/u/repo", "/work"),
+        "/work/greeter/greeter_main.ae")
+    _assert_eq("rewrite target/ artifact under root",
+        _rewrite_under_root("/home/u/repo/target/build/greeter/bin/program", "/home/u/repo", "/work"),
+        "/work/target/build/greeter/bin/program")
+    _assert_eq("rewrite root itself",
+        _rewrite_under_root("/home/u/repo", "/home/u/repo", "/work"),
+        "/work")
+    _assert_eq("path NOT under root passes through unchanged",
+        _rewrite_under_root("/etc/passwd", "/home/u/repo", "/work"),
+        "/etc/passwd")
+
+    // _ae_build_cmd_delegated: the podman run wrapper (default engine/selabel).
+    _assert_eq("delegated podman command",
+        _ae_build_cmd_delegated("build /work/g/g.ae -o /work/target/build/g/bin/program",
+                                "/home/u/repo", "aeb-toolchain:slim"),
+        "podman run --rm -v /home/u/repo:/work:Z -w /work --entrypoint ae aeb-toolchain:slim build /work/g/g.ae -o /work/target/build/g/bin/program")
+
+    println("compile_delegation tests done")
+}
