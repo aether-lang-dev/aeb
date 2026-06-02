@@ -461,6 +461,33 @@ _dyld_env_var() {
     return "LD_LIBRARY_PATH"
 }
 
+// --- Compile/execute phase gates (the two-aeb duality, docs/two-aeb-duality.md) ---
+//
+// aeb-ctr splits a build into two passes over the same DAG: a COMPILE pass
+// (in a container — produces self-contained composite exes) and an EXECUTE
+// pass (on the host — runs them). These two gates let an SDK builder consult
+// "should I compile this phase?" / "should I execute it?" so the SAME builder
+// code serves both passes. The shared source of truth — fan-out to all SDKs
+// is "call these," not re-invent.
+//
+//   (neither flag)        → both true  → normal local build (compile + run)
+//   AEB_COMPILE_ONLY=1     → execute disabled (compile, don't run)
+//   AEB_EXECUTE_ONLY=1     → compile disabled (run the already-built artifacts)
+//
+// Mutually exclusive in practice; if both set, compile-only wins (safer: never
+// run an unbuilt artifact).
+
+_compile_enabled() {
+    if string.equals(os.getenv("AEB_EXECUTE_ONLY"), "1") == 1 { return 0 }
+    return 1
+}
+
+_execute_enabled() {
+    if string.equals(os.getenv("AEB_COMPILE_ONLY"), "1") == 1 { return 0 }
+    if string.equals(os.getenv("AEB_EXECUTE_ONLY"), "1") == 1 { return 1 }
+    return 1
+}
+
 // Normalised host-OS token, derived from `uname -s`. One of:
 //   "linux"   — Linux
 //   "macos"   — Darwin

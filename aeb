@@ -117,13 +117,24 @@ while [[ $i -le $# ]]; do
         # all-in-one in-process orchestrator (faster for small builds,
         # simplest to debug; tool output streams onto aeb's stdout).
         export AEB_IN_PROCESS=1
+    elif [[ "$a" == "--compile-only" ]]; then
+        # Two-aeb duality (docs/two-aeb-duality.md): run the build, but each
+        # builder COMPILES and does NOT execute (no running produced binaries
+        # / tests). The orchestrator still walks the whole DAG and compiles
+        # every node; only the execute steps are suppressed. aeb-ctr runs this
+        # IN the container (compiles land on the host via the mount).
+        export AEB_COMPILE_ONLY=1
+    elif [[ "$a" == "--execute-only" ]]; then
+        # The mirror: skip every compile; for each node run only its execute
+        # step (run binaries/tests on the host, with the host's runtimes).
+        # aeb-ctr runs this on the HOST against the artifacts the container
+        # pass produced. Composite exes carry their dep closure, so no
+        # ordering manifest is needed — the same DAG walk drives both passes.
+        export AEB_EXECUTE_ONLY=1
     elif [[ "$a" == "--noexe" ]]; then
-        # Compile the .ae build scripts into the native orchestrator
-        # binary, but do NOT run it — so no build work executes. The cut
-        # between aeb's two phases (Aether is compiled: building the build
-        # scripts vs. running the build). Used by aeb-ctr to compile in a
-        # container, then run the orchestrator on the host. See
-        # docs/two-aeb-duality.md.
+        # Legacy/low-level: compile the orchestrator binary but don't run it
+        # at all (stops in aeb-link). Superseded by --compile-only for the
+        # duality; kept for direct orchestrator-only use.
         export AEB_NOEXE=1
     elif [[ "$a" == "--pattern" ]]; then
         i=$((i + 1))

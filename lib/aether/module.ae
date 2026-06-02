@@ -1910,11 +1910,17 @@ builder program(ctx: ptr) {
     bin_path = path.join(bin_dir, out_name)
     c_path = path.join(target_dir, string.concat(out_name, ".c"))
 
-    println("${mod_dir}: compiling Aether program")
-    rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
-    if rc != 0 {
-        build.fail(ctx, "aether program build failed")
-        return rc
+    // Compile phase — skipped under --execute-only (the binary was already
+    // built in the container pass; the host pass only executes). The
+    // artifact-writes below still run in both passes so dependents can
+    // locate the binary regardless. (two-aeb duality, docs/two-aeb-duality.md)
+    if build._compile_enabled() == 1 {
+        println("${mod_dir}: compiling Aether program")
+        rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
+        if rc != 0 {
+            build.fail(ctx, "aether program build failed")
+            return rc
+        }
     }
 
     build._write_artifact(ctx, "aether_binary", bin_path)
@@ -1943,12 +1949,23 @@ builder program_test(ctx: ptr) {
     bin_path = path.join(bin_dir, "test_program")
     c_path = path.join(target_dir, "test_program.c")
 
-    println("${mod_dir}: compiling Aether test")
-    rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
-    if rc != 0 {
-        println("${mod_dir}: tests FAILED (compile)")
-        build.fail(ctx, "aether test build failed")
-        return rc
+    // COMPILE phase — skipped under --execute-only (built in the container
+    // pass already). EXECUTE phase below — skipped under --compile-only.
+    // Two-aeb duality: compile in container, execute on host
+    // (docs/two-aeb-duality.md).
+    if build._compile_enabled() == 1 {
+        println("${mod_dir}: compiling Aether test")
+        rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
+        if rc != 0 {
+            println("${mod_dir}: tests FAILED (compile)")
+            build.fail(ctx, "aether test build failed")
+            return rc
+        }
+    }
+
+    if build._execute_enabled() == 0 {
+        // --compile-only: binary built (or already present), don't run it.
+        return 0
     }
 
     shared_libs = _collect_shared_libs(ctx)
