@@ -54,6 +54,35 @@ tests this image should pass:
   suffices. Run these after building the image to confirm aeb works
   in-container before trusting it with real builds.
 
+## aeb-ctr — the duality launcher (compile in container, execute on host)
+
+`aeb-ctr` (in this dir) is `aeb` for an immutable host: **identical CLI**, but
+compilation runs in the container and execution runs on the host. The
+two-aeb duality (docs/two-aeb-duality.md), as a thin host-side launcher over
+two verified phases:
+
+```sh
+cd ~/myproj            # a repo SUBDIR (not $HOME — SELinux refuses :Z on $HOME)
+aeb-ctr app/.build.ae
+```
+
+1. **Phase 1 (in container, `--noexe`):** compile the `.ae` build scripts into
+   the native orchestrator (`target/_ae_build_all`). Lands on the host via the
+   `:Z` mount; not run.
+2. **Phase 2 (on host):** run the orchestrator. It does the build; each
+   per-target `ae build` it triggers is delegated back into the container
+   (the `AEB_COMPILE_CONTAINER` seam). Execution / tests run native on the
+   host with the host's runtimes.
+
+Net: **all compilation in the container, all execution on the host** — verified
+end-to-end on a real Bazzite box (orchestrator built in-container → ran on
+host → per-target compiles dispatched to real podman → binaries on host,
+user-owned, no toolchain touched on the host).
+
+Env knobs: `AEB_CTR_IMAGE` (default `aeb-toolchain:slim`), `AEB_CTR_ROOT`
+(default `$PWD`), `AEB_CONTAINER_ENGINE`, `AEB_CONTAINER_SELABEL`. Run with no
+args for the header help.
+
 ## What this is for
 
 Letting an immutable control plane (e.g. the bazzite NUC) compile the

@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# aeb-ctr — aeb for an immutable host: COMPILE in a container, EXECUTE on the host.
+#
+# Identical CLI to `aeb`, but the toolchain-needing work runs in a podman
+# container (the host has no gcc/aetherc), while the build program and the
+# binaries it produces RUN on the host. The two-aeb duality (one binary, two
+# instances) — see docs/two-aeb-duality.md.
+#
+# Aether is COMPILED, so a build has two phases:
+#   Phase 1 (--noexe, IN container): compile the .ae build scripts into the
+#            native orchestrator (target/_ae_build_all). Lands on the host via
+#            the bind mount; not run.
+#   Phase 2 (ON host): run the orchestrator. It does the build; each per-target
+#            `ae build` it triggers is delegated back into the container by
+#            AEB_COMPILE_CONTAINER (the lib/aether seam). Execution / tests run
+#            native on the host with the host's runtimes.
+# Net: all compilation in the container, all execution on the host.
+#
+# Both phases were verified by hand on a real Bazzite box before this script
+# existed; aeb-ctr just sequences them.
+#
+# Usage:   aeb-ctr <target> [aeb args...]      # e.g. aeb-ctr app/.build.ae
+#
+# Env (all optional):
+#   AEB_CTR_IMAGE     toolchain+aeb image   (default: aeb-toolchain:slim)
+#   AEB_CTR_ROOT      repo root (mounted)   (default: $PWD)
+#   AEB_CONTAINER_ENGINE   podman|docker    (default: podman)
+#   AEB_CONTAINER_SELABEL  SELinux mount label suffix (default: Z; "" to omit)
+#
+# Bazzite/SELinux notes (proven the hard way, see ../../../aether ctr_notes):
+#   - mounts use :Z (relabel); do NOT relabel $HOME — run from a repo subdir.
+#   - NO --userns=keep-id (crashes this crun; output is correctly user-owned
+#     without it).
+set -euo pipefail
+
+IMAGE="${AEB_CTR_IMAGE:-aeb-toolchain:slim}"
+ROOT="${AEB_CTR_ROOT:-$PWD}"
+ENGINE="${AEB_CONTAINER_ENGINE:-podman}"
+SELABEL="${AEB_CONTAINER_SELABEL-Z}"
+
+if [ $# -eq 0 ]; then
+    sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'
+    exit 0
+fi
+
+# Refuse to relabel $HOME (Bazzite rejects it) — the run dir must be a subdir.
+if [ "$ROOT" = "$HOME" ]; then
+    echo "aeb-ctr: run from a repo SUBDIR, not \$HOME (SELinux refuses :Z relabel of \$HOME)" >&2
+    exit 2
+fi
+
+mount="-v ${ROOT}:/work"
+if [ -n "$SELABEL" ]; then mount="${mount}:${SELABEL}"; fi
+
+say() { printf '\n\033[1m== aeb-ctr: %s\033[0m\n' "$*"; }
+
+# --- Phase 1: compile the orchestrator IN the container (--noexe) -----------
+say "phase 1 — compile build program in $IMAGE (--noexe)"
+"$ENGINE" run --rm $mount -w /work --entrypoint aeb "$IMAGE" --noexe "$@"
+
+ORCH="${ROOT}/target/_ae_build_all"
+if [ ! -x "$ORCH" ]; then
+    echo "aeb-ctr: phase 1 did not produce $ORCH — aborting" >&2
+    exit 1
+fi
+
+# --- Phase 2: run the orchestrator ON the host -----------------------------
+# Its per-target compiles delegate back into the container via the seam;
+# execution / tests run native on the host. Pass the SAME engine/selabel
+# through so the seam's podman invocations match what worked above.
+say "phase 2 — run build program on host (per-target compiles → $IMAGE)"
+AEB_COMPILE_CONTAINER="$IMAGE" \
+AEB_CONTAINER_ENGINE="$ENGINE" \
+AEB_CONTAINER_SELABEL="$SELABEL" \
+    "$ORCH" "$ROOT"
+
+say "done — compiled in $IMAGE, executed on host"

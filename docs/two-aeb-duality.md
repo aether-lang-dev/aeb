@@ -338,3 +338,20 @@ the host.** `--noexe` is the Layer-1 cut, the seam is the Layer-2 cut.
 
 The lib/aether seam (3410686) is Cut 2, done. `--noexe` (Cut 1) and `aeb-ctr`
 are what remain.
+
+## VERIFIED END-TO-END (2026-06-02, real Bazzite NUC)
+
+Both cuts + the full chain proven by hand on the immutable box, then wrapped
+as `tools/container/aeb-ctr`:
+
+- Phase 1: `podman run ... --entrypoint aeb aeb-toolchain:slim --noexe app/.build.ae`
+  → `target/_ae_build_all` (228K, bazzite-owned) landed on the host, not run.
+- Phase 2: `AEB_COMPILE_CONTAINER=aeb-toolchain:slim ./target/_ae_build_all <root>`
+  → orchestrator ran ON THE HOST; per-target compiles dispatched to REAL
+  podman (output showed `/work/...` paths = in-container); binaries landed at
+  `target/build/{greeter,app}/bin/program` on the host, user-owned. No
+  toolchain touched on the host at any point.
+
+Cut 2 (the lib/aether seam) was thereby verified against a real image for the
+first time (previously only a fake-engine string check). `aeb-ctr` sequences
+exactly these two commands. The duality is built and proven.
