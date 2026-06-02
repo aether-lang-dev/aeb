@@ -269,3 +269,72 @@ aeb-link→orchestrator→per-target phase, and the boundary is drawn there.
 The lib/aether seam (commit 3410686) is kept — correct for Layer 2, tested,
 and it's the mechanism whichever option wins. This section records that the
 *boundary* is at aeb-link, decided next.
+
+---
+
+## RESOLVED DESIGN (2026-06-02): `aeb --noexe` + `aeb-ctr`, two nested cuts
+
+The key correction (from the maintainer): **aeb's `.ae` build scripts are
+themselves COMPILED programs, not interpreted.** Aether is a compiled
+language; `.build.ae` / `.tests.ae` / `.dist.ae` / `.anything.ae` are each
+compiled (aetherc → gcc) into an x86_64/arm native binary, and "running the
+build" means *executing that binary*. So the toolchain is used at TWO nested
+layers (both confirmed in tools/aeb-link.ae):
+
+```
+LAYER 1  aeb-link links the orchestrator:  gcc … -o out_bin     (aeb-link.ae ~449-469)   [TOOLCHAIN]
+           → out_bin is the .ae build scripts, compiled to one native program
+LAYER 2  run out_bin:  os.system(out_bin root)                  (aeb-link.ae ~473-520)
+           → out_bin executes; it calls each builder, which os.system's
+             `ae build user.ae` (lib/aether _shell_out_ae_build)             [TOOLCHAIN AGAIN]
+```
+
+The two cuts that together give "all compilation in container, all execution
+on host":
+
+### Cut 1 — `aeb --noexe` (new flag): compile the build program, don't run it
+
+`--noexe` stops aeb-link after LAYER 1 (out_bin linked, on disk) and SKIPS
+LAYER 2 (the `os.system(out_bin …)` run at aeb-link.ae ~473-520). One
+chokepoint — gate that single exec. Result: the compiled build program exists
+but hasn't run. Run `aeb --noexe` IN the container → out_bin lands on the host
+via the mount, toolchain never touched on the host.
+
+### Cut 2 — the lib/aether seam (commit 3410686): per-target compile → container
+
+When the host RUNS out_bin (LAYER 2), its inner `ae build user.ae` calls are
+delegated to the container by `AEB_COMPILE_CONTAINER` (already built+tested).
+So the build program runs ON THE HOST (orchestrating, executing tests/binaries
+natively with host runtimes), but each *compile it triggers* goes back into
+the container.
+
+### `aeb-ctr` — the host launcher (identical CLI to aeb)
+
+```
+aeb-ctr <args>   (on the immutable host):
+  1. podman run aeb-toolchain:slim  aeb --noexe <args>
+        → LAYER 1 in container: .ae scripts compiled → out_bin on host (mount). Not run.
+  2. on host, with AEB_COMPILE_CONTAINER=aeb-toolchain:slim:
+        run out_bin (LAYER 2) → build program executes natively on the host;
+        its per-target compiles delegate to the container (Cut 2);
+        test/execute steps run on the host with real runtimes.
+```
+
+Net: **compilation (of the build scripts AND of user targets) happens in the
+container; execution (the build program, tests, produced binaries) happens on
+the host.** `--noexe` is the Layer-1 cut, the seam is the Layer-2 cut.
+
+### Build order
+
+1. **`aeb --noexe`** — gate the single out_bin exec in aeb-link (and thread
+   the flag through the trampoline → aeb-main → aeb-link). Verify locally:
+   `aeb --noexe app/.build.ae` produces out_bin / the orchestrator but runs
+   nothing.
+2. **`aeb-ctr`** — host launcher: podman-run `aeb --noexe`, then run out_bin
+   on the host with `AEB_COMPILE_CONTAINER` set. The mount/path mechanics are
+   the proven `aether-build` shape (`:Z`, no `--userns`, work dir not `$HOME`).
+3. Verify on the NUC: `aeb-ctr app/.build.ae` → binaries on the host, no
+   toolchain touched on the host at any point.
+
+The lib/aether seam (3410686) is Cut 2, done. `--noexe` (Cut 1) and `aeb-ctr`
+are what remain.
