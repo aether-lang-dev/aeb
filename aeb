@@ -117,6 +117,14 @@ while [[ $i -le $# ]]; do
         # all-in-one in-process orchestrator (faster for small builds,
         # simplest to debug; tool output streams onto aeb's stdout).
         export AEB_IN_PROCESS=1
+    elif [[ "$a" == "--noexe" ]]; then
+        # Compile the .ae build scripts into the native orchestrator
+        # binary, but do NOT run it — so no build work executes. The cut
+        # between aeb's two phases (Aether is compiled: building the build
+        # scripts vs. running the build). Used by aeb-ctr to compile in a
+        # container, then run the orchestrator on the host. See
+        # docs/two-aeb-duality.md.
+        export AEB_NOEXE=1
     elif [[ "$a" == "--pattern" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then

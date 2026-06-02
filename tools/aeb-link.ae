@@ -468,6 +468,18 @@ main() {
     }
     os.system(cc)
 
+    // --noexe (AEB_NOEXE=1): stop here. The orchestrator binary (out_bin) is
+    // linked and on disk, but we do NOT run it — so no build work executes.
+    // This is Cut 1 of the two-aeb duality (docs/two-aeb-duality.md): compile
+    // the .ae build scripts into the native orchestrator IN the container,
+    // then a host-side launcher (aeb-ctr) RUNS out_bin on the host. Aether is
+    // compiled, so "build the build scripts" and "run the build" are two
+    // phases; --noexe is the cut between them.
+    if string.equals(os.getenv("AEB_NOEXE"), "1") == 1 {
+        println("aeb --noexe: orchestrator linked at ${out_bin} (not run)")
+        exit(0)
+    }
+
     // --- Run: per-node driver (default) or all-in-one orchestrator ---
     // Per-node (nodes-as-subprocesses, docs/nodes-as-subprocesses.md) is
     // the DEFAULT: each node runs as its own `out_bin <root> <label>` via
