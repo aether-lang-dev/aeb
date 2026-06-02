@@ -355,3 +355,76 @@ as `tools/container/aeb-ctr`:
 Cut 2 (the lib/aether seam) was thereby verified against a real image for the
 first time (previously only a fake-engine string check). `aeb-ctr` sequences
 exactly these two commands. The duality is built and proven.
+
+---
+
+## CORRECTED MODEL (2026-06-02): two whole-DAG passes, not per-compile delegation
+
+The maintainer's model — which SUPERSEDES the per-compile `AEB_COMPILE_CONTAINER`
+seam framing above. The rule is uniform and absolute, no per-SDK / per-verb /
+per-filename classification:
+
+> **`aeb-ctr`: EVERYTHING compiles in the container; EVERYTHING executes on the
+> host.** Filenames (`.build.ae`/`.tests.ae`/`.anything.ae`) are arbitrary —
+> they don't classify anything.
+
+It is **two passes over the same DAG, in two places**, NOT a host-side run that
+delegates individual compiles:
+
+```
+aeb-ctr <target>  (host):
+
+  PASS 1 — COMPILE, one container invocation:
+    podman run <image>  aeb --compile-only <target>
+      → in-container aeb works out the WHOLE impacted DAG, compiles every node
+        (every SDK — naturally, the container has the toolchain), executes
+        NOTHING. Emits a MANIFEST: the ordered compile list + metadata
+        (label, paths, …). Hands control + manifest back to the host.
+
+  PASS 2 — EXECUTE, on the host:
+    aeb --execute-only <manifest>
+      → host aeb walks the SAME order, EXECUTES only (runs the produced
+        binaries / tests, with the host's runtimes), compiles NOTHING.
+```
+
+Why this is the right shape (and the per-compile seam is the wrong one):
+- The compile pass is just **aeb compiling, in an environment with the
+  toolchain** — so it covers EVERY SDK (aetherc/gcc/javac/cargo/go/…) for free.
+  No per-SDK `AEB_COMPILE_CONTAINER` wiring; no maintenance burden; no SDK that
+  "forgot the seam." The earlier seam only ever covered lib/aether's ae-build
+  shell-out — _compile_and_link and all other-language SDKs bypassed it. The
+  two-pass model makes that irrelevant: the whole compile pass is in-container.
+- Execution is uniformly host-side because PASS 2 is the only place anything
+  runs, and it runs on the host.
+
+### What it needs (the build)
+
+Two new aeb modes (these are the real cuts, replacing --noexe/seam):
+
+- **`aeb --compile-only`**: run the DAG's builders but SUPPRESS each builder's
+  execute step (the `os.system(run_cmd)` that runs a produced binary —
+  lib/aether ~1963, lib/bash ~723, and the other run/test SDKs). Emit the
+  manifest. NB the per-node order + metadata already exist as gen-orchestrator's
+  `_records` list (label/type/paths/telemetry, in build order) + `build.done` —
+  that IS the manifest substrate; serialize it.
+- **`aeb --execute-only <manifest>`**: skip every `_build_binary`/compile; for
+  each manifested node in order, run its execute step on the host.
+
+The execute-suppression/isolation touches every builder that runs something —
+not "arbitrary classification" but the concrete set of `os.system(produced
+binary)` call sites. The compile side needs NOTHING per-SDK (it's just a normal
+in-container compile pass).
+
+### Status vs. this model
+
+- `--noexe` (committed) compiled the *orchestrator* and stopped — a near-miss;
+  `--compile-only` instead runs the orchestrator's compile PASS over the whole
+  DAG and stops before execution, emitting the manifest. Supersede/extend it.
+- The `AEB_COMPILE_CONTAINER` seam (committed) is the wrong mechanism under this
+  model (per-compile delegation from a host run); the compile pass runs wholesale
+  in-container instead. Keep it dormant or remove it later; it's not the path.
+- `aeb-ctr` (committed) currently does the --noexe + run-orchestrator-with-seam
+  dance; it should become: `podman run aeb --compile-only` → `aeb --execute-only
+  manifest`. Rework once the two modes exist.
+
+This is the model to build.
