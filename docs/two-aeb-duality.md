@@ -428,3 +428,25 @@ in-container compile pass).
   manifest`. Rework once the two modes exist.
 
 This is the model to build.
+
+## HOST-LANGUAGE HOSTING (2026-06-03): blocked on an upstream ae-build gap
+
+Proving Aether-hosts-Python through aeb-ctr (compile in container, run on
+host) traced the duality machinery as SOUND but hit an upstream blocker:
+`ae build` does not link the contrib.host.<lang> bridge .a
+(libaether_host_python.a) when a program `import contrib.host.python` — it
+resolves the headers (compiles) but the bridge's own symbol `python_run` is
+undefined at runtime. Independent of containers (plain `ae build` fails the
+same). Recorded for the aether sibling in ../aether/ctr_notes.md (Bug 4), with
+the fix: link the bridge .a IFF its contrib.host.<lang> is imported (NOT
+blanket — else pure-Aether programs gain a spurious libpython runtime dep).
+
+What the test DID prove: ${VAR} expansion (v0.207.0 image), aeb-ctr's
+host-sysconfig probe + -e passthrough, lazy-link past CPython symbols, and the
+two-pass compile-in-container/execute-on-host flow all work. The lone gap is
+the bridge-link, upstream.
+
+NB: aeb-ctr currently uses `--unresolved-symbols=ignore-all` for the python
+ldflags — KNOWN WRONG: it masked the missing bridge .a (deferred `python_run`,
+a build-time symbol, not just the runtime CPython ones). Once ae build links
+the bridge, drop ignore-all and defer only the genuine CPython symbols.
