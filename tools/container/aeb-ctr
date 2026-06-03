@@ -54,36 +54,28 @@ if [ -n "$SELABEL" ]; then mount="${mount}:${SELABEL}"; fi
 
 say() { printf '\n\033[1m== aeb-ctr: %s\033[0m\n' "$*"; }
 
-# --- Host-language link flags: pass the HOST's real linker flags in.
-# The host bridge (contrib/host/python/aether_host_python.c) calls
-# Py_Initialize() / PyRun_SimpleString() DIRECTLY (no dlopen) — proven in
-# ../aether ctr_notes.md (Bug 5 answers). So the CPython symbols MUST resolve
-# at LINK against a real libpython (which records DT_NEEDED libpython3.X.so so
-# the runtime loads it). Lazy-deferral (--unresolved-symbols=ignore-all) is
-# WRONG for direct calls: it links but the binary is unloadable
-# ("unexpected PLT reloc"). So we pass the host's real -L + -lpython (+ rpath);
-# this requires a link-suitable libpython IN the container, version-matched —
-# pending the aether-side image decision (python3-dev in the base image, or a
-# dlopen-based bridge rewrite that would let us pass nothing here). The host is
-# the correct flag source (the exe links + runs against the host's Python ABI).
-# Probed via the runtime's own sysconfig (no python3-dev/-config on the host).
-# aether.toml expands ${VAR} (v0.207.0+; $(...) command-subst NOT supported —
-# the shell-out is HERE, the toml just substitutes the value).
+# --- Host-language runtime discovery: pass the host's exact interpreter
+# soname in, so the in-container build's bridge dlopens the RIGHT lib at
+# runtime on the host. As of aether v0.209.0 the python bridge dlopens
+# libpython (not direct-link) — so NO -lpython / link flags are needed (the
+# bridge .a has no unresolved Py_* symbols; ae build adds nothing
+# libpython-related). We only pass AETHER_PYTHON_SONAME = the host's exact
+# soname (sysconfig INSTSONAME, e.g. libpython3.14.so.1.0), which is the
+# bridge's loading-order step 1 (it falls back to libpython3.so then a
+# versioned list). No python3-dev / -config on the host — sysconfig is in the
+# runtime. (History: this used to pass -lpython ldflags + a wrong
+# --unresolved-symbols=ignore-all; the dlopen-bridge made both obsolete —
+# see ../aether ctr_notes.md.)
 PASS_ENV=""
 if command -v python3 >/dev/null 2>&1; then
-    AETHER_PYTHON_LDFLAGS="$(python3 -c '
-import sysconfig as s
-v = s.get_config_var
-ld = v("LIBDIR") or ""
-print("-L"+ld, "-Wl,-rpath,"+ld, "-lpython"+(v("LDVERSION") or ""),
-      v("LIBS") or "", v("SYSLIBS") or "")
-' 2>/dev/null | tr -s " ")"
-    if [ -n "${AETHER_PYTHON_LDFLAGS:-}" ]; then
-        export AETHER_PYTHON_LDFLAGS
-        PASS_ENV="$PASS_ENV -e AETHER_PYTHON_LDFLAGS"
+    AETHER_PYTHON_SONAME="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("INSTSONAME") or "")' 2>/dev/null)"
+    if [ -n "${AETHER_PYTHON_SONAME:-}" ]; then
+        export AETHER_PYTHON_SONAME
+        PASS_ENV="$PASS_ENV -e AETHER_PYTHON_SONAME"
     fi
 fi
-# (lua / ruby / perl: add analogous probes when those bridges get the same treatment)
+# (lua / ruby / perl: add analogous soname probes when those bridges get the
+# same dlopen treatment.)
 
 # --- Phase 1: COMPILE in the container (--compile-only) ---------------------
 # In-container aeb builds the orchestrator (_ae_build_all) AND runs it in
