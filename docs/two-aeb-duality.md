@@ -450,3 +450,19 @@ NB: aeb-ctr currently uses `--unresolved-symbols=ignore-all` for the python
 ldflags — KNOWN WRONG: it masked the missing bridge .a (deferred `python_run`,
 a build-time symbol, not just the runtime CPython ones). Once ae build links
 the bridge, drop ignore-all and defer only the genuine CPython symbols.
+
+## UPDATE (2026-06-03, cont.): bridge auto-link landed; blocker moved to the image
+
+The ae-build bridge-link gap above is FIXED upstream (aether v0.208.0:
+import-driven auto-link of libaether_host_<lang>.a, the spec from ctr_notes
+Bug 4). NUC retest at v0.208 confirmed it active via a clean new hard-error:
+`ae: cannot find libaether_host_python.a … run make install-contrib`. So the
+blocker MOVED one step: the aether-build base IMAGE does `make install` but
+not `make install-contrib`, so the bridge .a is absent. Fix is one line in
+tools/docker/aether-build (add `make install-contrib` before `rm -rf /src` —
+the .a builds from the source tree, which is still present there). Filed as
+ctr_notes Bug 5 (aether-side; cannot be done in our aeb-toolchain layer since
+it FROMs the base after /src is gone). Once the .a ships, the remaining
+link-time question is the CPython symbols (Py_Initialize) — the NUC test will
+show whether the container needs libpython to resolve them or they defer to
+the host runtime. aeb-ctr lazy-link now correctly defers ONLY those.
