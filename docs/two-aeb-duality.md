@@ -466,3 +466,23 @@ it FROMs the base after /src is gone). Once the .a ships, the remaining
 link-time question is the CPython symbols (Py_Initialize) — the NUC test will
 show whether the container needs libpython to resolve them or they defer to
 the host runtime. aeb-ctr lazy-link now correctly defers ONLY those.
+
+## UPDATE (2026-06-03, cont.): host-Python resolved via dlopen-bridge (aether-side)
+
+The direct-call finding (binary unloadable when CPython syms deferred) led the
+aether sibling to the architecturally-right fix: REWRITE the python bridge to
+dlopen libpython (not link it directly) — chosen over python3-dev-in-image
+(which would ABI-lock the image to one python minor + repeat for 6 bridges +
+push a runtime concern into the toolchain image). Verified on the bare NUC that
+`dlopen("libpython3.so")` works by name (the unversioned .so ships with the
+runtime on Fedora-likes + is in ldconfig); INSTSONAME=libpython3.14.so.1.0 is
+the versioned fallback.
+
+Agreed plan (ctr_notes round-trip): aether side lands B' (build bridge .a from
+vendored headers, no -dev) + the python dlopen-rewrite (≥0.209.0). aeb side
+then: (1) drop the -L/-lpython ldflags from aeb-ctr (already dropped the
+ignore-all; with dlopen, python needs at most -ldl); (2) add an
+AETHER_PYTHON_SONAME passthrough so the bridge dlopen fallback gets the host's
+exact soname; (3) rebuild the NUC image at the new version + run aeb-ctr
+hostpy/.build.ae → should finally print "hello from python, hosted by aether".
+That's the capstone, pending the aether dlopen-rewrite.
