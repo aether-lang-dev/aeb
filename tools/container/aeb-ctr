@@ -54,9 +54,39 @@ if [ -n "$SELABEL" ]; then mount="${mount}:${SELABEL}"; fi
 
 say() { printf '\n\033[1m== aeb-ctr: %s\033[0m\n' "$*"; }
 
-# --- Phase 1: compile the orchestrator IN the container (--noexe) -----------
-say "phase 1 — compile build program in $IMAGE (--noexe)"
-"$ENGINE" run --rm $mount -w /work --entrypoint aeb "$IMAGE" --noexe "$@"
+# --- Host-language link flags: probe the host's runtimes once, pass into the
+# container so `ae build` knows what to link the produced exes against. The
+# container doesn't have *-config tools (and even if it did, they'd describe
+# the container's libs, not the host's — wrong target: the exe dlopens the
+# HOST's libpython at runtime). Each contrib.host.* the binary will dlopen
+# needs the host-side -L/-l flags baked in at link. We probe via the runtime's
+# own sysconfig (no python3-dev / python3-config needed on the host) and pass
+# the RESULT as a plain ${VAR}; aether.toml expands ${VAR} (CHANGELOG: env
+# expansion supported, $(...) command-subst deliberately NOT — so the shell-out
+# happens HERE, the toml just substitutes the value).
+PASS_ENV=""
+if command -v python3 >/dev/null 2>&1; then
+    AETHER_PYTHON_LDFLAGS="$(python3 -c '
+import sysconfig as s
+v = s.get_config_var
+print("-L"+(v("LIBDIR") or ""), "-lpython"+(v("LDVERSION") or ""),
+      v("LIBS") or "", v("SYSLIBS") or "")
+' 2>/dev/null | tr -s " ")"
+    if [ -n "${AETHER_PYTHON_LDFLAGS:-}" ]; then
+        export AETHER_PYTHON_LDFLAGS
+        PASS_ENV="$PASS_ENV -e AETHER_PYTHON_LDFLAGS"
+    fi
+fi
+# (lua / ruby / perl: add analogous probes when those bridges get the same treatment)
+
+# --- Phase 1: COMPILE in the container (--compile-only) ---------------------
+# In-container aeb builds the orchestrator (_ae_build_all) AND runs it in
+# compile-only mode: every node compiles (every SDK — the container has the
+# toolchain), nothing runs. The orchestrator binary AND all node artifacts
+# land on the host via the mount. Host-runtime link flags passed in so
+# host-language binaries link against the HOST's libs.
+say "phase 1 — compile in $IMAGE (--compile-only)"
+"$ENGINE" run --rm $mount -w /work $PASS_ENV --entrypoint aeb "$IMAGE" --compile-only "$@"
 
 ORCH="${ROOT}/target/_ae_build_all"
 if [ ! -x "$ORCH" ]; then
@@ -64,14 +94,13 @@ if [ ! -x "$ORCH" ]; then
     exit 1
 fi
 
-# --- Phase 2: run the orchestrator ON the host -----------------------------
-# Its per-target compiles delegate back into the container via the seam;
-# execution / tests run native on the host. Pass the SAME engine/selabel
-# through so the seam's podman invocations match what worked above.
-say "phase 2 — run build program on host (per-target compiles → $IMAGE)"
-AEB_COMPILE_CONTAINER="$IMAGE" \
-AEB_CONTAINER_ENGINE="$ENGINE" \
-AEB_CONTAINER_SELABEL="$SELABEL" \
-    "$ORCH" "$ROOT"
+# --- Phase 2: EXECUTE on the host (--execute-only) --------------------------
+# RUN the orchestrator Phase 1 already built (don't rebuild it — the host has
+# no toolchain). In execute-only mode it walks the same DAG and runs only the
+# execute steps (produced binaries / tests) natively on the host, with the
+# host's runtimes (libpython, …). No container, no recompile. Composite exes
+# carry their dep closure, so no manifest is needed.
+say "phase 2 — execute on host (--execute-only)"
+AEB_EXECUTE_ONLY=1 "$ORCH" "$ROOT"
 
 say "done — compiled in $IMAGE, executed on host"
