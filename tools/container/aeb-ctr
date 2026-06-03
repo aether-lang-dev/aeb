@@ -54,25 +54,27 @@ if [ -n "$SELABEL" ]; then mount="${mount}:${SELABEL}"; fi
 
 say() { printf '\n\033[1m== aeb-ctr: %s\033[0m\n' "$*"; }
 
-# --- Host-language link flags: probe the host's runtimes once, pass into the
-# container so `ae build` knows what to link the produced exes against. The
-# container doesn't have *-config tools (and even if it did, they'd describe
-# the container's libs, not the host's — wrong target: the exe dlopens the
-# HOST's libpython at runtime). Each contrib.host.* the binary will dlopen
-# needs the host-side -L/-l flags baked in at link. We probe via the runtime's
-# own sysconfig (no python3-dev / python3-config needed on the host) and pass
-# the RESULT as a plain ${VAR}; aether.toml expands ${VAR} (CHANGELOG: env
-# expansion supported, $(...) command-subst deliberately NOT — so the shell-out
-# happens HERE, the toml just substitutes the value).
+# --- Host-language link flags: LAZY-LINK form (container needs no Python).
+# The host bridge calls Py_Initialize() etc. directly, so those symbols would
+# need libpython AT LINK TIME — but the container has no libpython (and even if
+# it did, it'd be the wrong version vs the host's). Instead we link with
+# `--unresolved-symbols=ignore-all`, deferring the interpreter symbols to
+# RUNTIME, when the produced exe loads the HOST's libpython. So we pass the
+# host's -L (so the runtime/rpath can find it) + the ignore-undefined flag,
+# but NOT -lpython (we don't resolve it at link). The host is the only correct
+# source of these paths (the exe runs against the host's interpreter). Probed
+# via the runtime's own sysconfig — no python3-dev / *-config needed on the
+# host. aether.toml expands ${VAR} (v0.207.0+; $(...) command-subst NOT
+# supported — so the shell-out is HERE, the toml just substitutes the value).
+#
+# NB --unresolved-symbols=ignore-all is blunt (ignores ALL undefineds); scoped
+# here to host-bridge builds where the undefineds are the known runtime
+# interpreter symbols. (lua/ruby/perl: analogous probes when those land.)
 PASS_ENV=""
 if command -v python3 >/dev/null 2>&1; then
-    AETHER_PYTHON_LDFLAGS="$(python3 -c '
-import sysconfig as s
-v = s.get_config_var
-print("-L"+(v("LIBDIR") or ""), "-lpython"+(v("LDVERSION") or ""),
-      v("LIBS") or "", v("SYSLIBS") or "")
-' 2>/dev/null | tr -s " ")"
-    if [ -n "${AETHER_PYTHON_LDFLAGS:-}" ]; then
+    _py_libdir="$(python3 -c 'import sysconfig as s; print(s.get_config_var("LIBDIR") or "")' 2>/dev/null)"
+    AETHER_PYTHON_LDFLAGS="-L${_py_libdir} -Wl,--unresolved-symbols=ignore-all -Wl,-rpath,${_py_libdir}"
+    if [ -n "${_py_libdir:-}" ]; then
         export AETHER_PYTHON_LDFLAGS
         PASS_ENV="$PASS_ENV -e AETHER_PYTHON_LDFLAGS"
     fi
