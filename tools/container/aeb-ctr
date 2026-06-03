@@ -54,27 +54,31 @@ if [ -n "$SELABEL" ]; then mount="${mount}:${SELABEL}"; fi
 
 say() { printf '\n\033[1m== aeb-ctr: %s\033[0m\n' "$*"; }
 
-# --- Host-language link flags: LAZY-LINK form (container needs no Python).
-# The host bridge calls Py_Initialize() etc. directly, so those symbols would
-# need libpython AT LINK TIME — but the container has no libpython (and even if
-# it did, it'd be the wrong version vs the host's). Instead we link with
-# `--unresolved-symbols=ignore-all`, deferring the interpreter symbols to
-# RUNTIME, when the produced exe loads the HOST's libpython. So we pass the
-# host's -L (so the runtime/rpath can find it) + the ignore-undefined flag,
-# but NOT -lpython (we don't resolve it at link). The host is the only correct
-# source of these paths (the exe runs against the host's interpreter). Probed
-# via the runtime's own sysconfig — no python3-dev / *-config needed on the
-# host. aether.toml expands ${VAR} (v0.207.0+; $(...) command-subst NOT
-# supported — so the shell-out is HERE, the toml just substitutes the value).
-#
-# NB --unresolved-symbols=ignore-all is blunt (ignores ALL undefineds); scoped
-# here to host-bridge builds where the undefineds are the known runtime
-# interpreter symbols. (lua/ruby/perl: analogous probes when those land.)
+# --- Host-language link flags: pass the HOST's real linker flags in.
+# The host bridge (contrib/host/python/aether_host_python.c) calls
+# Py_Initialize() / PyRun_SimpleString() DIRECTLY (no dlopen) — proven in
+# ../aether ctr_notes.md (Bug 5 answers). So the CPython symbols MUST resolve
+# at LINK against a real libpython (which records DT_NEEDED libpython3.X.so so
+# the runtime loads it). Lazy-deferral (--unresolved-symbols=ignore-all) is
+# WRONG for direct calls: it links but the binary is unloadable
+# ("unexpected PLT reloc"). So we pass the host's real -L + -lpython (+ rpath);
+# this requires a link-suitable libpython IN the container, version-matched —
+# pending the aether-side image decision (python3-dev in the base image, or a
+# dlopen-based bridge rewrite that would let us pass nothing here). The host is
+# the correct flag source (the exe links + runs against the host's Python ABI).
+# Probed via the runtime's own sysconfig (no python3-dev/-config on the host).
+# aether.toml expands ${VAR} (v0.207.0+; $(...) command-subst NOT supported —
+# the shell-out is HERE, the toml just substitutes the value).
 PASS_ENV=""
 if command -v python3 >/dev/null 2>&1; then
-    _py_libdir="$(python3 -c 'import sysconfig as s; print(s.get_config_var("LIBDIR") or "")' 2>/dev/null)"
-    AETHER_PYTHON_LDFLAGS="-L${_py_libdir} -Wl,--unresolved-symbols=ignore-all -Wl,-rpath,${_py_libdir}"
-    if [ -n "${_py_libdir:-}" ]; then
+    AETHER_PYTHON_LDFLAGS="$(python3 -c '
+import sysconfig as s
+v = s.get_config_var
+ld = v("LIBDIR") or ""
+print("-L"+ld, "-Wl,-rpath,"+ld, "-lpython"+(v("LDVERSION") or ""),
+      v("LIBS") or "", v("SYSLIBS") or "")
+' 2>/dev/null | tr -s " ")"
+    if [ -n "${AETHER_PYTHON_LDFLAGS:-}" ]; then
         export AETHER_PYTHON_LDFLAGS
         PASS_ENV="$PASS_ENV -e AETHER_PYTHON_LDFLAGS"
     fi
