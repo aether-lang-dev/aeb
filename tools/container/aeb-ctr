@@ -66,16 +66,44 @@ say() { printf '\n\033[1m== aeb-ctr: %s\033[0m\n' "$*"; }
 # runtime. (History: this used to pass -lpython ldflags + a wrong
 # --unresolved-symbols=ignore-all; the dlopen-bridge made both obsolete —
 # see ../aether ctr_notes.md.)
+# All six interpreter bridges (python v0.209.0; ruby; lua/perl/js/tcl in the
+# dlopen sweep) read ${AETHER_<LANG>_SONAME} as loading-order step 1, then fall
+# back to an unversioned .so and a versioned list. So every probe here is
+# BEST-EFFORT: if we can't resolve the host's exact soname, we pass nothing and
+# the bridge's fallback list takes over. We never need -dev/-config on the host
+# for the build (it happens in the container); these probes just read whatever
+# the host already has so the dlopen target is exact, not guessed.
 PASS_ENV=""
+pass_soname() {  # $1 = env var name, $2 = resolved soname (may be empty)
+    [ -n "$2" ] || return 0
+    export "$1=$2"
+    PASS_ENV="$PASS_ENV -e $1"
+}
+
+# python — sysconfig INSTSONAME (in the runtime, no -dev needed)
 if command -v python3 >/dev/null 2>&1; then
-    AETHER_PYTHON_SONAME="$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("INSTSONAME") or "")' 2>/dev/null)"
-    if [ -n "${AETHER_PYTHON_SONAME:-}" ]; then
-        export AETHER_PYTHON_SONAME
-        PASS_ENV="$PASS_ENV -e AETHER_PYTHON_SONAME"
-    fi
+    pass_soname AETHER_PYTHON_SONAME \
+        "$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("INSTSONAME") or "")' 2>/dev/null)"
 fi
-# (lua / ruby / perl: add analogous soname probes when those bridges get the
-# same dlopen treatment.)
+# perl — Config's libperl (e.g. libperl.so.5.36); archlib has the real .so name
+if command -v perl >/dev/null 2>&1; then
+    pass_soname AETHER_PERL_SONAME \
+        "$(perl -MConfig -e 'print $Config{libperl} =~ /\.so/ ? $Config{libperl} : ""' 2>/dev/null)"
+fi
+# tcl — tclsh reports its version; libtcl<ver>.so is the conventional soname
+if command -v tclsh >/dev/null 2>&1; then
+    pass_soname AETHER_TCL_SONAME \
+        "$(echo 'puts "libtcl[info tclversion].so"' | tclsh 2>/dev/null)"
+fi
+# lua / js(duktape): no standard host introspection for the soname, and the
+# bridge's versioned fallback list covers the common Debian/Fedora cases. If a
+# host needs an exact name, the user can export AETHER_LUA_SONAME /
+# AETHER_JS_SONAME before invoking aeb-ctr — pass them through if set.
+pass_soname AETHER_LUA_SONAME "${AETHER_LUA_SONAME:-}"
+pass_soname AETHER_JS_SONAME  "${AETHER_JS_SONAME:-}"
+# ruby: pass through if the user set it (rbconfig could probe it; add when a
+# ruby readiness target needs it).
+pass_soname AETHER_RUBY_SONAME "${AETHER_RUBY_SONAME:-}"
 
 # --- Phase 1: COMPILE in the container (--compile-only) ---------------------
 # In-container aeb builds the orchestrator (_ae_build_all) AND runs it in
