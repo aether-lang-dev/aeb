@@ -56,23 +56,25 @@ say() { printf '\n\033[1m== aeb-ctr: %s\033[0m\n' "$*"; }
 
 # --- Host-language runtime discovery: pass the host's exact interpreter
 # soname in, so the in-container build's bridge dlopens the RIGHT lib at
-# runtime on the host. As of aether v0.209.0 the python bridge dlopens
-# libpython (not direct-link) — so NO -lpython / link flags are needed (the
-# bridge .a has no unresolved Py_* symbols; ae build adds nothing
-# libpython-related). We only pass AETHER_PYTHON_SONAME = the host's exact
-# soname (sysconfig INSTSONAME, e.g. libpython3.14.so.1.0), which is the
-# bridge's loading-order step 1 (it falls back to libpython3.so then a
-# versioned list). No python3-dev / -config on the host — sysconfig is in the
-# runtime. (History: this used to pass -lpython ldflags + a wrong
-# --unresolved-symbols=ignore-all; the dlopen-bridge made both obsolete —
-# see ../aether ctr_notes.md.)
-# All six interpreter bridges (python v0.209.0; ruby; lua/perl/js/tcl in the
-# dlopen sweep) read ${AETHER_<LANG>_SONAME} as loading-order step 1, then fall
-# back to an unversioned .so and a versioned list. So every probe here is
-# BEST-EFFORT: if we can't resolve the host's exact soname, we pass nothing and
-# the bridge's fallback list takes over. We never need -dev/-config on the host
-# for the build (it happens in the container); these probes just read whatever
-# the host already has so the dlopen target is exact, not guessed.
+# runtime on the host. The aether bridges (python v0.209.0; ruby; lua/perl/js/
+# tcl) dlopen the host lib instead of link-time binding — NO -lfoo / link flags
+# (the bridge .a has no unresolved interpreter symbols; ae build adds nothing).
+#
+# As of aether v0.213.0 the bridges use a STRICT 2-STEP contract — there is NO
+# version-fallback list any more:
+#   1. ${AETHER_<LANG>_SONAME}   (this — orchestrator-supplied exact soname)
+#   2. libfoo.so                 (unversioned symlink, if the host has one)
+#   3. else: clean error naming the env var + a hint probe command.
+# Bazzite/Fedora hosts often ship NO flat libfoo.so symlink (only versioned,
+# e.g. libruby.so.3.4) — so step 1 is the ONLY thing that works there, which
+# makes these probes load-bearing, not just nice-to-have. (Pre-v0.213 the ruby
+# capstone passed by luck via the now-removed fallback list — see ctr_notes.)
+#
+# Each probe RUNS ON THE HOST (where aeb-ctr runs) and reads the host's own
+# config — so it returns the host's real soname, not a guess. All best-effort:
+# an unresolved probe passes nothing and the bridge reports the strict error
+# with its hint command. No -dev / -config needed on the host (the build is in
+# the container); these just read what the host runtime already exposes.
 PASS_ENV=""
 pass_soname() {  # $1 = env var name, $2 = resolved soname (may be empty)
     [ -n "$2" ] || return 0
@@ -85,7 +87,13 @@ if command -v python3 >/dev/null 2>&1; then
     pass_soname AETHER_PYTHON_SONAME \
         "$(python3 -c 'import sysconfig; print(sysconfig.get_config_var("INSTSONAME") or "")' 2>/dev/null)"
 fi
-# perl — Config's libperl (e.g. libperl.so.5.36); archlib has the real .so name
+# ruby — RbConfig LIBRUBY_SO is the host's exact shared-lib name (the shape the
+# bridge's v0.213 error message recommends). e.g. Bazzite → libruby.so.3.4.
+if command -v ruby >/dev/null 2>&1; then
+    pass_soname AETHER_RUBY_SONAME \
+        "$(ruby -rrbconfig -e 'print RbConfig::CONFIG["LIBRUBY_SO"] || ""' 2>/dev/null)"
+fi
+# perl — Config's libperl (e.g. libperl.so.5.36)
 if command -v perl >/dev/null 2>&1; then
     pass_soname AETHER_PERL_SONAME \
         "$(perl -MConfig -e 'print $Config{libperl} =~ /\.so/ ? $Config{libperl} : ""' 2>/dev/null)"
@@ -95,15 +103,13 @@ if command -v tclsh >/dev/null 2>&1; then
     pass_soname AETHER_TCL_SONAME \
         "$(echo 'puts "libtcl[info tclversion].so"' | tclsh 2>/dev/null)"
 fi
-# lua / js(duktape): no standard host introspection for the soname, and the
-# bridge's versioned fallback list covers the common Debian/Fedora cases. If a
-# host needs an exact name, the user can export AETHER_LUA_SONAME /
-# AETHER_JS_SONAME before invoking aeb-ctr — pass them through if set.
-pass_soname AETHER_LUA_SONAME "${AETHER_LUA_SONAME:-}"
-pass_soname AETHER_JS_SONAME  "${AETHER_JS_SONAME:-}"
-# ruby: pass through if the user set it (rbconfig could probe it; add when a
-# ruby readiness target needs it).
-pass_soname AETHER_RUBY_SONAME "${AETHER_RUBY_SONAME:-}"
+# lua — no clean CLI soname probe; ask ld.so's cache for whatever liblua* it
+# knows (handles Debian liblua5.4.so.0 AND Fedora liblua-5.4.so). Best-effort.
+LUA_SONAME="$(ldconfig -p 2>/dev/null | awk '/liblua(-|[0-9.]*)\.so/{print $1; exit}')"
+pass_soname AETHER_LUA_SONAME "${AETHER_LUA_SONAME:-$LUA_SONAME}"
+# js (duktape) — no CLI; probe ld.so's cache for the duktape soname.
+JS_SONAME="$(ldconfig -p 2>/dev/null | awk '/libduktape\.so/{print $1; exit}')"
+pass_soname AETHER_JS_SONAME "${AETHER_JS_SONAME:-$JS_SONAME}"
 
 # --- Phase 1: COMPILE in the container (--compile-only) ---------------------
 # In-container aeb builds the orchestrator (_ae_build_all) AND runs it in
