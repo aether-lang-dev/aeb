@@ -103,9 +103,11 @@ if command -v tclsh >/dev/null 2>&1; then
     pass_soname AETHER_TCL_SONAME \
         "$(echo 'puts "libtcl[info tclversion].so"' | tclsh 2>/dev/null)"
 fi
-# lua — no clean CLI soname probe; ask ld.so's cache for whatever liblua* it
-# knows (handles Debian liblua5.4.so.0 AND Fedora liblua-5.4.so). Best-effort.
-LUA_SONAME="$(ldconfig -p 2>/dev/null | awk '/liblua(-|[0-9.]*)\.so/{print $1; exit}')"
+# lua — no clean CLI soname probe; ask ld.so's cache for liblua. Require a DIGIT
+# right after liblua[-.] so we match the real interpreter (Debian liblua5.4.so.0
+# / Fedora liblua-5.4.so) and SKIP libluajit / libluaaddonloader (which also
+# start "liblua" but are the wrong libs). Best-effort.
+LUA_SONAME="$(ldconfig -p 2>/dev/null | awk '/liblua[-.]?[0-9]/{print $1; exit}')"
 pass_soname AETHER_LUA_SONAME "${AETHER_LUA_SONAME:-$LUA_SONAME}"
 # js (duktape) — no CLI; probe ld.so's cache for the duktape soname.
 JS_SONAME="$(ldconfig -p 2>/dev/null | awk '/libduktape\.so/{print $1; exit}')"
