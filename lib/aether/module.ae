@@ -26,6 +26,14 @@ output(_ctx: ptr, bin_name: string) {
     _e = map.put(_ctx, "output", bin_name)
 }
 
+// go_source(file) — the user's .go for an aether.tinygo_lib node.
+// TinyGo compiles it to a c-shared .so (the `output`); the Aether
+// program that deps this lib tinygo.load()s that .so at runtime.
+// See docs/host-tinygo-sidecar.md.
+go_source(_ctx: ptr, file_name: string) {
+    _e = map.put(_ctx, "go_source", file_name)
+}
+
 // driver(file) — alias for source(...) in the aether.driver_test
 // closure. Reads more naturally there: "this is the driver, not
 // the program-under-test." source(...) also works; both write the
@@ -1884,6 +1892,96 @@ _default_source_name(ctx: ptr) {
 }
 
 // --- SDK builders ---
+
+// aether.tinygo_lib(b) — compile a user's .go to a c-shared .so via TinyGo.
+//
+// The sidecar shape (docs/host-tinygo-sidecar.md): unlike the six interpreter
+// bridges (python/ruby/…), contrib.host.tinygo has no system lib — the user's
+// Go is compiled to a .so that an Aether program tinygo.load()s by path at
+// runtime. So this builder produces a .so as its declared output; a downstream
+// program / program_test that dep()s it loads that .so.
+//
+//   aether.tinygo_lib(b) {
+//       go_source("greet.go")     // the .go (relative to module dir)
+//       output("libgreet.so")     // sidecar name the .ae will tinygo.load()
+//   }
+//
+// Compile-only by nature (a lib has no run step): active under --compile-only,
+// inert under --execute-only. Under aeb-ctr the compile happens in the
+// container (TinyGo present there); the .so lands on the host via the mount,
+// beside the Aether binary, so Phase-2 host execution finds it. The
+// AEB_COMPILE_CONTAINER per-step delegation seam is honored too (same as the
+// other builders) for non-aeb-ctr hosts that delegate one step at a time.
+builder tinygo_lib(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    lib_dir = path.join(target_dir, "lib")
+    build._mkdirs(lib_dir)
+
+    go_name = "main.go"
+    if _builder != null {
+        if map.has(_builder, "go_source") == 1 {
+            go_name, _ = map.get(_builder, "go_source")
+        }
+    }
+    go_path = path.join(source_dir, go_name)
+
+    out_name = "libtinygo.so"
+    if _builder != null {
+        if map.has(_builder, "output") == 1 {
+            out_name, _ = map.get(_builder, "output")
+        }
+    }
+    so_path = path.join(lib_dir, out_name)
+
+    // COMPILE phase — skipped under --execute-only (the .so was built in the
+    // container pass already). The artifact-write below runs in both passes so
+    // dependents can locate the .so regardless. (two-aeb duality.)
+    if build._compile_enabled() == 1 {
+        println("${mod_dir}: compiling TinyGo c-shared lib")
+
+        // Per-step container delegation (AEB_COMPILE_CONTAINER): host-aeb has
+        // no TinyGo, so run the tinygo step IN the toolchain image. Paths
+        // rewritten root/… → /work/… (root bind-mounted at /work). Unset →
+        // plain local `tinygo` (which is what aeb-ctr's in-container Phase 1
+        // uses, since the orchestrator itself already runs in the image).
+        container_image = os.getenv("AEB_COMPILE_CONTAINER")
+        if string.length(container_image) > 0 {
+            root = build._get(ctx, "root")
+            wgo = _rewrite_under_root(go_path, root, "/work")
+            wso = _rewrite_under_root(so_path, root, "/work")
+            engine = os.getenv("AEB_CONTAINER_ENGINE")
+            if string.length(engine) == 0 { engine = "podman" }
+            selabel = os.getenv("AEB_CONTAINER_SELABEL")
+            if string.length(selabel) == 0 { selabel = "Z" }
+            mount = "-v ${root}:/work:${selabel}"
+            cmd = "${engine} run --rm ${mount} -w /work --entrypoint tinygo ${container_image} build -buildmode=c-shared -o ${wso} ${wgo}"
+            rc = os.system(cmd)
+            if rc != 0 {
+                println("${mod_dir}: tinygo build (in ${container_image}) failed")
+                build.fail(ctx, "tinygo build (containerized) failed")
+                return rc
+            }
+        } else {
+            cmd = "tinygo build -buildmode=c-shared -o ${so_path} ${go_path}"
+            rc = os.system(cmd)
+            if rc != 0 {
+                println("${mod_dir}: tinygo build failed")
+                build.fail(ctx, "tinygo build failed")
+                return rc
+            }
+        }
+    }
+
+    // Declared output: the sidecar .so path. A downstream program/program_test
+    // that dep()s this node resolves it (build._dep_target_dir) so its .ae can
+    // tinygo.load(it). Written in both passes so the host pass can locate it.
+    build._write_artifact(ctx, "tinygo_shared_lib", so_path)
+    build._write_artifact(ctx, "shared_library", so_path)
+    return 0
+}
 
 builder program(ctx: ptr) {
     source_dir = build._get(ctx, "source_dir")
