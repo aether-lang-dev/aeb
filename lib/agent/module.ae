@@ -654,3 +654,121 @@ builder dispatch(ctx: ptr) {
     println("${mod_dir}: dispatch ${guid} → remote build PASSED")
     return 0
 }
+
+// ============================================================================
+// Tier-A veto: pluggable tree/patch scan (docs/veto-alternates.md).
+//
+// The agent's OWN gate, run on the PREPARED tree (post-checkout, post-patch)
+// BEFORE the build. Generalizes the original single hardcoded grep into a small
+// data-driven rule list. Each rule is (id, scope, pattern, reason):
+//   scope "tree"  → grep the whole worktree   (broad)
+//   scope "patch" → grep only the applied patch (highest signal: the untrusted
+//                   pre-integration delta INTRODUCED the hit)
+// A hit on ANY rule vetoes, returning that rule's reason. Logic here is pure
+// and unit-tested; only _veto_run_rule touches the filesystem (the grep).
+//
+// SCOPE (critical, see the doc): these guard BUILD-GRAMMAR / tree hygiene — a
+// committed secret, a banned path, an oversize tree — NOT the application being
+// built. A clean veto is not a clean program. Rules are the AGENT OPERATOR's
+// policy, not the requester's.
+// ============================================================================
+
+// _veto_default_rules() — the built-in Tier-A rule list, as a list of
+// tab-joined "id\tscope\tpattern\treason" rows. Pure (no I/O). Operators extend
+// via AEB_AGENT_VETO_PATTERNS (see _veto_rules_from_env).
+_veto_default_rules() {
+    rules = list.new()
+    list.add(rules, "secret-rsa\ttree\tBEGIN RSA PRIVATE KEY\ttree contains an RSA private-key marker")
+    list.add(rules, "secret-openssh\ttree\tBEGIN OPENSSH PRIVATE KEY\ttree contains an OpenSSH private-key marker")
+    list.add(rules, "secret-pgp\ttree\tBEGIN PGP PRIVATE KEY BLOCK\ttree contains a PGP private-key marker")
+    list.add(rules, "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id")
+    return rules
+}
+
+// _veto_rule_field(row, idx) — pull field idx (0..3) from a tab-joined rule
+// row. Pure. idx: 0=id 1=scope 2=pattern 3=reason. NB: string.split returns a
+// *StringArray (ptr) read via string.array_size/array_get, NOT a list — list.get
+// on it segfaults (the std contract; the pool parser hand-rolls its scan for the
+// same reason). array_get returns a pointer INTO the array's storage, so we copy
+// (concat with "") BEFORE freeing — otherwise the returned string dangles into
+// freed memory (observed: garbage bytes).
+_veto_rule_field(row: string, idx: int) {
+    parts = string.split(row, "\t")
+    n = string.array_size(parts)
+    if idx >= n {
+        string.array_free(parts)
+        return ""
+    }
+    v = string.concat(string.array_get(parts, idx), "")
+    string.array_free(parts)
+    return v
+}
+
+// _veto_rules_from_env() — default rules plus any operator-supplied extras from
+// AEB_AGENT_VETO_PATTERNS. Format: newline-separated rows, each the same
+// "id\tscope\tpattern\treason" shape (literal \t between fields, ; between
+// rows since env vars are single-line — we accept ';' as the row separator).
+// Pure-ish (reads one env var; no filesystem). Malformed rows (missing fields)
+// are skipped so a typo can't silently disable scanning.
+_veto_rules_from_env() {
+    rules = _veto_default_rules()
+    extra = os.getenv("AEB_AGENT_VETO_PATTERNS")
+    if string.length(extra) == 0 { return rules }
+    rows = string.split(extra, ";")
+    i = 0
+    n = string.array_size(rows)
+    while i < n {
+        // copy out of the array's storage before it's freed (array_get returns
+        // a pointer into it); the copy is what we keep in the rules list.
+        row = string.concat(string.array_get(rows, i), "")
+        // require all 4 fields present + non-empty pattern
+        if string.length(_veto_rule_field(row, 2)) > 0 {
+            if string.length(_veto_rule_field(row, 3)) > 0 {
+                list.add(rules, row)
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(rows)
+    return rules
+}
+
+// _veto_scan_cmd(scope, pattern, repo, patch_path) — build the grep command for
+// one rule. Pure (string assembly only; unit-tested). "patch"-scope rules grep
+// the single patch file; "tree"-scope rules grep -r the worktree. Returns ""
+// when a patch-scope rule has no patch to scan (→ caller skips it). Patterns
+// are basic-regex (grep) and operator-trusted; single-quoted to neutralize
+// shell metachars in the path, with the pattern passed via -e.
+_veto_scan_cmd(scope: string, pattern: string, repo: string, patch_path: string) {
+    if string.equals(scope, "patch") == 1 {
+        if string.length(patch_path) == 0 { return "" }
+        return string.concat(string.concat("grep -qI -e '", pattern), string.concat("' '", string.concat(patch_path, "' 2>/dev/null")))
+    }
+    // default: tree scan (recursive, skip binary)
+    return string.concat(string.concat("grep -rqI -e '", pattern), string.concat("' '", string.concat(repo, "' 2>/dev/null")))
+}
+
+// _veto_run_rules(repo, patch_path) — run every rule; first hit vetoes and
+// returns its reason. "" = allow. The ONE I/O function here (os.system per
+// rule). Rules + reasons come from _veto_rules_from_env (pure).
+_veto_run_rules(repo: string, patch_path: string) {
+    rules = _veto_rules_from_env()
+    i = 0
+    n = list.size(rules)
+    while i < n {
+        row, _ = list.get(rules, i)
+        rid = _veto_rule_field(row, 0)
+        scope = _veto_rule_field(row, 1)
+        pattern = _veto_rule_field(row, 2)
+        reason = _veto_rule_field(row, 3)
+        cmd = _veto_scan_cmd(scope, pattern, repo, patch_path)
+        if string.length(cmd) > 0 {
+            if os.system(cmd) == 0 {
+                // reason + the rule id, so the operator log is actionable.
+                return string.concat(reason, string.concat(" (veto:", string.concat(rid, ")")))
+            }
+        }
+        i = i + 1
+    }
+    return ""
+}

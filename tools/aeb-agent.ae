@@ -29,7 +29,7 @@ import std.map
 import std.list
 
 import agent (_decision, dispatch_reply_json, ping_json, _json_field,
-              _parse_tokens, _token_ok, _bearer_strip)
+              _parse_tokens, _token_ok, _bearer_strip, _veto_run_rules)
 import std.io
 import std.file
 import std.json
@@ -163,11 +163,23 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
         if drc != 0 { return "patch base64 decode failed" }
         ap_cmd = string.concat(string.concat("cd '", repo), string.concat("' && git apply '", string.concat(pf, "'")))
         arc = os.system(ap_cmd)
-        os.system(string.concat("rm -f '", string.concat(pf, "'")))
+        // NB: the decoded patch file (pf) is deliberately NOT removed here — the
+        // Tier-A veto's patch-scope rules scan it (the highest-signal target).
+        // handle_dispatch removes it after the veto decision. On apply failure
+        // we still leave it; the dispatch short-circuits and the next dispatch's
+        // unique guid path + /tmp churn bound the leftover.
         if arc != 0 { return "git apply failed (patch does not apply to base)" }
     }
 
     return ""
+}
+
+// _patch_path_for(guid) — the per-dispatch decoded-patch temp path. Mirrors the
+// pf built in _prepare_tree, so handle_dispatch can hand it to the veto and then
+// clean it up. "" guid → "" (no patch scanned).
+_patch_path_for(guid: string, patch_b64: string) {
+    if string.length(patch_b64) == 0 { return "" }
+    return string.concat("/tmp/aeb-agent-patch-", string.concat(guid, ".diff"))
 }
 
 // _maybe_veto_build(repo, target, purpose) — the agent's OWN gate, run
@@ -180,7 +192,7 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
 // that contains an obvious committed secret marker) to prove the
 // architecture. The real design is a PLUGGABLE three-tier list — see
 // docs/veto-alternates.md:
-//   A. tree scan (this stub)         — cheap, raw tree
+//   A. tree scan (NOW: pluggable rule list)  — cheap, raw tree + patch
 //   B. resolved-coordinate / SBOM    — dependency CVE/OWASP (design)
 //   C. doppelganger-compile trace    — build-grammar intent via a
 //      `--lib <doppelganger>` swap recording os.system/dep/link_flag
@@ -189,15 +201,14 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
 // orchestration does), NOT the application being built. A clean veto is
 // not a clean program — see the SCOPE section of the doc. Veto rules are
 // the agent operator's policy, not the requester's.
-_maybe_veto_build(repo: string, target: string, purpose: string) {
-    // Example veto: a hard-coded private-key marker anywhere in the tree.
-    // grep is best-effort; a hit -> veto. (Placeholder for the real
-    // pluggable scanners; intentionally tiny.)
-    probe = string.concat(string.concat("grep -rqI 'BEGIN RSA PRIVATE KEY' '", repo), "' 2>/dev/null")
-    if os.system(probe) == 0 {
-        return "tree contains a private-key marker (veto-secret-scan)"
-    }
-    return ""
+//
+// Tier A is now a data-driven rule list in lib/agent (_veto_run_rules): built-in
+// secret/banned-marker rules + operator extras via AEB_AGENT_VETO_PATTERNS, each
+// scoped to the whole tree or to the applied patch specifically (the
+// highest-signal target — the untrusted delta introduced the hit). patch_path is
+// the decoded patch left by _prepare_tree ("" when the dispatch carried none).
+_maybe_veto_build(repo: string, target: string, purpose: string, patch_path: string) {
+    return _veto_run_rules(repo, patch_path)
 }
 
 handle_dispatch(req: ptr, res: ptr, ud: ptr) {
@@ -264,7 +275,13 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     // maybe_veto_build — the agent decides, on ITS OWN authority, whether
     // to build the prepared tree. Independent of whether the build would
     // succeed. A vetoed dispatch is NOT a build failure — it's a refusal.
-    veto = _maybe_veto_build(repo, target, purpose)
+    // The decoded patch (left by _prepare_tree) is scanned by patch-scope
+    // rules, then removed regardless of outcome.
+    patch_path = _patch_path_for(guid, patch_b64)
+    veto = _maybe_veto_build(repo, target, purpose, patch_path)
+    if string.length(patch_path) > 0 {
+        os.system(string.concat("rm -f '", string.concat(patch_path, "'")))
+    }
     if string.length(veto) > 0 {
         println("agent: VETOED guid=${guid} (${veto})")
         http.response_set_status(res, 422)

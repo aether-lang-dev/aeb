@@ -7,7 +7,8 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _decision, dispatch_request_json, dispatch_reply_json,
               _json_field, run_on, max_jobs, accept_scope,
               _parse_tokens, _token_ok, _bearer_strip, ping_json,
-              _parse_pool, _pool_url_of, _pool_token_of)
+              _parse_pool, _pool_url_of, _pool_token_of,
+              _veto_rule_field, _veto_scan_cmd, _veto_default_rules)
 import std.string
 import std.list
 import std.map
@@ -124,5 +125,36 @@ main() {
     _eq("pool line2 token empty", _pool_token_of(l2), "")
     _assert("pool skips comments + blanks", 1)
 
-    println("agent scope + wire + token + ping + pool tests done")
+    // --- Tier-A veto: pure rule helpers (docs/veto-alternates.md) ---
+    // _veto_rule_field: tab-split field extraction.
+    row = "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id"
+    _eq("veto field id", _veto_rule_field(row, 0), "aws-akid")
+    _eq("veto field scope", _veto_rule_field(row, 1), "patch")
+    _eq("veto field reason", _veto_rule_field(row, 3), "patch introduces an AWS access-key id")
+    _eq("veto field out-of-range empty", _veto_rule_field(row, 9), "")
+
+    // _veto_scan_cmd: tree-scope → recursive grep over repo.
+    _eq("veto cmd tree-scope",
+        _veto_scan_cmd("tree", "BEGIN RSA PRIVATE KEY", "/srv/repo", ""),
+        "grep -rqI -e 'BEGIN RSA PRIVATE KEY' '/srv/repo' 2>/dev/null")
+    // patch-scope → grep the patch file only.
+    _eq("veto cmd patch-scope",
+        _veto_scan_cmd("patch", "AKIA", "/srv/repo", "/tmp/p.diff"),
+        "grep -qI -e 'AKIA' '/tmp/p.diff' 2>/dev/null")
+    // patch-scope with NO patch → "" (caller skips the rule).
+    _eq("veto cmd patch-scope no patch", _veto_scan_cmd("patch", "AKIA", "/srv/repo", ""), "")
+
+    // _veto_default_rules: the built-in list is non-empty and well-formed
+    // (every row has the 4 tab fields).
+    drules = _veto_default_rules()
+    _assert("veto default rules present", 1 - _lt(list.size(drules), 1))
+    r0, _ = list.get(drules, 0)
+    _eq("veto default rule0 id", _veto_rule_field(r0, 0), "secret-rsa")
+    _assert("veto default rule0 has reason", 1 - _streq(_veto_rule_field(r0, 3), ""))
+
+    println("agent scope + wire + token + ping + pool + veto tests done")
 }
+
+// tiny local helpers (the test file is self-contained)
+_lt(a: int, b: int) { if a < b { return 1 } return 0 }
+_streq(a: string, b: string) { return string.equals(a, b) }
