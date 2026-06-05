@@ -1893,7 +1893,8 @@ _default_source_name(ctx: ptr) {
 
 // --- SDK builders ---
 
-// aether.tinygo_lib(b) — compile a user's .go to a c-shared .so via TinyGo.
+// aether.tinygo_lib(b) — compile a user's .go to a c-shared .so for
+// contrib.host.tinygo.
 //
 // The sidecar shape (docs/host-tinygo-sidecar.md): unlike the six interpreter
 // bridges (python/ruby/…), contrib.host.tinygo has no system lib — the user's
@@ -1906,10 +1907,20 @@ _default_source_name(ctx: ptr) {
 //       output("libgreet.so")     // sidecar name the .ae will tinygo.load()
 //   }
 //
+// IMPORTANT — built with STANDARD `go`, not `tinygo`: TinyGo's
+// `-buildmode=c-shared` is wasm-only (verified on TinyGo 0.34.0:
+// "buildmode c-shared is only supported on wasm at the moment"). For a NATIVE
+// host .so the standard Go toolchain is the right tool — `CGO_ENABLED=1 go
+// build -buildmode=c-shared` produces a real native c-shared .so. The bridge
+// is a runtime dlopen of the .so; it does not care which compiler produced it,
+// only that it's a valid c-shared with the exported symbols. (The `tinygo_`
+// name is kept for the module/loader; see ctr_notes — capability naming is an
+// aether-side call.)
+//
 // Compile-only by nature (a lib has no run step): active under --compile-only,
 // inert under --execute-only. Under aeb-ctr the compile happens in the
-// container (TinyGo present there); the .so lands on the host via the mount,
-// beside the Aether binary, so Phase-2 host execution finds it. The
+// container (the Go toolchain is present there); the .so lands on the host via
+// the mount, beside the Aether binary, so Phase-2 host execution finds it. The
 // AEB_COMPILE_CONTAINER per-step delegation seam is honored too (same as the
 // other builders) for non-aeb-ctr hosts that delegate one step at a time.
 builder tinygo_lib(ctx: ptr) {
@@ -1940,13 +1951,14 @@ builder tinygo_lib(ctx: ptr) {
     // container pass already). The artifact-write below runs in both passes so
     // dependents can locate the .so regardless. (two-aeb duality.)
     if build._compile_enabled() == 1 {
-        println("${mod_dir}: compiling TinyGo c-shared lib")
+        println("${mod_dir}: compiling Go c-shared lib (sidecar for contrib.host.tinygo)")
 
         // Per-step container delegation (AEB_COMPILE_CONTAINER): host-aeb has
-        // no TinyGo, so run the tinygo step IN the toolchain image. Paths
-        // rewritten root/… → /work/… (root bind-mounted at /work). Unset →
-        // plain local `tinygo` (which is what aeb-ctr's in-container Phase 1
-        // uses, since the orchestrator itself already runs in the image).
+        // no Go toolchain, so run the `go build` step IN the toolchain image.
+        // Paths rewritten root/… → /work/… (root bind-mounted at /work). Unset
+        // → plain local `go` (which is what aeb-ctr's in-container Phase 1 uses,
+        // since the orchestrator itself already runs in the image). CGO_ENABLED=1
+        // is required for -buildmode=c-shared with `import "C"` exports.
         container_image = os.getenv("AEB_COMPILE_CONTAINER")
         if string.length(container_image) > 0 {
             root = build._get(ctx, "root")
@@ -1957,19 +1969,19 @@ builder tinygo_lib(ctx: ptr) {
             selabel = os.getenv("AEB_CONTAINER_SELABEL")
             if string.length(selabel) == 0 { selabel = "Z" }
             mount = "-v ${root}:/work:${selabel}"
-            cmd = "${engine} run --rm ${mount} -w /work --entrypoint tinygo ${container_image} build -buildmode=c-shared -o ${wso} ${wgo}"
+            cmd = "${engine} run --rm -e CGO_ENABLED=1 ${mount} -w /work --entrypoint go ${container_image} build -buildmode=c-shared -o ${wso} ${wgo}"
             rc = os.system(cmd)
             if rc != 0 {
-                println("${mod_dir}: tinygo build (in ${container_image}) failed")
-                build.fail(ctx, "tinygo build (containerized) failed")
+                println("${mod_dir}: go build (in ${container_image}) failed")
+                build.fail(ctx, "go c-shared build (containerized) failed")
                 return rc
             }
         } else {
-            cmd = "tinygo build -buildmode=c-shared -o ${so_path} ${go_path}"
+            cmd = "CGO_ENABLED=1 go build -buildmode=c-shared -o ${so_path} ${go_path}"
             rc = os.system(cmd)
             if rc != 0 {
-                println("${mod_dir}: tinygo build failed")
-                build.fail(ctx, "tinygo build failed")
+                println("${mod_dir}: go build failed")
+                build.fail(ctx, "go c-shared build failed")
                 return rc
             }
         }
