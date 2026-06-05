@@ -1,7 +1,23 @@
 # Host-TinyGo: the sidecar-`.so` builder shape
 
-Status: design (2026-06-04). aeb-side + aether-side split. Companion to
-[two-aeb-duality.md](two-aeb-duality.md) and [guest-languages.md](guest-languages.md).
+Status: IMPLEMENTED + NUC-validated GREEN (2026-06-05). aeb-side + aether-side
+split. Companion to [two-aeb-duality.md](two-aeb-duality.md) and
+[guest-languages.md](guest-languages.md).
+
+> **What shipped vs. this design (read first):**
+> - **Built with standard `go`, NOT `tinygo`.** TinyGo's `-buildmode=c-shared`
+>   is wasm-only ("buildmode c-shared is only supported on wasm at the moment");
+>   native sidecars use `CGO_ENABLED=1 go build -buildmode=c-shared`. The bridge
+>   dlopens the .so at runtime and doesn't care which compiler made it. The
+>   `aether.tinygo_lib` verb + `contrib.host.tinygo` loader keep the name.
+> - **The tinygo_lib node lives in its OWN subdir** (`hosttinygo/greet/`): two
+>   builder nodes can't share a module dir (aeb keys the module on the directory).
+> - **`link_flags = "-lffi"`** is required in the consuming aether.toml — the
+>   tinygo bridge .a uses libffi and aether's import auto-link doesn't add it yet.
+> - aeb runs `ae build` from the module source dir so that aether.toml is read
+>   (was a latent aeb bug; fixed in `_shell_out_ae_build`).
+> Validated on the real Bazzite NUC: `hello from tinygo, hosted by aether` +
+> `Add(2,40)=42 Answer()=42` (real Go fns called in-process on the host).
 
 ## Why tinygo is different from the six interpreter bridges
 
