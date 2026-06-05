@@ -941,17 +941,22 @@ _rewrite_under_root(p: string, root: string, mountpt: string) {
 // SELinux; the container writes target/ back through the mount → artifacts +
 // cache markers reach the host with mtimes intact). Pure string assembly —
 // unit-tested via tests/test_compile_delegation.ae.
-_ae_build_cmd_delegated(ae_build_args: string, root: string, image: string) {
+_ae_build_cmd_delegated(ae_build_args: string, root: string, image: string, workdir: string) {
     engine = os.getenv("AEB_CONTAINER_ENGINE")
     if string.length(engine) == 0 { engine = "podman" }
     selabel = os.getenv("AEB_CONTAINER_SELABEL")
     if string.length(selabel) == 0 { selabel = "Z" }
     mount = string.concat(string.concat("-v ", root), string.concat(":/work:", selabel))
+    // -w <workdir>: run from the module's source dir (rewritten to /work/…) so
+    // `ae build` finds that module's aether.toml (ae reads "aether.toml" from
+    // CWD). Empty workdir → /work (repo root), the prior behavior.
+    wd = workdir
+    if string.length(wd) == 0 { wd = "/work" }
     // --entrypoint ae: bypass the image's aether-build dispatcher, run ae
     // directly. Args are the `build …` portion (entrypoint supplies the prog).
     cmd = string.concat(engine, " run --rm ")
     cmd = string.concat(cmd, mount)
-    cmd = string.concat(cmd, " -w /work --entrypoint ae ")
+    cmd = string.concat(cmd, string.concat(string.concat(" -w ", wd), " --entrypoint ae "))
     cmd = string.concat(cmd, image)
     cmd = string.concat(cmd, " ")
     cmd = string.concat(cmd, ae_build_args)
@@ -984,8 +989,12 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
         root = build._get(ctx, "root")
         wsrc = _rewrite_under_root(src_path, root, "/work")
         wbin = _rewrite_under_root(bin_path, root, "/work")
+        // Run `ae build` from the module's source dir IN the container so it
+        // finds the module's aether.toml (ae reads "aether.toml" from CWD). The
+        // in-container source dir is the source dir rewritten root/… → /work/….
+        wsrcdir = _rewrite_under_root(build._get(ctx, "source_dir"), root, "/work")
         args = "build${cov_flag} ${wsrc} -o ${wbin}"
-        cmd = _ae_build_cmd_delegated(args, root, container_image)
+        cmd = _ae_build_cmd_delegated(args, root, container_image, wsrcdir)
         rc = os.system(cmd)
         if rc != 0 {
             println("${mod_dir}: ae build (in ${container_image}) failed")
@@ -995,7 +1004,14 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
         return 0
     }
 
-    cmd = "${ae_bin} build${cov_flag} ${src_path} -o ${bin_path}"
+    // Run from the module's source dir so `ae build` finds its aether.toml
+    // (ae reads a bare "aether.toml" relative to CWD — see tools/ae.c). src_path
+    // and bin_path are absolute, so they still resolve after the cd; the cd only
+    // affects where aether.toml ([build] cflags/link_flags) is picked up. The
+    // first target to actually need this was hosttinygo (link_flags = "-lffi"
+    // for the libffi-using tinygo bridge); the other bridges had empty tomls.
+    source_dir = build._get(ctx, "source_dir")
+    cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag} ${src_path} -o ${bin_path}"
     rc = os.system(cmd)
     if rc != 0 {
         println("${mod_dir}: ae build failed")

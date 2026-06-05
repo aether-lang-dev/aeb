@@ -34,10 +34,17 @@ main() {
         "/etc/passwd")
 
     // _ae_build_cmd_delegated: the podman run wrapper (default engine/selabel).
-    _assert_eq("delegated podman command",
+    // Empty workdir → -w /work (repo root), the default.
+    _assert_eq("delegated podman command (default workdir)",
         _ae_build_cmd_delegated("build /work/g/g.ae -o /work/target/build/g/bin/program",
-                                "/home/u/repo", "aeb-toolchain:slim"),
+                                "/home/u/repo", "aeb-toolchain:slim", ""),
         "podman run --rm -v /home/u/repo:/work:Z -w /work --entrypoint ae aeb-toolchain:slim build /work/g/g.ae -o /work/target/build/g/bin/program")
+
+    // explicit module workdir → -w that dir (so ae finds the module's aether.toml).
+    _assert_eq("delegated podman command (module workdir)",
+        _ae_build_cmd_delegated("build /work/g/g.ae -o /work/target/build/g/bin/program",
+                                "/home/u/repo", "aeb-toolchain:slim", "/work/g"),
+        "podman run --rm -v /home/u/repo:/work:Z -w /work/g --entrypoint ae aeb-toolchain:slim build /work/g/g.ae -o /work/target/build/g/bin/program")
 
     println("compile_delegation tests done")
 }
