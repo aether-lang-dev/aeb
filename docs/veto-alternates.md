@@ -303,8 +303,16 @@ maybe_veto_build(repo, target, purpose):
 
 ## What to build, in order
 
-1. **Tier A is in.** Generalize the single stub scan into a small rule list
-   (secret patterns, banned files, size cap, patch-touches-disallowed-path).
+1. ~~**Tier A is in.** Generalize the single stub scan into a small rule list
+   (secret patterns, banned files, size cap, patch-touches-disallowed-path).~~
+   **DONE (2026-06-05).** `lib/agent` `_veto_run_rules`: a data-driven rule list
+   (`id\tscope\tpattern\treason`), built-in secret/key markers + an AWS-key rule
+   scoped to the patch specifically, operator-extensible via
+   `AEB_AGENT_VETO_PATTERNS`. Per-rule scope is `tree` (grep worktree) or `patch`
+   (grep the applied diff — the highest-signal case). Pure logic unit-tested;
+   verified end-to-end on the agent. Remaining Tier-A ideas not yet done: a tree
+   **size cap** and **patch-touches-disallowed-path** (both straightforward
+   additions to the same rule shape — a size-rule and a path-glob-rule kind).
 2. **Tier C spike** — a doppelganger `lib/build` (and key language SDKs)
    whose builders record `os.system`/`dep`/`link_flag`/codegen calls
    instead of executing, run via `aetherc --lib <doppelganger>`; emit the
