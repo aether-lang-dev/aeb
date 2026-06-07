@@ -11,7 +11,7 @@ invariant none of them may break?**
 
 Read the invariant first. It is the lens for everything below.
 
-## 0. The invariant — the single-process, single-threaded, no-container build is sacred
+## 0. The invariant — one declarative graph spanning lone-process ↔ multi-machine, with the lone-process pole always reachable
 
 aeb will **never abandon the option to run a build as one single-threaded,
 non-container process that orchestrates the build directly.** Every
@@ -19,6 +19,25 @@ scaling direction in this doc — parallel nodes, nodes-as-subprocesses,
 containerized steps, a remote agent grid, a persistent controller — is
 **additive and opt-in**, layered *over* a core that still works as a lone
 process on a bare host with nothing but a toolchain on `PATH`.
+
+**This is a span, not a floor with a ceiling that's "real" and an option
+that's "legacy."** The invariant is that the single-process pole stays
+*always available* — it is **not** that the single-process pole is the
+only first-class one. The *same* `.build.ae` graph must be runnable across
+the whole range, chosen by configuration, not by rewriting the build:
+
+- at one pole, **one process** — steps as function calls or even library
+  invocations, no fork, no container (the direction §0's corollary leans
+  into);
+- at the other pole, **a fully distributed build** — steps fanned across
+  **multiple containers, VMs, and physical machines** when so configured
+  (the agent grid + container/VM `run_on` kinds; Ring B/C below).
+
+Both poles are first-class. aeb's distinctive claim is that it spans them
+from a single declarative graph: the *config* picks where on the span a
+given run lands (lone process ↔ multi-machine fleet), and the `.build.ae`
+files don't change. What is sacred is that the lone-process pole never
+becomes unreachable — not that the distributed pole is somehow lesser.
 
 This is not nostalgia or a fallback. It is the load-bearing property:
 
@@ -203,9 +222,12 @@ Ring-A things first; invariant-threatening things never:
 
 ## The one-line statement
 
-> aeb grows *outward* — parallel, subprocess, containerized, distributed,
-> as-CI — but only ever as **opt-in rings around a core that always
-> remains a single-threaded, non-container, single-process build**, and
-> it leans *into* the road the big CIs ignore: **steps as library
-> invocations in one process.** Envy the container-native orchestrators'
-> power; refuse their mandatory container. The floor is sacred.
+> aeb spans the whole range from **one process — steps as library
+> invocations, no fork, no container** — out to a **fully distributed
+> build across many containers, VMs, and machines when so configured**,
+> and runs the *same* `.build.ae` graph anywhere on that span by config
+> alone. Both poles are first-class; the growth (parallel, subprocess,
+> containerized, distributed, as-CI) is **opt-in rings**, and the one
+> sacred invariant is that the lone-single-threaded-non-container pole
+> never becomes unreachable. Envy the container-native orchestrators'
+> power; refuse their mandatory container.
