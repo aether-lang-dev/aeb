@@ -1,0 +1,67 @@
+// Tests for lib/cpp's pure command-string builders.
+
+import cpp (cxx_compile_cmd, _std_flag, _join_flagged, _join_raw)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- _std_flag
+    _eq("std flag empty", _std_flag(""), "")
+    _eq("std flag c++20", _std_flag("c++20"), " -std=c++20")
+
+    // --- _join_flagged: -I over include dirs.
+    incs = list.new()
+    list.add(incs, "include")
+    list.add(incs, "src")
+    _eq("join_flagged -I two dirs", _join_flagged("-I", incs), " -I'include' -I'src'")
+    _eq("join_flagged null → ''", _join_flagged("-I", null), "")
+
+    // --- _join_raw: quoted source/flag segments.
+    srcs = list.new()
+    list.add(srcs, "src/main.cpp")
+    list.add(srcs, "src/util.cpp")
+    _eq("join_raw two sources", _join_raw(srcs), " 'src/main.cpp' 'src/util.cpp'")
+    _eq("join_raw null → ''", _join_raw(null), "")
+
+    // --- cxx_compile_cmd: the whole line, minimal.
+    s1 = list.new()
+    list.add(s1, "main.cpp")
+    _eq("compile minimal",
+        cxx_compile_cmd("c++", "/proj", "", s1, null, null, null, "/proj/target/cpp/app"),
+        "cd '/proj' && 'c++' 'main.cpp' -o '/proj/target/cpp/app'")
+
+    // --- cxx_compile_cmd: full — std, includes, cxxflags, link flags.
+    s2 = list.new()
+    list.add(s2, "src/a.cpp")
+    list.add(s2, "src/b.cpp")
+    inc2 = list.new()
+    list.add(inc2, "include")
+    fl2 = list.new()
+    list.add(fl2, "-O2")
+    list.add(fl2, "-Wall")
+    lk2 = list.new()
+    list.add(lk2, "-lpthread")
+    _eq("compile full",
+        cxx_compile_cmd("clang++", "/proj", " -std=c++20", s2, inc2, fl2, lk2, "/out/app"),
+        "cd '/proj' && 'clang++' -std=c++20 -I'include' '-O2' '-Wall' 'src/a.cpp' 'src/b.cpp' '-lpthread' -o '/out/app'")
+
+    // --- custom compiler + spaces in output path are quoted.
+    s3 = list.new()
+    list.add(s3, "m.cpp")
+    _eq("output path with spaces quoted",
+        cxx_compile_cmd("g++", "/proj", "", s3, null, null, null, "/out dir/app"),
+        "cd '/proj' && 'g++' 'm.cpp' -o '/out dir/app'")
+
+    println("cpp command-string tests done")
+}

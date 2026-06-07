@@ -1,0 +1,254 @@
+// zig — Zig SDK for aether.build
+//
+// Drives a Zig project (rooted at build.zig, deps in build.zig.zon):
+// build via `zig build`, test via `zig build test`, run via
+// `zig build run`. Optimize mode via `-Doptimize=<mode>`. Output lands
+// under `zig-out/bin/`.
+//
+// Style mirror: lib/gleam / lib/moonbit. No venv: Zig uses the system
+// `zig` on PATH; dependency fetch is part of `zig build` (build.zig.zon).
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+// zig_bin("zig") — override the zig executable. Default "zig".
+zig_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "zig_bin", bin)
+}
+
+// optimize("ReleaseFast") — `-Doptimize=<mode>`: Debug / ReleaseSafe /
+// ReleaseFast / ReleaseSmall. Scalar; last wins. Default: omit the flag
+// (zig's own default, Debug).
+optimize(_ctx: ptr, mode: string) {
+    _e = map.put(_ctx, "zig_optimize", mode)
+}
+
+// output("myapp") — the produced binary's name under zig-out/bin, used
+// to publish program_binary after a successful build. Scalar; last wins.
+// Default: the module dir's basename.
+output(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "zig_output", name)
+}
+
+// --- Command builders (pure) ---
+
+// _optimize_flag(mode) — " -Doptimize=<mode>" or "".
+_optimize_flag(mode: string) {
+    if string.length(mode) == 0 { return "" }
+    return string.concat(" -Doptimize=", mode)
+}
+
+// build_cmd — `zig build`. Pure. opt_flag is " -Doptimize=..." or "".
+build_cmd(zig: string, source_dir: string, opt_flag: string) {
+    return "cd '${source_dir}' && '${zig}' build${opt_flag}"
+}
+
+// test_cmd — `zig build test`. Pure.
+test_cmd(zig: string, source_dir: string, opt_flag: string) {
+    return "cd '${source_dir}' && '${zig}' build test${opt_flag}"
+}
+
+// run_cmd — `zig build run`. Pure.
+run_cmd(zig: string, source_dir: string, opt_flag: string) {
+    return "cd '${source_dir}' && '${zig}' build run${opt_flag}"
+}
+
+// --- Internal ---
+
+_zig_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "zig_bin") == 1 {
+            z, _ = map.get(builder_map, "zig_bin")
+            if string.length(z) > 0 { return z }
+        }
+    }
+    return "zig"
+}
+
+_optimize_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "zig_optimize") == 1 {
+            m, _ = map.get(builder_map, "zig_optimize")
+            return m
+        }
+    }
+    return ""
+}
+
+_out_name_of(builder_map: ptr, mod_dir: string) {
+    if builder_map != null {
+        if map.has(builder_map, "zig_output") == 1 {
+            o, _ = map.get(builder_map, "zig_output")
+            if string.length(o) > 0 { return o }
+        }
+    }
+    return path.basename(mod_dir)
+}
+
+// --- SDK functions ---
+
+// Build via `zig build`. Publishes program_binary from zig-out/bin/<out>
+// when that binary exists after the build (so a language-agnostic runner
+// can drive it). zig build also resolves build.zig.zon deps, so there's
+// no separate "install" builder.
+builder build_pkg(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+
+    zig = _zig_of(_builder)
+    println("${mod_dir}: building (zig build)")
+    cmd = build_cmd(zig, source_dir, _optimize_flag(_optimize_of(_builder)))
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: build FAILED")
+        build.fail(ctx, "build FAILED")
+        return exit_code
+    }
+
+    // zig build installs to zig-out/bin/<name>. Publish it if present.
+    out_name = _out_name_of(_builder, mod_dir)
+    bin_abs = path.join(source_dir, path.join("zig-out/bin", out_name))
+    if file.exists(bin_abs) == 1 {
+        build._write_artifact(ctx, "program_binary", bin_abs)
+        build._write_artifact(ctx, "zig_binary", bin_abs)
+        println("${mod_dir}: build done → ${bin_abs}")
+    } else {
+        build._write_artifact(ctx, "zig_build_output", path.join(source_dir, "zig-out"))
+        println("${mod_dir}: build done (no zig-out/bin/${out_name} — set output(\"name\") to publish program_binary)")
+    }
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Run tests via `zig build test`. Mirror of moonbit.test: tee output,
+// parse zig's summary for pass/fail, feed build._record_test_result.
+builder test(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: running tests (zig build test)")
+
+    zig = _zig_of(_builder)
+    cmd = test_cmd(zig, source_dir, _optimize_flag(_optimize_of(_builder)))
+    out_path = path.join(target_dir, "test_output.log")
+    full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
+    exit_code = os.system(full_cmd)
+    out_text, _orerr = fs.read(out_path)
+    tp_cnt, tf_cnt = _parse_zig_test_counts(out_text, exit_code)
+    build._record_test_result(ctx, tp_cnt, tf_cnt)
+    if exit_code != 0 {
+        println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _parse_zig_test_counts(output, exit_code) — extract (passed, failed)
+// from `zig build test`. Pure. The zig test runner prints, e.g.:
+//   "All 7 tests passed."
+//   "5 passed; 2 failed."          (some forms)
+//   "1 of 3 tests passed"          (older/other forms)
+// zig's test summary is less standardized than other runners, so:
+//   1. "All N tests passed." → (N, 0)
+//   2. "N passed; M failed"   → (N, M)
+//   3. else, fall back to exit code: 0 → (1,0), non-zero → (0,1), so a
+//      green/red verdict is always recorded even when no count parses.
+_parse_zig_test_counts(output: string, exit_code: int) {
+    if string.index_of(output, "All ") >= 0 {
+        if string.index_of(output, " tests passed") >= 0 {
+            p = _num_after_label_zig(output, "All ")
+            return p, 0
+        }
+    }
+    if string.index_of(output, " passed") >= 0 {
+        if string.index_of(output, " failed") >= 0 {
+            p = _num_before_word_zig(output, " passed")
+            f = _num_before_word_zig(output, " failed")
+            return p, f
+        }
+    }
+    // Fallback: exit-code verdict (binary grain).
+    if exit_code == 0 { return 1, 0 }
+    return 0, 1
+}
+
+_num_after_label_zig(output: string, label: string) {
+    idx = string.index_of(output, label)
+    if idx < 0 { return 0 }
+    start = idx + string.length(label)
+    n = string.length(output)
+    j = start
+    digits = ""
+    scanning = 1
+    while scanning == 1 {
+        if j >= n {
+            scanning = 0
+        } else {
+            d = string.substring(output, j, j + 1)
+            if _is_digit_zig(d) == 1 {
+                digits = string.concat(digits, d)
+                j = j + 1
+            } else {
+                scanning = 0
+            }
+        }
+    }
+    if string.length(digits) == 0 { return 0 }
+    v, _err = string.to_int(digits)
+    return v
+}
+
+_num_before_word_zig(output: string, word: string) {
+    idx = string.index_of(output, word)
+    if idx < 0 { return 0 }
+    end = idx
+    start = end
+    found = 0
+    while found == 0 {
+        if start <= 0 {
+            found = 1
+        } else {
+            c = string.substring(output, start - 1, start)
+            if _is_digit_zig(c) == 1 {
+                start = start - 1
+            } else {
+                found = 1
+            }
+        }
+    }
+    if start >= end { return 0 }
+    num_str = string.substring(output, start, end)
+    v, _err = string.to_int(num_str)
+    return v
+}
+
+_is_digit_zig(c: string) {
+    if string.equals(c, "0") == 1 { return 1 }
+    if string.equals(c, "1") == 1 { return 1 }
+    if string.equals(c, "2") == 1 { return 1 }
+    if string.equals(c, "3") == 1 { return 1 }
+    if string.equals(c, "4") == 1 { return 1 }
+    if string.equals(c, "5") == 1 { return 1 }
+    if string.equals(c, "6") == 1 { return 1 }
+    if string.equals(c, "7") == 1 { return 1 }
+    if string.equals(c, "8") == 1 { return 1 }
+    if string.equals(c, "9") == 1 { return 1 }
+    return 0
+}

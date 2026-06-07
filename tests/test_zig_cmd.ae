@@ -1,0 +1,54 @@
+// Tests for lib/zig's pure command-string builders + test-summary parser.
+
+import zig (build_cmd, test_cmd, run_cmd, _optimize_flag,
+           _parse_zig_test_counts)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- _optimize_flag
+    _eq("optimize empty → ''", _optimize_flag(""), "")
+    _eq("optimize ReleaseFast", _optimize_flag("ReleaseFast"), " -Doptimize=ReleaseFast")
+
+    // --- build / test / run commands.
+    _eq("build plain", build_cmd("zig", "/proj", ""),
+        "cd '/proj' && 'zig' build")
+    _eq("build release", build_cmd("zig", "/proj", " -Doptimize=ReleaseFast"),
+        "cd '/proj' && 'zig' build -Doptimize=ReleaseFast")
+    _eq("test plain", test_cmd("zig", "/proj", ""),
+        "cd '/proj' && 'zig' build test")
+    _eq("run plain", run_cmd("zig", "/proj", ""),
+        "cd '/proj' && 'zig' build run")
+    _eq("custom zig bin quoted", build_cmd("/opt/zig/zig", "/proj", ""),
+        "cd '/proj' && '/opt/zig/zig' build")
+
+    // --- _parse_zig_test_counts (exit_code arg only used in fallback).
+    // Form 1: "All N tests passed."
+    pp0, pf0 = _parse_zig_test_counts("All 7 tests passed.", 0)
+    _assert("form1: 7 passed", pp0 == 7)
+    _assert("form1: 0 failed", pf0 == 0)
+
+    // Form 2: "N passed; M failed."
+    pp1, pf1 = _parse_zig_test_counts("5 passed; 2 failed.", 1)
+    _assert("form2: 5 passed", pp1 == 5)
+    _assert("form2: 2 failed", pf1 == 2)
+
+    // Form 3 fallback: no recognisable counts, use exit code.
+    pp2, pf2 = _parse_zig_test_counts("Build Summary: 3/3 steps succeeded", 0)
+    _assert("fallback green: 1/0", pp2 == 1 && pf2 == 0)
+    pp3, pf3 = _parse_zig_test_counts("error: test failure", 1)
+    _assert("fallback red: 0/1", pp3 == 0 && pf3 == 1)
+
+    println("zig command-string + test-count parser tests done")
+}

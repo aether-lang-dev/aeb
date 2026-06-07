@@ -1,0 +1,246 @@
+// swift — Swift SDK for aether.build
+//
+// Drives a Swift Package Manager project (rooted at Package.swift):
+// resolve deps via `swift package resolve`, build via `swift build`,
+// test via `swift test`, run via `swift run`. Tests run under XCTest;
+// the summary line is parsed for pass/fail counts.
+//
+// Style mirror: lib/dart / lib/gleam. No venv: SwiftPM uses the system
+// `swift` on PATH plus a per-project `.build/` resolved by the toolchain.
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+// swift_bin("swift") — override the swift executable. Default "swift".
+swift_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "swift_bin", bin)
+}
+
+// release() — build/test in release configuration (`-c release`). Any
+// non-empty value enables. Default: debug.
+release(_ctx: ptr, v: string) {
+    _e = map.put(_ctx, "release", v)
+}
+
+// run_args("--flag") — one argument passed after `swift run <exe>`.
+// Repeatable, in order. (The executable name is the package default.)
+run_args(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "swift_run_args") == 0 {
+        _e1 = map.put(_ctx, "swift_run_args", list.new())
+    }
+    a, _ = map.get(_ctx, "swift_run_args")
+    _e2 = list.add(a, arg)
+}
+
+// --- Command builders (pure) ---
+
+// _config_flag(release) — " -c release" when release set, else "".
+_config_flag(release_set: int) {
+    if release_set == 1 { return " -c release" }
+    return ""
+}
+
+// resolve_cmd — `swift package resolve`. Pure. Runs from source_dir.
+resolve_cmd(swift: string, source_dir: string) {
+    return "cd '${source_dir}' && '${swift}' package resolve"
+}
+
+// build_cmd — `swift build`. Pure. config_flag is " -c release" or "".
+build_cmd(swift: string, source_dir: string, config_flag: string) {
+    return "cd '${source_dir}' && '${swift}' build${config_flag}"
+}
+
+// test_cmd — `swift test`. Pure. config_flag is " -c release" or "".
+test_cmd(swift: string, source_dir: string, config_flag: string) {
+    return "cd '${source_dir}' && '${swift}' test${config_flag}"
+}
+
+// --- Internal ---
+
+_swift_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "swift_bin") == 1 {
+            s, _ = map.get(builder_map, "swift_bin")
+            if string.length(s) > 0 { return s }
+        }
+    }
+    return "swift"
+}
+
+_release_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "release") == 1 {
+            v, _ = map.get(builder_map, "release")
+            if string.length(v) > 0 { return 1 }
+        }
+    }
+    return 0
+}
+
+// --- SDK functions ---
+
+// Resolve dependencies via `swift package resolve`. The install-
+// equivalent. Mirror of dart.pub_get.
+builder resolve(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: resolving deps (swift package resolve)")
+
+    swift = _swift_of(_builder)
+    exit_code = os.system(resolve_cmd(swift, source_dir))
+    if exit_code != 0 {
+        println("${mod_dir}: resolve FAILED")
+        build.fail(ctx, "resolve FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: resolve done")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Build via `swift build`. Records the SwiftPM build dir as the output
+// artifact. SwiftPM produces a package under .build/<config>/; the
+// runnable surface is `swift run`, which needs the toolchain — so (like
+// gleam.build) no host program_binary is published.
+builder build_pkg(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+
+    swift = _swift_of(_builder)
+    println("${mod_dir}: building (swift build)")
+    cmd = build_cmd(swift, source_dir, _config_flag(_release_of(_builder)))
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: build FAILED")
+        build.fail(ctx, "build FAILED")
+        return exit_code
+    }
+    build._write_artifact(ctx, "swift_build_output", path.join(source_dir, ".build"))
+    println("${mod_dir}: build done")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Run tests via `swift test`. Mirror of dart.test: tee output, parse
+// XCTest's summary for pass/fail, feed build._record_test_result.
+builder test(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: running tests (swift test)")
+
+    swift = _swift_of(_builder)
+    cmd = test_cmd(swift, source_dir, _config_flag(_release_of(_builder)))
+    out_path = path.join(target_dir, "test_output.log")
+    full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
+    exit_code = os.system(full_cmd)
+    out_text, _orerr = fs.read(out_path)
+    tp_cnt, tf_cnt = _parse_xctest_counts(out_text)
+    build._record_test_result(ctx, tp_cnt, tf_cnt)
+    if exit_code != 0 {
+        println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _parse_xctest_counts(output) — extract (passed, failed) from XCTest's
+// summary. Pure. XCTest prints (often per-suite and once overall):
+//   "Executed 7 tests, with 0 failures (0 unexpected) in 0.123 seconds"
+//   "Executed 9 tests, with 2 failures (0 unexpected) in 0.456 seconds"
+// We read the LAST "Executed N tests, with M failures" (the overall
+// total comes last). passed = N - M, failed = M.
+_parse_xctest_counts(output: string) {
+    total = _last_num_after_label_swift(output, "Executed ", " tests")
+    failed = _last_num_after_label_swift(output, ", with ", " failure")
+    passed = total - failed
+    if passed < 0 { passed = 0 }
+    return passed, failed
+}
+
+// _last_num_after_label_swift(output, label, terminator) — find the LAST
+// occurrence of `label` immediately followed by digits (up to but not
+// requiring `terminator`), return that number. 0 if absent. The
+// terminator arg documents the expected context; matching is on the
+// digit run after `label`.
+_last_num_after_label_swift(output: string, label: string, terminator: string) {
+    n = string.length(output)
+    result = 0
+    search_from = 0
+    scanning = 1
+    while scanning == 1 {
+        idx = _index_of_from_swift(output, label, search_from)
+        if idx < 0 {
+            scanning = 0
+        } else {
+            start = idx + string.length(label)
+            j = start
+            digits = ""
+            reading = 1
+            while reading == 1 {
+                if j >= n {
+                    reading = 0
+                } else {
+                    d = string.substring(output, j, j + 1)
+                    if _is_digit_swift(d) == 1 {
+                        digits = string.concat(digits, d)
+                        j = j + 1
+                    } else {
+                        reading = 0
+                    }
+                }
+            }
+            if string.length(digits) > 0 {
+                v, _err = string.to_int(digits)
+                result = v
+            }
+            search_from = idx + string.length(label)
+        }
+    }
+    return result
+}
+
+// _index_of_from_swift(s, needle, from) — index of `needle` in `s` at or
+// after `from`, or -1. Built on a tail-substring + string.index_of.
+_index_of_from_swift(s: string, needle: string, from: int) {
+    n = string.length(s)
+    if from >= n { return -1 }
+    tail = string.substring(s, from, n)
+    rel = string.index_of(tail, needle)
+    if rel < 0 { return -1 }
+    return from + rel
+}
+
+_is_digit_swift(c: string) {
+    if string.equals(c, "0") == 1 { return 1 }
+    if string.equals(c, "1") == 1 { return 1 }
+    if string.equals(c, "2") == 1 { return 1 }
+    if string.equals(c, "3") == 1 { return 1 }
+    if string.equals(c, "4") == 1 { return 1 }
+    if string.equals(c, "5") == 1 { return 1 }
+    if string.equals(c, "6") == 1 { return 1 }
+    if string.equals(c, "7") == 1 { return 1 }
+    if string.equals(c, "8") == 1 { return 1 }
+    if string.equals(c, "9") == 1 { return 1 }
+    return 0
+}

@@ -1,0 +1,296 @@
+// cpp — C++ SDK for aether.build
+//
+// A C++-aware build module: compile a set of .cpp sources to a native
+// binary, run a test binary, with explicit include dirs / flags / libs.
+// Distinct from lib/c (which is C, and carries the Aether-FFI bridge
+// machinery for `--emit=lib` C glue): this is for ordinary C++ projects,
+// with a C++ compiler default and C++ conventions.
+//
+// Style: the pure-*_cmd + builder shape shared by the language SDKs
+// (lib/dart, lib/python). The compiler defaults to `c++` (the portable
+// alias for the system C++ compiler — g++/clang++); override with
+// cxx("clang++").
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+// source("src/main.cpp") — one source file (or shell glob like
+// "src/*.cpp"), relative to source_dir. Repeatable; globs expand at
+// build time.
+source(_ctx: ptr, pat: string) {
+    if map.has(_ctx, "cpp_sources") == 0 {
+        _e1 = map.put(_ctx, "cpp_sources", list.new())
+    }
+    s, _ = map.get(_ctx, "cpp_sources")
+    _e2 = list.add(s, pat)
+}
+
+// include("include") — one -I include dir, relative to source_dir.
+// Repeatable.
+include(_ctx: ptr, dir: string) {
+    if map.has(_ctx, "cpp_includes") == 0 {
+        _e1 = map.put(_ctx, "cpp_includes", list.new())
+    }
+    inc, _ = map.get(_ctx, "cpp_includes")
+    _e2 = list.add(inc, dir)
+}
+
+// cxxflag("-O2") — one extra compiler flag. Repeatable, in order.
+cxxflag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "cpp_cxxflags") == 0 {
+        _e1 = map.put(_ctx, "cpp_cxxflags", list.new())
+    }
+    f, _ = map.get(_ctx, "cpp_cxxflags")
+    _e2 = list.add(f, flag)
+}
+
+// link_flag("-lpthread") — one extra linker flag/lib. Repeatable.
+link_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "cpp_link_flags") == 0 {
+        _e1 = map.put(_ctx, "cpp_link_flags", list.new())
+    }
+    f, _ = map.get(_ctx, "cpp_link_flags")
+    _e2 = list.add(f, flag)
+}
+
+// std("c++20") — the -std=<v> level. Scalar; last wins. Default: the
+// compiler's own default (flag omitted) unless set.
+std(_ctx: ptr, level: string) {
+    _e = map.put(_ctx, "cpp_std", level)
+}
+
+// cxx("clang++") — override the C++ compiler. Default "c++" (the
+// portable system C++ alias). Scalar; last wins.
+cxx(_ctx: ptr, compiler: string) {
+    _e = map.put(_ctx, "cpp_cxx", compiler)
+}
+
+// output("myapp") — output binary name, relative to the module's target
+// dir. Scalar; last wins. Default: the module dir's basename.
+output(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "cpp_output", name)
+}
+
+// --- Command builders (pure) ---
+
+// _std_flag(level) — " -std=<level>" or "".
+_std_flag(level: string) {
+    if string.length(level) == 0 { return "" }
+    return string.concat(" -std=", level)
+}
+
+// _join_flagged(prefix, items) — join a list as " <prefix><item>"
+// segments (e.g. prefix "-I" over include dirs → " -Iinclude -Isrc").
+// Each item single-quoted. "" for a null/empty list.
+_join_flagged(prefix: string, items: ptr) {
+    if items == null { return "" }
+    n = list.size(items)
+    out = ""
+    i = 0
+    while i < n {
+        v, _ = list.get(items, i)
+        out = string.concat(out, string.concat(string.concat(string.concat(" ", prefix), "'"), string.concat(v, "'")))
+        i = i + 1
+    }
+    return out
+}
+
+// _join_raw(items) — join a list as " <item>" segments, each
+// single-quoted (for raw flags / source paths). "" for null/empty.
+_join_raw(items: ptr) {
+    if items == null { return "" }
+    n = list.size(items)
+    out = ""
+    i = 0
+    while i < n {
+        v, _ = list.get(items, i)
+        out = string.concat(out, string.concat(" '", string.concat(v, "'")))
+        i = i + 1
+    }
+    return out
+}
+
+// cxx_compile_cmd — assemble the full C++ compile+link command. Pure.
+// sources is a list of resolved (relative to source_dir) paths;
+// includes/cxxflags/link_flags are lists; out is the absolute output
+// path. Runs from source_dir so relative source/include paths resolve.
+cxx_compile_cmd(cxx: string, source_dir: string, std_flag: string, sources: ptr, includes: ptr, cxxflags: ptr, link_flags: ptr, out: string) {
+    inc_part = _join_flagged("-I", includes)
+    flag_part = _join_raw(cxxflags)
+    src_part = _join_raw(sources)
+    link_part = _join_raw(link_flags)
+    return "cd '${source_dir}' && '${cxx}'${std_flag}${inc_part}${flag_part}${src_part}${link_part} -o '${out}'"
+}
+
+// --- Internal ---
+
+_cxx_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "cpp_cxx") == 1 {
+            c, _ = map.get(builder_map, "cpp_cxx")
+            if string.length(c) > 0 { return c }
+        }
+    }
+    return "c++"
+}
+
+_std_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "cpp_std") == 1 {
+            s, _ = map.get(builder_map, "cpp_std")
+            return s
+        }
+    }
+    return ""
+}
+
+// Expand the accumulated source patterns (globs allowed) into concrete
+// paths relative to source_dir, via the shell. Returns a list.
+_expand_sources(source_dir: string, pats: ptr) {
+    out = list.new()
+    if pats == null { return out }
+    n = list.size(pats)
+    i = 0
+    while i < n {
+        p, _ = list.get(pats, i)
+        if string.length(p) > 0 {
+            raw, _e = os.exec("cd '${source_dir}' && ls -1 ${p} 2>/dev/null")
+            lines = string.split(string.trim(raw), "\n")
+            m = string.array_size(lines)
+            j = 0
+            while j < m {
+                ln = string.concat(string.array_get(lines, j), "")
+                if string.length(ln) > 0 { list.add(out, ln) }
+                j = j + 1
+            }
+            string.array_free(lines)
+        }
+        i = i + 1
+    }
+    return out
+}
+
+_list_or_null(builder_map: ptr, key: string) {
+    if builder_map != null {
+        if map.has(builder_map, key) == 1 {
+            l, _ = map.get(builder_map, key)
+            return l
+        }
+    }
+    return null
+}
+
+_out_name_of(builder_map: ptr, mod_dir: string) {
+    if builder_map != null {
+        if map.has(builder_map, "cpp_output") == 1 {
+            o, _ = map.get(builder_map, "cpp_output")
+            if string.length(o) > 0 { return o }
+        }
+    }
+    return path.basename(mod_dir)
+}
+
+// --- SDK functions ---
+
+// Compile C++ sources into a native binary. Publishes the
+// program_binary artifact (build.program_binary_of contract), so a
+// language-agnostic test runner (incl. c.tests) can drive it.
+builder program(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+
+    cxx_bin = _cxx_of(_builder)
+    sources = _expand_sources(source_dir, _list_or_null(_builder, "cpp_sources"))
+    if list.size(sources) == 0 {
+        println("${mod_dir}: cpp.program: no sources — declare source(\"src/*.cpp\")")
+        build.fail(ctx, "cpp.program: no sources declared")
+        return 1
+    }
+
+    out_name = _out_name_of(_builder, mod_dir)
+    out_abs = path.join(target_dir, out_name)
+
+    println("${mod_dir}: compiling (${cxx_bin})")
+    cmd = cxx_compile_cmd(cxx_bin, source_dir, _std_flag(_std_of(_builder)),
+                          sources,
+                          _list_or_null(_builder, "cpp_includes"),
+                          _list_or_null(_builder, "cpp_cxxflags"),
+                          _list_or_null(_builder, "cpp_link_flags"),
+                          out_abs)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: compile FAILED")
+        build.fail(ctx, "compile FAILED")
+        return exit_code
+    }
+
+    build._write_artifact(ctx, "program_binary", out_abs)
+    build._write_artifact(ctx, "cpp_binary", out_abs)
+    println("${mod_dir}: compile done → ${out_abs}")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Build a C++ test binary and run it. PASS iff the binary exits 0
+// (the lowest-common-denominator contract that works for any C++ test
+// framework — gtest, Catch2, doctest, or a hand-rolled main). Records a
+// binary-grain test result (1/0 or 0/1) via build._record_test_result.
+builder tests(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+
+    cxx_bin = _cxx_of(_builder)
+    sources = _expand_sources(source_dir, _list_or_null(_builder, "cpp_sources"))
+    if list.size(sources) == 0 {
+        println("${mod_dir}: cpp.tests: no sources — declare source(\"test/*.cpp\")")
+        build.fail(ctx, "cpp.tests: no sources declared")
+        return 1
+    }
+
+    out_name = _out_name_of(_builder, mod_dir)
+    test_bin = path.join(target_dir, string.concat(out_name, "_test"))
+
+    println("${mod_dir}: building tests (${cxx_bin})")
+    cmd = cxx_compile_cmd(cxx_bin, source_dir, _std_flag(_std_of(_builder)),
+                          sources,
+                          _list_or_null(_builder, "cpp_includes"),
+                          _list_or_null(_builder, "cpp_cxxflags"),
+                          _list_or_null(_builder, "cpp_link_flags"),
+                          test_bin)
+    bc = os.system(cmd)
+    if bc != 0 {
+        println("${mod_dir}: test build FAILED")
+        build._record_test_result(ctx, 0, 1)
+        build.fail(ctx, "test build FAILED")
+        return bc
+    }
+
+    println("${mod_dir}: running tests")
+    out_path = path.join(target_dir, "test_output.log")
+    rc = os.system("'${test_bin}' 2>&1 | tee '${out_path}'")
+    if rc != 0 {
+        build._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
+        return rc
+    }
+    build._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
