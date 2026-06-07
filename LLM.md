@@ -14,9 +14,13 @@ DAG from `build.dep("path/to/.foo.ae")` lines (greppable, like Bazel
 BUILD files — every dep edge is a literal string in source, no
 runtime evaluation), topo-sorts, generates a single orchestrator
 `.ae` file with one function per module, compiles the whole thing to
-C, links to a native binary, runs it. Each module function is
-`_static`, sharing one in-memory visited-module map; no subprocesses,
-no file-based coordination at runtime.
+C, links to a native binary. That binary is one node's worth of work;
+`tools/aeb-driver.ae` then schedules the nodes — by default emitting a
+Makefile from the DAG and running `make -jN` so independent nodes run
+**concurrently as subprocesses**, coordinating via on-disk `.rc`
+markers (`AEB_JOBS=1` or a missing `make` → a sequential in-process
+loop instead). Within a single node, module functions are `_static`,
+sharing one in-memory visited-module map.
 
 ### Filenames, not magic targets
 
@@ -169,10 +173,19 @@ Runtime flow (one `aeb` invocation):
    visited-set guard), `aetherc src.ae src.c` per file,
    `gen-orchestrator` to emit one driver `.ae` calling each
    module fn, then **one `gcc`** linking everything into
-   `target/_ae_build_all`, then `exec` that binary.
-4. The exec'd binary calls each module's function once, in topo
-   order. Functions are `static` per translation unit; the visited
-   map dedups multi-imported modules.
+   `target/_ae_build_all`. That single binary takes a `<label>`
+   selector arg — `_ae_build_all <root> <label>` runs *just that one
+   node* (its module fn + that fn's transitive deps, deduped by the
+   visited-set guard).
+4. **`tools/aeb-driver`** schedules the nodes: it reads the edges
+   file and, by default, emits a Makefile (one target per node, each
+   recipe = `_ae_build_all <root> <label>`, dep edges as
+   prerequisites) and runs `make -jN`, so independent nodes run as
+   **parallel subprocesses**, each writing a `.rc` marker the driver
+   collects for the final `[telemetry]` render. `AEB_JOBS=1` or no
+   `make` → a sequential loop calling the same binary per label.
+   Within a node, module functions are `static` per TU and the
+   visited map dedups multi-imported modules.
 
 The trampoline lazy-builds tools at first use (cached in `tools/*`
 binaries, gitignored). `make install` pre-builds them and copies the
