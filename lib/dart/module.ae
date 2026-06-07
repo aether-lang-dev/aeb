@@ -1,0 +1,744 @@
+// dart — Dart SDK for aether.build
+//
+// Resolves package deps via `dart pub get`, static-analyses via
+// `dart analyze`, runs tests via `dart test`, compiles native/exe/JS
+// artifacts via `dart compile`, and runs code generators (typically
+// `build_runner`) with explicit input/output tracking.
+//
+// Style mirror: lib/python/module.ae. The codegen surface
+// (codegen_* setters + the staleness check) is the same contract as
+// python.codegen — "this generator reads exactly these files and
+// writes exactly these outputs" — because the failure mode it guards
+// (silent staleness from a GLOB-based input list) is identical in
+// Dart's build_runner world.
+//
+// No venv equivalent: Dart uses the system `dart` SDK on PATH plus a
+// per-project `.dart_tool/package_config.json` materialised by
+// `dart pub get`. So where python._ensure_venv creates an isolated
+// interpreter, dart just runs `dart pub get` in source_dir and lets
+// the SDK manage `.dart_tool/`.
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+// dart_bin("dart") — override the dart SDK executable. Default "dart"
+// (resolved on PATH). Use to pin a specific SDK (e.g. a Flutter-
+// bundled dart, or an absolute path to a versioned SDK).
+dart_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "dart_bin", bin)
+}
+
+// offline() — pass `--offline` to `dart pub get` so resolution uses
+// only the local pub cache (no network). Any non-empty value enables.
+offline(_ctx: ptr, v: string) {
+    _e = map.put(_ctx, "offline", v)
+}
+
+// --- DSL setters: test ---
+
+// test_path("test") — restrict `dart test` to a path (file or dir),
+// relative to source_dir. Default: dart test's own discovery (the
+// whole `test/` dir). Repeatable callers should prefer one path; the
+// last call wins (scalar).
+test_path(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "test_path", path)
+}
+
+// --- DSL setters: compile ---
+//
+// `dart compile <format> <entrypoint> -o <output>`. format is one of
+// exe / aot-snapshot / jit-snapshot / kernel / js. The builder
+// publishes the `program_binary` artifact for exe so a downstream
+// test runner can drive it regardless of source language (same
+// contract as c.program / aether.program).
+
+// compile_format("exe") — output format for dart.compile. Default
+// "exe" (a self-contained native executable). Scalar; last wins.
+compile_format(_ctx: ptr, fmt: string) {
+    _e = map.put(_ctx, "compile_format", fmt)
+}
+
+// compile_entrypoint("bin/main.dart") — the .dart entrypoint to
+// compile, relative to source_dir. Scalar; last wins. Default
+// "bin/main.dart" (Dart's convention).
+compile_entrypoint(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "compile_entrypoint", path)
+}
+
+// compile_output("myapp") — output artifact name, relative to the
+// module's target dir. Scalar; last wins. Default: the entrypoint
+// basename with the format's natural extension.
+compile_output(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "compile_output", name)
+}
+
+// --- DSL setters: codegen ---
+//
+// dart.codegen runs a Dart code generator that produces source files
+// for downstream compilation. The canonical case is
+// `dart run build_runner build` (json_serializable, freezed, mockito,
+// drift, …), but any `dart run <pkg>` or `dart <script.dart>` driver
+// works. Inputs are declared *explicitly* — no glob fallback. The
+// contract is "this generator reads exactly these files and writes
+// exactly these outputs"; missing-input bugs surface at staleness-
+// check time and missing-output bugs at run time.
+//
+// Mirror of python.codegen — the builder reads the map keys
+// "codegen_driver" / "codegen_script" / "codegen_inputs" /
+// "codegen_input_dirs" / "codegen_args" / "codegen_outputs" /
+// "codegen_cwd" / "codegen_dart".
+
+// codegen_driver("build_runner") — run as `dart run build_runner`.
+// Mutually exclusive with codegen_script(); driver wins if both set.
+codegen_driver(_ctx: ptr, package_name: string) {
+    _e = map.put(_ctx, "codegen_driver", package_name)
+}
+
+// codegen_script("tool/gen.dart") — run as `dart <path>`. Path is
+// resolved against codegen_cwd (or source_dir if unset).
+codegen_script(_ctx: ptr, script_path: string) {
+    _e = map.put(_ctx, "codegen_script", script_path)
+}
+
+// codegen_input("lib/models.dart") — declare one file the generator
+// reads. Repeatable. Paths resolved against codegen_cwd. The content
+// mtime of every declared input feeds the staleness check.
+codegen_input(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_inputs") == 0 {
+        _e1 = map.put(_ctx, "codegen_inputs", list.new())
+    }
+    inputs, _ = map.get(_ctx, "codegen_inputs")
+    _e2 = list.add(inputs, path)
+}
+
+// codegen_input_dir("lib") — declare a directory whose contents are
+// inputs. Every regular file under it (recursive) feeds the staleness
+// check. Use sparingly: the explicit input(...) form is preferred,
+// but a generator scanning a whole source tree is usually too many to
+// enumerate.
+codegen_input_dir(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_input_dirs") == 0 {
+        _e1 = map.put(_ctx, "codegen_input_dirs", list.new())
+    }
+    dirs, _ = map.get(_ctx, "codegen_input_dirs")
+    _e2 = list.add(dirs, path)
+}
+
+// codegen_arg("--delete-conflicting-outputs") — one CLI arg, appended
+// in declared order to the dart command line. Repeatable. No shell-
+// splitting; pass `--flag value` as two separate calls.
+codegen_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "codegen_args") == 0 {
+        _e1 = map.put(_ctx, "codegen_args", list.new())
+    }
+    args, _ = map.get(_ctx, "codegen_args")
+    _e2 = list.add(args, arg)
+}
+
+// codegen_output("lib/models.g.dart") — declare one expected output.
+// Repeatable. The builder fails if any declared output doesn't exist
+// after the generator runs (catches partial generation / silent
+// skips). Paths resolved against codegen_cwd.
+codegen_output(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_outputs") == 0 {
+        _e1 = map.put(_ctx, "codegen_outputs", list.new())
+    }
+    outs, _ = map.get(_ctx, "codegen_outputs")
+    _e2 = list.add(outs, path)
+}
+
+// codegen_cwd("..") — working dir for the dart command (relative to
+// source_dir, or absolute). Defaults to source_dir. Use when the
+// generator expects to run from the package root but the .codegen.ae
+// file lives in a subdirectory.
+codegen_cwd(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "codegen_cwd", dir)
+}
+
+// codegen_dart("dart") — override the dart executable for codegen. By
+// default the builder uses dart_bin (or PATH "dart"). Use to pin a
+// specific SDK the generator depends on.
+codegen_dart(_ctx: ptr, d: string) {
+    _e = map.put(_ctx, "codegen_dart", d)
+}
+
+// --- Command builders (pure) ---
+
+// pub_get_cmd — `dart pub get` invocation. Pure. offline_flag is
+// " --offline" or "".
+pub_get_cmd(dart: string, source_dir: string, offline_flag: string) {
+    return "cd '${source_dir}' && '${dart}' pub get${offline_flag}"
+}
+
+// analyze_cmd — `dart analyze` invocation. Pure. Runs from source_dir
+// so package resolution (`.dart_tool/`) is found.
+analyze_cmd(dart: string, source_dir: string) {
+    return "cd '${source_dir}' && '${dart}' analyze"
+}
+
+// test_cmd — `dart test` invocation. Pure. path_part is " <path>" or
+// "" (dart's own test/ discovery).
+test_cmd(dart: string, source_dir: string, path_part: string) {
+    return "cd '${source_dir}' && '${dart}' test${path_part}"
+}
+
+// compile_cmd — `dart compile <format> <entry> -o <out>` invocation.
+// Pure. All paths pre-resolved by the caller (entry relative to
+// source_dir; out absolute under target dir).
+compile_cmd(dart: string, source_dir: string, fmt: string, entry: string, out: string) {
+    return "cd '${source_dir}' && '${dart}' compile ${fmt} '${entry}' -o '${out}'"
+}
+
+// dart_codegen_cmd — assemble the shell command for dart.codegen.
+// Pure: builds `cd '<cwd>' && '<dart>' <driver_part> <args>`.
+// driver_form is "package" (→ `run <name>`) or "script" (→ `<path>`);
+// driver_name is the package name or script path. args is a list of
+// pre-quoted CLI args, joined with single spaces.
+// Tested in tests/test_dart_codegen_cmd.ae.
+dart_codegen_cmd(dart: string, cwd: string, driver_form: string, driver_name: string, args: ptr) {
+    driver_part = ""
+    if string.equals(driver_form, "package") == 1 {
+        driver_part = string.concat(" run ", driver_name)
+    }
+    if string.equals(driver_form, "script") == 1 {
+        driver_part = string.concat(" ", driver_name)
+    }
+    args_part = ""
+    if args != null {
+        n = list.size(args)
+        i = 0
+        while i < n {
+            a, _ = list.get(args, i)
+            args_part = string.concat(args_part, " ")
+            args_part = string.concat(args_part, a)
+            i = i + 1
+        }
+    }
+    return "cd '${cwd}' && '${dart}'${driver_part}${args_part}"
+}
+
+// --- Internal: resolve the dart executable ---
+
+_dart_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "dart_bin") == 1 {
+            d, _ = map.get(builder_map, "dart_bin")
+            if string.length(d) > 0 { return d }
+        }
+    }
+    return "dart"
+}
+
+// --- SDK functions ---
+
+// Resolve package dependencies via `dart pub get`. The "install"
+// builder — runs in source_dir, materialises `.dart_tool/`. Mirror of
+// python.install.
+builder pub_get(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: resolving deps (dart pub get)")
+
+    dart = _dart_of(_builder)
+    offline_flag = ""
+    if _builder != null {
+        if map.has(_builder, "offline") == 1 {
+            ov, _ = map.get(_builder, "offline")
+            if string.length(ov) > 0 { offline_flag = " --offline" }
+        }
+    }
+
+    cmd = pub_get_cmd(dart, source_dir, offline_flag)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: pub get FAILED")
+        build.fail(ctx, "pub get FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: pub get done")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Static-analyse Dart source with `dart analyze`. Mirror of
+// python.lint / typecheck (Dart folds lint + type-check into one
+// command).
+builder analyze(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: analysing (dart analyze)")
+
+    dart = _dart_of(_builder)
+    cmd = analyze_cmd(dart, source_dir)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: analyze FAILED")
+        build.fail(ctx, "analyze FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: analyze PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Run tests via `dart test`. Mirror of python.pytest: tee output to
+// target/<module>/test_output.log, parse the summary line for pass/
+// fail counts, feed build._record_test_result.
+builder test(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: running tests (dart test)")
+
+    dart = _dart_of(_builder)
+    path_part = ""
+    if _builder != null {
+        if map.has(_builder, "test_path") == 1 {
+            tp, _ = map.get(_builder, "test_path")
+            if string.length(tp) > 0 {
+                path_part = string.concat(" ", tp)
+            }
+        }
+    }
+
+    cmd = test_cmd(dart, source_dir, path_part)
+    out_path = path.join(target_dir, "test_output.log")
+    full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
+    exit_code = os.system(full_cmd)
+    out_text, _orerr = fs.read(out_path)
+    tp_cnt, tf_cnt = _parse_dart_test_counts(out_text)
+    build._record_test_result(ctx, tp_cnt, tf_cnt)
+    if exit_code != 0 {
+        println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _parse_dart_test_counts(output) — extract (passed, failed) from
+// `dart test`'s summary line. Pure: just string parsing.
+//
+// dart test's final line varies:
+//   "00:01 +14: All tests passed!"               (all-pass)
+//   "00:02 +13 -1: Some tests failed."           (mixed)
+//   "00:00 +0 -1: Some tests failed."            (one failure)
+//
+// The "+N" token is the passed count, "-N" is the failed count. We
+// read the LAST occurrence of each marker so intermediate progress
+// lines (which also carry +N/-N) don't win over the final summary.
+_parse_dart_test_counts(output: string) {
+    passed = _parse_count_after_marker_dart(output, "+")
+    failed = _parse_count_after_marker_dart(output, "-")
+    return passed, failed
+}
+
+// _parse_count_after_marker_dart(output, marker) — find the LAST
+// occurrence of `marker` immediately followed by digits, and return
+// that number. Returns 0 if no `marker<digit>` run exists. Scanning
+// for the last occurrence keeps the final summary line authoritative
+// over the progress lines dart prints during the run.
+_parse_count_after_marker_dart(output: string, marker: string) {
+    n = string.length(output)
+    result = 0
+    i = 0
+    while i < n {
+        c = string.substring(output, i, i + 1)
+        if string.equals(c, marker) == 1 {
+            // Marker found; read the digit run immediately after it.
+            j = i + 1
+            digits = ""
+            scanning = 1
+            while scanning == 1 {
+                if j >= n {
+                    scanning = 0
+                } else {
+                    d = string.substring(output, j, j + 1)
+                    if _is_digit_dart(d) == 1 {
+                        digits = string.concat(digits, d)
+                        j = j + 1
+                    } else {
+                        scanning = 0
+                    }
+                }
+            }
+            if string.length(digits) > 0 {
+                v, _err = string.to_int(digits)
+                result = v
+            }
+        }
+        i = i + 1
+    }
+    return result
+}
+
+_is_digit_dart(c: string) {
+    if string.equals(c, "0") == 1 { return 1 }
+    if string.equals(c, "1") == 1 { return 1 }
+    if string.equals(c, "2") == 1 { return 1 }
+    if string.equals(c, "3") == 1 { return 1 }
+    if string.equals(c, "4") == 1 { return 1 }
+    if string.equals(c, "5") == 1 { return 1 }
+    if string.equals(c, "6") == 1 { return 1 }
+    if string.equals(c, "7") == 1 { return 1 }
+    if string.equals(c, "8") == 1 { return 1 }
+    if string.equals(c, "9") == 1 { return 1 }
+    return 0
+}
+
+// Compile a Dart entrypoint to a native/exe/JS artifact via
+// `dart compile`. Publishes the `program_binary` artifact (for the
+// exe format) so a downstream test runner can drive it, same
+// contract as c.program / aether.program.
+builder compile(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+
+    dart = _dart_of(_builder)
+
+    fmt = "exe"
+    if _builder != null {
+        if map.has(_builder, "compile_format") == 1 {
+            f, _ = map.get(_builder, "compile_format")
+            if string.length(f) > 0 { fmt = f }
+        }
+    }
+
+    entry = "bin/main.dart"
+    if _builder != null {
+        if map.has(_builder, "compile_entrypoint") == 1 {
+            e, _ = map.get(_builder, "compile_entrypoint")
+            if string.length(e) > 0 { entry = e }
+        }
+    }
+
+    // Output name: explicit setter, else entrypoint basename.
+    out_name = ""
+    if _builder != null {
+        if map.has(_builder, "compile_output") == 1 {
+            o, _ = map.get(_builder, "compile_output")
+            if string.length(o) > 0 { out_name = o }
+        }
+    }
+    if string.length(out_name) == 0 {
+        out_name = _strip_dart_ext(path.basename(entry))
+    }
+    out_abs = path.join(target_dir, out_name)
+
+    println("${mod_dir}: compiling (dart compile ${fmt})")
+    cmd = compile_cmd(dart, source_dir, fmt, entry, out_abs)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: compile FAILED")
+        build.fail(ctx, "compile FAILED")
+        return exit_code
+    }
+
+    // Publish the runnable-binary artifact for exe-format outputs, so
+    // a language-agnostic test runner (build.program_binary_of) finds
+    // it. Other formats (js/kernel/snapshot) aren't directly runnable
+    // as a host binary, so they don't claim program_binary.
+    if string.equals(fmt, "exe") == 1 {
+        build._write_artifact(ctx, "program_binary", out_abs)
+    }
+    build._write_artifact(ctx, "dart_compile_output", out_abs)
+
+    println("${mod_dir}: compile done → ${out_abs}")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _strip_dart_ext(name) — drop a trailing ".dart" so "main.dart"
+// becomes "main". Leaves names without the extension untouched.
+_strip_dart_ext(name: string) {
+    n = string.length(name)
+    if n < 5 { return name }
+    tail = string.substring(name, n - 5, n)
+    if string.equals(tail, ".dart") == 1 {
+        return string.substring(name, 0, n - 5)
+    }
+    return name
+}
+
+// --- dart.codegen builder ---
+//
+// Runs a Dart code generator with explicitly declared inputs and
+// outputs. Contract: the generator reads exactly the files listed via
+// codegen_input(...) / codegen_input_dir(...) and writes exactly the
+// files listed via codegen_output(...). When all declared outputs
+// exist and are newer than every declared input, the run is skipped
+// (mtime-driven, same shape as python.codegen / aether.regen).
+//
+// Why this exists: Dart's build_runner reads source files annotated
+// for json_serializable / freezed / drift / mockito and emits sibling
+// `*.g.dart` / `*.freezed.dart` files. build_runner's own dependency
+// tracking lives in `.dart_tool/build/` and is opaque to the outer
+// build graph; declaring inputs/outputs explicitly lets aeb reason
+// about staleness and verify the generator actually produced what was
+// promised (build_runner silently skips a file whose annotations it
+// can't resolve).
+//
+// Cache integration is deferred — same rationale as python.codegen
+// (declared outputs are multi-file sets; lib/cache for multi-file
+// artifacts is a follow-up). Today's behaviour is "run if any declared
+// input is newer than the oldest declared output."
+builder codegen(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    // Resolve working directory. codegen_cwd is relative to source_dir
+    // unless absolute. Default to source_dir.
+    cwd = source_dir
+    if _builder != null {
+        if map.has(_builder, "codegen_cwd") == 1 {
+            rel, _ = map.get(_builder, "codegen_cwd")
+            if string.length(rel) > 0 {
+                first = string.substring(rel, 0, 1)
+                if string.equals(first, "/") == 1 {
+                    cwd = rel
+                } else {
+                    cwd = path.join(source_dir, rel)
+                }
+            }
+        }
+    }
+
+    // Resolve dart executable. Priority:
+    //   1. codegen_dart(...) override
+    //   2. dart_bin(...) setter
+    //   3. PATH "dart"
+    dart = "dart"
+    if _builder != null {
+        if map.has(_builder, "codegen_dart") == 1 {
+            dart, _ = map.get(_builder, "codegen_dart")
+        } else {
+            if map.has(_builder, "dart_bin") == 1 {
+                db, _ = map.get(_builder, "dart_bin")
+                if string.length(db) > 0 { dart = db }
+            }
+        }
+    }
+
+    // Resolve driver form. codegen_driver wins over codegen_script if
+    // both are set.
+    driver_form = ""
+    driver_name = ""
+    if _builder != null {
+        if map.has(_builder, "codegen_driver") == 1 {
+            driver_form = "package"
+            driver_name, _ = map.get(_builder, "codegen_driver")
+        } else {
+            if map.has(_builder, "codegen_script") == 1 {
+                driver_form = "script"
+                driver_name, _ = map.get(_builder, "codegen_script")
+            }
+        }
+    }
+    if string.length(driver_form) == 0 {
+        println("${mod_dir}: codegen: declare codegen_driver(\"build_runner\") or codegen_script(\"tool/gen.dart\")")
+        build.fail(ctx, "codegen: no codegen_driver() or codegen_script() declared")
+        return 1
+    }
+
+    args = null
+    if _builder != null && map.has(_builder, "codegen_args") == 1 {
+        args, _ = map.get(_builder, "codegen_args")
+    }
+
+    // Staleness check: skip if every declared output exists AND is
+    // newer than every declared input file AND every file recursively
+    // under every declared input_dir. Empty inputs+input_dirs → cannot
+    // reason → force run.
+    inputs = null
+    input_dirs = null
+    outputs = null
+    if _builder != null {
+        if map.has(_builder, "codegen_inputs") == 1 {
+            inputs, _ = map.get(_builder, "codegen_inputs")
+        }
+        if map.has(_builder, "codegen_input_dirs") == 1 {
+            input_dirs, _ = map.get(_builder, "codegen_input_dirs")
+        }
+        if map.has(_builder, "codegen_outputs") == 1 {
+            outputs, _ = map.get(_builder, "codegen_outputs")
+        }
+    }
+    skip = _codegen_can_skip(cwd, inputs, input_dirs, outputs)
+
+    if skip == 0 {
+        cmd = dart_codegen_cmd(dart, cwd, driver_form, driver_name, args)
+        println("${mod_dir}: codegen running")
+        rc = os.system(cmd)
+        if rc != 0 {
+            println("${mod_dir}: codegen FAILED")
+            build.fail(ctx, "codegen FAILED")
+            return rc
+        }
+    } else {
+        println("${mod_dir}: codegen up-to-date")
+    }
+
+    // Verify every declared output exists, regardless of skip.
+    missing = _codegen_check_outputs(cwd, outputs, mod_dir)
+    if missing > 0 {
+        println("${mod_dir}: codegen: ${missing} declared output(s) missing — check codegen_output() vs the generator's actual output set")
+        build.fail(ctx, "codegen: ${missing} declared output(s) missing")
+        return 1
+    }
+
+    // Record artifact: newline-separated absolute output paths.
+    out_listing = _codegen_format_output_list(cwd, outputs)
+    build._write_artifact(ctx, "dart_codegen_outputs", out_listing)
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _codegen_can_skip(cwd, inputs, input_dirs, outputs) — return 1 when
+// every declared output exists AND its mtime is >= every declared
+// input's mtime (individual files AND every file recursively under
+// each input_dir). Returns 0 when codegen must run (missing output,
+// or any input is newer). Empty inputs+input_dirs+outputs → never skip
+// (force run, can't reason about freshness).
+_codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
+    if outputs == null { return 0 }
+    if list.size(outputs) == 0 { return 0 }
+    newest_in = 0
+    if inputs != null {
+        n = list.size(inputs)
+        i = 0
+        while i < n {
+            p, _ = list.get(inputs, i)
+            abs_p = _codegen_resolve(cwd, p)
+            t = file.mtime(abs_p)
+            if t > newest_in { newest_in = t }
+            i = i + 1
+        }
+    }
+    if input_dirs != null {
+        nd = list.size(input_dirs)
+        di = 0
+        while di < nd {
+            dp, _ = list.get(input_dirs, di)
+            abs_d = _codegen_resolve(cwd, dp)
+            dir_newest = _dir_newest_mtime(abs_d)
+            if dir_newest > newest_in { newest_in = dir_newest }
+            di = di + 1
+        }
+    }
+    no = list.size(outputs)
+    j = 0
+    oldest_out = 0
+    while j < no {
+        op, _ = list.get(outputs, j)
+        abs_o = _codegen_resolve(cwd, op)
+        ot = file.mtime(abs_o)
+        if ot == 0 { return 0 }
+        if oldest_out == 0 { oldest_out = ot }
+        if ot < oldest_out { oldest_out = ot }
+        j = j + 1
+    }
+    if oldest_out >= newest_in { return 1 }
+    return 0
+}
+
+// _dir_newest_mtime(dir_abs) — recursively walk a directory and return
+// the newest file mtime found. Returns 0 if the dir doesn't exist or
+// has no regular files. std.dir flat-list + per-entry recurse; no
+// shell-out (portable across linux/macos, unlike `find -printf`).
+_dir_newest_mtime(dir_abs: string) {
+    if dir.exists(dir_abs) == 0 { return 0 }
+    entries, _ = dir.list(dir_abs)
+    if entries == null { return 0 }
+    n = dir_list_count(entries)
+    newest = 0
+    i = 0
+    while i < n {
+        name = dir_list_get(entries, i)
+        if string.equals(name, ".") == 0 {
+            if string.equals(name, "..") == 0 {
+                full = path.join(dir_abs, name)
+                if dir.exists(full) == 1 {
+                    sub = _dir_newest_mtime(full)
+                    if sub > newest { newest = sub }
+                } else {
+                    t = file.mtime(full)
+                    if t > newest { newest = t }
+                }
+            }
+        }
+        i = i + 1
+    }
+    dir_list_free(entries)
+    return newest
+}
+
+// _codegen_check_outputs(cwd, outputs, mod_dir) — return the number of
+// declared outputs that don't exist on disk. Prints one line per
+// missing file. 0 when all present (or none declared).
+_codegen_check_outputs(cwd: string, outputs: ptr, mod_dir: string) {
+    if outputs == null { return 0 }
+    n = list.size(outputs)
+    if n == 0 { return 0 }
+    missing = 0
+    i = 0
+    while i < n {
+        p, _ = list.get(outputs, i)
+        abs_p = _codegen_resolve(cwd, p)
+        if file.exists(abs_p) == 0 {
+            println("${mod_dir}: codegen output missing: ${abs_p}")
+            missing = missing + 1
+        }
+        i = i + 1
+    }
+    return missing
+}
+
+// _codegen_format_output_list(cwd, outputs) — newline-joined absolute
+// paths for the dart_codegen_outputs artifact. Empty when none.
+_codegen_format_output_list(cwd: string, outputs: ptr) {
+    if outputs == null { return "" }
+    n = list.size(outputs)
+    out = ""
+    i = 0
+    while i < n {
+        p, _ = list.get(outputs, i)
+        abs_p = _codegen_resolve(cwd, p)
+        if i > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, abs_p)
+        i = i + 1
+    }
+    return out
+}
+
+// _codegen_resolve(cwd, p) — return absolute path. Bare-relative is
+// joined against cwd; absolute passes through.
+_codegen_resolve(cwd: string, p: string) {
+    if string.length(p) == 0 { return p }
+    first = string.substring(p, 0, 1)
+    if string.equals(first, "/") == 1 { return p }
+    return path.join(cwd, p)
+}

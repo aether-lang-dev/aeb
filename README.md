@@ -1381,7 +1381,7 @@ A small Tokio/axum Rust project. Single-crate `Cargo.toml` generation.
   fixes in `codegen/`.
 - Language toolchains for whatever you build: `javac`, `kotlinc`, `go`,
   `cargo`, `tsc`/`node`, `scala` (Scala 3 compiler jar), `clojure`,
-  `dotnet` SDK, `python3`, `pnpm`.
+  `dotnet` SDK, `python3`, `pnpm`, `dart` SDK.
 - For Java projects with Maven deps: build the resolver jar once —
 
 ### macOS notes

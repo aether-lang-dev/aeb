@@ -1,0 +1,151 @@
+// Tests for dart.codegen's pure command-string builder AND the
+// closure-DSL setters that feed it. Mirror of
+// tests/test_python_codegen_cmd.ae.
+//
+// Two surfaces:
+//   1. `dart_codegen_cmd(dart, cwd, driver_form, driver_name, args)`
+//      — the pure exec-string assembler. Asserts on the literal
+//      `cd '<cwd>' && '<dart>' [run <pkg> | <script>] <args>` shape.
+//   2. The grammar setters (codegen_driver, codegen_script,
+//      codegen_input, codegen_input_dir, codegen_arg, codegen_output,
+//      codegen_cwd, codegen_dart) — each accumulates into the builder
+//      map; this drives them on a fresh map and reads the keys back.
+
+import dart (dart_codegen_cmd, codegen_driver, codegen_script,
+            codegen_input, codegen_input_dir, codegen_arg,
+            codegen_output, codegen_cwd, codegen_dart)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+
+_list_size_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return 0 }
+    l, _ = map.get(m, k)
+    return list.size(l)
+}
+_list_get_at(m: ptr, k: string, i: int) {
+    l, _ = map.get(m, k)
+    v, _ = list.get(l, i)
+    return v
+}
+_str_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return "" }
+    v, _ = map.get(m, k)
+    return v
+}
+
+main() {
+    // --- Package-form driver (build_runner), no args.
+    args0 = list.new()
+    cmd0 = dart_codegen_cmd("dart", "/proj", "package", "build_runner", args0)
+    _assert("package form has 'run <pkg>'",
+        string.equals(cmd0, "cd '/proj' && 'dart' run build_runner"))
+
+    // --- Script-form driver, no args.
+    args1 = list.new()
+    cmd1 = dart_codegen_cmd("dart", "/proj", "script", "tool/gen.dart", args1)
+    _assert("script form omits 'run' and uses script path",
+        string.equals(cmd1, "cd '/proj' && 'dart' tool/gen.dart"))
+
+    // --- The canonical build_runner invocation:
+    //     dart run build_runner build --delete-conflicting-outputs
+    args2 = list.new()
+    list.add(args2, "build")
+    list.add(args2, "--delete-conflicting-outputs")
+    cmd2 = dart_codegen_cmd("dart", "/proj", "package", "build_runner", args2)
+    _assert("build_runner build with args in order",
+        string.equals(cmd2, "cd '/proj' && 'dart' run build_runner build --delete-conflicting-outputs"))
+
+    // --- Custom dart binary (e.g. Flutter-bundled) is quoted.
+    args3 = list.new()
+    list.add(args3, "build")
+    cmd3 = dart_codegen_cmd("/opt/flutter/bin/dart", "/proj", "package", "build_runner", args3)
+    _assert("custom dart bin is quoted",
+        string.equals(cmd3, "cd '/proj' && '/opt/flutter/bin/dart' run build_runner build"))
+
+    // --- Unknown driver_form → bare dart invocation (defensive; the
+    //     builder validates upstream).
+    args4 = list.new()
+    cmd4 = dart_codegen_cmd("dart", "/proj", "", "", args4)
+    _assert("missing driver_form → bare dart invocation",
+        string.equals(cmd4, "cd '/proj' && 'dart'"))
+
+    // --- cwd with spaces is single-quoted.
+    args5 = list.new()
+    list.add(args5, "tool/gen.dart")
+    cmd5 = dart_codegen_cmd("dart", "/path with spaces/repo", "script", "tool/gen.dart", args5)
+    _assert("cwd with spaces is quoted",
+        string.equals(cmd5, "cd '/path with spaces/repo' && 'dart' tool/gen.dart tool/gen.dart"))
+
+    // === Setter accumulation tests ====================================
+
+    // --- codegen_input: list accumulator, order preserved.
+    bm1 = map.new()
+    codegen_input(bm1, "lib/a.dart")
+    codegen_input(bm1, "lib/b.dart")
+    codegen_input(bm1, "lib/c.dart")
+    _assert("codegen_input accumulates 3", _list_size_at(bm1, "codegen_inputs") == 3)
+    _assert("codegen_input order: first lib/a.dart",
+        string.equals(_list_get_at(bm1, "codegen_inputs", 0), "lib/a.dart"))
+    _assert("codegen_input order: third lib/c.dart",
+        string.equals(_list_get_at(bm1, "codegen_inputs", 2), "lib/c.dart"))
+
+    // --- codegen_input_dir: separate list from codegen_input.
+    bm2 = map.new()
+    codegen_input(bm2, "lib/models.dart")
+    codegen_input_dir(bm2, "lib")
+    codegen_input_dir(bm2, "lib/src")
+    _assert("input_dir stored in own key", _list_size_at(bm2, "codegen_input_dirs") == 2)
+    _assert("input and input_dir don't cross-contaminate",
+        _list_size_at(bm2, "codegen_inputs") == 1)
+    _assert("input_dir entry 0 is lib",
+        string.equals(_list_get_at(bm2, "codegen_input_dirs", 0), "lib"))
+
+    // --- codegen_arg: list accumulator → CLI tail.
+    bm3 = map.new()
+    codegen_arg(bm3, "build")
+    codegen_arg(bm3, "--delete-conflicting-outputs")
+    args_acc, _ = map.get(bm3, "codegen_args")
+    cmd_acc = dart_codegen_cmd("dart", "/proj", "package", "build_runner", args_acc)
+    _assert("setter-accumulated args produce expected cmd",
+        string.equals(cmd_acc,
+            "cd '/proj' && 'dart' run build_runner build --delete-conflicting-outputs"))
+
+    // --- codegen_output: list accumulator.
+    bm4 = map.new()
+    codegen_output(bm4, "lib/models.g.dart")
+    codegen_output(bm4, "lib/models.freezed.dart")
+    _assert("codegen_output accumulates 2", _list_size_at(bm4, "codegen_outputs") == 2)
+
+    // --- Scalar setters: codegen_cwd / codegen_driver / codegen_dart.
+    bm5 = map.new()
+    codegen_cwd(bm5, "..")
+    codegen_driver(bm5, "build_runner")
+    codegen_dart(bm5, "/opt/flutter/bin/dart")
+    _assert("codegen_cwd scalar", string.equals(_str_at(bm5, "codegen_cwd"), ".."))
+    _assert("codegen_driver scalar", string.equals(_str_at(bm5, "codegen_driver"), "build_runner"))
+    _assert("codegen_dart scalar", string.equals(_str_at(bm5, "codegen_dart"), "/opt/flutter/bin/dart"))
+
+    // --- codegen_driver and codegen_script coexist (driver wins in the
+    //     builder, but storage is independent).
+    bm6 = map.new()
+    codegen_driver(bm6, "build_runner")
+    codegen_script(bm6, "tool/gen.dart")
+    _assert("driver and script coexist",
+        string.equals(_str_at(bm6, "codegen_driver"), "build_runner"))
+    _assert("script also stored",
+        string.equals(_str_at(bm6, "codegen_script"), "tool/gen.dart"))
+
+    // --- Untouched map: no list keys, empty scalars.
+    bm7 = map.new()
+    _assert("untouched: no codegen_inputs", _list_size_at(bm7, "codegen_inputs") == 0)
+    _assert("untouched: empty codegen_cwd", string.equals(_str_at(bm7, "codegen_cwd"), ""))
+
+    println("dart.codegen_cmd + setter accumulation tests done")
+}

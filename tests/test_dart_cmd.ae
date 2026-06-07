@@ -1,0 +1,99 @@
+// Tests for lib/dart's pure command-string builders and the
+// `dart test` summary-line parser.
+//
+// Covers: pub_get_cmd, analyze_cmd, test_cmd, compile_cmd, and
+// _parse_dart_test_counts. All pure (I/O-free) — they assert the
+// exact string that would be passed to os.system, or the (pass,fail)
+// tuple parsed from captured `dart test` output.
+
+import dart (pub_get_cmd, analyze_cmd, test_cmd, compile_cmd,
+            _parse_dart_test_counts, _strip_dart_ext)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- pub_get_cmd: cd into source_dir, run from there so .dart_tool
+    //     resolves. offline flag is appended only when non-empty.
+    _eq("pub get online",
+        pub_get_cmd("dart", "/proj", ""),
+        "cd '/proj' && 'dart' pub get")
+    _eq("pub get offline",
+        pub_get_cmd("dart", "/proj", " --offline"),
+        "cd '/proj' && 'dart' pub get --offline")
+    _eq("pub get custom dart bin is quoted",
+        pub_get_cmd("/opt/flutter/bin/dart", "/proj", ""),
+        "cd '/proj' && '/opt/flutter/bin/dart' pub get")
+
+    // --- analyze_cmd
+    _eq("analyze runs from source_dir",
+        analyze_cmd("dart", "/proj"),
+        "cd '/proj' && 'dart' analyze")
+
+    // --- test_cmd: path part appended only when non-empty.
+    _eq("test no path → dart's own discovery",
+        test_cmd("dart", "/proj", ""),
+        "cd '/proj' && 'dart' test")
+    _eq("test with path",
+        test_cmd("dart", "/proj", " test/unit"),
+        "cd '/proj' && 'dart' test test/unit")
+
+    // --- compile_cmd: format + entry + -o output, all single-quoted
+    //     where they could carry spaces.
+    _eq("compile exe",
+        compile_cmd("dart", "/proj", "exe", "bin/main.dart", "/proj/target/dart/main"),
+        "cd '/proj' && 'dart' compile exe 'bin/main.dart' -o '/proj/target/dart/main'")
+    _eq("compile js format",
+        compile_cmd("dart", "/proj", "js", "web/main.dart", "/proj/target/dart/main.js"),
+        "cd '/proj' && 'dart' compile js 'web/main.dart' -o '/proj/target/dart/main.js'")
+    _eq("compile output path with spaces is quoted",
+        compile_cmd("dart", "/proj", "exe", "bin/main.dart", "/out dir/app"),
+        "cd '/proj' && 'dart' compile exe 'bin/main.dart' -o '/out dir/app'")
+
+    // --- _strip_dart_ext: derives the default output name.
+    _eq("strip .dart", _strip_dart_ext("main.dart"), "main")
+    _eq("strip leaves non-dart untouched", _strip_dart_ext("server"), "server")
+    _eq("strip short name untouched", _strip_dart_ext("x"), "x")
+
+    // --- _parse_dart_test_counts: dart's +N/-N summary tokens.
+    //
+    // all-pass: "00:01 +14: All tests passed!"
+    pp0, pf0 = _parse_dart_test_counts("00:01 +14: All tests passed!")
+    _assert("all-pass: 14 passed", pp0 == 14)
+    _assert("all-pass: 0 failed", pf0 == 0)
+
+    // mixed: "00:02 +13 -1: Some tests failed."
+    pp1, pf1 = _parse_dart_test_counts("00:02 +13 -1: Some tests failed.")
+    _assert("mixed: 13 passed", pp1 == 13)
+    _assert("mixed: 1 failed", pf1 == 1)
+
+    // zero-pass one-fail: "00:00 +0 -1: Some tests failed."
+    pp2, pf2 = _parse_dart_test_counts("00:00 +0 -1: Some tests failed.")
+    _assert("0 passed", pp2 == 0)
+    _assert("1 failed", pf2 == 1)
+
+    // Progress lines precede the final summary; the LAST +N / -N wins.
+    // dart prints incremental lines like "00:00 +3: test/foo" before
+    // the final "00:01 +14 -2: Some tests failed." line.
+    multi = "00:00 +3: running\n00:01 +9: running\n00:02 +14 -2: Some tests failed."
+    pp3, pf3 = _parse_dart_test_counts(multi)
+    _assert("multi-line: final +14 wins over progress +3/+9", pp3 == 14)
+    _assert("multi-line: final -2 is read", pf3 == 2)
+
+    // No recognisable summary → (0, 0) rather than crashing.
+    pp4, pf4 = _parse_dart_test_counts("no counts here")
+    _assert("no summary → 0 passed", pp4 == 0)
+    _assert("no summary → 0 failed", pf4 == 0)
+
+    println("dart command-string + test-count parser tests done")
+}
