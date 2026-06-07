@@ -33,7 +33,7 @@ sequences.
 
 | Dimension | moon | aeb |
 |---|---|---|
-| **Scope** | One language (MoonBit), end to end | Many languages (12+ SDKs), orchestrating their toolchains |
+| **Scope** | One language (MoonBit), end to end | Many languages (20+ SDKs), orchestrating their toolchains |
 | **Implementation** | ~88k lines Rust, 8 crates | ~25k lines Aether, SDK-per-language under `lib/` |
 | **Compiler awareness** | Deep — drives `moonc` directly, knows the module graph, conditional compilation, targets | None — shells `moon`/`cargo`/`javac`/… and reads exit codes + summary lines |
 | **Build-graph granularity** | Per **compilation unit** (package/file-level actions) | Per **module** (one `.build.ae` = one node; the SDK runs a whole toolchain invocation inside) |

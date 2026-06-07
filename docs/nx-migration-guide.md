@@ -427,8 +427,8 @@ README for the canonical reference; brief pointers:
 
 | Nx feature | aeb equivalent |
 |-----------|---------------|
-| Nx Cloud caching | Timestamp-based incremental builds |
-| `nx affected` | Not yet — aeb builds everything or a specific target |
+| Nx Cloud caching | Content-addressed cache (`lib/cache`, sha256+zlib) wired into several SDKs; mtime-only for the rest. Remote/distributed cache is designed (`distributed-cache-plan.md`). |
+| `nx affected` | **`aeb --since <ref>` / `--print-affected`** — builds/tests only modules downstream of a diff (see the `--since` guidance earlier in this doc). |
 | Nx generators | Manual (or write Aether scripts) |
 | Cypress e2e | Run `cypress` directly (not yet integrated into aeb) |
 | Nx plugins | Replace with standalone tooling |

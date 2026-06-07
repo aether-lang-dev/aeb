@@ -1,11 +1,13 @@
 # Aether enhancements wanted by `aeb`
 
-`aeb` is now a ~36-line bash trampoline plus thirteen Aether-language tools
-under `tools/`. The bash bit only sets `AETHER` / `AEB_HOME` / `ROOT`,
-auto-detects the Podman socket, and dispatches to `tools/aeb-main`,
-`tools/aeb-init`, or `tools/gcheckout`. Everything else — argument parsing,
-DAG discovery, dep extraction, topo sort, per-file compile, link, exec — is
-Aether.
+`aeb` is now a bash trampoline (~300 lines — it also carries the
+build-level process-group reap + `--timeout` watchdog) plus ~19
+Aether-language tools under `tools/`. The bash bit sets `AETHER` /
+`AEB_HOME` / `ROOT`, auto-detects the Podman socket, runs the build in its
+own process group and reaps survivors, and dispatches to `tools/aeb-main`,
+`tools/aeb-init`, or `tools/gcheckout`. Everything else — argument
+parsing, DAG discovery, dep extraction, topo sort, per-file compile, link,
+node scheduling, exec — is Aether.
 
 What's left preventing the trampoline from going away entirely, and what
 would let `aeb` run unmodified on Windows.
@@ -40,7 +42,7 @@ If we get (1) and (2), the bash trampoline collapses into a self-bootstrapping
 
 ## B. Reduce per-call subprocess forks inside the tools
 
-The thirteen tools all live as separate native binaries that the bash
+The tools all live as separate native binaries that the bash
 trampoline (or each other) `exec` into. Inside each tool, several `os_system`
 / `os_exec` calls remain that could become native:
 
@@ -82,19 +84,21 @@ the gaps are:
    extern path_separator() -> string
    ```
 
-3. **Process launching** — `os_system` on Windows runs through `cmd.exe` by
-   default in some runtimes. The current `aeb-link` builds shell command
-   strings with `>/dev/null`, `&&`, `2>&1`, etc. that don't all work in
-   `cmd.exe`. Two fixes:
-   - **Better**: an argv-based launch that doesn't use a shell at all.
-     ```
-     extern os_run(prog: string, argv: ptr, env: ptr) -> int
-     extern os_run_capture(prog: string, argv: ptr, env: ptr) -> string
-     ```
-     This also eliminates a class of quoting bugs on every platform.
-   - **Stopgap**: a portable `os_system_posix` that always invokes
-     `/bin/sh -c` on POSIX and `bash -c` (MSYS2) or `sh -c` (Git Bash) on
-     Windows.
+3. **Process launching** — ✅ **SHIPPED.** The argv-based launch this
+   asked for landed in aether 0.124 as `os.run_capture(prog, argv, env)`
+   and `os.run_pipe*` (incl. the deadlock-free
+   `os.run_pipe_drain_and_wait`), which `aeb` now uses (e.g.
+   `aether.driver_test`). It does what this item wanted — no shell in the
+   middle, eliminating a class of quoting bugs on every platform. The
+   original ask, for the record:
+   > `os_system` on Windows runs through `cmd.exe` in some runtimes, and
+   > the shell strings (`>/dev/null`, `&&`, `2>&1`) don't all work there;
+   > an argv-based `os_run(prog, argv, env)` / `os_run_capture(...)` that
+   > doesn't use a shell fixes it.
+
+   Remaining: not every aeb shell-out has been migrated off `os.system`
+   string-building to `os.run_capture` yet — that's an aeb-side cleanup,
+   not an upstream ask.
 
 4. **`fs_glob` recursive walker** — already POSIX-only on the C side
    (uses `dirent`/`fnmatch`). Windows needs the `FindFirstFile` /
@@ -154,10 +158,12 @@ These were in the previous iteration of this doc and have since landed:
 
 If the goal is "Windows works, bash trampoline gone":
 
-1. **`os_run` argv-based launcher** — fixes Windows quoting and eliminates
-   a class of bugs everywhere. Highest value.
+1. ~~**`os_run` argv-based launcher**~~ — ✅ **SHIPPED** as
+   `os.run_capture` / `os.run_pipe*` (aether 0.124). Was the highest-value
+   item; the remaining work is aeb-side (migrate the rest of the
+   `os.system` string-builders onto it).
 2. **`fs_glob` Windows backend** — currently the only thing in `tools/`
-   that absolutely won't run on Windows.
+   that absolutely won't run on Windows. Now the highest-value *open* item.
 3. **`aether_argv0` + `os_execv`** — lets the bash trampoline disappear.
 4. **`fs_symlink` / `fs_is_symlink` / `fs_readlink`** — lets `aeb-init`
    stop shelling out to `ln`/`readlink`/`test -L` and gives `--init` a

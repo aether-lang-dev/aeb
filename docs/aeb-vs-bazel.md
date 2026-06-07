@@ -53,7 +53,7 @@ code, they have **shipped**:
 
 | Bazel feature | aeb today |
 |---|---|
-| Polyglot, one tool, many languages | **[have]** 15+ SDKs under `lib/` |
+| Polyglot, one tool, many languages | **[have]** 20+ language SDKs under `lib/` (incl. dart, moonbit, gleam) |
 | Explicit, greppable, statically-extractable DAG | **[have]** `build.dep("…")` edges, scanned without evaluation |
 | Multi-language FFI handoff | **[have]** Java↔Rust (JNI), Java↔Go (.so), Aether↔C/Rust, etc. |
 | Native registries | **[have]** Maven/crates.io/npm/NuGet/pip via `build.dep` |
