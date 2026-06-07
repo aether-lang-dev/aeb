@@ -128,4 +128,4 @@ explicit promotion gates and bounded host-fingerprint trust.
 
 That direction is captured in
 [`docs/distributed-cache-plan.md`](../../docs/distributed-cache-plan.md)
-of the aeb repo, with links from `TODO.md` and `bazel-gaps.md`.
+of the aeb repo, with links from `TODO.md` and `docs/aeb-vs-bazel.md`.

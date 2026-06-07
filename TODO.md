@@ -1661,7 +1661,7 @@ deps are missing go get them and place them in there
     installed JDKs by vendor/version per module — multi-JDK builds
     in a monorepo. Today aeb uses whatever `javac` is on PATH. This
     is the same gap as the hermetic-toolchain item in
-    `bazel-gaps.md`; if that gets resolved at the runner level
+    `docs/aeb-vs-bazel.md`; if that gets resolved at the runner level
     (hermetic-LLVM-style fetch + pin), this falls out.
 
 17. **Profiles** (`<profile id="ci">`). Maven's environment-specific

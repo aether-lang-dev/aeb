@@ -6,8 +6,7 @@ direction rather than a spec. The local content-addressed cache
 in from:
 
 - [`TODO.md` § Remote build cache](../TODO.md)
-- [`bazel-gaps.md`](../bazel-gaps.md)
-- [`docs/aeb-vs-bazel.md` (companion comparison)](aeb-vs-bazel.md)
+- [`aeb-vs-bazel.md` (companion comparison)](aeb-vs-bazel.md)
 
 ## The framing question
 

@@ -5,15 +5,13 @@ aeb's *core* — a declarative, file-based, greppable build DAG over a
 polyglot monorepo — so this is the most important comparison in the set
 and the one to get right.
 
-Consolidates and supersedes three earlier scattered pieces, kept for
-their detail but no longer the source of truth:
-- [`../bazel-gaps.md`](../bazel-gaps.md) — the original feature-gap table
-  (now partly stale: several "gaps" it lists have since shipped; see the
-  status note below).
+Consolidates and supersedes earlier scattered material — a root-level
+feature-gap table (now removed; its content, with corrected status, lives
+here) and two real-world "musings" written *during* the PyTorch and
+Selenium migrations, kept for their narrative detail:
 - [`../itests/pytorch/Aeb_vs_Bazel.md`](../itests/pytorch/Aeb_vs_Bazel.md)
   and [`../itests/selenium/Aeb_vs_Bazel.md`](../itests/selenium/Aeb_vs_Bazel.md)
-  — real-world "musings" written *during* the PyTorch and Selenium
-  migrations; the framings below are distilled from them.
+  — the framings below are distilled from them.
 
 Companion comparisons on adjacent axes:
 [`aeb-vs-starlark.md`](aeb-vs-starlark.md) (the rule/macro language),
@@ -47,11 +45,11 @@ Neither bet is wrong; they're tuned for different blast radii. Google's
 pain from one bad cached artifact is an incident and a rollback; a
 50-person org's is "delete cache, rebuild, move on."
 
-## Status — what aeb HAS (several since `bazel-gaps.md` was written)
+## Status — what aeb HAS (several shipped since the earlier gap analysis)
 
-`bazel-gaps.md` predates a lot of this session-era and prior work and
-lists some of the following as *gaps*. Verified against current code,
-they have **shipped**:
+An earlier gap analysis (a 2026 feature table, since folded into this
+doc) listed some of the following as *gaps*. Verified against current
+code, they have **shipped**:
 
 | Bazel feature | aeb today |
 |---|---|
@@ -59,16 +57,16 @@ they have **shipped**:
 | Explicit, greppable, statically-extractable DAG | **[have]** `build.dep("…")` edges, scanned without evaluation |
 | Multi-language FFI handoff | **[have]** Java↔Rust (JNI), Java↔Go (.so), Aether↔C/Rust, etc. |
 | Native registries | **[have]** Maven/crates.io/npm/NuGet/pip via `build.dep` |
-| **Parallel execution** | **[have]** — `tools/aeb-driver.ae` emits a Makefile and runs `make -jN` (independent nodes concurrent). *bazel-gaps.md says "none" — stale.* |
-| **Affected-target detection** (`git diff → only impacted`) | **[have]** — `aeb --since <ref>` / `--print-affected`. *bazel-gaps.md says "not there" — stale.* |
-| **Build-graph visualisation** | **[have]** — `aeb --graph` (DOT) / `--graph mermaid`. *bazel-gaps.md says "not-yet-done" — stale.* |
-| **Content-addressed cache wired into skip decisions** | **[have]** (partial) — `lib/cache` sha256+zlib is wired into `lib/aether` (link), `lib/maven`, `lib/java`; `cache.get`/`cache.put` gate rebuilds there. *bazel-gaps.md says "not yet wired" — stale; now true for several SDKs, mtime-only for the rest.* |
-| Watch mode | **[have]** — `aeb --watch` (inotify/fswatch). *not in bazel-gaps.md at all.* |
+| **Parallel execution** | **[have]** — `tools/aeb-driver.ae` emits a Makefile and runs `make -jN` (independent nodes concurrent). *Earlier analysis: "none" — since shipped.* |
+| **Affected-target detection** (`git diff → only impacted`) | **[have]** — `aeb --since <ref>` / `--print-affected`. *Earlier analysis: "not there" — since shipped.* |
+| **Build-graph visualisation** | **[have]** — `aeb --graph` (DOT) / `--graph mermaid`. *Earlier analysis: "not-yet-done" — since shipped.* |
+| **Content-addressed cache wired into skip decisions** | **[have]** (partial) — `lib/cache` sha256+zlib is wired into `lib/aether` (link), `lib/maven`, `lib/java`; `cache.get`/`cache.put` gate rebuilds there. *Earlier analysis: "not yet wired" — now true for several SDKs, mtime-only for the rest.* |
+| Watch mode | **[have]** — `aeb --watch` (inotify/fswatch). |
 | Sparse checkout for monorepos | **[have]** — `aeb gcheckout` (DAG walk → `git sparse-checkout`). |
 | Per-step process reaping + `--timeout` | **[have]** build-level (trampoline `set -m` + group-kill); per-step is design ([`lifecycle_plan.md`](lifecycle_plan.md) §9). |
 
 So the honest 2026 read: **aeb has closed most of the *scaling-DX* gaps
-`bazel-gaps.md` flagged** (parallelism, affected-targets, graph viz,
+the earlier analysis flagged** (parallelism, affected-targets, graph viz,
 cache-into-skip). What remains is genuinely the *hermeticity/correctness*
 and *hyperscale* tier — which is largely the part aeb **declines on
 purpose**, not the part it hasn't gotten to.
