@@ -339,7 +339,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   call `fn()` (bare). Mismatching the two is `E0301`, not a bug. The
   shared module is a normal Aether source module, not an aeb SDK — no
   `.aeb/lib` symlink, no `--init` registration. Came from
-  `AEB_ASK_sibling_imports_in_build_scripts.md` (mquickjs's two codegen
+  `asks/sibling-imports-in-build-scripts.md` (mquickjs's two codegen
   scripts sharing one generator engine).
 - **Aether is fixed-arity.** Setters that "want" variadic args
   (`extra_sources("a", "b", "c")` — won't compile) are repeated
