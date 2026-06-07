@@ -1,0 +1,141 @@
+// Tests for gleam.codegen's pure command-string builder AND the
+// closure-DSL setters that feed it. Mirror of
+// tests/test_moonbit_codegen_cmd.ae.
+//
+// Two surfaces:
+//   1. `gleam_codegen_cmd(gleam, cwd, driver_form, driver_name, args)`
+//      — "prog" form runs the program directly; "script" form runs it
+//      as `gleam run -m <name> --`.
+//   2. The grammar setters (codegen_program, codegen_script,
+//      codegen_input, codegen_input_dir, codegen_arg, codegen_output,
+//      codegen_cwd).
+
+import gleam (gleam_codegen_cmd, codegen_program, codegen_script,
+             codegen_input, codegen_input_dir, codegen_arg,
+             codegen_output, codegen_cwd)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+
+_list_size_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return 0 }
+    l, _ = map.get(m, k)
+    return list.size(l)
+}
+_list_get_at(m: ptr, k: string, i: int) {
+    l, _ = map.get(m, k)
+    v, _ = list.get(l, i)
+    return v
+}
+_str_at(m: ptr, k: string) {
+    if map.has(m, k) == 0 { return "" }
+    v, _ = map.get(m, k)
+    return v
+}
+
+main() {
+    // --- prog-form driver, no args: the program is run directly.
+    args0 = list.new()
+    cmd0 = gleam_codegen_cmd("gleam", "/proj", "prog", "protoc-gen-gleam", args0)
+    _assert("prog form runs the program directly (quoted)",
+        string.equals(cmd0, "cd '/proj' && 'protoc-gen-gleam'"))
+
+    // --- script-form driver, no args: `gleam run -m <name> --`.
+    args1 = list.new()
+    cmd1 = gleam_codegen_cmd("gleam", "/proj", "script", "gen", args1)
+    _assert("script form runs via gleam run -m <name> --",
+        string.equals(cmd1, "cd '/proj' && 'gleam' run -m gen --"))
+
+    // --- prog form with args in order.
+    args2 = list.new()
+    list.add(args2, "--schema=api.proto")
+    list.add(args2, "--out=src/gen")
+    cmd2 = gleam_codegen_cmd("gleam", "/proj", "prog", "protoc-gen-gleam", args2)
+    _assert("prog form args in order",
+        string.equals(cmd2, "cd '/proj' && 'protoc-gen-gleam' --schema=api.proto --out=src/gen"))
+
+    // --- script form with args after the `--` separator.
+    args3 = list.new()
+    list.add(args3, "--out=src/gen")
+    cmd3 = gleam_codegen_cmd("gleam", "/proj", "script", "gen", args3)
+    _assert("script form args after --",
+        string.equals(cmd3, "cd '/proj' && 'gleam' run -m gen -- --out=src/gen"))
+
+    // --- custom gleam bin only matters for the script form.
+    args4 = list.new()
+    cmd4 = gleam_codegen_cmd("/opt/gleam/bin/gleam", "/proj", "script", "gen", args4)
+    _assert("script form uses custom gleam bin",
+        string.equals(cmd4, "cd '/proj' && '/opt/gleam/bin/gleam' run -m gen --"))
+
+    // --- unknown driver_form → bare cd (defensive; builder validates).
+    args5 = list.new()
+    cmd5 = gleam_codegen_cmd("gleam", "/proj", "", "", args5)
+    _assert("missing driver_form → bare cd",
+        string.equals(cmd5, "cd '/proj' &&"))
+
+    // --- cwd with spaces is single-quoted.
+    args6 = list.new()
+    cmd6 = gleam_codegen_cmd("gleam", "/path with spaces/repo", "prog", "gen", args6)
+    _assert("cwd with spaces is quoted",
+        string.equals(cmd6, "cd '/path with spaces/repo' && 'gen'"))
+
+    // === Setter accumulation tests ====================================
+
+    // --- codegen_input: list accumulator, order preserved.
+    bm1 = map.new()
+    codegen_input(bm1, "schema/a.proto")
+    codegen_input(bm1, "schema/b.proto")
+    _assert("codegen_input accumulates 2", _list_size_at(bm1, "codegen_inputs") == 2)
+    _assert("codegen_input order: first",
+        string.equals(_list_get_at(bm1, "codegen_inputs", 0), "schema/a.proto"))
+
+    // --- codegen_input_dir: separate list.
+    bm2 = map.new()
+    codegen_input(bm2, "schema/api.proto")
+    codegen_input_dir(bm2, "schema")
+    _assert("input_dir own key", _list_size_at(bm2, "codegen_input_dirs") == 1)
+    _assert("no cross-contamination", _list_size_at(bm2, "codegen_inputs") == 1)
+
+    // --- codegen_arg: list accumulator → CLI tail.
+    bm3 = map.new()
+    codegen_arg(bm3, "--out=src/gen")
+    args_acc, _ = map.get(bm3, "codegen_args")
+    cmd_acc = gleam_codegen_cmd("gleam", "/proj", "prog", "gen", args_acc)
+    _assert("setter-accumulated args produce expected cmd",
+        string.equals(cmd_acc, "cd '/proj' && 'gen' --out=src/gen"))
+
+    // --- codegen_output: list accumulator.
+    bm4 = map.new()
+    codegen_output(bm4, "src/gen/api.gleam")
+    codegen_output(bm4, "src/gen/types.gleam")
+    _assert("codegen_output accumulates 2", _list_size_at(bm4, "codegen_outputs") == 2)
+
+    // --- scalar setters: codegen_cwd, and prog/script coexistence.
+    bm5 = map.new()
+    codegen_cwd(bm5, "..")
+    codegen_program(bm5, "protoc-gen-gleam")
+    _assert("codegen_cwd scalar", string.equals(_str_at(bm5, "codegen_cwd"), ".."))
+    _assert("codegen_program stored as codegen_cmd_prog",
+        string.equals(_str_at(bm5, "codegen_cmd_prog"), "protoc-gen-gleam"))
+
+    bm6 = map.new()
+    codegen_program(bm6, "protoc-gen-gleam")
+    codegen_script(bm6, "gen")
+    _assert("prog and script coexist in the map",
+        string.equals(_str_at(bm6, "codegen_cmd_prog"), "protoc-gen-gleam"))
+    _assert("script also stored",
+        string.equals(_str_at(bm6, "codegen_script"), "gen"))
+
+    // --- untouched map.
+    bm7 = map.new()
+    _assert("untouched: no codegen_inputs", _list_size_at(bm7, "codegen_inputs") == 0)
+    _assert("untouched: empty codegen_cwd", string.equals(_str_at(bm7, "codegen_cwd"), ""))
+
+    println("gleam.codegen_cmd + setter accumulation tests done")
+}

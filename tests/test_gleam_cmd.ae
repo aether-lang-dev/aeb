@@ -1,0 +1,96 @@
+// Tests for lib/gleam's pure command-string builders and the
+// gleeunit test-summary parser.
+//
+// Covers: deps_download_cmd, check_cmd, test_cmd, build_cmd,
+// _target_flag, and _parse_gleeunit_counts (all three summary forms).
+// All pure (I/O-free).
+
+import gleam (deps_download_cmd, check_cmd, test_cmd, build_cmd,
+             _target_flag, _parse_gleeunit_counts)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- _target_flag
+    _eq("target flag empty → ''", _target_flag(""), "")
+    _eq("target flag erlang", _target_flag("erlang"), " --target erlang")
+    _eq("target flag javascript", _target_flag("javascript"), " --target javascript")
+
+    // --- deps_download_cmd: runs from source_dir so gleam.toml resolves.
+    _eq("deps download runs from source_dir",
+        deps_download_cmd("gleam", "/proj"),
+        "cd '/proj' && 'gleam' deps download")
+    _eq("deps custom gleam bin quoted",
+        deps_download_cmd("/opt/gleam/bin/gleam", "/proj"),
+        "cd '/proj' && '/opt/gleam/bin/gleam' deps download")
+
+    // --- check_cmd
+    _eq("check no target",
+        check_cmd("gleam", "/proj", ""),
+        "cd '/proj' && 'gleam' check")
+    _eq("check with target",
+        check_cmd("gleam", "/proj", " --target javascript"),
+        "cd '/proj' && 'gleam' check --target javascript")
+
+    // --- test_cmd
+    _eq("test no target",
+        test_cmd("gleam", "/proj", ""),
+        "cd '/proj' && 'gleam' test")
+    _eq("test erlang target",
+        test_cmd("gleam", "/proj", " --target erlang"),
+        "cd '/proj' && 'gleam' test --target erlang")
+
+    // --- build_cmd: target + warnings-as-errors, both optional.
+    _eq("build plain",
+        build_cmd("gleam", "/proj", "", ""),
+        "cd '/proj' && 'gleam' build")
+    _eq("build werror",
+        build_cmd("gleam", "/proj", "", " --warnings-as-errors"),
+        "cd '/proj' && 'gleam' build --warnings-as-errors")
+    _eq("build target + werror",
+        build_cmd("gleam", "/proj", " --target erlang", " --warnings-as-errors"),
+        "cd '/proj' && 'gleam' build --target erlang --warnings-as-errors")
+
+    // --- _parse_gleeunit_counts: Form 1 "N tests, M failures" (JS runner).
+    pp0, pf0 = _parse_gleeunit_counts("7 tests, 0 failures")
+    _assert("form1 all-pass: 7 passed", pp0 == 7)
+    _assert("form1 all-pass: 0 failed", pf0 == 0)
+
+    pp1, pf1 = _parse_gleeunit_counts("10 tests, 3 failures")
+    _assert("form1 mixed: 10 passed-count", pp1 == 10)
+    _assert("form1 mixed: 3 failures", pf1 == 3)
+
+    // --- Form 2: EUnit "Passed: N" / "Failed: N" labels.
+    pp2, pf2 = _parse_gleeunit_counts("Failed: 2.  Skipped: 0.  Passed: 5.")
+    _assert("form2: 5 passed", pp2 == 5)
+    _assert("form2: 2 failed", pf2 == 2)
+
+    // --- Form 3: "All N tests passed."
+    pp3, pf3 = _parse_gleeunit_counts("  All 12 tests passed.")
+    _assert("form3: 12 passed", pp3 == 12)
+    _assert("form3: 0 failed", pf3 == 0)
+
+    // --- Form precedence: when "N tests, M failures" is present it
+    //     wins (Form 1 checked first).
+    pp4, pf4 = _parse_gleeunit_counts("noise\n4 tests, 1 failures\nmore noise")
+    _assert("precedence: form1 picks 4 passed-count", pp4 == 4)
+    _assert("precedence: form1 picks 1 failure", pf4 == 1)
+
+    // --- No recognisable summary → (0, 0), no crash.
+    pp5, pf5 = _parse_gleeunit_counts("compiling project...\ndone")
+    _assert("no summary → 0 passed", pp5 == 0)
+    _assert("no summary → 0 failed", pf5 == 0)
+
+    println("gleam command-string + gleeunit parser tests done")
+}
