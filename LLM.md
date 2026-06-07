@@ -75,8 +75,15 @@ aeb scans the whole tree first, builds a directed graph from
 `build.dep("path/to/.build.ae")` edges (greppable, statically
 extractable, like Bazel BUILD files), topo-sorts, and produces every
 artifact in dependency order. Modules with no edge between them
-have no implied ordering — independent subgraphs can in principle
-build concurrently (parallelism is a TODO; the graph supports it).
+have no implied ordering — and independent nodes DO build
+concurrently: `tools/aeb-driver.ae` emits a Makefile from the DAG
+(one target per node, dep edges as prerequisites) and runs
+`make -jN` (N = `nproc`, override with `AEB_JOBS`; `-k` keeps going
+past a failure). `AEB_JOBS=1` or a missing `make` falls back to the
+sequential loop. (Parallelism is across NODES — each node is a whole
+toolchain invocation — not within a node; that's the orchestrator's
+correct grain. An older note here called parallelism "a TODO"; it
+shipped — verify in aeb-driver.ae before repeating that claim.)
 
 - **NOT Make/CMake** — no targets-as-rules, no shell-scriptlets in
   build files. Each `.build.ae` is an Aether program with a `main()`
