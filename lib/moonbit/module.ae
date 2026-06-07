@@ -1,0 +1,713 @@
+// moonbit — MoonBit SDK for aether.build
+//
+// Resolves package deps via `moon install`, type-checks via
+// `moon check`, runs tests via `moon test`, builds binaries via
+// `moon build`, and runs code generators with explicit input/output
+// tracking.
+//
+// MoonBit (https://www.moonbitlang.com/) is a wasm-/native-/js-
+// targeting language; the `moon` build tool drives a project rooted at
+// `moon.mod.json` (module) with per-package `moon.pkg.json`. Artifacts
+// land under the project's `target/` (a.k.a. `_build`) dir.
+//
+// Style mirror: lib/dart/module.ae (itself modelled on lib/python).
+// The codegen surface (codegen_* setters + the mtime staleness check)
+// is the same "this generator reads exactly these files and writes
+// exactly these outputs" contract used by python.codegen / dart.codegen.
+// MoonBit's own pre-build is the declarative `rule`/`dev_build` in
+// moon.pkg.json, but those don't fire for downstream consumers (by
+// design); aeb's explicit form lets a monorepo track generated sources
+// across package boundaries the same way it does for the other SDKs.
+//
+// No venv equivalent: MoonBit uses the system `moon` on PATH plus a
+// per-project resolved dep set materialised by `moon install`.
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+// moon_bin("moon") — override the moon executable. Default "moon"
+// (resolved on PATH). Use to pin a specific toolchain install.
+moon_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "moon_bin", bin)
+}
+
+// target("native") — backend for check/test/build. One of
+// wasm / wasm-gc / js / native / llvm. Scalar; last wins. Default:
+// moon's own default (omit the flag) unless set.
+target(_ctx: ptr, t: string) {
+    _e = map.put(_ctx, "target", t)
+}
+
+// release() — pass `--release` to the build (optimised, no debug
+// info). Any non-empty value enables. Applies to moonbit.build.
+release(_ctx: ptr, v: string) {
+    _e = map.put(_ctx, "release", v)
+}
+
+// --- DSL setters: test ---
+
+// test_package("foo") — restrict `moon test` to one package via
+// `--package foo`. Scalar; last wins. Default: all packages.
+test_package(_ctx: ptr, pkg: string) {
+    _e = map.put(_ctx, "test_package", pkg)
+}
+
+// --- DSL setters: build ---
+
+// build_output("myapp") — output artifact name, relative to the
+// module's target dir, that the compiled binary is copied to so
+// downstreams have a stable path. Scalar; last wins. Default: the
+// project's module name.
+build_output(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "build_output", name)
+}
+
+// build_artifact("target/native/release/build/main/main.exe") — the
+// path (relative to source_dir) where `moon build` places the linked
+// binary, so the builder can publish it as program_binary. Scalar;
+// last wins. MoonBit's output path is backend/profile-dependent and
+// not stably documented, so it's declared explicitly here rather than
+// guessed. When unset, no program_binary artifact is published.
+build_artifact(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "build_artifact", path)
+}
+
+// --- DSL setters: codegen ---
+//
+// moonbit.codegen runs a generator that produces source files for
+// downstream compilation. Inputs are declared *explicitly* — no glob
+// fallback. The contract is "this generator reads exactly these files
+// and writes exactly these outputs"; missing-input bugs surface at
+// staleness-check time and missing-output bugs at run time.
+//
+// Mirror of dart.codegen / python.codegen — the builder reads the map
+// keys "codegen_cmd_prog" / "codegen_script" / "codegen_inputs" /
+// "codegen_input_dirs" / "codegen_args" / "codegen_outputs" /
+// "codegen_cwd". Unlike dart's `moon run <pkg>` form, MoonBit codegen
+// is typically an external tool or a `moon run` of a generator
+// package; both are expressed as codegen_program("...") (the program) or
+// codegen_script("path") (a moon-run target / script path).
+
+// codegen_program("protoc-gen-mbt") — the generator program to invoke
+// directly (run as `<prog> <args>`). Mutually exclusive with
+// codegen_script(); the program form wins if both set.
+//
+// (Named codegen_program, not codegen_cmd: a setter must not share its
+// mangled symbol with a function in the same module, and the pure
+// command-builder is `moonbit_codegen_cmd` — `codegen_cmd` would mangle
+// to the same `moonbit_codegen_cmd` and collide. See LLM.md
+// "builder-vs-function name collision".)
+codegen_program(_ctx: ptr, prog: string) {
+    _e = map.put(_ctx, "codegen_cmd_prog", prog)
+}
+
+// codegen_script("gen") — a `moon run` target (run as
+// `<moon> run <name> -- <args>`). Use for a generator written as a
+// MoonBit package in the same module.
+codegen_script(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "codegen_script", name)
+}
+
+// codegen_input("schema/api.mbti") — declare one file the generator
+// reads. Repeatable. Paths resolved against codegen_cwd. The mtime of
+// every declared input feeds the staleness check.
+codegen_input(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_inputs") == 0 {
+        _e1 = map.put(_ctx, "codegen_inputs", list.new())
+    }
+    inputs, _ = map.get(_ctx, "codegen_inputs")
+    _e2 = list.add(inputs, path)
+}
+
+// codegen_input_dir("schema") — declare a directory whose contents
+// are inputs (recursive). Use sparingly: explicit input(...) is
+// preferred, but a generator scanning a whole tree is usually too many
+// to enumerate.
+codegen_input_dir(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_input_dirs") == 0 {
+        _e1 = map.put(_ctx, "codegen_input_dirs", list.new())
+    }
+    dirs, _ = map.get(_ctx, "codegen_input_dirs")
+    _e2 = list.add(dirs, path)
+}
+
+// codegen_arg("--out-dir=src/gen") — one CLI arg, appended in declared
+// order to the generator command line. Repeatable. No shell-splitting;
+// pass `--flag value` as two separate calls.
+codegen_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "codegen_args") == 0 {
+        _e1 = map.put(_ctx, "codegen_args", list.new())
+    }
+    args, _ = map.get(_ctx, "codegen_args")
+    _e2 = list.add(args, arg)
+}
+
+// codegen_output("src/gen/api.mbt") — declare one expected output.
+// Repeatable. The builder fails if any declared output doesn't exist
+// after the generator runs (catches partial generation / silent
+// skips). Paths resolved against codegen_cwd.
+codegen_output(_ctx: ptr, path: string) {
+    if map.has(_ctx, "codegen_outputs") == 0 {
+        _e1 = map.put(_ctx, "codegen_outputs", list.new())
+    }
+    outs, _ = map.get(_ctx, "codegen_outputs")
+    _e2 = list.add(outs, path)
+}
+
+// codegen_cwd("..") — working dir for the generator (relative to
+// source_dir, or absolute). Defaults to source_dir.
+codegen_cwd(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "codegen_cwd", dir)
+}
+
+// --- Command builders (pure) ---
+
+// _target_flag(t) — " --target <t>" or "" when empty.
+_target_flag(t: string) {
+    if string.length(t) == 0 { return "" }
+    return string.concat(" --target ", t)
+}
+
+// install_cmd — `moon install` invocation. Pure. Runs from source_dir
+// so moon.mod.json resolves.
+install_cmd(moon: string, source_dir: string) {
+    return "cd '${source_dir}' && '${moon}' install"
+}
+
+// check_cmd — `moon check` invocation. Pure. target_flag is
+// " --target <t>" or "".
+check_cmd(moon: string, source_dir: string, target_flag: string) {
+    return "cd '${source_dir}' && '${moon}' check${target_flag}"
+}
+
+// test_cmd — `moon test` invocation. Pure. pkg_part is
+// " --package <p>" or ""; target_flag is " --target <t>" or "".
+test_cmd(moon: string, source_dir: string, pkg_part: string, target_flag: string) {
+    return "cd '${source_dir}' && '${moon}' test${pkg_part}${target_flag}"
+}
+
+// build_cmd — `moon build` invocation. Pure. target_flag is
+// " --target <t>" or ""; release_flag is " --release" or "".
+build_cmd(moon: string, source_dir: string, target_flag: string, release_flag: string) {
+    return "cd '${source_dir}' && '${moon}' build${target_flag}${release_flag}"
+}
+
+// moonbit_codegen_cmd — assemble the shell command for moonbit.codegen.
+// Pure: builds `cd '<cwd>' && <driver_part> <args>`. driver_form is
+// "prog" (→ `'<name>'`) or "script" (→ `'<moon>' run <name> --`);
+// driver_name is the program or moon-run target. args is a list of
+// pre-quoted CLI args joined with single spaces.
+// Tested in tests/test_moonbit_codegen_cmd.ae.
+moonbit_codegen_cmd(moon: string, cwd: string, driver_form: string, driver_name: string, args: ptr) {
+    driver_part = ""
+    if string.equals(driver_form, "prog") == 1 {
+        driver_part = string.concat(string.concat(" '", driver_name), "'")
+    }
+    if string.equals(driver_form, "script") == 1 {
+        driver_part = string.concat(string.concat(string.concat(" '", moon), "' run "), driver_name)
+        driver_part = string.concat(driver_part, " --")
+    }
+    args_part = ""
+    if args != null {
+        n = list.size(args)
+        i = 0
+        while i < n {
+            a, _ = list.get(args, i)
+            args_part = string.concat(args_part, " ")
+            args_part = string.concat(args_part, a)
+            i = i + 1
+        }
+    }
+    return "cd '${cwd}' &&${driver_part}${args_part}"
+}
+
+// --- Internal: resolve the moon executable ---
+
+_moon_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "moon_bin") == 1 {
+            m, _ = map.get(builder_map, "moon_bin")
+            if string.length(m) > 0 { return m }
+        }
+    }
+    return "moon"
+}
+
+_target_of(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "target") == 1 {
+            t, _ = map.get(builder_map, "target")
+            return t
+        }
+    }
+    return ""
+}
+
+// --- SDK functions ---
+
+// Resolve dependencies via `moon install`. The install-equivalent;
+// runs in source_dir. Mirror of dart.pub_get.
+builder install(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: resolving deps (moon install)")
+
+    moon = _moon_of(_builder)
+    cmd = install_cmd(moon, source_dir)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: moon install FAILED")
+        build.fail(ctx, "moon install FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: moon install done")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Type-check via `moon check` (compilation checks, no object files).
+// Mirror of dart.analyze.
+builder check(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: checking (moon check)")
+
+    moon = _moon_of(_builder)
+    cmd = check_cmd(moon, source_dir, _target_flag(_target_of(_builder)))
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: check FAILED")
+        build.fail(ctx, "check FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: check PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Run tests via `moon test`. Mirror of dart.test: tee output to
+// target/<module>/test_output.log, parse MoonBit's summary line for
+// pass/fail counts, feed build._record_test_result.
+builder test(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+    println("${mod_dir}: running tests (moon test)")
+
+    moon = _moon_of(_builder)
+    pkg_part = ""
+    if _builder != null {
+        if map.has(_builder, "test_package") == 1 {
+            tp, _ = map.get(_builder, "test_package")
+            if string.length(tp) > 0 {
+                pkg_part = string.concat(" --package ", tp)
+            }
+        }
+    }
+
+    cmd = test_cmd(moon, source_dir, pkg_part, _target_flag(_target_of(_builder)))
+    out_path = path.join(target_dir, "test_output.log")
+    full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
+    exit_code = os.system(full_cmd)
+    out_text, _orerr = fs.read(out_path)
+    tp_cnt, tf_cnt = _parse_moon_test_counts(out_text)
+    build._record_test_result(ctx, tp_cnt, tf_cnt)
+    if exit_code != 0 {
+        println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
+        return exit_code
+    }
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _parse_moon_test_counts(output) — extract (passed, failed) from
+// `moon test`'s summary line. Pure: just string parsing.
+//
+// MoonBit prints:
+//   "Total tests: 2, passed: 2, failed: 0."
+//
+// We read the number AFTER "passed: " and AFTER "failed: ". Robust to
+// the trailing period and to surrounding output.
+_parse_moon_test_counts(output: string) {
+    passed = _parse_count_after_label_moon(output, "passed: ")
+    failed = _parse_count_after_label_moon(output, "failed: ")
+    return passed, failed
+}
+
+// _parse_count_after_label_moon(output, label) — find `label` and read
+// the digit run immediately after it. Returns 0 if the label is absent
+// or not followed by digits. Reads the FIRST occurrence (MoonBit emits
+// one summary line; first match is the count).
+_parse_count_after_label_moon(output: string, label: string) {
+    idx = string.index_of(output, label)
+    if idx < 0 { return 0 }
+    start = idx + string.length(label)
+    n = string.length(output)
+    j = start
+    digits = ""
+    scanning = 1
+    while scanning == 1 {
+        if j >= n {
+            scanning = 0
+        } else {
+            d = string.substring(output, j, j + 1)
+            if _is_digit_moon(d) == 1 {
+                digits = string.concat(digits, d)
+                j = j + 1
+            } else {
+                scanning = 0
+            }
+        }
+    }
+    if string.length(digits) == 0 { return 0 }
+    v, _err = string.to_int(digits)
+    return v
+}
+
+_is_digit_moon(c: string) {
+    if string.equals(c, "0") == 1 { return 1 }
+    if string.equals(c, "1") == 1 { return 1 }
+    if string.equals(c, "2") == 1 { return 1 }
+    if string.equals(c, "3") == 1 { return 1 }
+    if string.equals(c, "4") == 1 { return 1 }
+    if string.equals(c, "5") == 1 { return 1 }
+    if string.equals(c, "6") == 1 { return 1 }
+    if string.equals(c, "7") == 1 { return 1 }
+    if string.equals(c, "8") == 1 { return 1 }
+    if string.equals(c, "9") == 1 { return 1 }
+    return 0
+}
+
+// Build the project via `moon build`. Publishes the program_binary
+// artifact when build_artifact(...) declares the linked binary's path
+// (MoonBit's output path is backend/profile-dependent and not stably
+// documented, so it's declared rather than guessed). Mirror of
+// dart.compile.
+builder build(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+
+    moon = _moon_of(_builder)
+    release_flag = ""
+    if _builder != null {
+        if map.has(_builder, "release") == 1 {
+            rv, _ = map.get(_builder, "release")
+            if string.length(rv) > 0 { release_flag = " --release" }
+        }
+    }
+
+    println("${mod_dir}: building (moon build)")
+    cmd = build_cmd(moon, source_dir, _target_flag(_target_of(_builder)), release_flag)
+    exit_code = os.system(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: build FAILED")
+        build.fail(ctx, "build FAILED")
+        return exit_code
+    }
+
+    // Publish program_binary when the linked-binary path is declared.
+    // Copy it to a stable name under target_dir so downstreams have a
+    // fixed path independent of moon's backend/profile layout.
+    if _builder != null {
+        if map.has(_builder, "build_artifact") == 1 {
+            art_rel, _ = map.get(_builder, "build_artifact")
+            if string.length(art_rel) > 0 {
+                art_abs = art_rel
+                first = string.substring(art_rel, 0, 1)
+                if string.equals(first, "/") == 0 {
+                    art_abs = path.join(source_dir, art_rel)
+                }
+                if file.exists(art_abs) == 0 {
+                    println("${mod_dir}: build_artifact not found at ${art_abs} — check the path against moon's output layout")
+                    build.fail(ctx, "build_artifact not found at ${art_abs}")
+                    return 1
+                }
+                out_name = _out_name_of(_builder, mod_dir)
+                out_abs = path.join(target_dir, out_name)
+                os.system("cp '${art_abs}' '${out_abs}'")
+                build._write_artifact(ctx, "program_binary", out_abs)
+                build._write_artifact(ctx, "moonbit_build_output", out_abs)
+                println("${mod_dir}: build done → ${out_abs}")
+                _ewp = io.write_file(path.join(target_dir, ".timestamp"), "")
+                return 0
+            }
+        }
+    }
+
+    println("${mod_dir}: build done (no build_artifact declared → no program_binary published)")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _out_name_of(builder_map, mod_dir) — the stable output name for the
+// copied binary: explicit build_output setter, else the module dir's
+// basename.
+_out_name_of(builder_map: ptr, mod_dir: string) {
+    if builder_map != null {
+        if map.has(builder_map, "build_output") == 1 {
+            o, _ = map.get(builder_map, "build_output")
+            if string.length(o) > 0 { return o }
+        }
+    }
+    return path.basename(mod_dir)
+}
+
+// --- moonbit.codegen builder ---
+//
+// Runs a MoonBit code generator with explicitly declared inputs and
+// outputs. Contract: the generator reads exactly the files listed via
+// codegen_input(...) / codegen_input_dir(...) and writes exactly the
+// files listed via codegen_output(...). When all declared outputs
+// exist and are newer than every declared input, the run is skipped
+// (mtime-driven, same shape as dart.codegen / python.codegen /
+// aether.regen).
+//
+// Why this exists: MoonBit's native pre-build (`rule`/`dev_build` in
+// moon.pkg.json) deliberately does NOT fire when a package is consumed
+// as a dependency. In a monorepo where one package's generated sources
+// feed another's compile, that gap means stale generated code goes
+// unnoticed. aeb's explicit form makes the generated-source edge a
+// first-class graph dependency with staleness + output verification.
+//
+// Cache integration is deferred — same rationale as the sibling SDKs
+// (declared outputs are multi-file sets; lib/cache for multi-file
+// artifacts is a follow-up). Today: "run if any declared input is
+// newer than the oldest declared output."
+builder codegen(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    // Resolve working directory. codegen_cwd relative to source_dir
+    // unless absolute. Default source_dir.
+    cwd = source_dir
+    if _builder != null {
+        if map.has(_builder, "codegen_cwd") == 1 {
+            rel, _ = map.get(_builder, "codegen_cwd")
+            if string.length(rel) > 0 {
+                first = string.substring(rel, 0, 1)
+                if string.equals(first, "/") == 1 {
+                    cwd = rel
+                } else {
+                    cwd = path.join(source_dir, rel)
+                }
+            }
+        }
+    }
+
+    moon = _moon_of(_builder)
+
+    // Resolve driver form. codegen_cmd (prog) wins over codegen_script.
+    driver_form = ""
+    driver_name = ""
+    if _builder != null {
+        if map.has(_builder, "codegen_cmd_prog") == 1 {
+            driver_form = "prog"
+            driver_name, _ = map.get(_builder, "codegen_cmd_prog")
+        } else {
+            if map.has(_builder, "codegen_script") == 1 {
+                driver_form = "script"
+                driver_name, _ = map.get(_builder, "codegen_script")
+            }
+        }
+    }
+    if string.length(driver_form) == 0 {
+        println("${mod_dir}: codegen: declare codegen_program(\"prog\") or codegen_script(\"moon-run-target\")")
+        build.fail(ctx, "codegen: no codegen_program() or codegen_script() declared")
+        return 1
+    }
+
+    args = null
+    if _builder != null && map.has(_builder, "codegen_args") == 1 {
+        args, _ = map.get(_builder, "codegen_args")
+    }
+
+    inputs = null
+    input_dirs = null
+    outputs = null
+    if _builder != null {
+        if map.has(_builder, "codegen_inputs") == 1 {
+            inputs, _ = map.get(_builder, "codegen_inputs")
+        }
+        if map.has(_builder, "codegen_input_dirs") == 1 {
+            input_dirs, _ = map.get(_builder, "codegen_input_dirs")
+        }
+        if map.has(_builder, "codegen_outputs") == 1 {
+            outputs, _ = map.get(_builder, "codegen_outputs")
+        }
+    }
+    skip = _codegen_can_skip(cwd, inputs, input_dirs, outputs)
+
+    if skip == 0 {
+        cmd = moonbit_codegen_cmd(moon, cwd, driver_form, driver_name, args)
+        println("${mod_dir}: codegen running")
+        rc = os.system(cmd)
+        if rc != 0 {
+            println("${mod_dir}: codegen FAILED")
+            build.fail(ctx, "codegen FAILED")
+            return rc
+        }
+    } else {
+        println("${mod_dir}: codegen up-to-date")
+    }
+
+    missing = _codegen_check_outputs(cwd, outputs, mod_dir)
+    if missing > 0 {
+        println("${mod_dir}: codegen: ${missing} declared output(s) missing — check codegen_output() vs the generator's actual output set")
+        build.fail(ctx, "codegen: ${missing} declared output(s) missing")
+        return 1
+    }
+
+    out_listing = _codegen_format_output_list(cwd, outputs)
+    build._write_artifact(ctx, "moonbit_codegen_outputs", out_listing)
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// _codegen_can_skip(cwd, inputs, input_dirs, outputs) — 1 when every
+// declared output exists AND its mtime is >= every declared input's
+// mtime (individual files AND every file recursively under each
+// input_dir). 0 when codegen must run. Empty inputs+input_dirs+outputs
+// → never skip (force run, can't reason about freshness).
+_codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
+    if outputs == null { return 0 }
+    if list.size(outputs) == 0 { return 0 }
+    newest_in = 0
+    if inputs != null {
+        n = list.size(inputs)
+        i = 0
+        while i < n {
+            p, _ = list.get(inputs, i)
+            abs_p = _codegen_resolve(cwd, p)
+            t = file.mtime(abs_p)
+            if t > newest_in { newest_in = t }
+            i = i + 1
+        }
+    }
+    if input_dirs != null {
+        nd = list.size(input_dirs)
+        di = 0
+        while di < nd {
+            dp, _ = list.get(input_dirs, di)
+            abs_d = _codegen_resolve(cwd, dp)
+            dir_newest = _dir_newest_mtime(abs_d)
+            if dir_newest > newest_in { newest_in = dir_newest }
+            di = di + 1
+        }
+    }
+    no = list.size(outputs)
+    j = 0
+    oldest_out = 0
+    while j < no {
+        op, _ = list.get(outputs, j)
+        abs_o = _codegen_resolve(cwd, op)
+        ot = file.mtime(abs_o)
+        if ot == 0 { return 0 }
+        if oldest_out == 0 { oldest_out = ot }
+        if ot < oldest_out { oldest_out = ot }
+        j = j + 1
+    }
+    if oldest_out >= newest_in { return 1 }
+    return 0
+}
+
+// _dir_newest_mtime(dir_abs) — recursively walk a directory and return
+// the newest file mtime found. 0 if absent / no regular files. std.dir
+// flat-list + per-entry recurse; no shell-out (portable, unlike
+// `find -printf`).
+_dir_newest_mtime(dir_abs: string) {
+    if dir.exists(dir_abs) == 0 { return 0 }
+    entries, _ = dir.list(dir_abs)
+    if entries == null { return 0 }
+    n = dir_list_count(entries)
+    newest = 0
+    i = 0
+    while i < n {
+        name = dir_list_get(entries, i)
+        if string.equals(name, ".") == 0 {
+            if string.equals(name, "..") == 0 {
+                full = path.join(dir_abs, name)
+                if dir.exists(full) == 1 {
+                    sub = _dir_newest_mtime(full)
+                    if sub > newest { newest = sub }
+                } else {
+                    t = file.mtime(full)
+                    if t > newest { newest = t }
+                }
+            }
+        }
+        i = i + 1
+    }
+    dir_list_free(entries)
+    return newest
+}
+
+// _codegen_check_outputs(cwd, outputs, mod_dir) — number of declared
+// outputs that don't exist on disk. Prints one line per missing file.
+// 0 when all present (or none declared).
+_codegen_check_outputs(cwd: string, outputs: ptr, mod_dir: string) {
+    if outputs == null { return 0 }
+    n = list.size(outputs)
+    if n == 0 { return 0 }
+    missing = 0
+    i = 0
+    while i < n {
+        p, _ = list.get(outputs, i)
+        abs_p = _codegen_resolve(cwd, p)
+        if file.exists(abs_p) == 0 {
+            println("${mod_dir}: codegen output missing: ${abs_p}")
+            missing = missing + 1
+        }
+        i = i + 1
+    }
+    return missing
+}
+
+// _codegen_format_output_list(cwd, outputs) — newline-joined absolute
+// paths for the moonbit_codegen_outputs artifact. Empty when none.
+_codegen_format_output_list(cwd: string, outputs: ptr) {
+    if outputs == null { return "" }
+    n = list.size(outputs)
+    out = ""
+    i = 0
+    while i < n {
+        p, _ = list.get(outputs, i)
+        abs_p = _codegen_resolve(cwd, p)
+        if i > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, abs_p)
+        i = i + 1
+    }
+    return out
+}
+
+// _codegen_resolve(cwd, p) — absolute path. Bare-relative joined
+// against cwd; absolute passes through.
+_codegen_resolve(cwd: string, p: string) {
+    if string.length(p) == 0 { return p }
+    first = string.substring(p, 0, 1)
+    if string.equals(first, "/") == 1 { return p }
+    return path.join(cwd, p)
+}

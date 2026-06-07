@@ -1,0 +1,89 @@
+// Tests for lib/moonbit's pure command-string builders and the
+// `moon test` summary-line parser.
+//
+// Covers: install_cmd, check_cmd, test_cmd, build_cmd, _target_flag,
+// and _parse_moon_test_counts. All pure (I/O-free).
+
+import moonbit (install_cmd, check_cmd, test_cmd, build_cmd,
+                _target_flag, _parse_moon_test_counts)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- _target_flag
+    _eq("target flag empty → ''", _target_flag(""), "")
+    _eq("target flag native", _target_flag("native"), " --target native")
+    _eq("target flag wasm-gc", _target_flag("wasm-gc"), " --target wasm-gc")
+
+    // --- install_cmd: runs from source_dir so moon.mod.json resolves.
+    _eq("install runs from source_dir",
+        install_cmd("moon", "/proj"),
+        "cd '/proj' && 'moon' install")
+    _eq("install custom moon bin quoted",
+        install_cmd("/opt/moon/bin/moon", "/proj"),
+        "cd '/proj' && '/opt/moon/bin/moon' install")
+
+    // --- check_cmd: with and without target.
+    _eq("check no target",
+        check_cmd("moon", "/proj", ""),
+        "cd '/proj' && 'moon' check")
+    _eq("check with target",
+        check_cmd("moon", "/proj", " --target native"),
+        "cd '/proj' && 'moon' check --target native")
+
+    // --- test_cmd: pkg part + target part, both optional.
+    _eq("test plain",
+        test_cmd("moon", "/proj", "", ""),
+        "cd '/proj' && 'moon' test")
+    _eq("test with package",
+        test_cmd("moon", "/proj", " --package foo", ""),
+        "cd '/proj' && 'moon' test --package foo")
+    _eq("test with package and target",
+        test_cmd("moon", "/proj", " --package foo", " --target native"),
+        "cd '/proj' && 'moon' test --package foo --target native")
+
+    // --- build_cmd: target + release, both optional.
+    _eq("build plain",
+        build_cmd("moon", "/proj", "", ""),
+        "cd '/proj' && 'moon' build")
+    _eq("build release",
+        build_cmd("moon", "/proj", "", " --release"),
+        "cd '/proj' && 'moon' build --release")
+    _eq("build target + release",
+        build_cmd("moon", "/proj", " --target native", " --release"),
+        "cd '/proj' && 'moon' build --target native --release")
+
+    // --- _parse_moon_test_counts: "Total tests: N, passed: N, failed: N."
+    pp0, pf0 = _parse_moon_test_counts("Total tests: 2, passed: 2, failed: 0.")
+    _assert("all-pass: 2 passed", pp0 == 2)
+    _assert("all-pass: 0 failed", pf0 == 0)
+
+    pp1, pf1 = _parse_moon_test_counts("Total tests: 5, passed: 3, failed: 2.")
+    _assert("mixed: 3 passed", pp1 == 3)
+    _assert("mixed: 2 failed", pf1 == 2)
+
+    // Surrounding output before the summary line shouldn't fool the
+    // label-anchored parser.
+    noisy = "running tests...\nsome output\nTotal tests: 10, passed: 9, failed: 1.\n"
+    pp2, pf2 = _parse_moon_test_counts(noisy)
+    _assert("noisy: 9 passed", pp2 == 9)
+    _assert("noisy: 1 failed", pf2 == 1)
+
+    // No summary → (0, 0) rather than crashing.
+    pp3, pf3 = _parse_moon_test_counts("no summary here")
+    _assert("no summary → 0 passed", pp3 == 0)
+    _assert("no summary → 0 failed", pf3 == 0)
+
+    println("moonbit command-string + test-count parser tests done")
+}
