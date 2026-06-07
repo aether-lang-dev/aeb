@@ -377,6 +377,30 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   If you touch the orchestrator `--lib` handoff, an `itests/c-*` run
   is the fast check: those itests have no `.aeb/lib`, so they
   exercise the fallback path directly.
+- **Two import namespaces in `aether.program_test` / `driver_test`
+  (the aeocha gotcha).** aeb's cache-key + regen closure resolves
+  **project** imports (`import myproj.foo`) by walking the test
+  source's own dir + ancestors (`_resolve_import_ae`,
+  `lib/aether/module.ae:521`; roots from `_ancestor_dirs`, `:484`).
+  It **deliberately returns "" for `std.*` and `contrib.*`** (incl.
+  `contrib.aeocha`) — `:522-524` — because those are **toolchain**
+  modules: resolved by `ae build` itself (which knows `--lib`), and
+  cache-tracked via the *toolchain-version* component of the key, not
+  file-hashed from the repo tree. So the statement "aeb resolves
+  imports from `source_dir`/ancestors, not from `--lib aether`" is
+  true **only for project modules**; aeocha and the stdlib ride the
+  toolchain side of the split. Two consequences a sibling trips on:
+  (a) a test that `import contrib.aeocha` needs the **toolchain** to
+  have aeocha installed (`make install-contrib`), nothing in the repo
+  tree resolves it; (b) aeb's ancestor-walk is *ancestor-only* — a
+  project module in a true **sibling** dir (not a parent) won't be
+  picked up by the cache hasher, so editing it may not bust a
+  consumer's key (express cross-dir shares as a repo-root dotted path,
+  per the "share a source module across directories" idiom above).
+  **With or without aeocha:** `program_test`/`driver_test` work fine
+  with NO aeocha import — plain exit code is PASS/FAIL; aeocha only
+  *adds* the granular per-`it()` report via the IPC back-channel
+  (`build._parse_aeocha_report`). Don't assume aeocha is required.
 
 ## SDK extension shape
 
