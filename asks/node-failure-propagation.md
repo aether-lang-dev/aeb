@@ -85,7 +85,7 @@ clean build still exits 0; `bash.test` failure reddens while a passing
 
 ## Follow-up
 
-- Per-step sandboxing / isolation remains separate (`lifecycle_plan.md`).
+- Per-step sandboxing / isolation remains separate (`docs/lifecycle_plan.md`).
 - A future `record_status`-from-rc path could also catch an explicit
   `return <nonzero>` from a user `main()` that DOES return — already
   wired (the orchestrator reads `_rc`), just rarely exercised because

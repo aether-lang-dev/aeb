@@ -211,7 +211,7 @@
   reap is always on and a no-op when a build leaks nothing. `--timeout N`
   / `AEB_TIMEOUT=N` (seconds) caps total wall-clock and exits 124 on
   overrun. Bazel-style; per-step isolation is a deferred design
-  (`lifecycle_plan.md` §9).
+  (`docs/lifecycle_plan.md` §9).
 
 - **`fixture_server` teardown hardened** (`lib/build`): servers launch
   with stdin detached and tear down `TERM` → grace-poll → `KILL` → reap,

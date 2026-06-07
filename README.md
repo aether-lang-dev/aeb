@@ -402,7 +402,7 @@ backgrounds a server or leaks a helper can't leave a process lingering
 into aeb's exit (which, under a sandboxed agent/CI harness, can
 otherwise poison the exit code). This reap is always on and is a no-op
 when a build leaves nothing running. Per-*step* timeouts and isolation
-are a deferred design (see `lifecycle_plan.md` §9) — today the cap and
+are a deferred design (see `docs/lifecycle_plan.md` §9) — today the cap and
 reap are build-wide.
 
 #### Per-node output, and `--in-process`

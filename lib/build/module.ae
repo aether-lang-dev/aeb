@@ -30,7 +30,7 @@ session(root_path: string) {
     s = map.new()
     _e1 = map.put(s, "root", root_path)
     _e2 = map.put(s, "visited", map.new())
-    // Per-target status machine (lifecycle_plan.md Slice 1). `status`
+    // Per-target status machine (docs/lifecycle_plan.md Slice 1). `status`
     // maps a node label -> "passed"|"failed"|"skipped"; `reason` maps
     // a label -> a one-line failure reason; `failed` is a flat list of
     // failed labels so any_failed/failures don't have to iterate the
@@ -131,12 +131,12 @@ done(s: ptr, module_dir: string) {
     _e = map.put(visited, module_dir, "1")
 }
 
-// --- Per-target status machine (lifecycle_plan.md Slice 1) ---
+// --- Per-target status machine (docs/lifecycle_plan.md Slice 1) ---
 //
 // A queryable record of how each node fared, so a later node (e.g. a
 // teardown step) can `dep` on the work it guards and ask "did it fail,
 // and why?" — the DAG-native stand-in for a call-stack `finally`. See
-// lifecycle_plan.md for the full design.
+// docs/lifecycle_plan.md for the full design.
 //
 // Two ways a status is recorded:
 //   1. `fail(ctx, reason)` — explicit, from inside a node body.

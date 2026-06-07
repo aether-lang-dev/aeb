@@ -1,13 +1,19 @@
 # Lifecycle, teardown policy, and a queryable build state machine — plan
 
-Status: **design / musing**, not yet implemented. Captures the
-discussion behind conditional teardown for resource-holding steps
-(the container-lifecycle example) and the larger idea it points at: a
-queryable per-target state machine that makes `finally`-style cleanup
-unnecessary in a DAG build runner.
+Status: **partially shipped, rest design.** Slice 1 (the in-memory
+status machine — `build.fail`/`status_of`/`any_failed`/`reason_of`) and
+§9's build-level process-group reap + `--timeout` are **DONE** (see the
+per-slice notes below); Slices 3–5 (root_cause enrichment, always-last
+`.cleanup.ae` node, crash-safe atexit) and §9's per-step `timeout { … }`
+remain design. Captures the discussion behind conditional teardown for
+resource-holding steps (the container-lifecycle example) and the larger
+idea it points at: a queryable per-target state machine that makes
+`finally`-style cleanup unnecessary in a DAG build runner. Companion:
+[`nodes-as-subprocesses.md`](nodes-as-subprocesses.md) (the §9 pivot
+that shipped).
 
-Related: `docs/container-lifecycle.md` (the motivating example),
-`docs/inline-build-steps.md` (inline-Aether steps),
+Related: `container-lifecycle.md` (the motivating example),
+`inline-build-steps.md` (inline-Aether steps),
 `lib/bash/module.ae` (`pre_command`/`post_command`/`on_failure` — the
 existing hook precedent), `lib/build/module.ae`
 (`_record_test_result` / `_record_cache` — the proto-state-machine).
@@ -304,20 +310,36 @@ c.tests(b) {
 }
 ```
 
-The blocker is architectural: aeb runs every node **in-process** in the
-one orchestrator (they share the in-memory session map — §1's status
-machine depends on it), so a node can't be preempted mid-`os.system`.
-Real per-step reaping needs either:
+**Update (this is now UNBLOCKED).** When this section was written the
+blocker was architectural: aeb ran every node **in-process** in one
+linked orchestrator (sharing the in-memory session map — §1's status
+machine), so a node couldn't be preempted mid-`os.system`. That
+re-architecture has since **shipped**: `tools/aeb-driver.ae` runs each
+node as its own subprocess (`_ae_build_all <root> <label>`), scheduled
+via a generated Makefile + `make -jN`, with per-node logs and on-disk
+`.rc`/status markers replacing the in-memory session for cross-node
+reads. See [`nodes-as-subprocesses.md`](nodes-as-subprocesses.md)
+(Slices A–E DONE, incl. per-node parallelism), which was authored
+*from* this §9 ask. The original "nodes as subprocesses" prerequisite
+listed below is therefore satisfied; the alternative "runtime
+process-group hooks in `std.os`" route is no longer needed.
+
+What's left is the per-step *enforcement* on top of that driver — group-
+reaping each node's leaked children on **its own** completion and a
+per-node watchdog — tracked as Slice F in the nodes-as-subprocesses doc.
+The original two routes, kept for the record:
 
 - **nodes as subprocesses** — each node forked into its own process
-  group, reaped/timed-out individually. Loses the shared in-memory
-  session (recoverable: state is also disk-backed via artifacts), but
-  it's a real re-architecture of the orchestrator; or
+  group, reaped/timed-out individually. **DONE** (the aeb-driver pivot).
+  The shared in-memory session was the apparent cost, but state was
+  already disk-backed via artifacts, so it was recoverable as predicted.
 - **runtime process-group hooks** — aether-side `setpgid`/`killpg`
-  exposed through `std.os`, so the orchestrator can open/close a group
-  around each node's shell-outs without forking the node itself.
+  through `std.os`. **Not needed** now that nodes are real subprocesses
+  the driver already wraps.
 
-Don't ship `timeout { … }` grammar before one of those lands — per-step
+Don't ship `timeout { … }` grammar before Slice F lands — per-step
 grammar with only build-level enforcement would be grammar that lies.
 Until then, build-level `--timeout` + the reap cover the load-bearing
-case (a hung or leaky build never wedges or poisons CI).
+case (a hung or leaky build never wedges or poisons CI); the per-node
+driver makes the finer-grained version a scheduling addition, not a
+re-architecture.

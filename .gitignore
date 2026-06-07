@@ -36,3 +36,7 @@ tools/resolver/.deps.classpath
 # Local-only homelab deploy scaffolding (has a specific NUC's IP/dir baked in)
 itests/agent-container/deploy-to-nuc.sh
 itests/agent-container/deploy-containerfile-to-nuc.sh
+
+# Build artifacts and local session state (were never ignored — fixed)
+/target/
+/.claude/
