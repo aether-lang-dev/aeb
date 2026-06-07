@@ -1,5 +1,14 @@
 # AetherBuild vs. Bazel — feature gap analysis
 
+> **Superseded — see [`docs/aeb-vs-bazel.md`](docs/aeb-vs-bazel.md) for the
+> canonical, current comparison.** This original gap table is kept for its
+> detail, but parts are now **stale**: several items it lists as gaps have
+> since shipped (parallel execution via `make -jN`, affected-target
+> detection `--since`/`--print-affected`, graph viz `--graph`, and the
+> content-cache wired into rebuild decisions for several SDKs). The
+> canonical doc reconciles have/design/won't accurately and explains which
+> remaining gaps aeb pursues vs. deliberately declines.
+
 Source: comparison against the "Introduction to Bazel" talk (Flor, Enflow) — covers Bazel's pitch as of 2026.
 
 AetherBuild already has the polyglot core (18 SDKs, explicit DAG, topo-sort, multi-language FFI). It trails Bazel on most of the scaling/correctness features that came up in the talk.
