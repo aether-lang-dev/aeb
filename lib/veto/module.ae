@@ -153,6 +153,40 @@ policy_rule_count(p: ptr) {
     return list.size(policy_rules(p))
 }
 
+// emit_policy(p) — print the resolved rule list, one "<kind>\t<arg>" per
+// line, to stdout. The transport out of a compiled operator policy.ae: the
+// policy's main() builds `p` with the DSL then calls veto.emit_policy(p);
+// aeb-vet runs that binary, captures stdout, and reconstructs the rule list
+// for decide(). Empty list → no output → aeb-vet's zero-rules lint fires.
+emit_policy(p: ptr) {
+    rs = policy_rules(p)
+    n = list.size(rs)
+    i = 0
+    while i < n {
+        r, _ = list.get(rs, i)
+        println(r)
+        i = i + 1
+    }
+    return 0
+}
+
+// rules_from_lines(text) — inverse of emit_policy: parse newline-separated
+// "<kind>\t<arg>" rows back into a rule list (skip blanks). Used by aeb-vet
+// to turn the policy binary's captured stdout into rules for decide().
+rules_from_lines(text: string) {
+    out = list.new()
+    rest = text
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 { line = rest  rest = "" }
+        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        line = string.trim(line)
+        if string.length(line) > 0 { list.add(out, line) }
+    }
+    return out
+}
+
 // --- Command builder (pure) ---
 
 // emit_ast_cmd(aetherc, lib_flags, file) — the `aetherc --emit=ast`

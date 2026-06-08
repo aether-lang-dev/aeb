@@ -208,6 +208,30 @@ while [[ $i -le $# ]]; do
             exit 1
         fi
         export AEB_TIMEOUT="${!i}"
+    elif [[ "$a" == "--vet" ]]; then
+        # --vet: treat this build's own .ae graph as untrusted and run the
+        # supply-chain veto (lib/veto, 2b AST layer) before building each
+        # target. Operator decision — a dispatch/.build.ae can't clear it.
+        # Policy: --veto-policy <path>, else $AEB_HOME/veto/default.ae, else
+        # the built-in default rules. Enforcement (path resolution, refuse a
+        # policy inside the build tree, the zero-rules lint, per-target
+        # veto.check) is Aether-side in tools/aeb-main. See
+        # docs/build-veto-and-sandbox.md.
+        export AEB_VET=1
+    elif [[ "$a" == "--veto-policy" ]]; then
+        i=$((i + 1))
+        if [[ $i -gt $# ]]; then
+            echo "aeb: --veto-policy requires a policy.ae path" >&2
+            exit 1
+        fi
+        _vp="${!i}"
+        if [[ ! -f "$_vp" ]]; then
+            echo "aeb: --veto-policy file not found: $_vp" >&2
+            exit 1
+        fi
+        # Absolute-resolve so it survives aeb's chdir into module dirs.
+        export AEB_VETO_POLICY="$(cd "$(dirname "$_vp")" && pwd)/$(basename "$_vp")"
+        export AEB_VET=1   # naming a policy implies --vet
     else
         ARGS+=("$a")
     fi
@@ -225,6 +249,36 @@ if [[ -n "${AEB_USE_REMOTE_AGENTS:-}" ]]; then
         "$AETHER" build "$AEB_HOME/tools/aeb-remote.ae" --lib "$AEB_HOME/lib" -o "$AEB_REMOTE_BIN" 2>/dev/null
     fi
     exec "$AEB_REMOTE_BIN" "$@"
+fi
+
+# --- --vet gate: vet the build's .ae graph BEFORE building ----------
+# When AEB_VET=1, run the supply-chain veto over the named target(s) and
+# refuse (exit non-zero) before any build runs. The gate resolves the
+# operator policy (AEB_VETO_POLICY / $AEB_HOME/veto/default.ae / built-in
+# default), refuses an in-tree policy, enforces the zero-rules lint, and
+# runs lib/veto's decide() per target. See docs/build-veto-and-sandbox.md.
+# Scope (first wiring): vets the explicitly-named *.ae targets on the
+# command line. A bare `aeb` (whole-tree scan) names no target here, so
+# there's nothing for the gate to vet yet — pass explicit targets under
+# --vet. (Vetting the full scanned set is a follow-up inside aeb-main.)
+if [[ -n "${AEB_VET:-}" ]]; then
+    _vet_targets=()
+    for _a in "$@"; do
+        case "$_a" in *.ae) _vet_targets+=("$_a") ;; esac
+    done
+    if [[ ${#_vet_targets[@]} -gt 0 ]]; then
+        AEB_VET_BIN="$AEB_HOME/tools/aeb-vet"
+        if [[ ! -x "$AEB_VET_BIN" ]]; then
+            "$AETHER" build "$AEB_HOME/tools/aeb-vet.ae" --lib "$AEB_HOME/lib" -o "$AEB_VET_BIN" 2>/dev/null
+        fi
+        ROOT="$(pwd)"
+        if ! "$AEB_VET_BIN" "$AETHER" "$AEB_HOME" "$ROOT" "${_vet_targets[@]}"; then
+            echo "aeb: build refused by --vet (see above)" >&2
+            exit 3
+        fi
+    else
+        echo "aeb: --vet set but no explicit *.ae target named — nothing vetted (name a target under --vet)" >&2
+    fi
 fi
 
 # --- Normal build: lazy-build the main tool ---

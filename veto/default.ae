@@ -1,0 +1,10 @@
+// $AEB_HOME/veto/default.ae — the shipped default --vet policy.
+// Operator-trusted, out-of-tree (NOT a dot-prefixed build target).
+// Override per-invocation with `aeb --vet --veto-policy <path>`.
+import veto (policy, deny, emit_policy)
+main() {
+    p = veto.policy()
+    veto.deny(p, "extern")   // no raw C escapes in untrusted build code
+    veto.deny(p, "exec")     // no shell-out from a vetted build
+    veto.emit_policy(p)
+}

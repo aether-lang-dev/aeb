@@ -1,0 +1,174 @@
+// aeb-vet — the --vet pre-build gate.
+//
+// Invoked by the aeb trampoline BEFORE the normal build when AEB_VET=1. It
+// vets every target's .ae graph (lib/veto, the 2b AST layer) against an
+// operator policy and EXITS NON-ZERO (refusing the build) on the first veto,
+// so the build never runs. This is the launch-mode wiring that turns
+// lib/veto's tested pieces into an actual `aeb --vet` mode.
+//
+//   Usage: aeb-vet <aether-bin> <aeb-home> <root> <target.ae> [<target.ae> ...]
+//
+// Policy resolution (operator-trusted, NEVER from the build tree):
+//   1. AEB_VETO_POLICY=<path>     — explicit operator policy.ae (absolute)
+//   2. $AEB_HOME/veto/default.ae  — the shipped default policy, if present
+//   3. lib/veto's built-in default_rules() — deny extern + deny exec
+//
+// Fail-closed:
+//   - a --veto-policy path that resolves INSIDE the build tree → refuse
+//     (the requester writing their own exemption = gate dead);
+//   - a policy that resolves to ZERO rules under --vet → refuse
+//     (vet-requested-but-denies-nothing);
+//   - the policy binary failing to compile/run → refuse;
+//   - any per-target veto (lib/veto decide()) → refuse.
+//
+// Exit: 0 = all targets cleared (build may proceed); non-zero = refused.
+// See docs/build-veto-and-sandbox.md.
+import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
+import std.string
+import std.os
+import std.file
+import std.list
+import std.path
+
+extern println(s: string)
+extern aether_args_count() -> int
+extern aether_args_get(i: int) -> string
+extern exit(code: int)
+
+main() {
+    if aether_args_count() < 4 {
+        println("usage: aeb-vet <aether-bin> <aeb-home> <root> <target.ae> ...")
+        exit(2)
+    }
+    aether_bin = aether_args_get(1)
+    aeb_home   = aether_args_get(2)
+    root       = aether_args_get(3)
+
+    // Trusted --lib roots for origin scoping: aeb's own SDK tree, plus the
+    // per-project .aeb/lib if present. Nodes from these are exempt.
+    lib_roots = list.new()
+    list.add(lib_roots, path.join(aeb_home, "lib"))
+    proj_lib = path.join(root, ".aeb/lib")
+    if file.exists(proj_lib) == 1 { list.add(lib_roots, proj_lib) }
+
+    // The aetherc binary to emit ASTs with: prefer the sibling next to the
+    // ae bin; fall back to "aetherc" on PATH.
+    aetherc = _aetherc_of(aether_bin)
+
+    // --- Resolve the policy → rules ---
+    rules = _resolve_rules(aether_bin, aetherc, aeb_home, root)
+    if rules == null {
+        // _resolve_rules already printed the refusal reason.
+        exit(3)
+    }
+    if list.size(rules) == 0 {
+        println("aeb --vet: policy resolved to ZERO rules — refusing (vet requested but nothing is denied). Fail-closed.")
+        exit(3)
+    }
+
+    // --- Vet each target ---
+    lf = _lib_flags(lib_roots)
+    i = 4
+    n = aether_args_count()
+    while i < n {
+        tgt = aether_args_get(i)
+        i = i + 1
+        if string.length(tgt) > 0 {
+            v = _vet_target(aetherc, lf, tgt, lib_roots, rules)
+            if string.length(v) > 0 {
+                println("aeb --vet: REFUSED ${tgt}")
+                println("  ${v}")
+                exit(3)
+            }
+            println("aeb --vet: clear ${tgt}")
+        }
+    }
+    exit(0)
+}
+
+// _vet_target — emit the target's AST and run lib/veto's decide().
+_vet_target(aetherc: string, lf: string, tgt: string, lib_roots: ptr, rules: ptr) {
+    cmd = emit_ast_cmd(aetherc, lf, tgt)
+    ast_json, _e = os.exec(cmd)
+    // capture the exit code separately (os.exec gives stdout only).
+    rc = os.system(string.concat(cmd, " >/dev/null 2>&1"))
+    return decide(ast_json, rc, lib_roots, rules)
+}
+
+// _resolve_rules — produce the rule list per the policy-resolution order, or
+// null on a refusal (in-tree policy path, or policy that won't compile/run).
+_resolve_rules(aether_bin: string, aetherc: string, aeb_home: string, root: string) {
+    policy = os.getenv("AEB_VETO_POLICY")
+    if string.length(policy) == 0 {
+        // try the shipped default
+        dflt = path.join(aeb_home, "veto/default.ae")
+        if file.exists(dflt) == 1 {
+            policy = dflt
+        }
+    }
+
+    if string.length(policy) == 0 {
+        // No policy file anywhere → the built-in default rules.
+        return default_rules()
+    }
+
+    // SECURITY: refuse a policy that resolves inside the build tree — an
+    // untrusted dispatch could otherwise ship its own exemption.
+    if _is_inside(policy, root) == 1 {
+        println("aeb --vet: refusing policy inside the build tree: ${policy}")
+        println("  the policy must be operator-trusted and out-of-tree (it polices this tree).")
+        return null
+    }
+
+    // Compile the operator policy.ae and run it; it emits its resolved rule
+    // list (one "<kind>\\t<arg>" per line) via veto.emit_policy. Captured
+    // stdout → rules.
+    rules = _run_policy(aether_bin, aeb_home, root, policy)
+    return rules
+}
+
+// _run_policy — `ae build` the policy.ae against lib/, run it, parse the
+// emitted rule lines. Returns the rule list, or null if it won't build/run.
+// The compiled policy binary goes under the build root's target/_aeb/ (always
+// writable; $AEB_HOME may be a read-only install tree).
+_run_policy(aether_bin: string, aeb_home: string, root: string, policy: string) {
+    outdir = path.join(root, "target/_aeb")
+    os.system("mkdir -p '${outdir}' 2>/dev/null")
+    bin = path.join(outdir, ".veto-policy-compiled")
+    lib = path.join(aeb_home, "lib")
+    build_cmd = "'${aether_bin}' build '${policy}' --lib '${lib}' -o '${bin}' 2>&1"
+    brc = os.system(build_cmd)
+    if brc != 0 {
+        println("aeb --vet: policy did not compile: ${policy}")
+        println("  (a typo'd setter is a compile error — self-vetting; fix the policy)")
+        return null
+    }
+    out, _e = os.exec("'${bin}'")
+    return rules_from_lines(out)
+}
+
+// _is_inside(p, root) — 1 if path `p` is under directory `root` (prefix
+// match on resolved-ish absolute strings; both are already absolute here).
+_is_inside(p: string, root: string) {
+    if string.length(root) == 0 { return 0 }
+    // normalise root to end without a trailing slash, then require p to start
+    // with root + "/".
+    r = root
+    rn = string.length(r)
+    if rn > 0 {
+        last = string.substring(r, rn - 1, rn)
+        if string.equals(last, "/") == 1 { r = string.substring(r, 0, rn - 1) }
+    }
+    prefix = string.concat(r, "/")
+    if string.starts_with(p, prefix) == 1 { return 1 }
+    return 0
+}
+
+// _aetherc_of(aether_bin) — the aetherc sibling of the ae binary, or
+// "aetherc" on PATH.
+_aetherc_of(aether_bin: string) {
+    d = path.dirname(aether_bin)
+    cand = path.join(d, "aetherc")
+    if file.exists(cand) == 1 { return cand }
+    return "aetherc"
+}

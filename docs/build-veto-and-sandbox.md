@@ -7,8 +7,12 @@ vetoes a real `extern syscall`/`os.system`, clears clean code, fail-closes
 on no-AST). The **policy-DSL front end is shipped** in `lib/veto`
 (`veto.policy`/`deny`/`banned`/`allow_exec`/`allow_import`/`scope` → the rule
 list `decide()` consumes; an out-of-tree `policy.ae`, self-vetting via the
-compiler). The `--vet` launch wiring (loading the policy file by path), layers
-1b/3, and Tiers B/C remain design. Companion to
+compiler). **`aeb --vet` is now a real launch mode** (`tools/aeb-vet` gate +
+trampoline `--vet [--veto-policy <path>]`): resolves the policy
+(`--veto-policy` → `$AEB_HOME/veto/default.ae` → built-in default), refuses an
+in-tree policy, enforces the zero-rules lint, runs the veto per named target,
+and exits 3 (refused) before any build. Layers 1b/3 and Tiers B/C remain
+design. Companion to
 [`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md)
 (the sovereign-agent + policy-class design) and
 [`directions.md`](directions.md) (where this sits in the rings).
@@ -754,16 +758,20 @@ maybe_veto_build(repo, target, purpose):
 
 ## What to build, in order
 
-0. **The `--vet` launch mode + the policy surface** — the shared seam. A flag
-   on `aeb` and `aeb-agent` (operator-set; a dispatch/`.build.ae` can't clear
-   it) that turns on layers 1/2/3 against the build's own tree, driven by an
-   out-of-tree policy `.ae` (the `lib/veto` SDK; loaded via `--veto-policy`,
-   NOT a dot-prefixed in-tree target) or the built-in default — *no CLI
-   category-list*. Policy is operator-trusted (outside the build tree),
-   self-vetting (it's Aether → typechecks), and content-addressed-cached after
-   compile. For the agent the seam is `maybe_veto_build` already; for non-agent
-   `aeb` it's new. Build `lib/veto` + the default policy first — everything
-   below lowers onto it.
+0. ~~**The `--vet` launch mode + the policy surface** — the shared seam.~~
+   **SHIPPED for non-agent `aeb` (2026-06-08).** `aeb --vet [--veto-policy
+   <path>]` (trampoline flags → `AEB_VET`/`AEB_VETO_POLICY`) runs the
+   `tools/aeb-vet` gate before any build: it resolves the operator policy
+   (`--veto-policy` → `$AEB_HOME/veto/default.ae` → `lib/veto` built-in
+   default), **refuses an in-tree policy path** (security), compiles+runs the
+   policy to get its rules (self-vetting — a typo'd setter is a compile error),
+   enforces the **zero-rules lint**, runs `decide()` per named `.ae` target, and
+   **exits 3** (refused) before the build. Policy is operator-trusted,
+   out-of-tree, NOT a dot-prefixed target; the compiled policy lands under the
+   build's `target/_aeb/` (writable; never the read-only install tree). *Scope
+   today:* vets explicitly-named `*.ae` targets; vetting a bare-`aeb`
+   whole-tree scan is a follow-up inside `aeb-main`. *Still:* the agent seam
+   (`maybe_veto_build`) wiring, and layers 1/3 driven by the same policy object.
 1. ~~**Tier A / layer 1a is in.** Generalize the single stub scan into a small
    rule list.~~ **DONE (2026-06-05).** `lib/agent` `_veto_run_rules`: a
    data-driven rule list (`id\tscope\tpattern\treason`), built-in secret/key
@@ -800,9 +808,10 @@ maybe_veto_build(repo, target, purpose):
    + deny exec; (args[] consumed) the `banned\t<substring>` rule + computed-arg
    fail-close; and the **policy DSL** (`veto.policy`/`deny`/`banned`/
    `allow_exec`/`allow_import`/`scope` → the rule list; `test_veto_policy.ae`,
-   16 assertions + live smoke). **Next:** wire the `policy.ae` into the `--vet`
-   launch flow (resolve the operator path, enforce the zero-rules lint), and a
-   positive coordinate-allowlist counterpart to `banned`.
+   16 assertions + live smoke); and the **`aeb --vet` launch mode** wiring it
+   all together (`tools/aeb-vet` gate — see item 0, shipped). **Next:** the
+   agent-side `maybe_veto_build` wiring, vetting a bare-`aeb` whole-tree scan,
+   and a positive coordinate-allowlist counterpart to `banned`.
    (Stopgap 2a — `.c` grep — no longer needed.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
