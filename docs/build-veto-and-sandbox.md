@@ -808,10 +808,15 @@ maybe_veto_build(repo, target, purpose):
    + deny exec; (args[] consumed) the `banned\t<substring>` rule + computed-arg
    fail-close; and the **policy DSL** (`veto.policy`/`deny`/`banned`/
    `allow_exec`/`allow_import`/`scope` → the rule list; `test_veto_policy.ae`,
-   16 assertions + live smoke); and the **`aeb --vet` launch mode** wiring it
-   all together (`tools/aeb-vet` gate — see item 0, shipped). **Next:** the
-   agent-side `maybe_veto_build` wiring, vetting a bare-`aeb` whole-tree scan,
-   and a positive coordinate-allowlist counterpart to `banned`.
+   16 assertions + live smoke); the **`aeb --vet` launch mode** wiring it all
+   together (`tools/aeb-vet` gate — see item 0, shipped); and the **agent-side
+   `maybe_veto_build` wiring** — `tools/aeb-agent`'s gate now runs Tier-A *then*
+   the 2b AST veto (`_veto_ast`: emit the prepared tree's target from inside the
+   repo, resolve rules the same way — `AEB_VETO_POLICY` policy or built-in
+   default — and `decide()`), returning the distinct `vetoed`/422 on a refusal.
+   Live-verified: a dispatched `extern syscall`/`os.system` tree → `vetoed`/422;
+   a clean tree → `done`/`pass` (built). **Next:** vetting a bare-`aeb`
+   whole-tree scan, and a positive coordinate-allowlist counterpart to `banned`.
    (Stopgap 2a — `.c` grep — no longer needed.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique

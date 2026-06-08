@@ -30,9 +30,11 @@ import std.list
 
 import agent (_decision, dispatch_reply_json, ping_json, _json_field,
               _parse_tokens, _token_ok, _bearer_strip, _veto_run_rules)
+import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.io
 import std.file
 import std.json
+import std.path
 
 extern println(s: string)
 extern exit(code: int)
@@ -208,7 +210,97 @@ _patch_path_for(guid: string, patch_b64: string) {
 // highest-signal target — the untrusted delta introduced the hit). patch_path is
 // the decoded patch left by _prepare_tree ("" when the dispatch carried none).
 _maybe_veto_build(repo: string, target: string, purpose: string, patch_path: string) {
-    return _veto_run_rules(repo, patch_path)
+    // Tier A (cheap, text): secret/banned markers over the tree + patch.
+    a = _veto_run_rules(repo, patch_path)
+    if string.length(a) > 0 { return a }
+    // Layer 2b (AST): the same lib/veto gate `aeb --vet` runs — over the
+    // prepared tree's target .ae. extern/exec/net/banned, origin-scoped,
+    // fail-closed on no-AST / computed exec arg. Skipped when target isn't
+    // an .ae path (nothing to emit an AST for).
+    if string.length(target) > 0 {
+        if string.ends_with(target, ".ae") == 1 {
+            return _veto_ast(repo, target)
+        }
+    }
+    return ""
+}
+
+// _veto_ast(repo, target) — run the 2b AST veto over repo/target. Resolves
+// rules the same way aeb-vet does (AEB_VETO_POLICY operator policy → compile
+// +run → its rules; else the built-in default), emits the target's AST, and
+// runs lib/veto decide(). Returns "" (clear) or a veto reason. Fail-closed:
+// a policy that won't compile, or no clean AST, is a veto.
+_veto_ast(repo: string, target: string) {
+    aetherc = _agent_aetherc()
+    rules = _agent_veto_rules(aetherc)
+    if rules == null {
+        return "veto policy did not compile (fail-closed)"
+    }
+    if list.size(rules) == 0 {
+        // No operator policy + no built-in? default_rules is non-empty, so
+        // this only happens if an operator policy resolved to zero rules.
+        return "veto policy resolved to zero rules (fail-closed)"
+    }
+
+    // Trusted --lib roots for origin scoping: aeb's SDK tree (if the agent
+    // knows AEB_HOME) + the prepared tree's own .aeb/lib.
+    lib_roots = list.new()
+    home = os.getenv("AEB_HOME")
+    if string.length(home) > 0 { list.add(lib_roots, path.join(home, "lib")) }
+    proj_lib = path.join(repo, ".aeb/lib")
+    if file.exists(proj_lib) == 1 { list.add(lib_roots, proj_lib) }
+
+    // Run the emit from INSIDE repo (the target path is relative to the
+    // prepared tree, exactly as the build sees it — the build cd's into
+    // workdir too). repo may be relative ("." default), so cd makes the
+    // target resolvable regardless of the agent's own cwd.
+    emit = emit_ast_cmd(aetherc, _lib_flags(lib_roots), target)
+    cmd = string.concat(string.concat("cd '", repo), string.concat("' && ", emit))
+    ast_json, _e = os.exec(cmd)
+    rc = os.system(string.concat(cmd, " >/dev/null 2>&1"))
+    return decide(ast_json, rc, lib_roots, rules)
+}
+
+// _agent_aetherc() — the aetherc the agent emits ASTs with. AEB_AGENT_AETHERC
+// override, else "aetherc" on PATH.
+_agent_aetherc() {
+    e = os.getenv("AEB_AGENT_AETHERC")
+    if string.length(e) > 0 { return e }
+    return "aetherc"
+}
+
+// _agent_veto_rules(aetherc) — the rule list for the agent's 2b veto.
+// AEB_VETO_POLICY (operator policy.ae on the agent host) → compile+run → its
+// emitted rules; else lib/veto's built-in default_rules(). null = the policy
+// failed to compile (caller fail-closes).
+_agent_veto_rules(aetherc: string) {
+    policy = os.getenv("AEB_VETO_POLICY")
+    if string.length(policy) == 0 { return default_rules() }
+    if file.exists(policy) == 0 { return default_rules() }
+    home = os.getenv("AEB_HOME")
+    lib = "lib"
+    if string.length(home) > 0 { lib = path.join(home, "lib") }
+    ae = _agent_ae()
+    bin = string.concat("/tmp/aeb-agent-veto-policy-", string.concat(string.from_int(os_getpid_safe()), ".bin"))
+    brc = os.system("'${ae}' build '${policy}' --lib '${lib}' -o '${bin}' 2>/dev/null")
+    if brc != 0 { return null }
+    out, _e = os.exec("'${bin}'")
+    os.system(string.concat("rm -f '", string.concat(bin, "'")))
+    return rules_from_lines(out)
+}
+
+// _agent_ae() — the `ae` build driver (sibling of aetherc / override).
+_agent_ae() {
+    e = os.getenv("AEB_AGENT_AE")
+    if string.length(e) > 0 { return e }
+    return "ae"
+}
+
+// os_getpid_safe() — a per-process suffix for the temp policy binary so
+// concurrent dispatches don't clash. Falls back to a constant if getpid
+// isn't available.
+os_getpid_safe() {
+    return os.getpid()
 }
 
 handle_dispatch(req: ptr, res: ptr, ud: ptr) {
