@@ -187,6 +187,46 @@ main() {
         _node_verdict("function_call", "maven_dep", "", "", "/home/me/.aeb/lib/maven/module.ae", 0,
                       "org.evil.com:x:1", 0, roots, bannedrules))
 
+    // --- the coordinate allowlist (coord_verb + coord_allow) ---
+    // gate maven_dep coordinates to the org.corp: group.
+    coordrules = list.new()
+    list.add(coordrules, "coord_verb\tmaven_dep")
+    list.add(coordrules, "coord_allow\torg.corp:")
+    // an allowed coordinate clears.
+    _clear("coord: allowed-prefix coordinate clears",
+        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                      "org.corp:lib:1.2.3", 0, roots, coordrules))
+    // a coordinate outside the allowed prefix is vetoed.
+    _vetoed("coord: disallowed coordinate vetoed",
+        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                      "com.evil:pkg:1", 0, roots, coordrules))
+    // the look-alike: starts with the group but not the pinned prefix → veto.
+    _vetoed("coord: near-miss prefix (org.corporate vs org.corp:) vetoed",
+        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                      "org.corporate-evil:x:1", 0, roots, coordrules))
+    // a COMPUTED coordinate to a coord-verb fail-closes.
+    cc = _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                       "", 1, roots, coordrules)
+    _vetoed("coord: computed coordinate fail-closes", cc)
+    _assert("coord computed reason marks <computed-coordinate>",
+        string.index_of(cc, "<computed-coordinate>") >= 0)
+    // a call that ISN'T a coord-verb is untouched (no false-positive).
+    _clear("coord: non-coord-verb call untouched",
+        _node_verdict("function_call", "string_concat", "", "", "/work/app.ae", 0,
+                      "com.evil:x:1", 0, roots, coordrules))
+    // SDK-origin coord-verb is exempt (origin beats the gate).
+    _clear("coord: SDK-origin coord call is exempt",
+        _node_verdict("function_call", "maven_dep", "", "", "/home/me/.aeb/lib/maven/module.ae", 0,
+                      "com.evil:x:1", 0, roots, coordrules))
+    // multiple allowed prefixes: any match clears.
+    coordmulti = list.new()
+    list.add(coordmulti, "coord_verb\tmaven_dep")
+    list.add(coordmulti, "coord_allow\torg.corp:")
+    list.add(coordmulti, "coord_allow\tio.internal:")
+    _clear("coord: second allowed prefix clears",
+        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                      "io.internal:tool:2", 0, roots, coordmulti))
+
     // === decide(): whole-AST, fail-closed paths, real JSON shape ===
 
     // The exact shape the v0.226.0 binary emits (verified live).

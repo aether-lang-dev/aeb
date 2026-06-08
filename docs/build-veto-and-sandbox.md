@@ -342,12 +342,15 @@ stay exempt. `tests/test_veto.ae`: 57 assertions, incl. the real post-v0.227.0
 `args[]` JSON shape end-to-end. **The policy DSL is now shipped too** (see "The
 policy surface"): an out-of-tree `policy.ae` authors `deny`/`banned`/
 `allow_exec`/`allow_import`/`scope` via the `lib/veto` setters, which lower onto
-this same rule list; `allow_exec("gcc")` exempts a `gcc` command from a
-deny-exec, `allow_import` exempts a module from a deny-import. `tests/
-test_veto_policy.ae` (16 assertions) + a live smoke (a real `policy.ae` compiles,
-runs, and a typo'd setter is a hard compile error — self-vetting). Still ahead:
-wiring the policy into the actual `--vet` launch flow, and a positive
-coordinate-allowlist counterpart to `banned`.)*
+this same rule list. `allow_exec("gcc")` exempts a `gcc` command from a
+deny-exec; `allow_import` exempts a module from a deny-import; and the
+**positive coordinate allowlist** — `coord_verb("maven_dep")` +
+`coord_allow("org.corp:")` — gates a resolver verb's literal coordinate to an
+allowed leading prefix (the attacker-immovable stem), vetoing anything else and
+**fail-closing on a computed coordinate**. (`org.corporate-evil:` does NOT match
+the `org.corp:` prefix — pinned-stem matching, not loose contains.)
+`tests/test_veto_policy.ae` (21 assertions) + a live smoke. Both `aeb --vet`
+(shipped) and the agent's `maybe_veto_build` (shipped) drive this.)*
 
 ### Layer 3 — runtime containment (the part the source set can't override)
 
@@ -806,18 +809,20 @@ maybe_veto_build(repo, target, purpose):
    externs *except a known-safe runtime allowlist* (`println` etc. — the live
    smoke caught that a blanket deny false-positives on every ordinary program)
    + deny exec; (args[] consumed) the `banned\t<substring>` rule + computed-arg
-   fail-close; and the **policy DSL** (`veto.policy`/`deny`/`banned`/
-   `allow_exec`/`allow_import`/`scope` → the rule list; `test_veto_policy.ae`,
-   16 assertions + live smoke); the **`aeb --vet` launch mode** wiring it all
-   together (`tools/aeb-vet` gate — see item 0, shipped); and the **agent-side
-   `maybe_veto_build` wiring** — `tools/aeb-agent`'s gate now runs Tier-A *then*
-   the 2b AST veto (`_veto_ast`: emit the prepared tree's target from inside the
-   repo, resolve rules the same way — `AEB_VETO_POLICY` policy or built-in
-   default — and `decide()`), returning the distinct `vetoed`/422 on a refusal.
-   Live-verified: a dispatched `extern syscall`/`os.system` tree → `vetoed`/422;
-   a clean tree → `done`/`pass` (built). **Next:** vetting a bare-`aeb`
-   whole-tree scan, and a positive coordinate-allowlist counterpart to `banned`.
-   (Stopgap 2a — `.c` grep — no longer needed.)
+   fail-close; the **policy DSL** (`veto.policy`/`deny`/`banned`/
+   `allow_exec`/`allow_import`/`coord_verb`/`coord_allow`/`scope` → the rule
+   list; `test_veto_policy.ae`, 21 assertions + live smoke); the **`aeb --vet`
+   launch mode** wiring it all together (`tools/aeb-vet` gate — see item 0,
+   shipped); and the **agent-side `maybe_veto_build` wiring** — `tools/aeb-agent`'s
+   gate now runs Tier-A *then* the 2b AST veto (`_veto_ast`: emit the prepared
+   tree's target from inside the repo, resolve rules the same way —
+   `AEB_VETO_POLICY` policy or built-in default — and `decide()`), returning the
+   distinct `vetoed`/422 on a refusal. Live-verified: a dispatched
+   `extern syscall`/`os.system` tree → `vetoed`/422; a clean tree → `done`/`pass`
+   (built); a `coord_verb`-gated verb with a disallowed coordinate literal →
+   `veto:coord` REFUSED, an allowed-prefix literal → clear. **Next:** vetting a
+   bare-`aeb` whole-tree scan. (Stopgap 2a — `.c` grep — no longer needed; the
+   positive coordinate allowlist is now shipped.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
    route to "read the build's intent" with no aether change. Parallel to 2b.

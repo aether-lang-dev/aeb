@@ -10,6 +10,7 @@ tools/aeb-init
 tools/aeb-agent
 tools/aeb-remote
 tools/aeb-driver
+tools/aeb-vet
 tools/aeb-link
 tools/aeb-main
 tools/aeb-graph

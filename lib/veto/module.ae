@@ -121,6 +121,24 @@ banned(p: ptr, substring: string) {
     _policy_add(p, string.concat("banned\t", substring))
 }
 
+// coord_verb(p, "<callee>") — declare a resolver verb whose literal
+// coordinate is allowlist-gated by coord_allow() prefixes. A call to this
+// verb with a coordinate not matching any allowed prefix is vetoed; a
+// computed coordinate fail-closes. Pair with one or more coord_allow().
+//   veto.coord_verb(p, "maven_dep")   // gate maven.dep coordinates…
+//   veto.coord_allow(p, "org.corp:")  // …to the corp group only
+coord_verb(p: ptr, callee: string) {
+    _policy_add(p, string.concat("coord_verb\t", callee))
+}
+
+// coord_allow(p, "<prefix>") — an allowed leading literal prefix for any
+// coord_verb's coordinate. The prefix is the attacker-immovable stem
+// (group, or scheme+host+/). Anything not starting with an allowed prefix is
+// vetoed for the gated verbs.
+coord_allow(p: ptr, prefix: string) {
+    _policy_add(p, string.concat("coord_allow\t", prefix))
+}
+
 // allow_exec(p, "<sym-or-path>") — exempt this exec target from a deny-exec.
 allow_exec(p: ptr, sym: string) {
     _policy_add(p, string.concat("allow\texec\t", sym))
@@ -353,6 +371,28 @@ _node_verdict(kind: string, callee: string, name: string, modpath: string,
                 }
             }
         }
+        // coord_verb: the POSITIVE counterpart to banned. `coord_verb\t<callee>`
+        // declares a resolver verb whose coordinate is allowlist-gated; the
+        // separate `coord_allow\t<prefix>` rules are the allowed literal
+        // prefixes. For a call to a coord-verb, the literal coordinate MUST
+        // start with some allowed prefix — else veto. A computed coordinate to
+        // a coord-verb fail-closes (can't check the stem). Only coord-verbs are
+        // gated; every other call is untouched (no false-positives). This is
+        // the "allow only org.corp:* coordinates" convention, made safe: the
+        // operator's prefix list, the leading literal stem an attacker can't
+        // move, fail-closed on computed.
+        if string.equals(rk, "coord_verb") == 1 {
+            if string.equals(kind, "function_call") == 1 {
+                if string.length(ra) > 0 && string.equals(ra, callee) == 1 {
+                    if arg_computed == 1 {
+                        return _reason_arg("coord", callee, file, "<computed-coordinate>")
+                    }
+                    if _coord_allowed(rules, arg_literal) == 0 {
+                        return _reason_arg("coord", callee, file, arg_literal)
+                    }
+                }
+            }
+        }
     }
     return ""
 }
@@ -420,6 +460,28 @@ _exec_allowed(rules: ptr, arg_literal: string) {
                 // also allow the whole literal matching (e.g. allow an
                 // exact command with args)
                 if string.equals(allowed, arg_literal) == 1 { return 1 }
+            }
+        }
+    }
+    return 0
+}
+
+// _coord_allowed(rules, arg_literal) — 1 if the literal coordinate starts
+// with some `coord_allow\t<prefix>` rule's prefix. "" literal → not allowed
+// (a coord-verb with no literal coordinate can't be checked → caller
+// fail-closes). The prefix is the attacker-immovable leading stem (e.g.
+// "org.corp:" pins the group; "https://mirror.corp/" pins scheme+host+/).
+_coord_allowed(rules: ptr, arg_literal: string) {
+    if string.length(arg_literal) == 0 { return 0 }
+    n = list.size(rules)
+    i = 0
+    while i < n {
+        r, _ = list.get(rules, i)
+        i = i + 1
+        if string.equals(_rule_kind(r), "coord_allow") == 1 {
+            prefix = _rule_arg(r)
+            if string.length(prefix) > 0 {
+                if string.starts_with(arg_literal, prefix) == 1 { return 1 }
             }
         }
     }

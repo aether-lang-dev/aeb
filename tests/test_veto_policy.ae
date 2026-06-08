@@ -5,6 +5,7 @@
 // banned, allow_exec exemption, allow_import exemption).
 
 import veto (policy, deny, banned, allow_exec, allow_import, scope,
+             coord_verb, coord_allow,
              policy_rules, policy_rule_count, _node_verdict, decide)
 import std.string
 import std.list
@@ -101,6 +102,23 @@ main() {
     cleanargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.foo:bar:1\"}]}]}"
     _clear("DSL banned rule clears a clean coordinate via decide()",
         decide(cleanargs, 0, roots, br))
+
+    // --- coordinate allowlist: lowering + decide() end-to-end ---
+    pc = veto.policy()
+    veto.coord_verb(pc, "maven_dep")
+    veto.coord_allow(pc, "org.corp:")
+    _eq("coord_verb → 'coord_verb\\tmaven_dep'", _rule_at(pc, 0), "coord_verb\tmaven_dep")
+    _eq("coord_allow → 'coord_allow\\torg.corp:'", _rule_at(pc, 1), "coord_allow\torg.corp:")
+    pcr = policy_rules(pc)
+    // allowed coordinate clears via decide()
+    okcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.corp:lib:1\"}]}]}"
+    _clear("DSL coord allowlist clears an allowed coordinate", decide(okcoord, 0, roots, pcr))
+    // disallowed coordinate vetoes via decide()
+    badcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"com.evil:x:1\"}]}]}"
+    _vetoed("DSL coord allowlist vetoes a disallowed coordinate", decide(badcoord, 0, roots, pcr))
+    // computed coordinate to the gated verb fail-closes via decide()
+    compcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"computed\":true}]}]}"
+    _vetoed("DSL coord allowlist fail-closes on a computed coordinate", decide(compcoord, 0, roots, pcr))
 
     // --- the self-vetting lint signal: empty policy resolves to 0 rules ---
     empty = veto.policy()
