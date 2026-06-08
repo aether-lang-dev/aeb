@@ -1,0 +1,348 @@
+// veto — supply-chain build-veto SDK for aether.build
+//
+// The 2b layer of docs/build-veto-and-sandbox.md, end to end: run
+// `aetherc --emit=ast` on an untrusted .ae, walk the emitted JSON AST,
+// and veto on operator deny-rules (extern / exec / net / import) — with
+// the resolved callee symbol, so aliasing/concat can't dodge it.
+//
+// THE TRUSTED-HARNESS INVARIANT: this runs in the harness that invokes
+// the build, never in the untrusted graph. A `.build.ae` cannot clear a
+// verdict reached here.
+//
+// FAIL-CLOSED by construction:
+//   - non-zero aetherc exit (no AST) → VETO (no clearance ⇒ no build)
+//   - an indirect (function-pointer) call in untrusted code → VETO
+//   - a deny-category node with NULL origin → VETO + surface
+// Origin: a node whose `file` is under a trusted --lib root is exempt
+// (the SDKs legitimately os.system/extern); only the untrusted tree trips.
+//
+// This first slice ships the built-in default policy (deny extern, deny
+// exec) as pure rules; the .veto.ae closure-DSL front end (the policy
+// surface) lowers onto these same rules and is the next increment.
+import build
+import std.string
+import std.io
+import std.os
+import std.file
+import std.list
+import std.map
+import std.path
+import std.json
+
+// --- Rule model (pure) ---
+//
+// A rule is "<kind>\t<arg>" where kind ∈ {extern, exec, net, import} and
+// arg is "" (whole category) or a specific symbol/module to deny. The
+// built-in default is the two highest-value categories.
+
+// default_rules() — the built-in deny set used when no policy .ae is
+// supplied: deny every extern and every exec in the untrusted tree.
+// (net/import are added by an operator policy; extern+exec is the 80%.)
+default_rules() {
+    r = list.new()
+    list.add(r, "extern\t")
+    list.add(r, "exec\t")
+    return r
+}
+
+// _rule_kind(rule) / _rule_arg(rule) — split a "<kind>\t<arg>" rule.
+_rule_kind(rule: string) {
+    idx = string.index_of(rule, "\t")
+    if idx < 0 { return rule }
+    return string.substring(rule, 0, idx)
+}
+_rule_arg(rule: string) {
+    idx = string.index_of(rule, "\t")
+    if idx < 0 { return "" }
+    return string.substring(rule, idx + 1, string.length(rule))
+}
+
+// --- Command builder (pure) ---
+
+// emit_ast_cmd(aetherc, lib_flags, file) — the `aetherc --emit=ast`
+// invocation. Pure. lib_flags is a pre-assembled " --lib A --lib B"
+// string (or ""). Output JSON goes to stdout; aeb captures it.
+emit_ast_cmd(aetherc: string, lib_flags: string, file: string) {
+    return "'${aetherc}' --emit=ast${lib_flags} '${file}'"
+}
+
+// _lib_flags(lib_roots) — " --lib 'r1' --lib 'r2'" from a list, or "".
+_lib_flags(lib_roots: ptr) {
+    if lib_roots == null { return "" }
+    n = list.size(lib_roots)
+    out = ""
+    i = 0
+    while i < n {
+        r, _ = list.get(lib_roots, i)
+        out = string.concat(out, string.concat(" --lib '", string.concat(r, "'")))
+        i = i + 1
+    }
+    return out
+}
+
+// --- Origin classification (pure) ---
+
+// _is_lib_origin(file, lib_roots) — 1 when `file` resolves under any
+// trusted --lib root (so the node is a vendored SDK, exempt from deny
+// rules), else 0. Prefix match on the resolved path string.
+_is_lib_origin(file: string, lib_roots: ptr) {
+    if string.length(file) == 0 { return 0 }
+    if lib_roots == null { return 0 }
+    n = list.size(lib_roots)
+    i = 0
+    while i < n {
+        root, _ = list.get(lib_roots, i)
+        if string.length(root) > 0 {
+            if string.starts_with(file, root) == 1 { return 1 }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// --- Per-node verdict (pure) ---
+//
+// _node_verdict(kind, callee, name, modpath, file, indirect, lib_roots, rules)
+// — given the already-extracted fields of ONE AST node, return "" (allowed)
+// or a one-line veto reason. Fail-closed on indirect calls and on a
+// deny-category match with NULL/empty origin.
+//
+// `kind` is the AST node kind ("extern_function"/"function_call"/
+// "import_statement"); `callee`/`name`/`module` are the relevant symbol
+// (empty when not that kind); `indirect` is 1 for a function-pointer call;
+// `file` is the node origin ("" / NULL → untrusted-or-synthetic).
+_node_verdict(kind: string, callee: string, name: string, modpath: string,
+              file: string, indirect: int, lib_roots: ptr, rules: ptr) {
+    // SDK-origin nodes are exempt — the trusted --lib roots legitimately
+    // declare externs and shell out.
+    if _is_lib_origin(file, lib_roots) == 1 { return "" }
+
+    // Indirect call in non-lib code: no static target to inspect → the
+    // opaque-computation case → fail-closed.
+    if string.equals(kind, "function_call") == 1 {
+        if indirect == 1 {
+            return "indirect (function-pointer) call in untrusted code — no static target to vet (veto:indirect)"
+        }
+    }
+
+    nr = list.size(rules)
+    ri = 0
+    while ri < nr {
+        rule, _ = list.get(rules, ri)
+        rk = _rule_kind(rule)
+        ra = _rule_arg(rule)
+        ri = ri + 1
+
+        // extern: match the declaration (the choke point). A whole-category
+        // extern rule (arg "") still exempts the known-safe runtime externs
+        // every ordinary .ae declares (println, etc.) — denying those would
+        // false-positive on legitimate code (found by the live smoke). A
+        // specific extern rule (arg = name) overrides the allowlist: an
+        // operator can still deny a named runtime extern if they choose.
+        if string.equals(rk, "extern") == 1 {
+            if string.equals(kind, "extern_function") == 1 {
+                if string.length(ra) == 0 {
+                    if _is_safe_runtime_extern(name) == 0 {
+                        return _reason("extern", name, file)
+                    }
+                } else {
+                    if string.equals(ra, name) == 1 {
+                        return _reason("extern", name, file)
+                    }
+                }
+            }
+        }
+        // exec: resolved callee in the os_system/os_exec/os_run_* family.
+        if string.equals(rk, "exec") == 1 {
+            if string.equals(kind, "function_call") == 1 {
+                if _is_exec_callee(callee) == 1 {
+                    if string.length(ra) == 0 || string.equals(ra, callee) == 1 {
+                        return _reason("exec", callee, file)
+                    }
+                }
+            }
+        }
+        // net: resolved callee in the tcp_connect/http_* family.
+        if string.equals(rk, "net") == 1 {
+            if string.equals(kind, "function_call") == 1 {
+                if _is_net_callee(callee) == 1 {
+                    if string.length(ra) == 0 || string.equals(ra, callee) == 1 {
+                        return _reason("net", callee, file)
+                    }
+                }
+            }
+        }
+        // import: match the imported module path.
+        if string.equals(rk, "import") == 1 {
+            if string.equals(kind, "import_statement") == 1 {
+                if string.length(ra) == 0 || string.equals(ra, modpath) == 1 {
+                    return _reason("import", modpath, file)
+                }
+            }
+        }
+    }
+    return ""
+}
+
+// _reason(cat, sym, file) — the veto reason line. A matched node with
+// NULL/empty origin is surfaced explicitly (fail-closed, not silently
+// trusted): a deny-category hit we can't attribute to a file is suspicious.
+_reason(cat: string, sym: string, file: string) {
+    where = file
+    if string.length(where) == 0 { where = "<unknown-origin>" }
+    return string.concat("denied ", string.concat(cat, string.concat(": ", string.concat(sym, string.concat(" (", string.concat(where, string.concat(") (veto:", string.concat(cat, ")"))))))))
+}
+
+// _is_exec_callee(c) — the os.system / os.exec / os.run_* family.
+_is_exec_callee(c: string) {
+    if string.equals(c, "os_system") == 1 { return 1 }
+    if string.equals(c, "os_exec") == 1 { return 1 }
+    if string.starts_with(c, "os_run") == 1 { return 1 }
+    return 0
+}
+
+// _is_net_callee(c) — the tcp_connect / http_* family.
+_is_net_callee(c: string) {
+    if string.equals(c, "tcp_connect") == 1 { return 1 }
+    if string.starts_with(c, "http_") == 1 { return 1 }
+    return 0
+}
+
+// _is_safe_runtime_extern(name) — 1 for the small set of runtime externs
+// that ordinary .ae code legitimately declares and that are NOT a C-escape
+// vector (they cross into the trusted Aether runtime, not arbitrary libc).
+// A whole-category `deny extern` exempts these so it doesn't false-positive
+// on every normal program; the DANGEROUS externs (syscall, fopen, dlopen,
+// open, execve, system, mmap, …) are NOT on this list and still trip.
+// An operator who wants to deny even these can write a specific
+// `extern\t<name>` rule, which overrides the allowlist.
+_is_safe_runtime_extern(name: string) {
+    if string.equals(name, "println") == 1 { return 1 }
+    if string.equals(name, "print") == 1 { return 1 }
+    if string.equals(name, "exit") == 1 { return 1 }
+    if string.equals(name, "panic") == 1 { return 1 }
+    if string.equals(name, "assert") == 1 { return 1 }
+    return 0
+}
+
+// --- Whole-AST decision (parses JSON; the one impure-ish helper, but
+//     deterministic and unit-testable on a JSON string) ---
+
+// decide(ast_json, emit_exit, lib_roots, rules) — the verdict for a whole
+// `aetherc --emit=ast` run. Returns "" (CLEAR) or a one-line veto reason.
+//
+// FAIL-CLOSED: a non-zero `emit_exit` (compiler couldn't emit a clean AST)
+// is an immediate veto — no AST ⇒ no clearance ⇒ no build. A malformed/
+// unparseable AST is likewise a veto.
+decide(ast_json: string, emit_exit: int, lib_roots: ptr, rules: ptr) {
+    if emit_exit != 0 {
+        return "aetherc --emit=ast exited ${string.from_int(emit_exit)} (no clean AST) — fail-closed (veto:no-ast)"
+    }
+    parsed, perr = json.parse(ast_json)
+    if string.length(perr) > 0 {
+        return "could not parse emitted AST (${perr}) — fail-closed (veto:bad-ast)"
+    }
+    nodes_v, _ne = json.object_get(parsed, "nodes")
+    if nodes_v == null {
+        return "emitted AST has no 'nodes' array — fail-closed (veto:bad-ast)"
+    }
+    n = json.array_size(nodes_v)
+    i = 0
+    while i < n {
+        node, _ge = json.array_get(nodes_v, i)
+        i = i + 1
+        if node != null {
+            kind = _json_str(node, "kind")
+            callee = _json_str(node, "callee")
+            name = _json_str(node, "name")
+            modpath = _json_str(node, "module")
+            file = _json_str(node, "file")
+            indirect = _json_truthy(node, "indirect")
+            v = _node_verdict(kind, callee, name, modpath, file, indirect, lib_roots, rules)
+            if string.length(v) > 0 { return v }
+        }
+    }
+    return ""
+}
+
+// _json_str(node, key) — string field or "". Tolerates absent key.
+_json_str(node: ptr, key: string) {
+    v, _e = json.object_get(node, key)
+    if v == null { return "" }
+    s, _se = json.get_string(v)
+    return s
+}
+// _json_truthy(node, key) — 1 when key is present and true-ish.
+_json_truthy(node: ptr, key: string) {
+    v, _e = json.object_get(node, key)
+    if v == null { return 0 }
+    b = json.get_bool(v)
+    if b == 1 { return 1 }
+    return 0
+}
+
+// --- The builder ---
+//
+// veto.check(b) { aetherc("…") lib_root("…") target("path/to/file.ae") }
+// runs --emit=ast on the target and applies the built-in default rules.
+// (Operator policy via a .veto.ae DSL lowers onto `rules` here — next
+// increment.) A veto FAILS the node; a clear pass writes a marker.
+
+aetherc(_ctx: ptr, bin: string) { _e = map.put(_ctx, "veto_aetherc", bin) }
+lib_root(_ctx: ptr, root: string) {
+    if map.has(_ctx, "veto_lib_roots") == 0 { _e1 = map.put(_ctx, "veto_lib_roots", list.new()) }
+    l, _ = map.get(_ctx, "veto_lib_roots")
+    _e2 = list.add(l, root)
+}
+target(_ctx: ptr, path: string) { _e = map.put(_ctx, "veto_target", path) }
+
+_str_opt(builder_map: ptr, key: string, dflt: string) {
+    if builder_map != null {
+        if map.has(builder_map, key) == 1 {
+            v, _ = map.get(builder_map, key)
+            if string.length(v) > 0 { return v }
+        }
+    }
+    return dflt
+}
+
+builder check(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    aetherc_bin = _str_opt(_builder, "veto_aetherc", "aetherc")
+    tgt_rel = _str_opt(_builder, "veto_target", "")
+    if string.length(tgt_rel) == 0 {
+        println("${mod_dir}: veto.check: declare target(\"path/to/file.ae\")")
+        build.fail(ctx, "veto.check: no target() declared")
+        return 1
+    }
+    tgt = tgt_rel
+    first = string.substring(tgt_rel, 0, 1)
+    if string.equals(first, "/") == 0 { tgt = path.join(source_dir, tgt_rel) }
+
+    lib_roots = list.new()
+    if _builder != null {
+        if map.has(_builder, "veto_lib_roots") == 1 { lib_roots, _ = map.get(_builder, "veto_lib_roots") }
+    }
+    rules = default_rules()
+
+    println("${mod_dir}: vetting ${tgt_rel} (aetherc --emit=ast)")
+    cmd = emit_ast_cmd(aetherc_bin, _lib_flags(lib_roots), tgt)
+    ast_json, _err = os.exec(cmd)
+    // os.exec gives us stdout; capture the exit via a marker run.
+    rc = os.system(string.concat(cmd, " >/dev/null 2>&1"))
+
+    reason = decide(ast_json, rc, lib_roots, rules)
+    if string.length(reason) > 0 {
+        println("${mod_dir}: VETOED — ${reason}")
+        build.fail(ctx, "vetoed: ${reason}")
+        return 1
+    }
+    println("${mod_dir}: veto CLEAR")
+    build._write_artifact(ctx, "veto_verdict", "clear")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}

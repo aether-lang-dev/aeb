@@ -1,7 +1,11 @@
 # Build veto and sandbox — vetting and containing an untrusted build
 
-Status: **design** (one tier-A veto is implemented in `lib/agent` /
-`tools/aeb-agent`; the rest is design). Companion to
+Status: **partially shipped.** Tier-A (layer 1a) is in `lib/agent`; the
+**2b AST-veto vertical slice is shipped in `lib/veto`** (consumes
+`aetherc --emit=ast`, shipped in aether v0.226.0 — verified end-to-end:
+vetoes a real `extern syscall`/`os.system`, clears clean code, fail-closes
+on no-AST). The policy-DSL front end, layers 1b/3, and Tiers B/C remain
+design. Companion to
 [`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md)
 (the sovereign-agent + policy-class design) and
 [`directions.md`](directions.md) (where this sits in the rings).
@@ -584,12 +588,20 @@ maybe_veto_build(repo, target, purpose):
    the June-2026 credential-harvest threat** — it dies at the libc boundary
    regardless of how the build computed the exfil. Linux-first (macOS/BSD fall
    back to the container layer).
-4. **Layer 2b — `aetherc --emit=ast` (upstream ask) + aeb-side AST walk.**
-   Filed: `../aether/veto-enhancements.md` asks the sibling for one generic
-   primitive — emit the name-resolved AST as stable JSON (per-node
-   `kind`/`file`/`line` + resolved callee symbol), fail-closed exit. aeb's
-   `lib/veto` policy walks it and decides — aeb owns categories/scoping, not
-   the compiler. (Stopgap 2a — `.c` grep — usable meanwhile, no aether change.)
+4. ~~**Layer 2b — `aetherc --emit=ast` + aeb-side AST walk.**~~ **SHIPPED
+   (slice, 2026-06-08).** `aetherc --emit=ast` landed in aether **v0.226.0**
+   (name-resolved AST as JSON: `kind`/`file`/`line` + resolved `callee`,
+   `indirect` flag, `variadic`/`selected[]`/`glob`; fail-closed exit). `lib/veto`
+   consumes it: `veto.check(b) { aetherc(...) target(...) }` runs `--emit=ast`,
+   walks `nodes[]`, applies rules (deny `extern`/`exec`/`net`/`import`),
+   classifies origin by `--lib` prefix (SDKs exempt), and **fail-closes** on
+   non-zero exit / indirect call / NULL-origin match. Verified live against the
+   v0.226.0 binary (`tests/test_veto.ae`, 44 assertions; end-to-end smoke
+   vetoes `extern syscall`, clears clean code). **Default policy:** deny all
+   externs *except a known-safe runtime allowlist* (`println` etc. — the live
+   smoke caught that a blanket deny false-positives on every ordinary program)
+   + deny exec. **Next:** the `.veto.ae` policy-DSL front end lowers onto these
+   rules. (Stopgap 2a — `.c` grep — no longer needed.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
    route to "read the build's intent" with no aether change. Parallel to 2b.

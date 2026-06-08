@@ -1,0 +1,180 @@
+// Tests for lib/veto's pure decision core (the 2b AST-veto layer).
+//
+// Exercises the real `aetherc --emit=ast` JSON shape (verified against
+// the v0.226.0 binary) through decide(), plus the per-node verdict logic
+// and the command/origin helpers. Edge cases: SDK-origin exemption,
+// indirect-call fail-close, NULL-origin surfacing, non-zero-exit and
+// bad-JSON fail-close, category allowlist-by-arg.
+
+import veto (emit_ast_cmd, _lib_flags, _is_lib_origin, _node_verdict,
+             decide, default_rules, _rule_kind, _rule_arg,
+             _is_exec_callee, _is_net_callee, _is_safe_runtime_extern)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+// vetoed = reason non-empty; clear = empty
+_vetoed(label: string, reason: string) { _assert(label, 1 - _empty(reason)) }
+_clear(label: string, reason: string)  { _assert(label, _empty(reason)) }
+_empty(s: string) { if string.length(s) == 0 { return 1 } return 0 }
+
+_libroots() {
+    l = list.new()
+    list.add(l, "/home/me/.aeb/lib")
+    list.add(l, "/usr/local/share/aeb/lib")
+    return l
+}
+
+main() {
+    // --- command + flag assembly ---
+    roots = _libroots()
+    _eq("emit_ast_cmd minimal",
+        emit_ast_cmd("aetherc", "", "/t/app.ae"),
+        "'aetherc' --emit=ast '/t/app.ae'")
+    _eq("lib_flags two roots",
+        _lib_flags(roots),
+        " --lib '/home/me/.aeb/lib' --lib '/usr/local/share/aeb/lib'")
+    _eq("lib_flags null → ''", _lib_flags(null), "")
+    _eq("emit_ast_cmd with libs",
+        emit_ast_cmd("aetherc", _lib_flags(roots), "/t/app.ae"),
+        "'aetherc' --emit=ast --lib '/home/me/.aeb/lib' --lib '/usr/local/share/aeb/lib' '/t/app.ae'")
+
+    // --- rule split ---
+    _eq("rule kind", _rule_kind("extern\t"), "extern")
+    _eq("rule arg empty", _rule_arg("extern\t"), "")
+    _eq("rule arg specific", _rule_arg("import\tstd.net"), "std.net")
+
+    // --- callee family classifiers ---
+    _assert("os_system is exec", _is_exec_callee("os_system"))
+    _assert("os_run_pipe is exec", _is_exec_callee("os_run_pipe"))
+    _assert("string_concat is NOT exec", 1 - _is_exec_callee("string_concat"))
+    _assert("tcp_connect is net", _is_net_callee("tcp_connect"))
+    _assert("http_get is net", _is_net_callee("http_get"))
+    _assert("os_system is NOT net", 1 - _is_net_callee("os_system"))
+
+    // --- origin classification ---
+    _assert("file under lib root → lib origin",
+        _is_lib_origin("/home/me/.aeb/lib/bash/module.ae", roots))
+    _assert("untrusted file → not lib origin",
+        1 - _is_lib_origin("/work/dispatched/.build.ae", roots))
+    _assert("empty file → not lib origin", 1 - _is_lib_origin("", roots))
+
+    rules = default_rules()   // deny extern, deny exec
+
+    // === Per-node verdict edge cases ===
+
+    // exec call in UNTRUSTED code → veto.
+    _vetoed("untrusted os_system vetoed",
+        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0, roots, rules))
+
+    // THE ALIAS-DEFEAT CASE: the call resolved to os_system regardless of
+    // how it was spelled — the AST already canonicalised it.
+    _vetoed("resolved os_system vetoed even if user wrote an alias",
+        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0, roots, rules))
+
+    // SAME call but from a TRUSTED --lib SDK → exempt (lib/bash legitimately
+    // shells out). This is the load-bearing origin discrimination.
+    _clear("SDK os_system exempt (lib origin)",
+        _node_verdict("function_call", "os_system", "", "", "/home/me/.aeb/lib/bash/module.ae", 0, roots, rules))
+
+    // extern declaration in untrusted code → veto (the choke point).
+    _vetoed("untrusted extern syscall vetoed",
+        _node_verdict("extern_function", "", "syscall", "", "/work/app.ae", 0, roots, rules))
+
+    // --- runtime-extern allowlist (found by the live smoke: every .ae
+    //     declares extern println; a blanket deny would false-positive) ---
+    _assert("println is a safe runtime extern", _is_safe_runtime_extern("println"))
+    _assert("syscall is NOT safe", 1 - _is_safe_runtime_extern("syscall"))
+    _assert("fopen is NOT safe", 1 - _is_safe_runtime_extern("fopen"))
+    // whole-category deny extern EXEMPTS println…
+    _clear("whole deny-extern exempts println (allowlist)",
+        _node_verdict("extern_function", "", "println", "", "/work/app.ae", 0, roots, rules))
+    // …but still trips the dangerous ones.
+    _vetoed("whole deny-extern still vetoes fopen",
+        _node_verdict("extern_function", "", "fopen", "", "/work/app.ae", 0, roots, rules))
+    // a SPECIFIC extern rule overrides the allowlist (operator can deny println).
+    denyprintln = list.new()
+    list.add(denyprintln, "extern\tprintln")
+    _vetoed("specific extern\\tprintln overrides the allowlist",
+        _node_verdict("extern_function", "", "println", "", "/work/app.ae", 0, roots, denyprintln))
+    // extern in a trusted SDK → exempt.
+    _clear("SDK extern exempt",
+        _node_verdict("extern_function", "", "fopen", "", "/usr/local/share/aeb/lib/c/module.ae", 0, roots, rules))
+
+    // INDIRECT call in untrusted code → fail-closed veto (no static target).
+    _vetoed("indirect untrusted call vetoed (fail-closed)",
+        _node_verdict("function_call", "", "", "", "/work/app.ae", 1, roots, rules))
+    // indirect call in a trusted SDK → exempt (origin checked before indirect).
+    _clear("indirect in SDK exempt",
+        _node_verdict("function_call", "", "", "", "/home/me/.aeb/lib/x/module.ae", 1, roots, rules))
+
+    // NULL/empty origin on a deny-match → surfaced (not silently trusted):
+    // the reason names <unknown-origin>.
+    nullorigin = _node_verdict("extern_function", "", "syscall", "", "", 0, roots, rules)
+    _vetoed("NULL-origin extern still vetoed", nullorigin)
+    _assert("NULL-origin reason names unknown-origin",
+        string.index_of(nullorigin, "<unknown-origin>") >= 0)
+
+    // benign call (not exec/net) in untrusted code → clear.
+    _clear("untrusted string_concat clear",
+        _node_verdict("function_call", "string_concat", "", "", "/work/app.ae", 0, roots, rules))
+
+    // net rule only fires when a net rule is present (default has none).
+    _clear("default rules don't veto tcp_connect (no net rule)",
+        _node_verdict("function_call", "tcp_connect", "", "", "/work/app.ae", 0, roots, rules))
+    netrules = list.new()
+    list.add(netrules, "net\t")
+    _vetoed("explicit net rule vetoes tcp_connect",
+        _node_verdict("function_call", "tcp_connect", "", "", "/work/app.ae", 0, roots, netrules))
+
+    // import rule with specific module arg.
+    imprules = list.new()
+    list.add(imprules, "import\tstd.net")
+    _vetoed("deny import std.net vetoes the import node",
+        _node_verdict("import_statement", "", "", "std.net", "/work/app.ae", 0, roots, imprules))
+    _clear("deny import std.net does NOT veto std.string",
+        _node_verdict("import_statement", "", "", "std.string", "/work/app.ae", 0, roots, imprules))
+
+    // === decide(): whole-AST, fail-closed paths, real JSON shape ===
+
+    // The exact shape the v0.226.0 binary emits (verified live).
+    real = "{\"nodes\":[{\"kind\":\"import_statement\",\"file\":\"/work/app.ae\",\"line\":1,\"module\":\"std.os\"},{\"kind\":\"extern_function\",\"file\":\"/work/app.ae\",\"line\":2,\"name\":\"syscall\"},{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"os_system\"}]}"
+    _vetoed("decide vetoes real evil AST (extern+exec present)",
+        decide(real, 0, roots, rules))
+
+    // A clean tree: only a benign call, no extern/exec.
+    clean = "{\"nodes\":[{\"kind\":\"import_statement\",\"file\":\"/work/app.ae\",\"line\":1,\"module\":\"std.string\"},{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":3,\"callee\":\"string_concat\"}]}"
+    _clear("decide clears a benign AST", decide(clean, 0, roots, rules))
+
+    // Same evil call but ALL nodes are SDK-origin → clear (exemption end-to-end).
+    sdkonly = "{\"nodes\":[{\"kind\":\"extern_function\",\"file\":\"/home/me/.aeb/lib/c/module.ae\",\"line\":2,\"name\":\"fopen\"},{\"kind\":\"function_call\",\"file\":\"/home/me/.aeb/lib/bash/module.ae\",\"line\":4,\"callee\":\"os_system\"}]}"
+    _clear("decide clears when all matches are SDK-origin", decide(sdkonly, 0, roots, rules))
+
+    // FAIL-CLOSED: non-zero aetherc exit → veto regardless of (absent) AST.
+    _vetoed("decide fail-closes on non-zero emit exit",
+        decide("", 1, roots, rules))
+    _vetoed("decide fail-closes on emit exit even with clean-looking json",
+        decide(clean, 2, roots, rules))
+
+    // FAIL-CLOSED: malformed / non-AST JSON → veto.
+    _vetoed("decide fail-closes on unparseable json",
+        decide("{not json", 0, roots, rules))
+    _vetoed("decide fail-closes on json without nodes array",
+        decide("{\"other\":1}", 0, roots, rules))
+
+    // indirect call in the AST → fail-closed veto.
+    indirect = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":5,\"indirect\":true}]}"
+    _vetoed("decide fail-closes on an indirect untrusted call",
+        decide(indirect, 0, roots, rules))
+
+    println("veto decision-core tests done")
+}
