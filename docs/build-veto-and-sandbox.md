@@ -132,8 +132,9 @@ The key design question you raised: inspect the **generated `.c`** or the
     veto (`aeb query`/`rdeps` want it too).
   - **aeb's job (this repo):** own the **policy and the decision** — walk that
     AST against operator rules and veto. aeb does *not* push categories into
-    the compiler; the deny/allow policy is an aeb-side `.veto.ae` DSL (see
-    "The policy surface" below). What aeb vetoes: any **`extern`** in the
+    the compiler; the deny/allow policy is an aeb-side out-of-tree policy
+    `.ae` DSL (see "The policy surface" below). What aeb vetoes: any
+    **`extern`** in the
     untrusted graph (the bypass the containment doc flags), `os.*` exec,
     un-allowlisted `tcp`/`http`, forbidden imports.
 
@@ -161,7 +162,7 @@ compiled from untrusted source — inherits a deny-by-default profile it
 cannot widen. (Not a "secret wrapper `main()`" — the *driver* wraps the
 node; same effect, cleaner seam, and it's per-node not per-whole-build.)
 
-## The policy surface — `.veto.ae` (DSL), not a flag list
+## The policy surface — an out-of-tree policy `.ae` (DSL), not a flag list
 
 The deny/allow policy for layers 1 and 2b is **not** a CLI category-list
 (`--deny extern,exec,…`) and **not** an external `deny.toml`. Both were
@@ -172,12 +173,33 @@ rejected:
 - an external config format violates aeb's founding rule (*the `.ae` file is
   the single source of truth; external formats only via shell-out*).
 
-So the policy is an **aeb-native `.veto.ae` closure-DSL**, served by a new
-`lib/veto` SDK — same shape as every `.build.ae`:
+So the policy is an **aeb-native closure-DSL `.ae` file**, served by a new
+`lib/veto` SDK — same *shape* as a `.build.ae`, but with one critical
+difference in **where it lives and how aeb finds it.**
+
+> **NOT a dot-prefixed in-tree target.** aeb scans every dot-prefixed `.ae`
+> under cwd and makes it a DAG **node** ("filename is the route"). A policy
+> must be the *opposite* of that — it polices the tree, so it must not be a
+> node *in* the tree, and an untrusted dispatch must not be able to ship its
+> own. So the policy file is **not** called `.veto.ae` next to `.build.ae`
+> (an earlier draft of this doc implied that — it was wrong: aeb's scanner
+> would slurp it into the graph, and the untrusted tree could supply it).
+> Instead it is a **plainly-named `.ae` at an operator-trusted, out-of-tree
+> location**, loaded *as policy* by `--vet`, never scanned as a target:
+>
+> - `aeb --vet --veto-policy /etc/aeb/policy.ae` (explicit operator path), or
+> - `$AEB_HOME/veto/default.ae` (the shipped default), or
+> - `.aeb/veto/policy.ae` (per-project, under the already-non-scanned `.aeb/`
+>   config dir — same trusted space as the `.aeb/lib/<sdk>` symlinks).
+>
+> aeb must **refuse** a `--veto-policy` path that resolves inside the build
+> tree (the requester writing their own exemption = gate dead). The filename
+> is irrelevant *because it is not a target* — `policy.ae`, not a `.`-prefix.
 
 ```aether
-// .veto.ae — operator policy. Lives OUTSIDE the build tree (see provenance),
-// reviewed in PRs, version-controlled, typed.
+// /etc/aeb/policy.ae (or $AEB_HOME/veto/default.ae) — operator policy.
+// A normal .ae aeb compiles+runs AS POLICY — NOT a dot-prefixed build node.
+// Lives outside the build tree; reviewed in PRs; version-controlled; typed.
 import veto (policy, deny, allow_exec, allow_import, scope, default_grants)
 main() {
     p = veto.policy()
@@ -205,15 +227,15 @@ main() {
 
 Three properties this buys, each answering a requirement:
 
-1. **Self-vetting / lint (the "what vets the vetter" answer).** `.veto.ae`
-   *is Aether* — `aetherc` typechecks it when aeb compiles it. A malformed
+1. **Self-vetting / lint (the "what vets the vetter" answer).** The policy
+   `.ae` *is Aether* — `aetherc` typechecks it when aeb compiles it. A malformed
    policy (`veto.dney(...)`, wrong arity, an unknown rule keyword the `veto`
    SDK rejects) is a **compile error**, not a silent empty policy. aeb adds a
    semantic lint on top: **`--vet` with a policy that resolves to zero rules is
    itself an error** (vet-requested-but-denies-nothing → refuse, never fall
    through). Fail-closed by construction.
 
-2. **Outside the source tree (the security property).** The `.veto.ae` is
+2. **Outside the source tree (the security property).** The policy `.ae` is
    **operator-owned**, resolved from a trusted path (`$AEB_HOME/veto/` or an
    operator `--veto-policy <path>`), **never from the dispatched/untrusted
    tree**. aeb must *refuse* a policy path that resolves inside the build tree
@@ -221,17 +243,17 @@ Three properties this buys, each answering a requirement:
    Same provenance rule as the `--lib` SDK roots; same trust line as the
    project-vs-toolchain import split (`LLM.md`).
 
-3. **Cached once compiled.** `.veto.ae` → compiled policy is a pure
+3. **Cached once compiled.** The policy `.ae` → compiled policy is a pure
    content-addressed build product (`lib/cache`): key on
-   `sha256(.veto.ae) + toolchain-version`, compile **once**, reuse until the
+   `sha256(policy.ae) + toolchain-version`, compile **once**, reuse until the
    policy source changes. `--vet` then costs one hash check, not a
    policy-recompile per build node. (The untrusted tree's emitted AST is
    likewise cacheable per-node on its source hash.)
 
 ### How the DSL lowers
 
-`.veto.ae` is the *front end*; the enforcement primitives are the *back end*.
-aeb compiles+runs the policy (the doppelganger move — a builder that populates
+The policy `.ae` is the *front end*; the enforcement primitives are the *back
+end*. aeb compiles+runs the policy (the doppelganger move — a builder that populates
 a rule map, exactly like a `.build.ae` populates a build map), producing a
 resolved rule set, then:
 
@@ -536,8 +558,9 @@ maybe_veto_build(repo, target, purpose):
 
 0. **The `--vet` launch mode + the policy surface** — the shared seam. A flag
    on `aeb` and `aeb-agent` (operator-set; a dispatch/`.build.ae` can't clear
-   it) that turns on layers 1/2/3 against the build's own tree, driven by a
-   `.veto.ae` policy (the `lib/veto` SDK) or the built-in default — *no CLI
+   it) that turns on layers 1/2/3 against the build's own tree, driven by an
+   out-of-tree policy `.ae` (the `lib/veto` SDK; loaded via `--veto-policy`,
+   NOT a dot-prefixed in-tree target) or the built-in default — *no CLI
    category-list*. Policy is operator-trusted (outside the build tree),
    self-vetting (it's Aether → typechecks), and content-addressed-cached after
    compile. For the agent the seam is `maybe_veto_build` already; for non-agent
