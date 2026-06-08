@@ -16,9 +16,11 @@
 // Origin: a node whose `file` is under a trusted --lib root is exempt
 // (the SDKs legitimately os.system/extern); only the untrusted tree trips.
 //
-// This first slice ships the built-in default policy (deny extern, deny
-// exec) as pure rules; the .veto.ae closure-DSL front end (the policy
-// surface) lowers onto these same rules and is the next increment.
+// The built-in default policy (deny extern, deny exec) is `default_rules()`.
+// An operator authors richer policy in an OUT-OF-TREE policy `.ae` (NOT a
+// dot-prefixed in-tree target — see docs/build-veto-and-sandbox.md) via the
+// closure-DSL below (`veto.policy`/`deny`/`banned`/`allow_exec`/…), which
+// lowers onto the same "<kind>\t<arg>" rule list `decide()` consumes.
 import build
 import std.string
 import std.io
@@ -55,6 +57,100 @@ _rule_arg(rule: string) {
     idx = string.index_of(rule, "\t")
     if idx < 0 { return "" }
     return string.substring(rule, idx + 1, string.length(rule))
+}
+
+// --- Policy DSL (the out-of-tree policy.ae front end) ---
+//
+// An operator-trusted policy.ae (loaded by --vet, NEVER a dot-prefixed
+// in-tree target) authors rules in Aether — so a malformed policy is a
+// *compile error* (self-vetting), not a silent empty policy:
+//
+//   import veto (policy, deny, banned, allow_exec, allow_import, scope)
+//   main() {
+//       p = veto.policy()
+//       veto.deny(p, "extern")              // whole category
+//       veto.deny(p, "net")
+//       veto.banned(p, "evil.com")          // substring in any literal arg
+//       veto.allow_exec(p, "gcc")           // exempt gcc from a deny-exec
+//       veto.allow_import(p, "std.string")
+//       veto.scope(p, "untrusted")          // (recorded; default scope)
+//   }
+//
+// aeb compiles+runs this, then reads the resolved rule list via
+// `policy_rules(p)` (the doppelganger move — the closure populates a map
+// exactly like a .build.ae). The setters are pure data accumulation.
+//
+// Lowering: every setter appends one "<kind>\t<arg>" string to the map's
+// veto_rules list — the SAME format `decide()`/`_node_verdict` consume.
+//   deny(p, "extern")        → "extern\t"
+//   deny(p, "exec\tos_exec") → "exec\tos_exec"   (specific)  [pass the full arg]
+//   banned(p, "evil.com")    → "banned\tevil.com"
+//   allow_exec(p, "gcc")     → "allow\texec\tgcc"
+//   allow_import(p,"std.os")  → "allow\timport\tstd.os"
+//   scope(p, "untrusted")    → recorded as veto_scope (not a rule)
+
+// policy() — a fresh policy object (a map carrying an empty rule list).
+policy() {
+    p = map.new()
+    _e = map.put(p, "veto_rules", list.new())
+    return p
+}
+
+_policy_add(p: ptr, rule: string) {
+    if map.has(p, "veto_rules") == 0 { _e0 = map.put(p, "veto_rules", list.new()) }
+    rs, _ = map.get(p, "veto_rules")
+    _e = list.add(rs, rule)
+}
+
+// deny(p, "<kind>" | "<kind>\t<arg>") — a deny rule. Bare kind = whole
+// category; "kind\targ" = a specific symbol/module/extern.
+deny(p: ptr, spec: string) {
+    // Accept either "extern" or "extern\tname" — store verbatim (already
+    // the wire format when it carries a tab; otherwise it's the whole
+    // category, which is "<kind>\t" with an empty arg).
+    if string.index_of(spec, "\t") >= 0 {
+        _policy_add(p, spec)
+    } else {
+        _policy_add(p, string.concat(spec, "\t"))
+    }
+}
+
+// banned(p, "<substring>") — veto when the substring appears in any call's
+// literal argument (coordinate/host/command fragment).
+banned(p: ptr, substring: string) {
+    _policy_add(p, string.concat("banned\t", substring))
+}
+
+// allow_exec(p, "<sym-or-path>") — exempt this exec target from a deny-exec.
+allow_exec(p: ptr, sym: string) {
+    _policy_add(p, string.concat("allow\texec\t", sym))
+}
+
+// allow_import(p, "<module>") — exempt this import from a deny-import.
+allow_import(p: ptr, modpath: string) {
+    _policy_add(p, string.concat("allow\timport\t", modpath))
+}
+
+// scope(p, "untrusted") — recorded for future per-scope policy; the default
+// and only behaviour today is "rules fire on non-`--lib` (untrusted) nodes".
+scope(p: ptr, s: string) {
+    _e = map.put(p, "veto_scope", s)
+}
+
+// policy_rules(p) — the resolved rule list a policy.ae produced, for
+// decide(). Returns the empty list (not null) when nothing was declared.
+policy_rules(p: ptr) {
+    if p == null { return list.new() }
+    if map.has(p, "veto_rules") == 0 { return list.new() }
+    rs, _ = map.get(p, "veto_rules")
+    return rs
+}
+
+// policy_rule_count(p) — for the self-vetting lint: --vet with a policy that
+// resolves to ZERO rules is itself an error (vet-requested-but-denies-nothing
+// → refuse, never fall through). The caller treats 0 as fail-closed.
+policy_rule_count(p: ptr) {
+    return list.size(policy_rules(p))
 }
 
 // --- Command builder (pure) ---
@@ -163,6 +259,10 @@ _node_verdict(kind: string, callee: string, name: string, modpath: string,
         // With args on the wire, a deny-exec rule ALSO fail-closes a shell
         // call handed a computed (non-literal) argument — a build that
         // computes what it shells out can't be vetted statically.
+        //
+        // allow_exec("<cmd>") exempts an exec whose LITERAL command names an
+        // allowed program (the first token of the literal arg). A computed
+        // arg can't be checked → never allowed → fail-close stands.
         if string.equals(rk, "exec") == 1 {
             if string.equals(kind, "function_call") == 1 {
                 if _is_exec_callee(callee) == 1 {
@@ -170,7 +270,9 @@ _node_verdict(kind: string, callee: string, name: string, modpath: string,
                         if arg_computed == 1 {
                             return _reason_arg("exec", callee, file, "<computed-arg>")
                         }
-                        return _reason_arg("exec", callee, file, arg_literal)
+                        if _exec_allowed(rules, arg_literal) == 0 {
+                            return _reason_arg("exec", callee, file, arg_literal)
+                        }
                     }
                 }
             }
@@ -189,9 +291,13 @@ _node_verdict(kind: string, callee: string, name: string, modpath: string,
                 }
             }
         }
-        // import: match the imported module path.
+        // import: match the imported module path. allow_import("<mod>")
+        // exempts that module from a deny-import.
         if string.equals(rk, "import") == 1 {
             if string.equals(kind, "import_statement") == 1 {
+                if _import_allowed(rules, modpath) == 1 {
+                    // exempt
+                } else
                 if string.length(ra) == 0 || string.equals(ra, modpath) == 1 {
                     return _reason("import", modpath, file)
                 }
@@ -249,6 +355,59 @@ _is_exec_callee(c: string) {
 _is_net_callee(c: string) {
     if string.equals(c, "tcp_connect") == 1 { return 1 }
     if string.starts_with(c, "http_") == 1 { return 1 }
+    return 0
+}
+
+// _first_token(s) — the first whitespace-delimited token of a command
+// string (`"gcc -c foo.c"` → `"gcc"`). The program an exec invokes.
+_first_token(s: string) {
+    sp = string.index_of(s, " ")
+    if sp < 0 { return s }
+    return string.substring(s, 0, sp)
+}
+
+// _exec_allowed(rules, arg_literal) — 1 if an `allow\texec\t<cmd>` rule
+// names the program this exec invokes (the first token of the literal
+// command). "" literal → not allowed (can't identify the program).
+_exec_allowed(rules: ptr, arg_literal: string) {
+    if string.length(arg_literal) == 0 { return 0 }
+    prog = _first_token(arg_literal)
+    n = list.size(rules)
+    i = 0
+    while i < n {
+        r, _ = list.get(rules, i)
+        i = i + 1
+        // allow rule: kind "allow", arg "exec\t<cmd>"
+        if string.equals(_rule_kind(r), "allow") == 1 {
+            ra = _rule_arg(r)               // "exec\t<cmd>"
+            if string.equals(_rule_kind(ra), "exec") == 1 {
+                allowed = _rule_arg(ra)     // "<cmd>"
+                if string.equals(allowed, prog) == 1 { return 1 }
+                // also allow the whole literal matching (e.g. allow an
+                // exact command with args)
+                if string.equals(allowed, arg_literal) == 1 { return 1 }
+            }
+        }
+    }
+    return 0
+}
+
+// _import_allowed(rules, modpath) — 1 if an `allow\timport\t<mod>` rule
+// names this module.
+_import_allowed(rules: ptr, modpath: string) {
+    if string.length(modpath) == 0 { return 0 }
+    n = list.size(rules)
+    i = 0
+    while i < n {
+        r, _ = list.get(rules, i)
+        i = i + 1
+        if string.equals(_rule_kind(r), "allow") == 1 {
+            ra = _rule_arg(r)               // "import\t<mod>"
+            if string.equals(_rule_kind(ra), "import") == 1 {
+                if string.equals(_rule_arg(ra), modpath) == 1 { return 1 }
+            }
+        }
+    }
     return 0
 }
 

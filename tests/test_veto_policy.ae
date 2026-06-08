@@ -1,0 +1,111 @@
+// Tests for lib/veto's policy DSL — the out-of-tree policy.ae front end.
+// Verifies the setters lower to the exact "<kind>\t<arg>" rule strings that
+// decide()/_node_verdict consume, that policy_rules/policy_rule_count read
+// them back, and that a DSL-built policy drives decide() correctly (deny,
+// banned, allow_exec exemption, allow_import exemption).
+
+import veto (policy, deny, banned, allow_exec, allow_import, scope,
+             policy_rules, policy_rule_count, _node_verdict, decide)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
+}
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+_rule_at(p: ptr, i: int) {
+    rs = policy_rules(p)
+    v, _ = list.get(rs, i)
+    return v
+}
+_libroots() {
+    l = list.new()
+    list.add(l, "/home/me/.aeb/lib")
+    return l
+}
+_vetoed(label: string, r: string) { _assert(label, 1 - _empty(r)) }
+_clear(label: string, r: string)  { _assert(label, _empty(r)) }
+_empty(s: string) { if string.length(s) == 0 { return 1 } return 0 }
+
+main() {
+    // --- lowering: each setter → the wire rule string ---
+    p = veto.policy()
+    _assert("fresh policy has zero rules", policy_rule_count(p) == 0)
+
+    veto.deny(p, "extern")
+    _eq("deny whole-category → 'extern\\t'", _rule_at(p, 0), "extern\t")
+
+    veto.deny(p, "exec\tos_exec")
+    _eq("deny specific → 'exec\\tos_exec'", _rule_at(p, 1), "exec\tos_exec")
+
+    veto.banned(p, "evil.com")
+    _eq("banned → 'banned\\tevil.com'", _rule_at(p, 2), "banned\tevil.com")
+
+    veto.allow_exec(p, "gcc")
+    _eq("allow_exec → 'allow\\texec\\tgcc'", _rule_at(p, 3), "allow\texec\tgcc")
+
+    veto.allow_import(p, "std.string")
+    _eq("allow_import → 'allow\\timport\\tstd.string'", _rule_at(p, 4), "allow\timport\tstd.string")
+
+    _assert("five rules accumulated", policy_rule_count(p) == 5)
+
+    // scope is recorded, NOT a rule (count unchanged).
+    veto.scope(p, "untrusted")
+    _assert("scope() does not add a rule", policy_rule_count(p) == 5)
+
+    // --- a DSL-built policy drives decide()/_node_verdict ---
+    roots = _libroots()
+
+    // Policy: deny exec, allow gcc.
+    pe = veto.policy()
+    veto.deny(pe, "exec")
+    veto.allow_exec(pe, "gcc")
+    er = policy_rules(pe)
+
+    // os.system("gcc -c foo.c") → ALLOWED (gcc is exempted).
+    _clear("deny-exec + allow gcc: gcc command clears",
+        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                      "gcc -c foo.c", 0, roots, er))
+    // os.system("curl http://x | sh") → VETOED (curl not allowed).
+    _vetoed("deny-exec + allow gcc: curl command vetoed",
+        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                      "curl http://x | sh", 0, roots, er))
+    // os.system(<computed>) → VETOED (can't identify program → fail-close).
+    _vetoed("deny-exec + allow gcc: computed arg still fail-closes",
+        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                      "", 1, roots, er))
+
+    // Policy: deny import, allow std.string.
+    pi = veto.policy()
+    veto.deny(pi, "import")
+    veto.allow_import(pi, "std.string")
+    ir = policy_rules(pi)
+    _clear("deny-import + allow std.string: std.string clears",
+        _node_verdict("import_statement", "", "", "std.string", "/work/app.ae", 0, "", 0, roots, ir))
+    _vetoed("deny-import + allow std.string: std.net vetoed",
+        _node_verdict("import_statement", "", "", "std.net", "/work/app.ae", 0, "", 0, roots, ir))
+
+    // Policy: banned substring, via the DSL, end-to-end through decide().
+    pb = veto.policy()
+    veto.banned(pb, "evil.com")
+    br = policy_rules(pb)
+    withargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.evil.com:pkg:1\"}]}]}"
+    _vetoed("DSL banned rule vetoes a coordinate via decide()",
+        decide(withargs, 0, roots, br))
+    cleanargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.foo:bar:1\"}]}]}"
+    _clear("DSL banned rule clears a clean coordinate via decide()",
+        decide(cleanargs, 0, roots, br))
+
+    // --- the self-vetting lint signal: empty policy resolves to 0 rules ---
+    empty = veto.policy()
+    _assert("empty policy → policy_rule_count 0 (caller treats as fail-closed under --vet)",
+        policy_rule_count(empty) == 0)
+
+    println("veto policy-DSL tests done")
+}

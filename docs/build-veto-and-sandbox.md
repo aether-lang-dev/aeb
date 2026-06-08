@@ -4,8 +4,11 @@ Status: **partially shipped.** Tier-A (layer 1a) is in `lib/agent`; the
 **2b AST-veto vertical slice is shipped in `lib/veto`** (consumes
 `aetherc --emit=ast`, shipped in aether v0.226.0 — verified end-to-end:
 vetoes a real `extern syscall`/`os.system`, clears clean code, fail-closes
-on no-AST). The policy-DSL front end, layers 1b/3, and Tiers B/C remain
-design. Companion to
+on no-AST). The **policy-DSL front end is shipped** in `lib/veto`
+(`veto.policy`/`deny`/`banned`/`allow_exec`/`allow_import`/`scope` → the rule
+list `decide()` consumes; an out-of-tree `policy.ae`, self-vetting via the
+compiler). The `--vet` launch wiring (loading the policy file by path), layers
+1b/3, and Tiers B/C remain design. Companion to
 [`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md)
 (the sovereign-agent + policy-class design) and
 [`directions.md`](directions.md) (where this sits in the rings).
@@ -332,10 +335,15 @@ the substring appears in any call's literal argument — the targeted
 coordinate/host/command check (`banned\tevil.com` →
 `maven.dep("…evil.com…")` / `os.system("curl …evil.com…")`). SDK-origin nodes
 stay exempt. `tests/test_veto.ae`: 57 assertions, incl. the real post-v0.227.0
-`args[]` JSON shape end-to-end. Still ahead: the out-of-tree policy `.ae` DSL
-(see "The policy surface" — an operator-trusted `policy.ae`, *not* a dot-prefixed
-`.veto.ae` target) that lets operators author `banned`/allow rules, and an
-`allow`/coordinate-allowlist counterpart.)*
+`args[]` JSON shape end-to-end. **The policy DSL is now shipped too** (see "The
+policy surface"): an out-of-tree `policy.ae` authors `deny`/`banned`/
+`allow_exec`/`allow_import`/`scope` via the `lib/veto` setters, which lower onto
+this same rule list; `allow_exec("gcc")` exempts a `gcc` command from a
+deny-exec, `allow_import` exempts a module from a deny-import. `tests/
+test_veto_policy.ae` (16 assertions) + a live smoke (a real `policy.ae` compiles,
+runs, and a typo'd setter is a hard compile error — self-vetting). Still ahead:
+wiring the policy into the actual `--vet` launch flow, and a positive
+coordinate-allowlist counterpart to `banned`.)*
 
 ### Layer 3 — runtime containment (the part the source set can't override)
 
@@ -388,30 +396,32 @@ difference in **where it lives and how aeb finds it.**
 // /etc/aeb/policy.ae (or $AEB_HOME/veto/default.ae) — operator policy.
 // A normal .ae aeb compiles+runs AS POLICY — NOT a dot-prefixed build node.
 // Lives outside the build tree; reviewed in PRs; version-controlled; typed.
-import veto (policy, deny, allow_exec, allow_import, scope, default_grants)
+import veto (policy, deny, banned, allow_exec, allow_import, scope)
 main() {
     p = veto.policy()
 
-    // --- layer 2b (AST) rules ---
+    // --- layer 2b (AST) rules — SHIPPED ---
     veto.deny(p, "extern")               // no raw C escapes in untrusted code
     veto.deny(p, "net")                  // no tcp/http reach
     veto.deny(p, "exec")                 // deny shell-out by default…
     veto.allow_exec(p, "gcc")            // …except the toolchain
     veto.allow_exec(p, "javac")
     veto.allow_exec(p, "/usr/bin/ld")
-    veto.allow_import(p, "std.string")   // import allowlist; everything else denied
+    veto.allow_import(p, "std.string")   // exempt this module from deny-import
+    veto.banned(p, "evil.com")           // substring in any literal arg → veto
 
-    // --- layer 1 rules (tree/source patterns) ---
-    veto.deny(p, "file:binding.gyp")     // the Phantom-Gyp vector
-    veto.deny(p, "pattern:curl .*| *sh") // curl|sh literal
-
-    // --- layer 3 runtime grants (the deny-by-default sandbox profile) ---
-    veto.default_grants(p)               // no tcp, no cred env, exec=allowlist above
-
-    // --- scoping ---
-    veto.scope(p, "untrusted")           // rules fire on the build tree, NOT --lib SDKs
+    veto.scope(p, "untrusted")           // recorded; default = non-`--lib` nodes
 }
 ```
+
+The setters above (`deny`/`banned`/`allow_exec`/`allow_import`/`scope`,
+`policy()`/`policy_rules()`/`policy_rule_count()`) **ship today** in `lib/veto`
+and lower onto the `decide()` rule list. *Designed, not yet wired:* layer-1
+source-pattern rules (`deny("file:binding.gyp")`, `deny("pattern:curl…")` → the
+`lib/agent` `_veto_run_rules` engine) and layer-3 sandbox grants
+(`default_grants(p)` → the `spawn_sandboxed` profile) — those lower onto the
+*other* layers' engines, which aren't connected to the policy object yet. A
+single `policy.ae` is intended to drive all three layers; today it drives 2b.
 
 Three properties this buys, each answering a requirement:
 
@@ -787,11 +797,13 @@ maybe_veto_build(repo, target, purpose):
    clears clean code). **Default policy:** deny all
    externs *except a known-safe runtime allowlist* (`println` etc. — the live
    smoke caught that a blanket deny false-positives on every ordinary program)
-   + deny exec; and (args[] consumed) the `banned\t<substring>` rule + computed-
-   arg fail-close. **Next:** the out-of-tree policy `.ae` DSL front end (an
-   operator-trusted `policy.ae`, not a dot-prefixed in-tree target) lowers onto
-   these rules (so operators author `banned`/allow policy), and a positive
-   coordinate-allowlist counterpart. (Stopgap 2a — `.c` grep — no longer needed.)
+   + deny exec; (args[] consumed) the `banned\t<substring>` rule + computed-arg
+   fail-close; and the **policy DSL** (`veto.policy`/`deny`/`banned`/
+   `allow_exec`/`allow_import`/`scope` → the rule list; `test_veto_policy.ae`,
+   16 assertions + live smoke). **Next:** wire the `policy.ae` into the `--vet`
+   launch flow (resolve the operator path, enforce the zero-rules lint), and a
+   positive coordinate-allowlist counterpart to `banned`.
+   (Stopgap 2a — `.c` grep — no longer needed.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
    route to "read the build's intent" with no aether change. Parallel to 2b.
