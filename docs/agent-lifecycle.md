@@ -12,7 +12,7 @@ Companion docs — read for the surrounding context, NOT duplicated here:
   — the **protocol** (fire-async → terse webhook → sync-pull details),
   the **decision** (accept/busy/reject), policy class × grant, the
   sovereign-peer model. Everything *up to and including* "accept."
-- [`veto-alternates.md`](veto-alternates.md) — the **veto** station in
+- [`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) — the **veto** station in
   depth (three tiers) and the **containment** layers (Aether sandbox,
   container) that backstop it.
 
@@ -33,7 +33,7 @@ agent.dispatch  ───POST /dispatch──▶ auth-veto (token)         ◀�
                                      │ 1. fetch    (git fetch origin) │
                                      │ 2. checkout (git checkout hash)│   _prepare_tree
                                      │ 3. apply    (git apply patch)  │
-                                     │ 4. veto     (maybe_veto_build) │   ◀── veto-alternates.md
+                                     │ 4. veto     (maybe_veto_build) │   ◀── build-veto-and-sandbox.md
                                      │ 5. build    (aeb <target>)     │
                                      └────────────────────────────────┘
                 ◀──webhook (terse)── verdict  {done, pass|fail}        ── (policy-class doc)
@@ -126,7 +126,7 @@ Code: `_prepare_tree`, the `patch_b64`-gated block.
 ### 4. veto — `maybe_veto_build(repo, target, purpose)`
 
 The agent's own policy gate over the *prepared* tree. Covered fully in
-[`veto-alternates.md`](veto-alternates.md) — three tiers (tree scan / SBOM /
+[`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) — three tiers (tree scan / SBOM /
 doppelganger trace), today a single tier-A stub. Refusal here is a distinct
 status (`vetoed`, HTTP 422), **not** a build failure.
 
@@ -141,7 +141,7 @@ Run the build the dispatch asked for, in the workdir. Today a bare
 `pass`/`fail`.
 
 **Gaps** — these are the *containment* gaps, covered in
-[`veto-alternates.md`](veto-alternates.md) § "Veto is policy; containment is
+[`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) § "Veto is policy; containment is
 enforcement": the build runs **unsandboxed** on the bare host process. The
 documented next step is `spawn_sandboxed(grants, "aeb", target)` (contains
 the whole build subtree at the libc boundary), with the container layer
@@ -225,7 +225,7 @@ Robustness and attacker-resistance of the pipeline, cheapest-first:
 4. **Granular prepare failure taxonomy.** Per-station, per-cause reasons
    carried via `details_url`; keep the terse callback skinny.
 5. **Build containment (station 5).** `spawn_sandboxed` + container
-   hardening — see `veto-alternates.md`.
+   hardening — see `build-veto-and-sandbox.md`.
 6. **Fetch hardening (station 1).** Ref-resolution check, depth bounds,
    private-origin auth — lower priority (the agent owns the origin, so the
    trust property already holds; this is amplification/robustness).

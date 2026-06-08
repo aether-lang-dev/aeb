@@ -100,7 +100,7 @@ store — while deliberately **not** growing the **materialization** story
   that *is* the architecture choice, restated below.
 - **Hermetic sandbox per build.** Nix isolates each derivation from the
   ambient system. aeb's isolation story is the **veto + container
-  containment** layers (see [`veto-alternates.md`](veto-alternates.md) /
+  containment** layers (see [`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) /
   [`containment-and-the-control-plane.md`](containment-and-the-control-plane.md))
   — policy + optional container, not a mandatory per-build sandbox.
   Different product: aeb contains for *trust/safety on a shared agent*,

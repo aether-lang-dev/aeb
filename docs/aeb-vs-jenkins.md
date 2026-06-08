@@ -58,7 +58,7 @@ scattered across the design docs. The as-CI capability is largely
 | `input` step (manual approval) | [`aeb-approval-hooks.md`](aeb-approval-hooks.md) — approval evidence/gate | [have]/[design] |
 | SCM polling / webhook trigger | [`webhook-triggers.md`](webhook-triggers.md) (outbound today; inbound trigger is the gap) | [have] outbound / [design] inbound |
 | `post { always { … } }` (cleanup) | the queryable state machine + always-last `.cleanup.ae` node in [`lifecycle_plan.md`](lifecycle_plan.md) | [have] status machine / [design] cleanup-node |
-| Build-step sandbox / Groovy sandbox | the **veto** tiers + container containment in [`veto-alternates.md`](veto-alternates.md) | [have] Tier A / [design] B,C |
+| Build-step sandbox / Groovy sandbox | the **veto** tiers + container containment in [`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) | [have] Tier A / [design] B,C |
 | Folder/job permissions | policy-class × grant (`ci` vs `pre-integration`, authority + cache namespace) | [design] |
 | Plugins | `lib/<lang>` SDKs + `.aeb/lib/<name>` consumer SDKs | [have] |
 | Build history / blue-ocean UI | `[telemetry]` records + artifact manifests; no server-side history store | [have] per-run / [no] durable store |
@@ -105,7 +105,7 @@ painful:
    (not interpreted in-process in the controller), and the security
    boundary is **not** "sandbox the pipeline language" but the layered
    **veto (policy) + container/OS containment (enforcement)** split that
-   [`veto-alternates.md`](veto-alternates.md) is explicit about —
+   [`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) is explicit about —
    *"veto is policy; containment is enforcement — they are different
    layers."* Don't put the trust boundary in the DSL interpreter; keep it
    in the container/process layer, where

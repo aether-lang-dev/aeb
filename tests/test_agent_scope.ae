@@ -125,7 +125,7 @@ main() {
     _eq("pool line2 token empty", _pool_token_of(l2), "")
     _assert("pool skips comments + blanks", 1)
 
-    // --- Tier-A veto: pure rule helpers (docs/veto-alternates.md) ---
+    // --- Tier-A veto: pure rule helpers (docs/build-veto-and-sandbox.md) ---
     // _veto_rule_field: tab-split field extraction.
     row = "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id"
     _eq("veto field id", _veto_rule_field(row, 0), "aws-akid")

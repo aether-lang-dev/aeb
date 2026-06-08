@@ -656,7 +656,7 @@ builder dispatch(ctx: ptr) {
 }
 
 // ============================================================================
-// Tier-A veto: pluggable tree/patch scan (docs/veto-alternates.md).
+// Tier-A veto: pluggable tree/patch scan (docs/build-veto-and-sandbox.md).
 //
 // The agent's OWN gate, run on the PREPARED tree (post-checkout, post-patch)
 // BEFORE the build. Generalizes the original single hardcoded grep into a small

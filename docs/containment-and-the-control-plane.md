@@ -48,7 +48,7 @@ restricting the next without the next knowing its depth:
 aeb (control plane)                       sees + configures everything below
   └─ aeb-agent container                  granted ports/mounts/tokens; only suspects confinement
        └─ the leased pre-integration build agent's --workdir/--repo bound the build
-            └─ spawn_sandboxed build subtree   fs/exec/tcp grants (docs/veto-alternates.md)
+            └─ spawn_sandboxed build subtree   fs/exec/tcp grants (docs/build-veto-and-sandbox.md)
 ```
 
 - aeb contains the **agent container** (Exhibit 3): the deploy configures its
@@ -59,7 +59,7 @@ aeb (control plane)                       sees + configures everything below
   The build doesn't know it's leased.
 - the build is contained again by **`spawn_sandboxed`**: an `LD_PRELOAD` grant
   list (fs_read/fs_write/exec/tcp) the build subtree can't see or escape
-  (`docs/veto-alternates.md` § "Veto is policy; containment is enforcement").
+  (`docs/build-veto-and-sandbox.md` § "Veto is policy; containment is enforcement").
   This is the post's "further restricted without knowledge of its nesting
   depth" exactly — `gcc`, `cc1`, `javac` all run gated and none of them know.
 

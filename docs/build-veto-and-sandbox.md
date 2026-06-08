@@ -1,19 +1,159 @@
-# Veto alternates — how `maybe_veto_build` decides
+# Build veto and sandbox — vetting and containing an untrusted build
 
-Status: **design** (one tiny tier-A veto is implemented in `tools/aeb-agent`;
-the rest is design). Companion to
+Status: **design** (one tier-A veto is implemented in `lib/agent` /
+`tools/aeb-agent`; the rest is design). Companion to
 [`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md)
-(the sovereign-agent + policy-class design). This doc is specifically about
-*how* a remote `aeb-agent` decides, on its own authority, whether to build a
-prepared tree — `maybe_veto_build` — and, since the veto is only the *policy*
-layer, how Aether's runtime sandbox **contains** the build it lets through
-(the section "Veto is policy; containment is enforcement").
+(the sovereign-agent + policy-class design) and
+[`directions.md`](directions.md) (where this sits in the rings).
+
+> **Renamed from `veto-alternates.md` and broadened.** The original was
+> "how a remote `aeb-agent` decides via `maybe_veto_build`." This doc keeps
+> all of that (the agent is the sharpest case — it builds *internet-supplied*
+> trees) but recasts it as a **general aeb capability**: an opt-in launch
+> mode (`aeb --vet …` and `aeb-agent --vet …`) that **vets the build and
+> can veto it in a way the untrusted `.ae` script and source set cannot
+> override.** Same mechanism whether the untrusted tree arrived by dispatch
+> or is just a repo you don't fully trust.
+
+## Why aeb itself is a supply-chain surface
+
+The motivating threat (sharpened by the June-2026 npm wave —
+binding.gyp "Phantom Gyp" execution, preinstall/postinstall credential
+harvesters, self-spreading worms that target CI/CD secrets and even inject
+backdoors into AI coding assistants): **an attacker who controls the build
+description gets code execution at *build time* on the agent or dev box.**
+For aeb the build description is the `.build.ae` graph, every `.ae` it
+imports, and anything in the source set a build step reads (a `binding.gyp`,
+a vendored `package.json` with a `postinstall`, a `regen` that shells out).
+aeb is not immune by being Aether-native — a malicious `.build.ae` can
+`os.system("curl … | sh")`, declare `extern syscall`, or reach the network
+just as a malicious `package.json` can.
+
+So aeb needs to be able to **treat its own build input as untrusted**, on
+demand. That is what `--vet` is.
 
 (Disambiguation: the policy-class doc also says "veto", but that's the
 *token/claim* veto — refusing an unauthenticated or over-scoped dispatch at
-the door. This doc is the *build-content* veto — having authenticated and
-prepared the tree, does the agent's policy permit *this build* to run. Two
-different gates: auth-veto at the door, build-veto after prepare.)
+the door. This doc is the *build-content* veto — having prepared the tree,
+does policy permit *this build* to run. Two different gates: auth-veto at the
+door, build-veto after prepare.)
+
+## The load-bearing invariant — the veto runs in the trusted harness
+
+The single property everything here depends on:
+
+> **The veto and the sandbox are enforced by the harness that *invokes* the
+> build — not by anything the untrusted `.ae` graph can read, call, or
+> re-declare.** A verdict reached by the trusted side cannot be overridden by
+> the code it is about to compile or run.
+
+This is why a `.build.ae` "self-certifying" is worthless, and why the
+enforcement points are all *outside* the untrusted graph's reach:
+
+- **1a/1b** (tree scan / external tool) run on the *source bytes*, before
+  `ae` ever compiles them — the untrusted code has not executed.
+- **2b** (AST analysis) is performed by **`ae` itself** (trusted compiler),
+  on the typed AST, before the run-compile — the graph can't veto its own
+  veto.
+- **3** (sandbox) wraps the build via the container/contained split from
+  [`../aether/docs/containment-sandbox.md`](../../aether/docs/containment-sandbox.md):
+  the harness configures grants in a trailing block (full access); the
+  untrusted build runs in a hoisted closure / a `spawn_sandboxed` child that
+  **cannot reach the grant list** — it is structurally unable to widen its
+  own permissions.
+
+`--vet` is an operator decision at launch; a dispatch or a `.build.ae`
+cannot clear it.
+
+## The enforcement layers, end to end
+
+You can use any subset; the strong build uses **1 + 2b + 3** (and 1 is
+itself 1a + 1b). Earliest to latest in the build's life:
+
+```
+untrusted tree on disk
+   │
+   ├─[1a] regex / pattern scan of source bytes        (lib/agent _veto_run_rules — HAVE)
+   ├─[1b] call an external tool on the source         (e.g. a python3 scanner — DESIGN)
+   │        (semgrep, a CVE/secret scanner, a custom .py — exit code = verdict)
+   │
+   ae compile each .ae → .c
+   │
+   ├─[2a] grep the generated .c for symbol calls       (stopgap — DESIGN, no aether change)
+   ├─[2b] ae AST analysis / deny-rules                 (the real one — UPSTREAM ASK)
+   │        os.system / extern / un-allowlisted net — vetoed by the trusted compiler
+   │
+   gcc link → per-node orchestrator binary
+   │
+   └─[3]  spawn_sandboxed(grants, _ae_build_all, label)  (runtime containment — DESIGN)
+            deny-by-default: no tcp, no cred env, exec allowlist
+```
+
+### Layer 1 — source scan (cheap, pre-compile). Two sub-forms.
+
+**1a — regex / pattern scan (HAVE).** The `lib/agent` `_veto_run_rules`
+engine: a data-driven `id\tscope\tpattern\treason` rule list over the tree
+or the patch. Extend with the June-2026 patterns — a `binding.gyp` present
+in the tree, `preinstall`/`postinstall` in a vendored manifest, a literal
+`curl … | sh`, an `extern` line in a user `.ae`. **Strength:** catches the
+blatant, requester can't disable. **Limit (load-bearing, see the policy/
+containment section):** bounded by what it can read as *text* — defeated by
+`"os"+".system"`, base64, runtime-fetched payloads. A tripwire, not a wall.
+
+**1b — call an external tool on the source (DESIGN).** Rather than only
+aeb-internal regex, `--vet` can shell out to a **dedicated scanner** the
+operator chooses — a `python3` script, `semgrep`, a secret/CVE scanner, an
+org's house tool — passing it the tree/patch path; **non-zero exit = veto.**
+This is the pragmatic escape hatch: aeb doesn't try to be a SAST engine, it
+*invokes* one. Same trusted-harness invariant (the tool runs in the harness,
+not in the build). The tool itself is attack surface and must be a pinned,
+operator-controlled binary — not something pulled from the untrusted tree.
+
+### Layer 2 — structural / AST inspection. The `.c` vs the AST question.
+
+The key design question you raised: inspect the **generated `.c`** or the
+**Aether AST**?
+
+- **2a — grep the generated `.c` (stopgap, no aether change).** After
+  `ae file.ae → file.c`, scan the C for `os_system(` / `*_connect(` /
+  `dlopen(` symbol calls. Better than 1a (sees post-codegen calls regardless
+  of how the Aether string was spelled) but **wrong altitude**: C conflates
+  user intent with emitted runtime scaffolding, and you've lost which
+  *import* / which user-vs-SDK code a call came from. Usable today; noisy.
+- **2b — `ae` AST analysis / deny-rules (the real answer — UPSTREAM ASK).**
+  The compiler already builds a typed AST (`AST_FUNCTION_CALL`,
+  `AST_EXTERN_FUNCTION`). The ask: an `ae analyze` / `ae lint --deny <rule>`
+  / `--emit=ast` mode where the **trusted compiler** walks the user graph's
+  AST and vetoes:
+  - **any `extern` declaration in the untrusted graph** — this is *the*
+    bypass the containment doc flags ("extern calls bypass the sandbox");
+    regex can miss `extern  fopen`, the compiler cannot;
+  - `os.system`/`os.exec`/`os.run_*` calls (and which file they're in);
+  - `tcp.connect`/`http.get`/`file.open` outside an allowlist;
+  - `regen`/codegen nodes that shell out.
+
+  This is **Tier C's intent ("read what the build would do") realized at the
+  compiler layer instead of via a doppelganger** — and it composes with the
+  containment doc's own "proposed fix: compiler-enforced extern check"
+  (same machinery: track context in codegen, reject specific AST nodes). One
+  upstream feature serves both the sandbox's extern-escape fix and aeb's
+  build-veto. **Recommended:** 2b is the right long-term layer; 2a is the
+  stopgap until it lands. (Tier C's `--lib` doppelganger, below, is the
+  aeb-only alternative that needs *no* aether change — a parallel route to
+  the same "read the build's intent" goal.)
+
+### Layer 3 — runtime containment (the part the source set can't override)
+
+Covered in depth in "Veto is policy; containment is enforcement" below. The
+update for the post-`nodes-as-subprocesses` world: aeb no longer runs all
+nodes in one `main()` — `tools/aeb-driver.ae` runs **each node as a
+subprocess** (`_ae_build_all <root> <label>`). So `--vet` wraps **each
+node-subprocess** in `spawn_sandboxed(grants, _ae_build_all, label)`: the
+grant list lives in shared memory the node can't rewrite, `LD_PRELOAD`
+propagates to the node's whole child tree (gcc, javac, …), and the node —
+compiled from untrusted source — inherits a deny-by-default profile it
+cannot widen. (Not a "secret wrapper `main()`" — the *driver* wraps the
+node; same effect, cleaner seam, and it's per-node not per-whole-build.)
 
 ## SCOPE — read this first, it's the whole point
 
@@ -303,24 +443,39 @@ maybe_veto_build(repo, target, purpose):
 
 ## What to build, in order
 
-1. ~~**Tier A is in.** Generalize the single stub scan into a small rule list
-   (secret patterns, banned files, size cap, patch-touches-disallowed-path).~~
-   **DONE (2026-06-05).** `lib/agent` `_veto_run_rules`: a data-driven rule list
-   (`id\tscope\tpattern\treason`), built-in secret/key markers + an AWS-key rule
-   scoped to the patch specifically, operator-extensible via
-   `AEB_AGENT_VETO_PATTERNS`. Per-rule scope is `tree` (grep worktree) or `patch`
-   (grep the applied diff — the highest-signal case). Pure logic unit-tested;
-   verified end-to-end on the agent. Remaining Tier-A ideas not yet done: a tree
-   **size cap** and **patch-touches-disallowed-path** (both straightforward
-   additions to the same rule shape — a size-rule and a path-glob-rule kind).
-2. **Tier C spike** — a doppelganger `lib/build` (and key language SDKs)
-   whose builders record `os.system`/`dep`/`link_flag`/codegen calls
-   instead of executing, run via `aetherc --lib <doppelganger>`; emit the
-   trace as JSON; a veto reads it. This is the high-value, aeb-unique tier
-   (the `--lib` trick) and the natural evolution of the meta-for-veto idea.
-3. **Tier B** — a `--resolve-only` / meta-emit mode so the resolved
-   coordinate closure is available to a CVE/banned-dep veto without a full
-   build; wire an OWASP-style check as the first tier-B rule.
+0. **The `--vet` launch mode** — the shared seam. A flag on `aeb` and
+   `aeb-agent` (operator-set; a dispatch/`.build.ae` can't clear it) that
+   turns on layers 1/2/3 against the build's own tree. For the agent this is
+   `maybe_veto_build` already; for non-agent `aeb` it's new. Everything below
+   hangs off it.
+1. ~~**Tier A / layer 1a is in.** Generalize the single stub scan into a small
+   rule list.~~ **DONE (2026-06-05).** `lib/agent` `_veto_run_rules`: a
+   data-driven rule list (`id\tscope\tpattern\treason`), built-in secret/key
+   markers + an AWS-key rule scoped to the patch, operator-extensible via
+   `AEB_AGENT_VETO_PATTERNS`, per-rule `tree`/`patch` scope. **Next on 1a:** add
+   the June-2026 patterns (a `binding.gyp` in the tree, `pre/postinstall` in a
+   vendored manifest, `curl|sh` literal, `extern` in a user `.ae`), plus a tree
+   **size cap** and **patch-touches-disallowed-path** rule kind.
+2. **Layer 1b — external-tool hook.** `--vet-tool <cmd>`: run an operator-chosen
+   scanner (python3 / semgrep / a CVE-or-secret tool) on the tree/patch;
+   non-zero exit vetoes. Small, high-leverage — aeb invokes a SAST engine
+   rather than becoming one.
+3. **Layer 3 — per-node `spawn_sandboxed`.** Wrap each node-subprocess
+   (`_ae_build_all <root> <label>`) in a deny-by-default grant profile (no
+   tcp, no cred env, exec allowlist) when `--vet` is on. **Highest value vs.
+   the June-2026 credential-harvest threat** — it dies at the libc boundary
+   regardless of how the build computed the exfil. Linux-first (macOS/BSD fall
+   back to the container layer).
+4. **Layer 2b — `ae` AST deny-rules (upstream ask).** File with the sibling: an
+   `ae analyze`/`--deny` mode that vetoes `extern`/`os.*`/un-allowlisted net at
+   the AST layer. Composes with the containment doc's compiler-enforced extern
+   check. (Stopgap 2a — `.c` grep — usable meanwhile, no aether change.)
+5. **Tier C spike** — the `--lib` doppelganger that records build intent
+   (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
+   route to "read the build's intent" with no aether change. Parallel to 2b.
+6. **Tier B** — a `--resolve-only`/meta-emit mode exposing the resolved
+   coordinate closure to a CVE/banned-dep veto without a full build; OWASP-style
+   check as the first tier-B rule.
 
 ## The one-line summary
 

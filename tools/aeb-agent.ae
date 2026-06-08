@@ -191,7 +191,7 @@ _patch_path_for(guid: string, patch_b64: string) {
 // Walking skeleton: a single, conservative example veto (reject a tree
 // that contains an obvious committed secret marker) to prove the
 // architecture. The real design is a PLUGGABLE three-tier list — see
-// docs/veto-alternates.md:
+// docs/build-veto-and-sandbox.md:
 //   A. tree scan (NOW: pluggable rule list)  — cheap, raw tree + patch
 //   B. resolved-coordinate / SBOM    — dependency CVE/OWASP (design)
 //   C. doppelganger-compile trace    — build-grammar intent via a

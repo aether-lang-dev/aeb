@@ -99,7 +99,7 @@ Wingerd middle ground"):
   compiler+sysroot per build. aeb **selects** an installed toolchain
   (discover-select-or-fail, [`toolchain-selection-and-locks.md`](toolchain-selection-and-locks.md))
   but **never provisions**, and contains for *trust on a shared agent*
-  ([`veto-alternates.md`](veto-alternates.md) /
+  ([`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) /
   [`containment-and-the-control-plane.md`](containment-and-the-control-plane.md))
   rather than for bit-reproducibility. `TODO.md` records that
   tool-version *validation* was explicitly weighed and chosen as
