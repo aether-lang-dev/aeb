@@ -56,9 +56,10 @@ enforcement points are all *outside* the untrusted graph's reach:
 
 - **1a/1b** (tree scan / external tool) run on the *source bytes*, before
   `ae` ever compiles them — the untrusted code has not executed.
-- **2b** (AST analysis) is performed by **`ae` itself** (trusted compiler),
-  on the typed AST, before the run-compile — the graph can't veto its own
-  veto.
+- **2b** (AST analysis, **shipped**) — **`ae` itself** (the trusted compiler)
+  emits the typed AST via `--emit=ast`, and `lib/veto` walks it before the
+  run-compile. The untrusted graph can't veto its own veto: it neither
+  produces the AST (the compiler does) nor reaches the policy that reads it.
 - **3** (sandbox) wraps the build via the container/contained split from
   [`../aether/docs/containment-sandbox.md`](../../aether/docs/containment-sandbox.md):
   the harness configures grants in a trailing block (full access); the
@@ -83,9 +84,9 @@ untrusted tree on disk
    │
    ae compile each .ae → .c
    │
-   ├─[2a] grep the generated .c for symbol calls       (stopgap — DESIGN, no aether change)
-   ├─[2b] ae AST analysis / deny-rules                 (the real one — UPSTREAM ASK)
-   │        os.system / extern / un-allowlisted net — vetoed by the trusted compiler
+   ├─[2a] grep the generated .c for symbol calls       (stopgap — superseded by 2b)
+   ├─[2b] aetherc --emit=ast → aeb walks the AST       (SHIPPED — lib/veto)
+   │        extern / os.system / net / import — aeb decides on the emitted AST
    │
    gcc link → per-node orchestrator binary
    │
@@ -113,10 +114,10 @@ This is the pragmatic escape hatch: aeb doesn't try to be a SAST engine, it
 not in the build). The tool itself is attack surface and must be a pinned,
 operator-controlled binary — not something pulled from the untrusted tree.
 
-### Layer 2 — structural / AST inspection. The `.c` vs the AST question.
+### Layer 2 — structural / AST inspection. The `.c`-vs-AST question, resolved.
 
-The key design question you raised: inspect the **generated `.c`** or the
-**Aether AST**?
+The design question — inspect the **generated `.c`** or the **Aether AST**? —
+is settled in favour of the AST (2b, shipped). Both options, for the record:
 
 - **2a — grep the generated `.c` (stopgap, no aether change).** After
   `ae file.ae → file.c`, scan the C for `os_system(` / `*_connect(` /
@@ -124,34 +125,41 @@ The key design question you raised: inspect the **generated `.c`** or the
   of how the Aether string was spelled) but **wrong altitude**: C conflates
   user intent with emitted runtime scaffolding, and you've lost which
   *import* / which user-vs-SDK code a call came from. Usable today; noisy.
-- **2b — AST analysis: `ae` emits, *aeb* decides (the real answer).** The
-  compiler already builds a typed, name-resolved AST (`AST_FUNCTION_CALL`,
-  `AST_EXTERN_FUNCTION`, `AST_IMPORT_STATEMENT`). The split:
-  - **aether's job (upstream ask, `../aether/veto-enhancements.md`):** one
-    generic primitive — **`aetherc --emit=ast`** — that dumps the
-    name-resolved AST as stable JSON, each node carrying `kind`/`file`/`line`
-    and, for calls, the **resolved callee symbol** (e.g. `os_system`
-    regardless of how the receiver was spelled — aliasing/concat can't dodge
-    a resolved binding; that's why this beats regex and 2a). Reusable beyond
-    veto (`aeb query`/`rdeps` want it too).
-  - **aeb's job (this repo):** own the **policy and the decision** — walk that
-    AST against operator rules and veto. aeb does *not* push categories into
-    the compiler; the deny/allow policy is an aeb-side out-of-tree policy
-    `.ae` DSL (see "The policy surface" below). What aeb vetoes: any
-    **`extern`** in the
-    untrusted graph (the bypass the containment doc flags), `os.*` exec,
-    un-allowlisted `tcp`/`http`, forbidden imports.
+- **2b — AST analysis: `ae` emits, *aeb* decides (the real answer — SHIPPED).**
+  The compiler builds a typed, name-resolved AST (`AST_FUNCTION_CALL`,
+  `AST_EXTERN_FUNCTION`, `AST_IMPORT_STATEMENT`). The split, now both halves
+  in place:
+  - **aether's job (shipped, aether v0.226.0+):** one generic primitive —
+    **`aetherc --emit=ast`** — dumps the name-resolved AST as stable JSON,
+    each node carrying `kind`/`file`/`line` and, for calls, the **resolved
+    callee symbol** (e.g. `os_system` regardless of how the receiver was
+    spelled — aliasing/concat can't dodge a resolved binding; that's why this
+    beats regex and 2a). Reusable beyond veto (`aeb query`/`rdeps` want it too).
+    Designed in `../aether/veto-enhancements.md`.
+  - **aeb's job (shipped, `lib/veto`):** owns the **policy and the decision** —
+    `decide()` walks that AST against operator rules and vetoes. aeb does *not*
+    push categories into the compiler; the deny/allow policy is an aeb-side
+    out-of-tree policy `.ae` DSL (see "The policy surface" below). What aeb
+    vetoes today: any **`extern`** in the untrusted graph (the bypass the
+    containment doc flags, minus a safe-runtime allowlist), `os.*` **exec**,
+    and — when a rule is set — **net** (`tcp`/`http_*` family) and forbidden
+    **imports**.
+
+  *Caveat on net (see "Known gap" below): 2b can today veto that a build
+  reaches the network, but not yet to **which host** — the emit doesn't carry
+  call arguments, so a host allowlist isn't expressible at this layer yet
+  (`../aether/veto-emit-ast-args.md` is the follow-up ask; layer 3 is the
+  host-level backstop meanwhile).*
 
   This is **Tier C's intent ("read what the build would do") realized via the
   compiler's own AST instead of a doppelganger** — stronger than Tier C (sees
   *all* code, not just builder calls) and it keeps the veto logic in aeb's
   trusted `.ae`. It composes with the containment doc's "proposed fix:
   compiler-enforced extern check" — same node, `AST_EXTERN_FUNCTION` — but aeb
-  applies it as *policy* rather than the compiler hardcoding it.
-  **Recommended:** 2b is the real layer; **2a (`.c` grep) is the stopgap**
-  until `--emit=ast` lands; **Tier C's `--lib` doppelganger** (below) is the
-  aeb-only route that needs *no* aether change at all — a parallel path to the
-  same "read the build's intent" goal, usable today.
+  applies it as *policy* rather than the compiler hardcoding it. **2a (`.c`
+  grep) is now superseded** (it was the stopgap until `--emit=ast` shipped);
+  **Tier C's `--lib` doppelganger** (below) remains a parallel, aeb-only route
+  to the same "read the build's intent" goal that needs no aether change.
 
 #### What the emitted AST actually looks like
 
