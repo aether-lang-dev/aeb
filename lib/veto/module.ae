@@ -102,17 +102,24 @@ _is_lib_origin(file: string, lib_roots: ptr) {
 
 // --- Per-node verdict (pure) ---
 //
-// _node_verdict(kind, callee, name, modpath, file, indirect, lib_roots, rules)
+// _node_verdict(kind, callee, name, modpath, file, indirect,
+//               arg_literal, arg_computed, lib_roots, rules)
 // — given the already-extracted fields of ONE AST node, return "" (allowed)
 // or a one-line veto reason. Fail-closed on indirect calls and on a
 // deny-category match with NULL/empty origin.
 //
 // `kind` is the AST node kind ("extern_function"/"function_call"/
-// "import_statement"); `callee`/`name`/`module` are the relevant symbol
+// "import_statement"); `callee`/`name`/`modpath` are the relevant symbol
 // (empty when not that kind); `indirect` is 1 for a function-pointer call;
 // `file` is the node origin ("" / NULL → untrusted-or-synthetic).
+// args (function_call only, from the post-v0.227.0 emit):
+//   `arg_literal`  — the FIRST literal arg's value, or "" if none/this isn't
+//                    a call. The coordinate/command a resolver/exec/net verb
+//                    was handed (maven.dep("org:foo:1.2.3") → "org:foo:1.2.3").
+//   `arg_computed` — 1 if ANY arg of this call is `{"computed":true}`.
 _node_verdict(kind: string, callee: string, name: string, modpath: string,
-              file: string, indirect: int, lib_roots: ptr, rules: ptr) {
+              file: string, indirect: int, arg_literal: string,
+              arg_computed: int, lib_roots: ptr, rules: ptr) {
     // SDK-origin nodes are exempt — the trusted --lib roots legitimately
     // declare externs and shell out.
     if _is_lib_origin(file, lib_roots) == 1 { return "" }
@@ -153,21 +160,31 @@ _node_verdict(kind: string, callee: string, name: string, modpath: string,
             }
         }
         // exec: resolved callee in the os_system/os_exec/os_run_* family.
+        // With args on the wire, a deny-exec rule ALSO fail-closes a shell
+        // call handed a computed (non-literal) argument — a build that
+        // computes what it shells out can't be vetted statically.
         if string.equals(rk, "exec") == 1 {
             if string.equals(kind, "function_call") == 1 {
                 if _is_exec_callee(callee) == 1 {
                     if string.length(ra) == 0 || string.equals(ra, callee) == 1 {
-                        return _reason("exec", callee, file)
+                        if arg_computed == 1 {
+                            return _reason_arg("exec", callee, file, "<computed-arg>")
+                        }
+                        return _reason_arg("exec", callee, file, arg_literal)
                     }
                 }
             }
         }
-        // net: resolved callee in the tcp_connect/http_* family.
+        // net: resolved callee in the tcp_connect/http_* family. Same
+        // computed-arg fail-close as exec.
         if string.equals(rk, "net") == 1 {
             if string.equals(kind, "function_call") == 1 {
                 if _is_net_callee(callee) == 1 {
                     if string.length(ra) == 0 || string.equals(ra, callee) == 1 {
-                        return _reason("net", callee, file)
+                        if arg_computed == 1 {
+                            return _reason_arg("net", callee, file, "<computed-arg>")
+                        }
+                        return _reason_arg("net", callee, file, arg_literal)
                     }
                 }
             }
@@ -177,6 +194,22 @@ _node_verdict(kind: string, callee: string, name: string, modpath: string,
             if string.equals(kind, "import_statement") == 1 {
                 if string.length(ra) == 0 || string.equals(ra, modpath) == 1 {
                     return _reason("import", modpath, file)
+                }
+            }
+        }
+        // banned: a substring that must not appear in ANY literal argument of
+        // any call (banned coordinate / host / command fragment). e.g.
+        // "banned\tevil.com" vetoes maven.dep("…evil.com…") or
+        // os.system("curl http://evil.com"). Reads the LITERAL arg only — a
+        // computed arg can't be string-matched, but a deny-exec/net rule will
+        // have fail-closed it already; banned is the targeted-substring layer
+        // on top of the category deny.
+        if string.equals(rk, "banned") == 1 {
+            if string.equals(kind, "function_call") == 1 {
+                if string.length(ra) > 0 && string.length(arg_literal) > 0 {
+                    if string.index_of(arg_literal, ra) >= 0 {
+                        return _reason_arg("banned", callee, file, arg_literal)
+                    }
                 }
             }
         }
@@ -191,6 +224,17 @@ _reason(cat: string, sym: string, file: string) {
     where = file
     if string.length(where) == 0 { where = "<unknown-origin>" }
     return string.concat("denied ", string.concat(cat, string.concat(": ", string.concat(sym, string.concat(" (", string.concat(where, string.concat(") (veto:", string.concat(cat, ")"))))))))
+}
+
+// _reason_arg(cat, sym, file, arg) — like _reason but names the argument
+// (the literal coordinate/command, or "<computed-arg>"), so the operator sees
+// WHAT was handed to the verb: `denied exec: os_system arg "curl …" (file)`.
+_reason_arg(cat: string, sym: string, file: string, arg: string) {
+    base = _reason(cat, sym, file)
+    if string.length(arg) == 0 { return base }
+    // splice ` arg "<arg>"` before the trailing " (file) (veto:…)" — simplest
+    // is to append; the file+veto tag are already in `base`.
+    return string.concat(base, string.concat(" arg=\"", string.concat(arg, "\"")))
 }
 
 // _is_exec_callee(c) — the os.system / os.exec / os.run_* family.
@@ -258,7 +302,10 @@ decide(ast_json: string, emit_exit: int, lib_roots: ptr, rules: ptr) {
             modpath = _json_str(node, "module")
             file = _json_str(node, "file")
             indirect = _json_truthy(node, "indirect")
-            v = _node_verdict(kind, callee, name, modpath, file, indirect, lib_roots, rules)
+            arg_literal = _first_literal_arg(node)
+            arg_computed = _has_computed_arg(node)
+            v = _node_verdict(kind, callee, name, modpath, file, indirect,
+                              arg_literal, arg_computed, lib_roots, rules)
             if string.length(v) > 0 { return v }
         }
     }
@@ -278,6 +325,46 @@ _json_truthy(node: ptr, key: string) {
     if v == null { return 0 }
     b = json.get_bool(v)
     if b == 1 { return 1 }
+    return 0
+}
+
+// _first_literal_arg(node) — the value of the FIRST `{"literal": "..."}`
+// entry in the node's `args[]`, or "" if there's no args array or no literal
+// arg. Reads the coordinate/command a resolver/exec/net verb was handed.
+// (post-v0.227.0 emit; absent on older AST → "" → no arg-based rule fires.)
+_first_literal_arg(node: ptr) {
+    args_v, _e = json.object_get(node, "args")
+    if args_v == null { return "" }
+    n = json.array_size(args_v)
+    i = 0
+    while i < n {
+        a, _ge = json.array_get(args_v, i)
+        i = i + 1
+        if a != null {
+            lit_v, _le = json.object_get(a, "literal")
+            if lit_v != null {
+                s, _se = json.get_string(lit_v)
+                return s
+            }
+        }
+    }
+    return ""
+}
+
+// _has_computed_arg(node) — 1 if ANY arg of this call is `{"computed":true}`.
+// A computed arg to an exec/net verb is the fail-close trigger.
+_has_computed_arg(node: ptr) {
+    args_v, _e = json.object_get(node, "args")
+    if args_v == null { return 0 }
+    n = json.array_size(args_v)
+    i = 0
+    while i < n {
+        a, _ge = json.array_get(args_v, i)
+        i = i + 1
+        if a != null {
+            if _json_truthy(a, "computed") == 1 { return 1 }
+        }
+    }
     return 0
 }
 

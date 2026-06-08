@@ -145,12 +145,11 @@ is settled in favour of the AST (2b, shipped). Both options, for the record:
     and — when a rule is set — **net** (`tcp`/`http_*` family) and forbidden
     **imports**.
 
-  *On net + arguments (see "Call arguments" below): the emit now carries
-  literal call arguments (`args[]`), so a literal coordinate/URL **is** readable
-  — the input a host/coordinate allowlist needs. `lib/veto` doesn't consume
-  `args[]` yet (it matches on `callee` today), but the wire data is there; a
-  computed argument fail-closes, and layer 3 remains the host-level backstop for
-  the computed case.*
+  *On net + arguments (see "Call arguments" below): the emit carries literal
+  call arguments (`args[]`) and `lib/veto` now **consumes them** — a literal
+  coordinate/URL is readable (the `banned\t<substring>` rule matches it), a
+  computed argument to an exec/net call **fail-closes**, and layer 3 remains the
+  host-level backstop for the computed case.*
 
   This is **Tier C's intent ("read what the build would do") realized via the
   compiler's own AST instead of a doppelganger** — stronger than Tier C (sees
@@ -325,9 +324,17 @@ layered division holds: **2b reads the literal argument pre-build; layer 3's
 `connect()`/`execve()` interceptors backstop the *computed* case at the syscall**,
 seeing the resolved value regardless of how it was built.
 
-*(Still pending in `lib/veto`: actually consuming `args[]` — the slice today
-matches on `callee` only. Reading the literal coordinate is the next increment;
-the wire data is now there for it.)*
+*(`lib/veto` now **consumes `args[]`** (2026-06-08): `decide()` reads each
+call's first literal arg + a has-computed flag; an exec/net call with a
+**computed** arg fail-closes (`<computed-arg>` in the reason), an exec/net veto
+names the literal command, and a new **`banned\t<substring>`** rule vetoes when
+the substring appears in any call's literal argument — the targeted
+coordinate/host/command check (`banned\tevil.com` →
+`maven.dep("…evil.com…")` / `os.system("curl …evil.com…")`). SDK-origin nodes
+stay exempt. `tests/test_veto.ae`: 57 assertions, incl. the real post-v0.227.0
+`args[]` JSON shape end-to-end. Still ahead: the `.veto.ae` policy DSL that lets
+operators author `banned`/allow rules, and an `allow`/coordinate-allowlist
+counterpart.)*
 
 ### Layer 3 — runtime containment (the part the source set can't override)
 
@@ -771,16 +778,18 @@ maybe_veto_build(repo, target, purpose):
    consumes it: `veto.check(b) { aetherc(...) target(...) }` runs `--emit=ast`,
    walks `nodes[]`, applies rules (deny `extern`/`exec`/`net`/`import`),
    classifies origin by `--lib` prefix (SDKs exempt), and **fail-closes** on
-   non-zero exit / indirect call / NULL-origin match. Verified live against the
-   v0.226.0 binary (`tests/test_veto.ae`, 44 assertions; end-to-end smoke
-   vetoes `extern syscall`, clears clean code). **Default policy:** deny all
+   non-zero exit / indirect call / NULL-origin match. **Now also consumes
+   `args[]`** (2026-06-08): reads the literal coordinate/command, fail-closes on
+   a computed exec/net arg, and adds the `banned\t<substring>` rule. Verified
+   live against the installed binary (`tests/test_veto.ae`, 57 assertions, incl.
+   the real `args[]` JSON shape; end-to-end smoke vetoes `extern syscall`,
+   clears clean code). **Default policy:** deny all
    externs *except a known-safe runtime allowlist* (`println` etc. — the live
    smoke caught that a blanket deny false-positives on every ordinary program)
-   + deny exec. **Next:** (a) consume the now-emitted `args[]` so a rule can read
-   the literal coordinate/command (the `veto-emit-ast-args.md` follow-up shipped
-   in aether `[current]` — args are on the wire, `lib/veto` matches `callee`
-   only so far); (b) the `.veto.ae` policy-DSL front end lowers onto these rules.
-   (Stopgap 2a — `.c` grep — no longer needed.)
+   + deny exec; and (args[] consumed) the `banned\t<substring>` rule + computed-
+   arg fail-close. **Next:** the `.veto.ae` policy-DSL front end lowers onto
+   these rules (so operators author `banned`/allow policy), and a positive
+   coordinate-allowlist counterpart. (Stopgap 2a — `.c` grep — no longer needed.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
    route to "read the build's intent" with no aether change. Parallel to 2b.
