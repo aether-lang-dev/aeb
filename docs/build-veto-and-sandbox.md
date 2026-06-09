@@ -815,6 +815,21 @@ maybe_veto_build(repo, target, purpose):
    operator-minted capability; the grant grammar is the honest layer, the
    LD_PRELOAD enforcement is the un-forgeable fence. No aether change needed.
    See [capability-entrypoint.md](capability-entrypoint.md).
+   **Implementation (2026-06-09, aeb d0d3c2b): mechanism SHIPPED, orchestrator
+   integration BLOCKED.** `lib/sandbox` (grant model + `default_profile` +
+   `intersect`, 29 assertions), `tools/aeb-sandbox` (out-of-tree profile
+   resolution, in-tree-profile refusal, lazy preload `.so` build,
+   `spawn_sandboxed(grants, sh, run-script)`), and the `aeb --sandbox` /
+   `--sandbox-profile` trampoline wiring are in. **Containment is proven:** a
+   controlled network build through `aeb-sandbox` is blocked at libc (curl
+   exit 2, no exfil) while the unsandboxed baseline connects. **But** a real
+   `aeb --sandbox <target>` does not yet complete: the aeb orchestrator's
+   multi-stage native pipeline (`ae`/`aetherc` → `cc` → link `libaether.a` →
+   run `_ae_build_all`) **segfaults under the preload**, while a trivial
+   aether binary and a subprocess-spawning binary both run fine — so it is
+   specific to the self-rebuilding toolchain, likely nested/re-entrant
+   `spawn_sandboxed` or the link/exec interception. Upstream ask:
+   `../aether/sandbox-preload-toolchain-segfault.md`.
 4. ~~**Layer 2b — `aetherc --emit=ast` + aeb-side AST walk.**~~ **SHIPPED
    (slice, 2026-06-08).** `aetherc --emit=ast` landed in aether **v0.226.0**
    (name-resolved AST as JSON: `kind`/`file`/`line` + resolved `callee`,
