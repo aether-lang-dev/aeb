@@ -736,7 +736,11 @@ build.env(b) {
 
 ## Per-task sandboxing (phase 2)
 
-Wrap SDK calls in sandbox grants:
+Whole-build runtime containment shipped — `aeb --sandbox` runs the build
+under Aether `spawn_sandboxed` (LD_PRELOAD, deny-by-default grants, no tcp;
+contains the whole gcc/cc1/javac subtree at the libc boundary). See
+docs/build-veto-and-sandbox.md. Phase 2 is the *finer* grain: per-SDK-call
+grant profiles instead of one whole-build profile, e.g.
 
 ```aether
 build.javac(b) {
@@ -747,6 +751,32 @@ build.javac(b) {
     }
 }
 ```
+
+## Remaining build-veto tiers (Tier B + Tier C)
+
+The supply-chain veto stack (docs/build-veto-and-sandbox.md) ships layers
+0/1a/1b/2b/3 — `aeb --vet` (AST deny-rules + coordinate allowlist),
+`--vet-tool` (external SAST), `--sandbox` (runtime containment), and the
+agent-side Tier-A rules (secrets, binding.gyp, pre/postinstall, curl|sh,
+tree-size cap). Two tiers from the build-order remain, covering threats the
+shipped layers don't:
+
+| Item             | What                                                                                                             | Effort | Character               |
+|------------------|------------------------------------------------------------------------------------------------------------------|--------|-------------------------|
+| 5 — Tier C spike | --lib doppelganger that records build intent (os.system/dep/link_flag/codegen) instead of executing it           | Medium | aeb-unique, exploratory |
+| 6 — Tier B       | --resolve-only: expose the resolved dependency-coordinate closure for a CVE/banned-dep veto without a full build | Medium | SBOM/supply-chain       |
+
+Notes for whoever picks these up:
+- **Tier B** likely splits into (a) an aeb-side `--resolve-only`/SBOM-emit
+  primitive that exposes the resolved maven/cargo/npm coordinate closure, and
+  (b) the verdict, which may be better delegated to an off-the-shelf scanner
+  via `--vet-tool` (grype / osv-scanner / OWASP dependency-check) — same
+  "aeb invokes a SAST engine rather than becoming one" principle as layer 1b.
+  It catches the *which dependency versions* class (known-CVE, banned) that
+  the AST veto and sandbox can't see (they inspect build *behaviour*).
+- **Tier C** reads the build's *intent* (what it WOULD do) statically by
+  swapping in a recording `--lib` — complementary to 2b's AST/symbol view.
+  No aether change needed; the `--lib` swap is free in aeb.
 
 ## ~~`aeb --init` documentation~~ (done)
 
