@@ -41,6 +41,27 @@ Multiple build files in the same directory get distinct DAG nodes
 via a `:tag` suffix on their visited-set key (preserved in
 human-display labels, stripped before deriving filesystem paths).
 
+### Entrypoint: `aeb(cap)` (or legacy `main()`)
+
+A build node's entrypoint is `aeb(cap) { b = build.start() ... }`. `cap`
+is the build context/capability handle the trusted aeb host injects — the
+build *receives* its authority, it does not construct it (this is the same
+handle that backs `--sandbox`; see docs/capability-entrypoint.md). aeb's
+`transform-ae` lowers `aeb(cap)` and the legacy `main()` to the same
+context-receiving function, so both work; `aeb(cap)` is the current
+convention. Don't migrate a regular Aether *program* (a `*_test.ae`, a CLI
+`main.ae`) — only dot-prefixed build *nodes* take `aeb(cap)`.
+
+### Addressing a target on the CLI
+
+- `aeb path/to/.name.ae` — the primary form (a real file path).
+- `aeb path/to:name` (or bare `:name` in the cwd) — synonym sugar; resolves
+  to `path/to/.name.ae` and echoes `aeb synonym match: <path>`.
+- `aeb --scan '<glob>'` — scan mode: build every node whose basename matches
+  (glob required; bare `aeb` with no target/scan is an error).
+- A bare `aeb` (no target, no `--scan`) does NOT build the whole tree — it's
+  an error. Scoping is always explicit.
+
 ### How the DAG is actually drawn
 
 `build.dep(b, "path/to/.foo.ae")` is the only edge-declaration
@@ -142,7 +163,8 @@ status" is the unembellished current state, not the roadmap.
 | Build graph visualisation          | DOT / Mermaid / interactive graph                               | ✓ Done. `aeb --graph` (DOT) / `aeb --graph mermaid`. Pipe to `dot -Tsvg` or paste into a Markdown fence. |
 | IDE / LSP integration              | Editor knows about build targets, jump-to-source                | ✗ TODO. No `aeb-lsp` yet; `.build.ae` files use the Aether LSP for syntax only.                          |
 | Watch mode                         | Rebuild on file change                                          | ✓ Done. `aeb --watch [target]` watches source dirs (Linux: inotifywait, macOS: fswatch); change events flow through the affected-target walk and a narrowed rebuild fires. Composes with cache + telemetry. |
-| Sandboxing / isolation             | Build steps see only declared inputs                            | ✗ TODO. Aether's runtime sandbox is per-process, not per-build-step. Roadmap.                            |
+| Sandboxing / isolation             | Build steps see only declared inputs                            | ✓ `aeb --sandbox` runs the build under Aether `spawn_sandboxed` (LD_PRELOAD, deny-by-default grants, no tcp; whole subtree contained at the libc boundary). Plus `aeb --vet` static supply-chain veto (AST + external-tool + agent-side rules). See docs/build-veto-and-sandbox.md. (Linux; needs aether >= 0.230.0.) |
+| Supply-chain build veto            | Treat the build script + tree as an untrusted surface           | ✓ `aeb --vet [--veto-policy <f>]` (AST deny-rules + coordinate allowlist), `--vet-tool '<cmd>'` (bring-your-own SAST), agent-side Tier-A rules (secrets, binding.gyp, pre/postinstall, curl\|sh, tree-size cap). Out-of-tree operator policy; fail-closed. |
 | Sparse checkout for monorepos      | Fetch only the modules a target needs                           | ✓ Done via `aeb gcheckout` (DAG walk → `git sparse-checkout`).                                          |
 | Configuration DSL ceiling          | Expressive without escape hatches into bash/python/Skylark      | ✓ Closure-with-setters, fully Aether-native, no eval'd config.                                          |
 | Migration story                    | Add to existing repo without big-bang rewrite                   | ✓ Per-module `.build.ae`, coexists with whatever's there. itests prove this against real repos.        |

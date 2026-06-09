@@ -18,7 +18,7 @@ A Java component with one dependency:
 import build
 import java
 
-main() {
+aeb(cap) {
     b = build.start()
     build.dep(b, "java/components/vowelbase/.build.ae")
     java.javac(b)
@@ -32,7 +32,7 @@ import build
 import rust
 import rust (crate_name, edition, crate_type, lib_path, lib_name)
 
-main() {
+aeb(cap) {
     b = build.start()
     build.dep(b, "libs/rust/registry/vendor/jni/.jni.crate.ae")
     rust.cargo_project(b) {
@@ -51,7 +51,7 @@ A JUnit test module with vendored `junit.jar`:
 import build
 import java
 
-main() {
+aeb(cap) {
     b = build.start()
     build.dep(b, "java/components/vowelbase/.build.ae")
     build.dep(b, "libs/java/junit/.junit.jar.ae")
@@ -69,7 +69,7 @@ import java
 import maven (load_bom_file)
 import java (release, source_layout, enable_preview, parameters)
 
-main() {
+aeb(cap) {
     b = build.start()
     build.dep(b, "jpa/example/.build.ae")
     load_bom_file(b, "../../spring-boot.bom.ae")
@@ -181,16 +181,28 @@ adds `.aeb/` to `.gitignore`. Safe to re-run.
 ## Running
 
 ```bash
-# Build and test everything under the current directory:
-aeb
-
-# Run one target (file-based):
+# Run one target (file-based — the primary form):
 aeb jpa/example/.build.ae
 aeb jpa/example/.tests.ae
 
 # Or from inside the module directory:
 cd jpa/example && aeb .tests.ae
+
+# Synonym address (resolves to .build.ae, echoes the canonical path):
+aeb jpa/example:build
+
+# Scan mode — build every node matching a glob (the glob is REQUIRED):
+aeb --scan '.tests.ae'              # every test target in the tree
+aeb --since main --scan '.tests.ae' # only those impacted since `main`
 ```
+
+A bare `aeb` with no target and no `--scan` is an error — aeb never builds
+the whole tree implicitly; scoping is always explicit (name a target, or
+`--scan '<glob>'`).
+
+Build files declare their entrypoint as `aeb(cap)` (the capability the
+trusted host injects; legacy `main()` also works) — see the examples above
+and [docs/capability-entrypoint.md](docs/capability-entrypoint.md).
 
 aeb auto-detects Podman's socket and sets `DOCKER_HOST` so TestContainers
 works without a daemon.
@@ -456,7 +468,7 @@ commit a composite `.ae` file once, point CI at it forever.
 ```aether
 // .all-tests.ae at the repo root
 import build
-main() {
+aeb(cap) {
     b = build.start()
     build.scan(b, "**/.tests.ae")
 }
@@ -477,14 +489,14 @@ Composes naturally with manual deps and other scans:
 
 ```aether
 // .smoke-tests.ae — narrower aggregator
-main() {
+aeb(cap) {
     b = build.start()
     build.scan(b, "javatests/components/**/.tests.ae")
     build.scan(b, "csharptests/components/**/.tests.ae")
 }
 
 // .integration.ae — compose scans with explicit deps
-main() {
+aeb(cap) {
     b = build.start()
     build.dep(b, ".smoke-tests.ae")
     build.dep(b, ".release-builds.ae")
@@ -679,6 +691,36 @@ coverage.py, dotnet test --collect, `-cover`, llvm-cov, etc.) —
 not yet wired through `aeb --coverage`. Tracked in TODO.md as
 follow-up.
 
+### Supply-chain veto & sandbox (`aeb --vet` / `--sandbox`)
+
+A build script is itself an untrusted supply-chain surface. aeb can vet a
+build before running it and contain it while it runs — enforced by the
+*trusted harness*, so a `.build.ae` can't clear a verdict about itself. The
+operator policy is always out-of-tree (an in-tree policy path is refused).
+
+```bash
+# Static veto before the build (AST deny-rules + coordinate allowlist):
+aeb --vet [--veto-policy /etc/aeb/veto.ae] app/.build.ae
+
+# Bring your own scanner (repeatable; non-zero exit vetoes):
+aeb --vet --vet-tool 'semgrep --error .' app/.build.ae
+
+# Vet the whole scanned set:
+aeb --vet --scan '.build.ae'
+
+# Runtime containment: run the build under a deny-by-default grant profile
+# (no network, write only target/, exec only the toolchain). A denied syscall
+# dies at the libc boundary regardless of how the build computed it.
+aeb --sandbox [--sandbox-profile /etc/aeb/grants.ae] app/.build.ae
+```
+
+Layers (use any subset): a Tier-A tree/patch rule scan (secrets, `binding.gyp`,
+`pre/postinstall` hooks, `curl|sh`, tree-size cap), an AST veto over `aetherc
+--emit=ast` (deny extern/exec/net/import, a coordinate allowlist), an external
+SAST hook (`--vet-tool`), and `spawn_sandboxed` runtime containment. Fail-closed
+throughout. `--sandbox` is Linux-only (needs aether ≥ 0.230.0). Full design in
+[docs/build-veto-and-sandbox.md](docs/build-veto-and-sandbox.md).
+
 ### Distribution metadata (`meta` SDK) and exporters (`brew`, …)
 
 Distribution is just another target type. Declare metadata via
@@ -693,7 +735,7 @@ import meta
 import brew
 import brew (aeb_target, binary)
 
-main() {
+aeb(cap) {
     b = build.start()
     meta.desc(b, "Tiny hello-world greeter")
     meta.homepage(b, "https://example.com/hello")
@@ -762,7 +804,7 @@ import approval
 import approval (base_url, issue, require_status, require_label,
                  require_field, token_env)
 
-main() {
+aeb(cap) {
     b = build.start()
     build.dep(b, "apps/api/.tests.ae")
 
@@ -923,7 +965,7 @@ its contribution via a language-SDK builder. Examples:
 
 ```aether
 // libs/java/junit/.junit.jar.ae — vendored jar
-main() {
+aeb(cap) {
     b = build.start()
     java.jar_vendored(b, "libs/java/junit/junit.jar")
 }
@@ -931,7 +973,7 @@ main() {
 
 ```aether
 // libs/rust/registry/vendor/jni/.jni.crate.ae — registry Rust crate
-main() {
+aeb(cap) {
     b = build.start()
     rust.crate_registry(b, "jni~0.21.1")
 }
@@ -939,7 +981,7 @@ main() {
 
 ```aether
 // libs/python/pytest/.pytest.whl.ae — pypi wheel
-main() {
+aeb(cap) {
     b = build.start()
     python.wheel_registry(b, "pytest~")
 }

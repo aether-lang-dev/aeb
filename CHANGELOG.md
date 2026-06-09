@@ -4,6 +4,60 @@
 
 ### Added
 
+- **Supply-chain build veto + runtime sandbox (`aeb --vet` / `--sandbox`).**
+  A layered defense that treats the build itself as an untrusted
+  supply-chain surface (see `docs/build-veto-and-sandbox.md`). The veto runs
+  in the trusted harness, never in the graph it inspects — a `.build.ae`
+  cannot clear a verdict about itself.
+  - **`aeb --vet [--veto-policy <f>]`** — static veto before any build.
+    Resolves an operator policy (`--veto-policy` → `$AEB_HOME/veto/default.ae`
+    → built-in deny `extern`/`exec`), refuses an in-tree policy path, runs
+    `lib/veto`'s AST veto (consumes `aetherc --emit=ast`: deny extern/exec/
+    net/import, a `banned` substring rule, and a positive
+    `coord_verb`/`coord_allow` coordinate allowlist), and exits 3 on a veto.
+    Fail-closed throughout (no-AST/indirect-call/computed-arg → veto).
+  - **`aeb --vet-tool '<cmd>'`** (layer 1b, repeatable) — run an operator
+    scanner (semgrep, a secret/CVE tool) before the build; non-zero exit
+    vetoes. Fail-closed (command-not-found vetoes too). "aeb invokes a SAST
+    engine rather than becoming one."
+  - **`aeb --sandbox [--sandbox-profile <f>]`** (layer 3) — run the whole
+    build under Aether's `spawn_sandboxed` with a deny-by-default grant
+    profile (LD_PRELOAD propagates to gcc/cc1/javac/…); a denied syscall
+    (connect to an un-granted host, write outside `target/`, exec off the
+    allowlist) dies at the libc boundary regardless of how the build computed
+    it. Profile resolves out-of-tree (`--sandbox-profile` →
+    `$AEB_HOME/sandbox/default.ae` → conservative built-in, **no tcp**),
+    in-tree profile refused. Linux-only; needs aether >= 0.230.0 (the
+    `vfork`/`clone3` seccomp fence). `lib/sandbox` grant model +
+    `default_profile` + `intersect` (operator-ceiling intersect maintainer-narrowing).
+  - **Agent-side veto** — `aeb-agent`'s pre-build gate runs the Tier-A rule
+    scan *then* the 2b AST veto on the prepared tree, returning `vetoed`/422.
+    Tier-A now covers the June-2026 supply-chain install-script class:
+    `binding.gyp` presence, `pre/postinstall` manifest hooks, `curl|sh`
+    fetch-and-exec, a patch-introduced `extern`, a patch-touches-disallowed-
+    path rule kind, and an opt-in tree-size cap (`AEB_AGENT_MAX_TREE_MB`).
+
+- **`aeb(cap)` capability entrypoint for build files.** A `.build.ae`/
+  `.tests.ae`/... may declare `aeb(cap)` instead of `main()`, where `cap` is
+  the build context/capability handle the trusted aeb host injects — the build
+  receives its authority, never constructs it. `transform-ae` lowers both
+  spellings to the same context-receiving function, so it's a clean
+  convention upgrade with no behavior change. Legacy `main()` still works.
+  See `docs/capability-entrypoint.md`.
+
+- **`aeb --scan '<glob>'` — explicit scan mode.** The scoped counterpart to
+  the main `aeb path/to/.leaf.ae` target mode: walks the tree and builds every
+  node whose basename matches the glob. A glob is **required** — a bare `aeb`
+  with neither a target nor `--scan` is now an error (aeb never builds the
+  whole tree implicitly). Replaces the former `--pattern` flag. `aeb --vet
+  --scan '<glob>'` vets the whole discovered set.
+
+- **Synonym target address `path/to:name`** (and bare `:name` in the cwd) —
+  the secondary spelling of `path/to/.name.ae`. Resolves to that one file and
+  echoes the canonical FQN (`aeb synonym match: <path>`) so the short form
+  always teaches the long one. A 2+-colon token (a Maven coordinate) is
+  rejected as not-a-target. aeb stays one-node-per-`.name.ae`.
+
 - **aeb builds its own Java component (`aeb-resolve.jar`) with aeb.** The
   Maven coordinate resolver (`tools/resolver/`, the one JVM artifact aeb
   ships) was built by an unscripted `mvn package`. Now
