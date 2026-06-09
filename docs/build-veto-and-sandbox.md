@@ -804,12 +804,17 @@ maybe_veto_build(repo, target, purpose):
    the first non-zero refuses. Live-verified: pass→build, `false`→veto,
    not-found→veto, marker-present→veto, marker-absent→clear, two-tools-second-
    fails→veto. *aeb invokes a SAST engine rather than becoming one.*
-3. **Layer 3 — per-node `spawn_sandboxed`.** Wrap each node-subprocess
-   (`_ae_build_all <root> <label>`) in a deny-by-default grant profile (no
-   tcp, no cred env, exec allowlist) when `--vet` is on. **Highest value vs.
-   the June-2026 credential-harvest threat** — it dies at the libc boundary
+3. **Layer 3 — runtime containment via `spawn_sandboxed` / LD_PRELOAD.** Run
+   the build under a deny-by-default grant profile (no tcp, no cred env, exec
+   allowlist) when `--vet`/`--sandbox` is on. **Highest value vs. the
+   June-2026 credential-harvest threat** — it dies at the libc boundary
    regardless of how the build computed the exfil. Linux-first (macOS/BSD fall
-   back to the container layer).
+   back to the container layer). **Entrypoint model designed (2026-06-09),
+   core mechanism proven:** the build file is hosted as an Aether lib (no
+   binary `main`) and aeb calls its exported `aeb(cap)` in-process, passing the
+   operator-minted capability; the grant grammar is the honest layer, the
+   LD_PRELOAD enforcement is the un-forgeable fence. No aether change needed.
+   See [capability-entrypoint.md](capability-entrypoint.md).
 4. ~~**Layer 2b — `aetherc --emit=ast` + aeb-side AST walk.**~~ **SHIPPED
    (slice, 2026-06-08).** `aetherc --emit=ast` landed in aether **v0.226.0**
    (name-resolved AST as JSON: `kind`/`file`/`line` + resolved `callee`,
