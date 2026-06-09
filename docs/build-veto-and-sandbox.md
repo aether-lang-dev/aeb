@@ -777,8 +777,9 @@ maybe_veto_build(repo, target, purpose):
    trampoline runs `scan-ae-files` (the same discovery `aeb-main` uses), keeps
    nodes whose basename matches the glob, and vets that whole set, refusing the
    build on the first veto. The `--scan` glob is **required** (no un-scoped
-   whole-tree vet by accident). *Still:* layers 1/3 driven by the same policy
-   object.
+   whole-tree vet by accident). **Layer 1b** (`--vet-tool <cmd>`) also runs in
+   this gate, before the AST pass. *Still:* layer 3 (`spawn_sandboxed`) driven by
+   the same policy object.
 1. ~~**Tier A / layer 1a is in.** Generalize the single stub scan into a small
    rule list.~~ **DONE (2026-06-05).** `lib/agent` `_veto_run_rules`: a
    data-driven rule list (`id\tscope\tpattern\treason`), built-in secret/key
@@ -787,10 +788,22 @@ maybe_veto_build(repo, target, purpose):
    the June-2026 patterns (a `binding.gyp` in the tree, `pre/postinstall` in a
    vendored manifest, `curl|sh` literal, `extern` in a user `.ae`), plus a tree
    **size cap** and **patch-touches-disallowed-path** rule kind.
-2. **Layer 1b — external-tool hook.** `--vet-tool <cmd>`: run an operator-chosen
-   scanner (python3 / semgrep / a CVE-or-secret tool) on the tree/patch;
-   non-zero exit vetoes. Small, high-leverage — aeb invokes a SAST engine
-   rather than becoming one.
+2. ~~**Layer 1b — external-tool hook.** `--vet-tool <cmd>`: run an
+   operator-chosen scanner (python3 / semgrep / a CVE-or-secret tool) on the
+   tree/patch; non-zero exit vetoes.~~ **SHIPPED (2026-06-09).** `aeb --vet-tool
+   '<cmd>'` (repeatable) runs each operator scanner with the build root as cwd,
+   in the trampoline's `--vet` gate, **before the 2b AST gate and before any
+   build**. The command is `eval`'d (operator-trusted, from the CLI not the
+   build graph), so real scanner expressions work: `--vet-tool 'semgrep --error
+   .'`, `--vet-tool '! grep -rq AKIA .'` (veto if an AWS-key marker is present).
+   A **non-zero exit vetoes** (REFUSED, exit 3); naming a tool implies `--vet`.
+   **Fail-closed:** a tool that can't run — command-not-found (exit 127), or any
+   error — vetoes too (a vet you asked for that can't run must not silently
+   pass); the errexit/`set -e` trap that would otherwise abort before the verdict
+   is neutralised with `|| _vt_rc=$?`. Multiple `--vet-tool`s all run in order;
+   the first non-zero refuses. Live-verified: pass→build, `false`→veto,
+   not-found→veto, marker-present→veto, marker-absent→clear, two-tools-second-
+   fails→veto. *aeb invokes a SAST engine rather than becoming one.*
 3. **Layer 3 — per-node `spawn_sandboxed`.** Wrap each node-subprocess
    (`_ae_build_all <root> <label>`) in a deny-by-default grant profile (no
    tcp, no cred env, exec allowlist) when `--vet` is on. **Highest value vs.
@@ -829,7 +842,8 @@ maybe_veto_build(repo, target, purpose):
    discovers the tree via `scan-ae-files`, filters by the glob's basename, and
    vets the whole set — live-verified that a scan-discovered (not CLI-named)
    evil node is refused (`veto:coord`, exit 3) while a clean sibling clears.
-   **Next:** layers 1/3 driven by the same policy object. (Stopgap 2a — `.c`
+   **Next:** layer 3 (`spawn_sandboxed`) driven by the same policy object;
+   layer 1b (`--vet-tool`) is shipped. (Stopgap 2a — `.c`
    grep — no longer needed; the positive coordinate allowlist is shipped.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique

@@ -111,6 +111,12 @@ fi
 # one. A 2+-colon token (e.g. a Maven `org.corp:lib:1.0`) is rejected as
 # a coordinate, not a target.
 #
+# --vet / --veto-policy <path> / --vet-tool <cmd>: the supply-chain
+# veto (see docs/build-veto-and-sandbox.md). --vet-tool names an
+# external scanner (semgrep, a secret/CVE tool) run before the build;
+# a non-zero exit vetoes (fail-closed — even command-not-found). All
+# three imply --vet; --vet-tool is repeatable.
+#
 # --shard N/M: after --since/--scan filtering, deterministically
 # keeps only the Nth shard out of M sorted targets. CI owns runner
 # distribution; aeb owns stable target partitioning.
@@ -244,6 +250,26 @@ while [[ $i -le $# ]]; do
         # Absolute-resolve so it survives aeb's chdir into module dirs.
         export AEB_VETO_POLICY="$(cd "$(dirname "$_vp")" && pwd)/$(basename "$_vp")"
         export AEB_VET=1   # naming a policy implies --vet
+    elif [[ "$a" == "--vet-tool" ]]; then
+        # Layer 1b — external-tool hook. --vet-tool <cmd> names an
+        # operator-chosen scanner (semgrep / python3 scan.py / a secret-
+        # or-CVE tool). aeb runs it with the build root as cwd BEFORE the
+        # build; a NON-ZERO exit vetoes (refuse, exit 3). aeb invokes a
+        # SAST engine rather than becoming one. Repeatable: every
+        # --vet-tool is run, any one failing vetoes. Implies --vet.
+        # Fail-closed: a tool that can't be run is itself a veto.
+        i=$((i + 1))
+        if [[ $i -gt $# ]]; then
+            echo "aeb: --vet-tool requires a command (e.g. --vet-tool 'semgrep --error .')" >&2
+            exit 1
+        fi
+        # Accumulate one command per newline (commands may contain spaces).
+        if [[ -z "${AEB_VET_TOOLS:-}" ]]; then
+            export AEB_VET_TOOLS="${!i}"
+        else
+            export AEB_VET_TOOLS="${AEB_VET_TOOLS}"$'\n'"${!i}"
+        fi
+        export AEB_VET=1   # naming a tool implies --vet
     elif [[ "$a" == *:* ]]; then
         # Synonym target address: `path/to:name` (or bare `:name` in the
         # current dir) is the secondary spelling of `path/to/.name.ae`.
@@ -301,12 +327,16 @@ if [[ -n "${AEB_USE_REMOTE_AGENTS:-}" ]]; then
     exec "$AEB_REMOTE_BIN" "$@"
 fi
 
-# --- --vet gate: vet the build's .ae graph BEFORE building ----------
-# When AEB_VET=1, run the supply-chain veto over the named target(s) and
-# refuse (exit non-zero) before any build runs. The gate resolves the
-# operator policy (AEB_VETO_POLICY / $AEB_HOME/veto/default.ae / built-in
-# default), refuses an in-tree policy, enforces the zero-rules lint, and
-# runs lib/veto's decide() per target. See docs/build-veto-and-sandbox.md.
+# --- --vet gate: vet the build BEFORE building ----------------------
+# When AEB_VET=1, run the supply-chain veto before any build runs and
+# refuse (exit 3) on any veto. Two layers run here, both fail-closed:
+#   1b external-tool hook (--vet-tool <cmd>) — operator scanners; a
+#      non-zero exit vetoes. Runs first.
+#   2b AST gate (tools/aeb-vet) — resolves the operator policy
+#      (AEB_VETO_POLICY / $AEB_HOME/veto/default.ae / built-in default),
+#      refuses an in-tree policy, enforces the zero-rules lint, runs
+#      lib/veto's decide() per target.
+# See docs/build-veto-and-sandbox.md.
 # Two scopes, matching the two build modes:
 #   target mode — vets the explicitly-named *.ae targets on the CLI.
 #   scan mode (--scan <glob>) — walks the tree (scan-ae-files, the same
@@ -315,11 +345,38 @@ fi
 #     by the required --scan glob (no un-scoped tree vet by accident).
 # The first veto refuses the entire build (exit 3) — fail-closed.
 if [[ -n "${AEB_VET:-}" ]]; then
+    ROOT="$(pwd)"
+
+    # --- Layer 1b: external-tool hook (--vet-tool <cmd>) ---------------
+    # Run each operator-named scanner with the build root as cwd, BEFORE
+    # the AST gate and before any build. A non-zero exit vetoes (exit 3).
+    # aeb invokes a SAST engine rather than becoming one. Fail-closed: a
+    # tool that errors (incl. command-not-found, exit 127) vetoes too — a
+    # vet you asked for that can't run must not silently pass.
+    if [[ -n "${AEB_VET_TOOLS:-}" ]]; then
+        while IFS= read -r _vt; do
+            [[ -n "$_vt" ]] || continue
+            echo "aeb --vet: running tool: ${_vt}" >&2
+            # Run in a subshell cd'd to the root so the scanner sees the
+            # tree; the command is operator-trusted (it came from the CLI,
+            # not the build graph), so word-splitting it via the shell is
+            # intended (lets `--vet-tool 'semgrep --error .'` work). The
+            # `if !` form keeps errexit (set -e) from aborting before we
+            # can convert a non-zero exit (incl. 127 not-found) into a veto.
+            _vt_rc=0
+            ( cd "$ROOT" && eval "$_vt" ) || _vt_rc=$?
+            if [[ $_vt_rc -ne 0 ]]; then
+                echo "aeb --vet: REFUSED — vet-tool exited ${_vt_rc}: ${_vt}" >&2
+                echo "aeb: build refused by --vet (see above)" >&2
+                exit 3
+            fi
+        done <<< "${AEB_VET_TOOLS}"
+    fi
+
     AEB_VET_BIN="$AEB_HOME/tools/aeb-vet"
     if [[ ! -x "$AEB_VET_BIN" ]]; then
         "$AETHER" build "$AEB_HOME/tools/aeb-vet.ae" --lib "$AEB_HOME/lib" -o "$AEB_VET_BIN" 2>/dev/null
     fi
-    ROOT="$(pwd)"
     _vet_targets=()
     if [[ -n "${AEB_SCAN:-}" ]]; then
         # Scan mode: discover the tree, filter by the glob's basename
