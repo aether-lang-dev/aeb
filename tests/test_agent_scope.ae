@@ -144,6 +144,17 @@ main() {
     // patch-scope with NO patch → "" (caller skips the rule).
     _eq("veto cmd patch-scope no patch", _veto_scan_cmd("patch", "AKIA", "/srv/repo", ""), "")
 
+    // file-scope → find-by-name existence check (exit 0 = file present).
+    _eq("veto cmd file-scope",
+        _veto_scan_cmd("file", "binding.gyp", "/srv/repo", ""),
+        "find '/srv/repo' -name 'binding.gyp' 2>/dev/null | grep -q .")
+    // patchpath-scope → grep the diff's file headers for the path pattern.
+    _eq("veto cmd patchpath-scope",
+        _veto_scan_cmd("patchpath", "\\.github/", "/srv/repo", "/tmp/p.diff"),
+        "grep -qE '^(\\+\\+\\+ |diff --git ).*\\.github/' '/tmp/p.diff' 2>/dev/null")
+    // patchpath with NO patch → "" (skip).
+    _eq("veto cmd patchpath no patch", _veto_scan_cmd("patchpath", "x", "/srv/repo", ""), "")
+
     // _veto_default_rules: the built-in list is non-empty and well-formed
     // (every row has the 4 tab fields).
     drules = _veto_default_rules()
@@ -152,9 +163,32 @@ main() {
     _eq("veto default rule0 id", _veto_rule_field(r0, 0), "secret-rsa")
     _assert("veto default rule0 has reason", 1 - _streq(_veto_rule_field(r0, 3), ""))
 
+    // June-2026 supply-chain rules are present + well-formed. Find them by id
+    // and assert their scope/reason are set (scan the list).
+    _assert("default rules include the June-2026 install-script class (>= 8 rules)",
+        1 - _lt(list.size(drules), 8))
+    _assert("binding.gyp rule is file-scope", _has_rule_with_scope(drules, "npm-binding-gyp", "file"))
+    _assert("install-hook rule is tree-scope", _has_rule_with_scope(drules, "npm-install-hook", "tree"))
+    _assert("curl-pipe-sh rule is tree-scope", _has_rule_with_scope(drules, "curl-pipe-sh", "tree"))
+    _assert("patch-extern rule is patch-scope", _has_rule_with_scope(drules, "patch-extern", "patch"))
+
     println("agent scope + wire + token + ping + pool + veto tests done")
 }
 
 // tiny local helpers (the test file is self-contained)
 _lt(a: int, b: int) { if a < b { return 1 } return 0 }
 _streq(a: string, b: string) { return string.equals(a, b) }
+// _has_rule_with_scope(rules, id, scope) — 1 if some rule row has both the
+// given id (field 0) and scope (field 1).
+_has_rule_with_scope(rules: ptr, rid: string, scope: string) {
+    i = 0
+    n = list.size(rules)
+    while i < n {
+        row, _ = list.get(rules, i)
+        if string.equals(_veto_rule_field(row, 0), rid) == 1 {
+            if string.equals(_veto_rule_field(row, 1), scope) == 1 { return 1 }
+        }
+        i = i + 1
+    }
+    return 0
+}

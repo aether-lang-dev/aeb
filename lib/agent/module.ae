@@ -678,10 +678,27 @@ builder dispatch(ctx: ptr) {
 // via AEB_AGENT_VETO_PATTERNS (see _veto_rules_from_env).
 _veto_default_rules() {
     rules = list.new()
+    // --- committed-secret markers (tree-wide) ---
     list.add(rules, "secret-rsa\ttree\tBEGIN RSA PRIVATE KEY\ttree contains an RSA private-key marker")
     list.add(rules, "secret-openssh\ttree\tBEGIN OPENSSH PRIVATE KEY\ttree contains an OpenSSH private-key marker")
     list.add(rules, "secret-pgp\ttree\tBEGIN PGP PRIVATE KEY BLOCK\ttree contains a PGP private-key marker")
     list.add(rules, "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id")
+    // --- June-2026 supply-chain install-script class (the npm/postinstall
+    // attack family the veto effort targets; see docs/build-veto-and-sandbox.md) ---
+    // A binding.gyp ANYWHERE = a node-gyp native-addon build that runs at npm
+    // install time — a primary install-exec vector. File-existence, not content.
+    list.add(rules, "npm-binding-gyp\tfile\tbinding.gyp\ttree contains a binding.gyp (native-addon install-time build script)")
+    // pre/postinstall lifecycle hooks in a manifest — the script npm runs on
+    // install, the literal mechanism of the 2024-2026 npm worm waves.
+    list.add(rules, "npm-install-hook\ttree\t\"\\(pre\\|post\\)install\"[[:space:]]*:\tmanifest declares a pre/post-install lifecycle script")
+    // a curl|sh / wget|sh one-liner — fetch-and-exec, anywhere in the tree.
+    list.add(rules, "curl-pipe-sh\ttree\t\\(curl\\|wget\\)[^|]*|[[:space:]]*\\(sudo[[:space:]]*\\)\\?\\(ba\\)\\?sh\tfetch-and-exec one-liner (curl/wget piped to a shell)")
+    // an `extern` declaration INTRODUCED BY THE PATCH in a .ae build file — a
+    // raw C/syscall escape the untrusted delta is adding. Patch-scoped so the
+    // SDKs' own legit externs (every .ae has `extern println`) don't trip it;
+    // only a NEW extern in the pre-integration delta vetoes. (2b/AST does the
+    // origin-scoped version; this is the cheap pre-compile signal.)
+    list.add(rules, "patch-extern\tpatch\t^\\+[[:space:]]*extern[[:space:]]\tpatch introduces an extern (raw C/syscall escape) in build code")
     return rules
 }
 
@@ -744,14 +761,51 @@ _veto_scan_cmd(scope: string, pattern: string, repo: string, patch_path: string)
         if string.length(patch_path) == 0 { return "" }
         return string.concat(string.concat("grep -qI -e '", pattern), string.concat("' '", string.concat(patch_path, "' 2>/dev/null")))
     }
+    // "file" scope: veto if a file matching the glob `pattern` EXISTS anywhere
+    // in the tree (e.g. binding.gyp — a native-addon build script that runs at
+    // npm install time; the classic install-exec vector). exit 0 = found.
+    if string.equals(scope, "file") == 1 {
+        return string.concat(string.concat("find '", repo), string.concat("' -name '", string.concat(pattern, "' 2>/dev/null | grep -q .")))
+    }
+    // "patchpath" scope: veto if the PATCH touches a disallowed path — grep the
+    // diff's file headers (`+++ ` / `diff --git ` lines) for the pattern. Only
+    // meaningful with a patch; "" → caller skips. Highest signal: the untrusted
+    // delta is trying to modify something off-limits (CI config, a lockfile).
+    if string.equals(scope, "patchpath") == 1 {
+        if string.length(patch_path) == 0 { return "" }
+        return string.concat(string.concat("grep -qE '^(\\+\\+\\+ |diff --git ).*", pattern), string.concat("' '", string.concat(patch_path, "' 2>/dev/null")))
+    }
     // default: tree scan (recursive, skip binary)
     return string.concat(string.concat("grep -rqI -e '", pattern), string.concat("' '", string.concat(repo, "' 2>/dev/null")))
+}
+
+// _veto_tree_size_cap(repo) — veto if the prepared tree exceeds a size cap.
+// A pre-integration tree far larger than expected is a red flag: a vendored
+// binary blob, a zip-bomb-style payload, an exfil staging dir. Cap is operator-
+// set via AEB_AGENT_MAX_TREE_MB (megabytes); 0/unset → disabled (no cap, since
+// legitimate monorepos vary wildly — the operator opts in to a number they
+// know fits their tree). Returns a veto reason, or "" to allow.
+_veto_tree_size_cap(repo: string) {
+    capstr = os.getenv("AEB_AGENT_MAX_TREE_MB")
+    if string.length(capstr) == 0 { return "" }
+    cap_mb, _cerr = string.to_int(string.trim(capstr))
+    if cap_mb <= 0 { return "" }
+    // `du -sm` → size in MB (first whitespace-delimited field).
+    out, _e = os.exec("du -sm '${repo}' 2>/dev/null | awk '{print $1}'")
+    sz_mb, _serr = string.to_int(string.trim(out))
+    if sz_mb > cap_mb {
+        return "tree is ${sz_mb} MB, exceeds AEB_AGENT_MAX_TREE_MB=${cap_mb} (veto:tree-size)"
+    }
+    return ""
 }
 
 // _veto_run_rules(repo, patch_path) — run every rule; first hit vetoes and
 // returns its reason. "" = allow. The ONE I/O function here (os.system per
 // rule). Rules + reasons come from _veto_rules_from_env (pure).
 _veto_run_rules(repo: string, patch_path: string) {
+    // Tree-size cap first (cheapest decisive check; opt-in via env).
+    szveto = _veto_tree_size_cap(repo)
+    if string.length(szveto) > 0 { return szveto }
     rules = _veto_rules_from_env()
     i = 0
     n = list.size(rules)
