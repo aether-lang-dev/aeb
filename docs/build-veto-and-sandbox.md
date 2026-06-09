@@ -829,13 +829,20 @@ maybe_veto_build(repo, target, purpose):
    report); the `ae`→gcc→cc1→ld pipeline now runs under `spawn_sandboxed`,
    and granting `fs_write /dev/*` (esp. `/dev/null`) + `fs_read /dev/*,/proc/*`
    in `default_profile` cleared a `resolve-imports.sh` retry loop.
-   **Blocker #2 is still open:** `aeb-main` doing real work **segfaults merely
-   from the preload being LOADED** — `LD_PRELOAD=libaether_sandbox.so aeb-main
-   …` → SIGSEGV (rc 139), with NO `spawn_sandboxed`, NO SHM, NO active grants
-   — so it's the interception path itself (the `real_*` dlsym wrappers), not
-   grant denial. Trivial binaries and no-arg aeb-main are fine; only the
-   fork/exec/open-heavy orchestration faults. Upstream ask updated with the
-   one-line repro: `../aether/sandbox-preload-toolchain-segfault.md`.
+   **Blocker #2 RESOLVED (2026-06-09) — it was a stale preload `.so` on the
+   aeb side, not an aether bug.** The aether sibling root-caused it via `nm`:
+   the installed `libaether_sandbox.so` had been built from PRE-0.229.0 source
+   and still carried the unsafe `vfork()` wrapper (the SIGSEGV was in a `sh -c`
+   build child at its `vfork()`, cascading to rc 139/255). `_ensure_preload`
+   was caching the `.so` on `exists` alone; even an mtime check failed (a
+   stale `.so` with a coincidentally-newer mtime defeats it). Fix:
+   **always-rebuild** the `.so` from the current aether-install source (a
+   26 KB single-file `cc`, once per run). Plus `default_profile` now grants
+   `exec` for the build's `target/`+`repo` (the per-node orchestrator
+   `_ae_build_all` runs there) and `/dev/*`,`/proc/*` reads + `/dev/*` writes.
+   **Layer 3 is now UNBLOCKED:** `aeb --sandbox <target>` runs the real
+   orchestrator pipeline to completion (rc 0), contained under the grant
+   profile, no segfault — no aether change beyond the 0.229.0 vfork fix.
 4. ~~**Layer 2b — `aetherc --emit=ast` + aeb-side AST walk.**~~ **SHIPPED
    (slice, 2026-06-08).** `aetherc --emit=ast` landed in aether **v0.226.0**
    (name-resolved AST as JSON: `kind`/`file`/`line` + resolved `callee`,
