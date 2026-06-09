@@ -1245,11 +1245,52 @@ this a PR" would enable conditional logic.
 Possible: `build.is_ci()`, `build.branch()`, `build.is_pr()` functions
 that read standard CI env vars (GITHUB_ACTIONS, CI, GITLAB_CI, etc.).
 
+### Build prerequisites & provisioning — `prereq()` / preflight / podman layering
+
+**Fully designed; no code yet.** Design doc:
+[docs/build-prerequisites-and-provisioning.md](docs/build-prerequisites-and-provisioning.md).
+This is the principled version of the "Multi-SDK bootstrapping" idea below
+(Cake's build.sh installs specific .NET SDK versions; `require_tool(...)`):
+a leaf *declares* its system-toolchain requirements, and a missing one is a
+clean attributable verdict rather than a confusing build failure.
+
+Motivated by a real monorepo with huge per-leaf toolchain variance (**skir** —
+~27 leaves where each `bindings/{rust,go,java,kotlin,dart,csharp,swift,gleam,
+zig,moonbit,cpp,python,typescript}` needs that language's entire system
+toolchain). Today `bindings/zig/.build.ae` → `zig: not found` → a build
+failure indistinguishable from "the code is broken." (Same class as the
+kotlinc-1.3-vs-JDK-24 mismatch hit during the aeb(cap) sim/repo migrations.)
+
+The design: `prereq(b, "<toolchain>:<version>")` reuses the `dep()` DAG
+machinery (greppable via `extract-deps`, no evaluation) — leaves are
+toolchain tokens, not build files. It feeds two phases: **preflight**
+(always, every agent, fail-closed → a distinct `unmet-prereqs` verdict, never
+silently provisions) and **provision** (opt-in only: `--allow-provision` +
+podman → layers the missing toolchains onto the agent's base image so a
+subsequent build passes). Composes with the veto/sandbox stack:
+*provisioning adds capability, never trust.*
+
+Build order (from the doc):
+
+1. **`prereq(b, "<toolchain>:<version>")`** — the dep-shaped, greppable
+   declaration; extend `tools/extract-deps` to collect it; flatten over the
+   dep DAG to the prerequisite set. *(the data)*
+2. **preflight** — probe the set vs. the environment; missing → the distinct
+   `unmet-prereqs` verdict; never provisions. *(the fail-closed default)*
+3. **`ping` advertises held tokens** + originator subset-routing. *(routing)*
+4. **`--allow-provision` agent + the operator token→recipe map** — one combined
+   layer keyed by `sha256(sorted set)`, built on `aeb-agent-base`; the
+   subsequent clone+build runs inside it. *(provisioning — opt-in, podman)*
+5. **Later:** the *pluck-select-into-base-layer* optimization, once rebuild
+   cost is measured to justify it.
+
 ### Multi-SDK bootstrapping
 
-Cake's build.sh/build.ps1 install specific .NET SDK versions before
-building. aeb assumes tools are on PATH. A `require_tool("dotnet", "10.0")`
-or similar could validate/install prerequisites.
+(Superseded by the prereq()/provisioning design above — kept for the
+cross-tool context.) Cake's build.sh/build.ps1 install specific .NET SDK
+versions before building. aeb assumes tools are on PATH. A
+`require_tool("dotnet", "10.0")` or similar could validate/install
+prerequisites.
 
 ## Cross-cutting — capabilities from CI-as-code (TeamCity, Jenkins)
 
