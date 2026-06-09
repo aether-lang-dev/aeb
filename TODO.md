@@ -110,6 +110,48 @@ the map after the block runs and translates to compiler flags.
 
 ## Runner improvements
 
+### Full Aether CLI entrypoint (replace the bash trampoline)
+
+The user-facing `aeb` command is currently a bash script
+(`#!/usr/bin/env bash`): it parses flags, resolves `AEB_HOME`, does the
+synonym/`:name` and `--scan`/`--vet` arg handling, lazy-builds the helper
+tools, sets the process group, and only then hands off to the compiled
+`aeb-main`. That bash front-end is the one piece of aeb that is NOT
+Aether — and it pins the whole CLI to a bash-bearing platform (Linux,
+macOS, WSL, Git-Bash), with no native Windows/PowerShell story.
+
+**Goal:** a full Aether equivalent of the bash CLI — a compiled `aeb`
+entrypoint that does everything the trampoline does today, so bash is no
+longer on the critical path.
+
+Why it's worth doing:
+- **Portability.** A compiled entrypoint runs anywhere Aether targets,
+  including native Windows — at which point the `:`-in-target /
+  drive-letter (`C:`) disambiguation becomes a real (small) concern to
+  handle in the resolver, not a moot one.
+- **Single language.** The CLI's arg grammar (flags, `path/to:name`
+  synonym resolution + the `aeb synonym match:` FQN echo, `--scan
+  '<glob>'` requiring a glob, `--vet`/`--veto-policy`, `--since`/`--scan`/
+  `--shard` narrowing, `--watch`, `gcheckout`, `--init`) would live in
+  one typed, testable Aether program instead of split across bash + the
+  compiled tools. Today the bash layer is effectively untested.
+- **Self-hosting.** aeb building its own front-end closes the loop.
+
+Things the bash layer does that the Aether port must preserve:
+- `AEB_HOME` resolution + the stale-install note (Makefile-stamped).
+- Lazy-build of helper tools (`aeb-main`, `aeb-link`, `scan-ae-files`,
+  `extract-deps`, `topo-sort`, `aeb-vet`, etc.) — first-run compile.
+- Process-group / `set -m` job control so a build's whole subtree
+  (orchestrator → builders → spawned procs) is reaped together.
+- The podman-socket `DOCKER_HOST` auto-detect for TestContainers.
+- `exec`-style handoffs (`--watch`, `gcheckout`, `--init`,
+  `--use-remote-agents` → `aeb-remote`).
+
+Open question: a thin bash shim may still be wanted purely as the
+`#!`-launchable file on Unix (it would just `exec` the compiled aeb),
+while the real logic moves into Aether. Decide whether the shim stays or
+a platform-native launcher replaces it per-OS.
+
 ### Target filtering (done)
 
 `aeb <target>` builds only the named target and its transitive deps.
