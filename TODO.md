@@ -1245,6 +1245,34 @@ this a PR" would enable conditional logic.
 Possible: `build.is_ci()`, `build.branch()`, `build.is_pr()` functions
 that read standard CI env vars (GITHUB_ACTIONS, CI, GITLAB_CI, etc.).
 
+### `aeb --ci <git-url> <commit-hash> <scan-target>` — the wake-on-commit one-shot
+
+**Designed; not built.** Design:
+[docs/aeb-vs-snap-ci-and-the-wake-on-commit-flow.md](docs/aeb-vs-snap-ci-and-the-wake-on-commit-flow.md)
+(the "concrete CLI" section). The one-shot command a CI trigger / hook hands
+to a runner: clone (or fetch into a cached mirror) the URL, `git checkout
+<hash>`, then run the scan over the target as if you'd `cd`'d in and run `aeb
+<scan-target>` — exit code + telemetry = the flow result.
+
+NOT a new responsibility: `aeb-agent` already does `git fetch + checkout
+<hash>` → vet → build the prepared tree. `--ci` surfaces that same
+fetch-a-named-revision-and-build as a **direct local CLI** (no dispatch/lease
+protocol). Respects the boundary: aeb owns the deterministic fetch+checkout+
+build of a named revision; it does NOT own the trigger (a hook), nor the
+runner/secrets/approval/deploy wrapper (CI's).
+
+- **Trust posture: `--vet --sandbox` ON by default** — a `--ci` run fetches a
+  commit you may not have reviewed (a trigger fired on someone's push), so the
+  fetched tree is untrusted-until-cleared (matching the agent's
+  pre-integration model). `--no-vet`/`--no-sandbox` = explicit trusted fast
+  path. Composes the three tracks: `--ci` is the entry, veto/sandbox is the
+  trust gate, prereq()/provisioning gives the runner the needed toolchains.
+- Open: workdir lifecycle (per-run temp clone vs. cached bare mirror — lean
+  cached mirror keyed by URL); optional `--patch <file>` overlay (the agent's
+  untrusted-delta path, for "test this PR's uncommitted diff"); private-repo
+  auth relies on the runner's ambient git credential helper / SSH agent (aeb
+  never manages secrets — that's CI's column).
+
 ### Build prerequisites & provisioning — `prereq()` / preflight / podman layering
 
 **Fully designed; no code yet.** Design doc:

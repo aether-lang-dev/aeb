@@ -122,6 +122,73 @@ the canonical grammar for the *middle* — and the middle is exactly the
 branchable, source-controlled pipeline-fragment Snap proved teams wanted and
 could not get from a server-side model.
 
+## A concrete CLI: `aeb --ci <git-url> <commit-hash> <scan-target>`
+
+The one-shot command a trigger hands to a runner — *"here is a commit, give
+me the flow result."* Design (not built):
+
+```sh
+aeb --ci https://github.com/org/repo abc1234 '.tests.ae'
+#  1. clone (or fetch into a workdir cache) the URL
+#  2. git checkout abc1234            (the named, fetchable revision)
+#  3. run the scan over the target, as if you'd cd'd in:  aeb --scan '.tests.ae'
+#  → exit code + telemetry = the flow result the trigger wanted
+```
+
+**This is not a new responsibility — it surfaces what `aeb-agent` already
+does.** The agent's accepted-build path is already
+`git fetch origin <ref> && git checkout <hash>` → vet → build the prepared
+tree (`tools/aeb-agent.ae`). `--ci` is that same *fetch-a-named-revision-and-
+build* capability exposed as a **direct local CLI** instead of over the
+dispatch/lease protocol. aeb already crossed into "fetch a ref" for the
+agent; `--ci` just makes it a first-class local command.
+
+Why it still respects the boundary: aeb does the *fetch+checkout+build of a
+named revision* (a deterministic, content-addressed operation — the same
+class as the agent's, the same class as `gcheckout`'s git interaction). It
+does **not** own the *trigger* (what told it `abc1234` happened — a hook),
+nor the *runner allocation / secrets / approval / deploy* around the call.
+The trigger says "wake on this commit"; `--ci` is the **answer** it invokes;
+the runner/auth wrapper is still CI's.
+
+### Trust posture: vet + sandbox ON by default for `--ci`
+
+A `--ci` run fetches a commit you may not have reviewed — that is the whole
+point: a trigger fired on *someone's* push. So **`--ci` defaults to
+`--vet --sandbox`** (the agent path already vets the prepared tree before
+building). The fetched-commit-from-a-URL is **untrusted until cleared**,
+matching the agent's pre-integration model:
+
+```sh
+aeb --ci <url> <hash> '.tests.ae'          # implicitly --vet --sandbox
+aeb --ci --no-vet --no-sandbox <url> <hash> '.tests.ae'   # explicit trusted fast path
+```
+
+This is the seam where the three feature tracks compose: `--ci` is the
+*entry*, the **veto/sandbox stack** is the *trust gate*, and (once built) the
+**prereq()/provisioning** design is what lets the runner have the toolchains
+the fetched commit needs. A trigger wakes aeb on a commit; aeb fetches it,
+vets it, contains it, checks its prerequisites, and runs the affected flow —
+all from one in-repo, branchable grammar, with the trigger and the
+runner-authority staying outside.
+
+### Open questions for `--ci`
+
+- **Workdir lifecycle** — a per-invocation temp clone (clean, slow) vs. a
+  cached bare mirror fetched-into (fast, reused across triggers). Lean cached
+  mirror keyed by URL, `git fetch` + detached checkout per hash.
+- **`<scan-target>` is a scan glob or a target path** — reuse the existing
+  target/`--scan`/synonym resolution verbatim, so `--ci` adds *fetch+checkout*
+  and nothing else to the build semantics.
+- **Patch overlay (optional)** — the agent also applies an untrusted `git
+  diff` on top of the base; `--ci` could take an optional `--patch <file>` to
+  cover the "test this PR's uncommitted delta" case, reusing the agent's
+  apply+vet path. Defer unless needed.
+- **Auth for private repos** — fetching a private URL needs a credential,
+  which is squarely CI's "secrets" column. `--ci` should rely on the ambient
+  git credential helper / SSH agent the *runner* provides, and never manage
+  secrets itself (that would cross the boundary).
+
 ## Where this could go (not built; design-adjacent)
 
 Two seams make aeb a *better* citizen of a wake-on-commit flow without
