@@ -270,14 +270,24 @@ the operator's, sourced and applied from outside the tree.
 
 ## Open questions / blockers before implementation
 
-1. **Pre-`main` / pre-entry execution (the one true blocker).** Does Aether
-   run any user code before the hosted entrypoint is called — `import`-time
-   side effects, top-level initializers? If so, hosting `aeb(cap)` does not
-   contain that pre-entry code, and the transform/host wiring must account
-   for it (or the preload must already be active before the build module is
-   loaded). Verify before building. (The LD_PRELOAD layer, set up *around*
-   the whole `aeb` process, covers this regardless — another reason it is
-   the real fence.)
+1. ~~**Pre-`main` / pre-entry execution (the one true blocker).**~~
+   **RESOLVED (2026-06-09): Aether has no pre-entry execution.** Verified
+   against `ae 0.227.0`: a `.ae` top level accepts *only* `actor`/`struct`/
+   `function` (plus `import`/`extern`) — `error[E0100]: Unexpected identifier
+   at top level (expected actor, struct, or function)`. A bare top-level
+   statement, a top-level constant binding, and a call-initialized top-level
+   variable are **all parse errors**, not silently-dropped or load-time-run
+   code. There is no module-init phase, no top-level side effects, no static
+   initializers; user code runs *only* when a function is called. (aeb's own
+   modules confirm the shape — no top-level statements anywhere.) **For this
+   design that is ideal:** when aeb hosts a `.build.ae` and calls `aeb(cap)`,
+   nothing in that file has executed yet — there is no pre-entry gap in which
+   a `connect()`/`open()` could fire before the capability is established. The
+   first and only user code to run is the `aeb(cap)` body, which already holds
+   its capability. The in-process hosting model is therefore *sufficient on
+   its own* for containment timing; the LD_PRELOAD layer remains the
+   enforcement fence (forged caps, sub-tool syscalls) but is not needed to
+   plug a pre-entry window — that window does not exist.
 2. **`--emit=lib` capability rejection as a feature.** aetherc already
    *rejects* `--emit=lib` on a source that imports capability-gated stdlib
    without `--with=`. For the sandbox story this is fail-closed for free:
