@@ -247,6 +247,21 @@ main() {
 
     if string.length(target) == 0 {
         // Scan mode: walk every .*.ae file under cwd via scan-ae-files.
+        //
+        // Plain build-mode scan (no modal flag) is OPT-IN and must be
+        // scoped by a glob: `aeb --scan '<glob>'` sets AEB_SCAN. A bare
+        // `aeb` with neither a target nor --scan is an error — we never
+        // build the whole tree implicitly (that's the un-scoped posture
+        // --scan exists to forbid, and the dangerous one under --vet).
+        // Modal flags (--query/--since/--affected/…) legitimately need
+        // the full graph, so they set `flag` and skip this guard.
+        if string.length(flag) == 0 {
+            if string.length(os.getenv("AEB_SCAN")) == 0 {
+                println("aeb: nothing to build — name a target (e.g. `aeb path/to/.build.ae`)")
+                println("     or scope a tree scan with a glob (e.g. `aeb --scan '.build.ae'`).")
+                exit(2)
+            }
+        }
         scan_out = run_capture(scan_ae_files_bin)
         rest = scan_out
         line = string.concat("", "")
@@ -462,15 +477,15 @@ main() {
     // hand it to the affected-targets tool, get back the impacted
     // targets, and either print them (--print-affected) or rewrite
     // the build set so only those targets and their deps build.
-    // narrowed: did --since or --pattern shrink `files`/`seen` from
+    // narrowed: did --since or --scan shrink `files`/`seen` from
     // the full scanned set? Drives the edges-file rewrite below
     // (single rewrite covers both code paths).
     narrowed = 0
-    // AEB_PATTERN read up here so --print-affected can also honour
+    // AEB_SCAN read up here so --print-affected can also honour
     // it. The actual filter (against `files`/`seen`) happens after
     // the --since block; for --print-affected we filter `aff_out`
     // (a string) inline since that path returns early.
-    pattern = os.getenv("AEB_PATTERN")
+    pattern = os.getenv("AEB_SCAN")
     is_since   = string.equals(flag, "--since")
     is_aff     = string.equals(flag, "--affected")
     is_print   = string.equals(flag, "--print-affected")
@@ -542,10 +557,10 @@ main() {
         aff_out = string.trim(aff_out_raw)
 
         if is_print == 1 {
-            // Print the list and exit. If --pattern is also set,
+            // Print the list and exit. If --scan is also set,
             // filter the lines by basename glob first; empty
             // output is meaningful ("nothing affected after the
-            // pattern filter") and we just emit nothing.
+            // scan-glob filter") and we just emit nothing.
             out_str = aff_out
             if string.length(pattern) > 0 {
                 filtered = ""
@@ -611,20 +626,21 @@ main() {
         seen  = new_seen
         narrowed = 1
         // Edges-file rewrite happens once below, after both --since
-        // and --pattern have had a chance to narrow.
+        // and --scan have had a chance to narrow.
     }
 
-    // --- AEB_PATTERN: filter files by basename glob ---
+    // --- AEB_SCAN: scan-mode glob; also filters files by basename ---
     //
-    // Set by the trampoline when the user passes `--pattern <glob>`.
-    // Intersects the current file set with paths whose basename
-    // matches the POSIX fnmatch pattern. Composes with --since: a
-    // pattern after --since further narrows the affected set.
+    // Set by the trampoline when the user passes `--scan <glob>`. In
+    // plain build mode it BOTH selects scan mode (above) and narrows
+    // the scanned set to paths whose basename matches the POSIX fnmatch
+    // glob. Composes with --since: a glob after --since further narrows
+    // the affected set.
     //
     // Designed for CI shapes:
-    //   aeb --since main --pattern '.tests.ae'      # PR-impact tests only
-    //   aeb --since main --pattern '.tests*.ae'     # incl .tests-it.ae
-    //   aeb --pattern '.tests.ae'                   # all tests, no diff filter
+    //   aeb --since main --scan '.tests.ae'      # PR-impact tests only
+    //   aeb --since main --scan '.tests*.ae'     # incl .tests-it.ae
+    //   aeb --scan '.tests.ae'                   # all tests, no diff filter
     //
     // The match target is the file's basename (path.basename), so
     // `.tests.ae` matches both `lib/foo/.tests.ae` and
@@ -658,7 +674,7 @@ main() {
                 if string.length(ref_str) == 0 { ref_str = "HEAD" }
                 scope = "affected set (since ${ref_str})"
             }
-            println("aeb: no targets matching pattern '${pattern}' in ${scope}")
+            println("aeb: no targets matching --scan glob '${pattern}' in ${scope}")
             return 0
         }
         files = pat_files
@@ -669,8 +685,8 @@ main() {
     // --- AEB_SHARD: deterministic target partitioning for CI ---
     //
     // Set by the trampoline when the user passes `--shard N/M`.
-    // Applied after --since and --pattern, so a common CI shape is:
-    //   aeb --since main --pattern '.tests*.ae' --shard 2/8
+    // Applied after --since and --scan, so a common CI shape is:
+    //   aeb --since main --scan '.tests*.ae' --shard 2/8
     //
     // The partition key is the sorted target path list. Position is
     // zero-based after sorting; shard 1/M receives positions 0, M,
@@ -707,7 +723,7 @@ main() {
         narrowed = 1
     }
 
-    // --- Rewrite edges file if narrowed (by --since, --pattern, and/or --shard) ---
+    // --- Rewrite edges file if narrowed (by --since, --scan, and/or --shard) ---
     //
     // Topo-sort + aeb-link read the edges file; if we narrowed the
     // file set above, only emit rows whose first column is in the

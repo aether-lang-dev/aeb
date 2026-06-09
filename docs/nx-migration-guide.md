@@ -385,11 +385,11 @@ README for the canonical reference; brief pointers:
   `aeb --since main` builds and tests only modules downstream of the
   PR's changed files. Combined with aeb's content-addressed cache,
   this is the standard CI shape.
-- **Narrow PR checks to tests with `--pattern '.tests.ae'`.** Nx has
+- **Narrow PR checks to tests with `--scan '.tests.ae'`.** Nx has
   `nx affected:test` (only the test target type). aeb's equivalent is
-  `aeb --since main --pattern '.tests.ae'` — runs only the test
+  `aeb --since main --scan '.tests.ae'` — runs only the test
   targets impacted by the PR, skipping `.build.ae` rebuild rows and
-  `.dist.ae` packagers. `--pattern '.dist.ae'` is the symmetric
+  `.dist.ae` packagers. `--scan '.dist.ae'` is the symmetric
   release-pipeline shape.
 - **Composite test targets via `build.scan()`.** Equivalent to Nx
   project tags + `nx run-many --target=test`. Commit a `.all-tests.ae`

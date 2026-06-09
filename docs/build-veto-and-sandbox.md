@@ -771,10 +771,14 @@ maybe_veto_build(repo, target, purpose):
    enforces the **zero-rules lint**, runs `decide()` per named `.ae` target, and
    **exits 3** (refused) before the build. Policy is operator-trusted,
    out-of-tree, NOT a dot-prefixed target; the compiled policy lands under the
-   build's `target/_aeb/` (writable; never the read-only install tree). *Scope
-   today:* vets explicitly-named `*.ae` targets; vetting a bare-`aeb`
-   whole-tree scan is a follow-up inside `aeb-main`. *Still:* the agent seam
-   (`maybe_veto_build`) wiring, and layers 1/3 driven by the same policy object.
+   build's `target/_aeb/` (writable; never the read-only install tree). *Scope:*
+   **two modes — (a)** explicitly-named `*.ae` targets (target mode), and
+   **(b)** the **whole-tree scan** under `aeb --vet --scan '<glob>'` — the
+   trampoline runs `scan-ae-files` (the same discovery `aeb-main` uses), keeps
+   nodes whose basename matches the glob, and vets that whole set, refusing the
+   build on the first veto. The `--scan` glob is **required** (no un-scoped
+   whole-tree vet by accident). *Still:* layers 1/3 driven by the same policy
+   object.
 1. ~~**Tier A / layer 1a is in.** Generalize the single stub scan into a small
    rule list.~~ **DONE (2026-06-05).** `lib/agent` `_veto_run_rules`: a
    data-driven rule list (`id\tscope\tpattern\treason`), built-in secret/key
@@ -820,9 +824,13 @@ maybe_veto_build(repo, target, purpose):
    distinct `vetoed`/422 on a refusal. Live-verified: a dispatched
    `extern syscall`/`os.system` tree → `vetoed`/422; a clean tree → `done`/`pass`
    (built); a `coord_verb`-gated verb with a disallowed coordinate literal →
-   `veto:coord` REFUSED, an allowed-prefix literal → clear. **Next:** vetting a
-   bare-`aeb` whole-tree scan. (Stopgap 2a — `.c` grep — no longer needed; the
-   positive coordinate allowlist is now shipped.)
+   `veto:coord` REFUSED, an allowed-prefix literal → clear. The **whole-tree
+   scan veto** (`aeb --vet --scan '<glob>'`) is now shipped: the trampoline
+   discovers the tree via `scan-ae-files`, filters by the glob's basename, and
+   vets the whole set — live-verified that a scan-discovered (not CLI-named)
+   evil node is refused (`veto:coord`, exit 3) while a clean sibling clears.
+   **Next:** layers 1/3 driven by the same policy object. (Stopgap 2a — `.c`
+   grep — no longer needed; the positive coordinate allowlist is shipped.)
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
    route to "read the build's intent" with no aether change. Parallel to 2b.

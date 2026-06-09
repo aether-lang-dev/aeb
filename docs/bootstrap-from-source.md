@@ -113,7 +113,7 @@ build doesn't drift:
 curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh \
   | AEB_REF=v0.042 PREFIX="$PWD/.aeb-toolchain" sh
 export PATH="$PWD/.aeb-toolchain/bin:$PATH"
-aeb --since "$GITHUB_BASE_REF" --pattern '.tests.ae'
+aeb --since "$GITHUB_BASE_REF" --scan '.tests.ae'
 ```
 
 Prefer a tag (`v0.042`) over a commit SHA — both are reproducible, but
@@ -170,7 +170,7 @@ Rules of thumb:
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — the contributor flow, the
   `v0.NNN` auto-tag policy, who pushes.
 - [README.md](../README.md) — what aeb is, the CLI flags
-  (`--since`, `--pattern`, `--shard`, `--timeout`, …).
+  (`--since`, `--scan`, `--shard`, `--timeout`, …).
 - aether's
   [bootstrap-from-source](https://github.com/aether-lang-org/aether/blob/main/docs/bootstrap-from-source.md)
   — install the prerequisite toolchain.

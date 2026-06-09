@@ -1,6 +1,6 @@
 // Tests for aeb's deterministic --shard N/M selection rule.
 //
-// aeb-main applies sharding after --since/--pattern narrowing:
+// aeb-main applies sharding after --since/--scan narrowing:
 // sort target paths, then keep entries whose zero-based position
 // modulo M equals N-1.
 

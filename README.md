@@ -325,29 +325,40 @@ Combines well with cache integration: targets that are affected
 but cache-hit on their inputs still skip work. Telemetry shows
 what built and what hit the cache.
 
-#### Filter by target type (`aeb --pattern`)
+#### Scan mode (`aeb --scan <glob>`)
 
-`--pattern <glob>` intersects the build set with paths whose
-basename matches a POSIX fnmatch pattern. Designed for CI
-shapes where you want only one *type* of impacted target —
-typically tests on a PR check, distributions on a release tag:
+The main way to build is **target mode** — you name a leaf:
+`aeb path/to/.build.ae` (or a directory that resolves to one).
+**Scan mode** is the explicit, scoped counterpart: `aeb --scan
+'<glob>'` walks the whole tree and builds every `.ae` node whose
+basename matches the glob. The glob is **required** — a bare
+`aeb` with neither a target nor `--scan` is an error, so aeb
+never builds the whole tree implicitly (the un-scoped posture is
+exactly what `--scan` exists to forbid, and the dangerous one
+under `--vet`).
+
+The glob is POSIX fnmatch (`*`, `?`, `[abc]`) on the basename,
+so it doubles as a target-type filter — and composes with
+`--since` to narrow an affected set. Designed for CI shapes where
+you want only one *type* of target — typically tests on a PR
+check, distributions on a release tag:
 
 ```bash
 # PR check: run only tests impacted by the PR. Skip .build.ae,
 # .dist.ae rebuild rows.
-aeb --since main --pattern '.tests.ae'
+aeb --since main --scan '.tests.ae'
 
 # Cover convention variations (.tests.ae, .tests-it.ae, etc.)
-aeb --since main --pattern '.tests*.ae'
+aeb --since main --scan '.tests*.ae'
 
 # Release pipeline: build only impacted .dist.ae packagers.
-aeb --since main --pattern '.dist.ae'
+aeb --since main --scan '.dist.ae'
 
 # All matching targets in the tree (no diff filter).
-aeb --pattern '.tests.ae'
+aeb --scan '.tests.ae'
 
 # Inspect the filtered set without running it.
-aeb --print-affected main --pattern '.tests.ae'
+aeb --print-affected main --scan '.tests.ae'
 ```
 
 The match is against the file's basename, so `.tests.ae`
@@ -356,7 +367,7 @@ Empty intersection (pattern matched nothing in the affected
 set) exits 0 with a clear note — distinct from "nothing was
 affected at all," which is also exit 0 but a different message.
 
-`--pattern` composes with `--since`, `--coverage`, position-
+`--scan` composes with `--since`, `--coverage`, position-
 agnostic. Build telemetry rolls up across the filtered set in
 one `[telemetry]` block (vs. piping `--print-affected` through
 `xargs aeb`, which would produce N separate blocks and re-scan
@@ -365,19 +376,19 @@ the tree N times).
 #### Shard target sets for CI (`aeb --shard`)
 
 `--shard N/M` deterministically partitions the current build set after
-`--since` and `--pattern` filtering. This lets CI fan out the same aeb
+`--since` and `--scan` filtering. This lets CI fan out the same aeb
 selection across multiple runners while keeping aeb responsible for
 stable target assignment.
 
 ```bash
 # Runner 2 of 8: impacted test targets only
-aeb --since main --pattern '.tests*.ae' --shard 2/8
+aeb --since main --scan '.tests*.ae' --shard 2/8
 
 # Four-way split of all test targets under cwd
-aeb --pattern '.tests*.ae' --shard 1/4
-aeb --pattern '.tests*.ae' --shard 2/4
-aeb --pattern '.tests*.ae' --shard 3/4
-aeb --pattern '.tests*.ae' --shard 4/4
+aeb --scan '.tests*.ae' --shard 1/4
+aeb --scan '.tests*.ae' --shard 2/4
+aeb --scan '.tests*.ae' --shard 3/4
+aeb --scan '.tests*.ae' --shard 4/4
 ```
 
 The shard key is the sorted target path list. Shard `1/M` receives
@@ -438,7 +449,7 @@ inline. Simplest to debug, and fine for small builds. Design:
 
 #### Composite targets via `build.scan()`
 
-Where `--pattern` is the imperative one-shot ("filter to .tests.ae
+Where `--scan` is the imperative one-shot ("filter to .tests.ae
 right now"), `build.scan()` is the declarative recurring form:
 commit a composite `.ae` file once, point CI at it forever.
 

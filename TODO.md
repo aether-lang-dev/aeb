@@ -130,7 +130,7 @@ classification works transparently. Tests in
 tests/test_extract_deps_scan.ae (6 assertions, fixture-tree
 based — first one of its kind alongside test_aether_resolvers).
 README documents it under "Affected-target detection" as the
-declarative complement to `--pattern`.
+declarative complement to `--scan`.
 
 What's NOT implemented from the original sketch:
 - **`.aebignore` respect**: scan() expansion currently ignores
@@ -168,7 +168,7 @@ when the broader CI pipeline rebuilds something else.
 from a hard-coded `git diff --name-only <ref>` shell-out in
 `tools/aeb-main.ae` (~line 489). Only that one step is VCS-specific
 — everything downstream (owning-target resolution, reverse-dep DAG
-walk, `--pattern` / `--shard` narrowing) is VCS-agnostic and works
+walk, `--scan` / `--shard` narrowing) is VCS-agnostic and works
 off a plain changed-paths list. Other VCS could be added by
 detecting the repo type and swapping the diff command:
 `hg status --rev <ref>` / `jj diff --name-only` / `svn diff

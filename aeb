@@ -91,15 +91,19 @@ fi
 # coverage builds from regular ones). SDKs without a coverage flow
 # (bash.test, etc.) ignore the env var.
 #
-# --pattern '<glob>': intersects the build set with paths matching
-# the glob. Designed for CI shapes like
-# `aeb --since main --pattern '.tests.ae'` — runs only the test
-# targets impacted by the PR's changes, skipping affected
-# .build.ae / .dist.ae rows. POSIX fnmatch (`*`, `?`, `[abc]`).
-# Pattern matches the file's basename, so `.tests.ae` matches
-# both `lib/foo/.tests.ae` and `apps/bar/.tests.ae`.
+# --scan '<glob>': SCAN MODE — walk the whole tree and build every
+# .ae node whose basename matches the glob. This is the explicit,
+# scoped counterpart to the main `aeb path/to/.leaf.ae` target mode:
+# a glob is REQUIRED (no bare whole-tree build), so the scanned set
+# is always named. POSIX fnmatch (`*`, `?`, `[abc]`) on the file's
+# basename, so `.tests.ae` matches both `lib/foo/.tests.ae` and
+# `apps/bar/.tests.ae`. CI shapes:
+#   aeb --scan '.tests.ae'                 # every test target
+#   aeb --since main --scan '.tests.ae'    # PR-impacted tests only
+#   aeb --vet --scan '.build.ae'           # vet then build the set
+# (Replaces the former --pattern flag.)
 #
-# --shard N/M: after --since/--pattern filtering, deterministically
+# --shard N/M: after --since/--scan filtering, deterministically
 # keeps only the Nth shard out of M sorted targets. CI owns runner
 # distribution; aeb owns stable target partitioning.
 #
@@ -136,13 +140,13 @@ while [[ $i -le $# ]]; do
         # at all (stops in aeb-link). Superseded by --compile-only for the
         # duality; kept for direct orchestrator-only use.
         export AEB_NOEXE=1
-    elif [[ "$a" == "--pattern" ]]; then
+    elif [[ "$a" == "--scan" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then
-            echo "aeb: --pattern requires a glob argument (e.g. --pattern '.tests.ae')" >&2
+            echo "aeb: --scan requires a glob argument (e.g. --scan '.tests.ae')" >&2
             exit 1
         fi
-        export AEB_PATTERN="${!i}"
+        export AEB_SCAN="${!i}"
     elif [[ "$a" == "--shard" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then
@@ -257,27 +261,47 @@ fi
 # operator policy (AEB_VETO_POLICY / $AEB_HOME/veto/default.ae / built-in
 # default), refuses an in-tree policy, enforces the zero-rules lint, and
 # runs lib/veto's decide() per target. See docs/build-veto-and-sandbox.md.
-# Scope (first wiring): vets the explicitly-named *.ae targets on the
-# command line. A bare `aeb` (whole-tree scan) names no target here, so
-# there's nothing for the gate to vet yet — pass explicit targets under
-# --vet. (Vetting the full scanned set is a follow-up inside aeb-main.)
+# Two scopes, matching the two build modes:
+#   target mode — vets the explicitly-named *.ae targets on the CLI.
+#   scan mode (--scan <glob>) — walks the tree (scan-ae-files, the same
+#     discovery aeb-main uses), keeps nodes whose basename matches the
+#     glob, and vets that whole set. This is the whole-tree veto, scoped
+#     by the required --scan glob (no un-scoped tree vet by accident).
+# The first veto refuses the entire build (exit 3) — fail-closed.
 if [[ -n "${AEB_VET:-}" ]]; then
+    AEB_VET_BIN="$AEB_HOME/tools/aeb-vet"
+    if [[ ! -x "$AEB_VET_BIN" ]]; then
+        "$AETHER" build "$AEB_HOME/tools/aeb-vet.ae" --lib "$AEB_HOME/lib" -o "$AEB_VET_BIN" 2>/dev/null
+    fi
+    ROOT="$(pwd)"
     _vet_targets=()
-    for _a in "$@"; do
-        case "$_a" in *.ae) _vet_targets+=("$_a") ;; esac
-    done
-    if [[ ${#_vet_targets[@]} -gt 0 ]]; then
-        AEB_VET_BIN="$AEB_HOME/tools/aeb-vet"
-        if [[ ! -x "$AEB_VET_BIN" ]]; then
-            "$AETHER" build "$AEB_HOME/tools/aeb-vet.ae" --lib "$AEB_HOME/lib" -o "$AEB_VET_BIN" 2>/dev/null
+    if [[ -n "${AEB_SCAN:-}" ]]; then
+        # Scan mode: discover the tree, filter by the glob's basename
+        # (bash fnmatch == string.glob_match semantics: * ? [abc]).
+        AEB_SCAN_BIN="$AEB_HOME/tools/scan-ae-files"
+        if [[ ! -x "$AEB_SCAN_BIN" ]]; then
+            "$AETHER" build "$AEB_HOME/tools/scan-ae-files.ae" -o "$AEB_SCAN_BIN" 2>/dev/null
         fi
-        ROOT="$(pwd)"
+        while IFS= read -r _p; do
+            [[ -n "$_p" ]] || continue
+            _b="${_p##*/}"
+            # shellcheck disable=SC2053
+            [[ "$_b" == ${AEB_SCAN} ]] && _vet_targets+=("$_p")
+        done < <("$AEB_SCAN_BIN" 2>/dev/null)
+    else
+        for _a in "$@"; do
+            case "$_a" in *.ae) _vet_targets+=("$_a") ;; esac
+        done
+    fi
+    if [[ ${#_vet_targets[@]} -gt 0 ]]; then
         if ! "$AEB_VET_BIN" "$AETHER" "$AEB_HOME" "$ROOT" "${_vet_targets[@]}"; then
             echo "aeb: build refused by --vet (see above)" >&2
             exit 3
         fi
+    elif [[ -n "${AEB_SCAN:-}" ]]; then
+        echo "aeb: --vet --scan '${AEB_SCAN}' matched no .ae nodes — nothing vetted" >&2
     else
-        echo "aeb: --vet set but no explicit *.ae target named — nothing vetted (name a target under --vet)" >&2
+        echo "aeb: --vet set but no explicit *.ae target named — name a target or use --scan <glob>" >&2
     fi
 fi
 
