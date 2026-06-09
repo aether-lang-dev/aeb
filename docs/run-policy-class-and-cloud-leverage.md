@@ -263,6 +263,50 @@ a sovereign agent and folding back its self-reported outcome → ordinary
 client behaviour → fine. The agent's ability to refuse is what keeps aeb
 on the right side of that line.
 
+### The peer relationship is uniform and composable (an agent fans out / containerises *as it goes*)
+
+A consequence worth stating outright, because it makes a whole class of
+topologies fall out for free: **an agent handling a dispatch is just running
+`aeb <target>` locally — so that run can itself fan out to other agents, or
+spin up containers, exactly as a desktop `aeb` can.** There is nothing
+special about being *inside* an agent. The same `aeb` that requests a
+sovereign peer (another agent) or a one-shot `container.run` on a laptop does
+so identically when it is itself the callee of a dispatch.
+
+So:
+
+- **Agent → other agents (transitive fan-out).** An agent's `aeb <target>`
+  run can hit a fan-out target and lease+dispatch to *its own* peer pool — the
+  same `_lease_node` + dispatch path the originator uses. The agent is **both
+  a sovereign-peer-server and a requester of sovereign peers**; the
+  relationship is recursive. Crucially this stays out of control-plane
+  territory by the *same* litmus test applied at *each hop*: every callee can
+  refuse, every caller only fires-and-reconciles. A chain of "request a
+  sovereign peer, fold its verdict" is still a chain of client calls, not a
+  scheduler — no hop supervises a fleet. (Loop/credit safety — bounding
+  re-dispatch depth so a misconfig can't fan out unboundedly — is the one new
+  concern, and it lives in the *token/grant* the dispatch carries, not in a
+  central supervisor.)
+
+- **Agent → containers (provision/isolate as it goes).** An agent's run can
+  use `container.run` / `aeb-ctr` (the compile-in-container path already
+  shipped) for a step whose toolchain the agent lacks or wants isolated — the
+  same way a laptop build does. This is exactly the seam the
+  [`build-prerequisites-and-provisioning.md`](build-prerequisites-and-provisioning.md)
+  design plugs into: an `--allow-provision` agent that meets an unmet `prereq`
+  layers the toolchain into a container *during its dispatch handling*, then
+  runs the contained build. "Utilise containers as it goes" is not a new agent
+  mode — it is the agent doing, mid-dispatch, what aeb already does with
+  containers anywhere.
+
+The unifying rule: **aeb is the same requester-of-sovereign-peers at every
+node of the topology** (laptop, agent, agent-of-an-agent), and a container is
+just one more sovereign peer it can request. The grid is not a hierarchy aeb
+commands; it is a mesh of peers, each running aeb, each able to refuse, each
+able to request others — and that uniformity is what lets fan-out and
+containerisation compose to arbitrary depth without ever introducing a
+control plane.
+
 ## What aeb implements vs. what the resource owns
 
 - **aeb implements**: reading the *held token* from context; partitioning
@@ -337,6 +381,13 @@ verification* — it is neither issuer nor verifier.
 13. The new dispatch primitive's DSL shape — e.g.
     `agent.dispatch(b) { endpoint(env "AEB_AGENT_MAC") token(...) target(".tests.ae") }`
     — fixed-arity setters, verdict folds into `any_failed`.
+14. **Transitive-fan-out depth bounding.** Since an agent's run can itself
+    re-dispatch (see "The peer relationship is uniform and composable"), a
+    misconfigured or hostile chain could fan out unboundedly. The bound must
+    travel in the *token/grant* the dispatch carries (a remaining-hops /
+    fan-out-credit counter decremented per hop, refused at zero) — never a
+    central supervisor, which would reintroduce the control plane. Settle the
+    counter's shape and whether it's per-token or per-correlation.
 
 ## Relationship to existing aeb pieces
 
