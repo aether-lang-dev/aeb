@@ -41,3 +41,5 @@ itests/agent-container/deploy-containerfile-to-nuc.sh
 # Build artifacts and local session state (were never ignored — fixed)
 /target/
 /.claude/
+tools/aeb-sandbox
+tools/libaether_sandbox.so

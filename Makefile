@@ -72,7 +72,7 @@ install: $(INSTALL_TOOLS)
 	    case "$$src" in tools/aeb-agent.ae) echo "  skip    $$src (opt-in: build aeb-agent as a separate step)"; continue;; esac; \
 	    bin="$${src%.ae}"; \
 	    extra=""; \
-	    case "$$src" in tools/aeb-driver.ae|tools/aeb-remote.ae|tools/aeb-vet.ae) extra="--lib lib";; esac; \
+	    case "$$src" in tools/aeb-driver.ae|tools/aeb-remote.ae|tools/aeb-vet.ae|tools/aeb-sandbox.ae) extra="--lib lib";; esac; \
 	    echo "  rebuild $$bin"; \
 	    $(AETHER) build "$$src" -o "$$bin" $(AEFLAGS) $$extra >/dev/null || { echo "install: failed to build $$src" >&2; exit 1; }; \
 	done

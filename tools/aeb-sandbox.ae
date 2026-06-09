@@ -1,0 +1,203 @@
+// aeb-sandbox — the --sandbox launcher (layer 3 runtime containment).
+//
+// Invoked by the aeb trampoline when AEB_SANDBOX=1. It runs the WHOLE
+// build (aeb-main <target>) under Aether's `spawn_sandboxed`, so every
+// process the build spawns (gcc → cc1, javac, cargo, …) inherits a
+// deny-by-default grant profile via LD_PRELOAD — a denied syscall (connect
+// to an un-granted host, write outside target/, exec off the allowlist)
+// dies at the libc boundary regardless of how the build computed it.
+//
+//   Usage: aeb-sandbox <aether-bin> <aeb-home> <root> <main-bin> [build args...]
+//
+// The build args are the argv aeb-main would have received
+// (<aether-bin> <aeb-home> <root> <target> …). We re-assemble them into a
+// run-script and spawn `sh <script>` sandboxed (spawn_sandboxed execs with
+// a single arg, so a script file is the multi-arg vehicle).
+//
+// Profile resolution (operator-trusted, NEVER from the build tree):
+//   1. AEB_SANDBOX_PROFILE=<path>      — explicit operator profile.ae (abs)
+//   2. $AEB_HOME/sandbox/default.ae    — shipped default profile, if present
+//   3. lib/sandbox's default_profile() — conservative built-in (no tcp)
+//
+// Fail-closed / refuse:
+//   - a profile path INSIDE the build tree (the requester writing its own
+//     exemption);
+//   - a profile that won't compile/run;
+//   - non-Linux (spawn_sandboxed is Linux-only) unless AEB_SANDBOX_LEGACY.
+//
+// Exit: the contained build's exit code (or non-zero on a setup refusal).
+// See docs/build-veto-and-sandbox.md and docs/capability-entrypoint.md.
+import sandbox (default_profile, parse, pair_count, _cat, _pat, is_grant_all)
+import std.string
+import std.os
+import std.file
+import std.list
+import std.path
+
+extern println(s: string)
+extern aether_args_count() -> int
+extern aether_args_get(i: int) -> string
+extern exit(code: int)
+
+main() {
+    if aether_args_count() < 5 {
+        println("usage: aeb-sandbox <aether-bin> <aeb-home> <root> <main-bin> [args...]")
+        exit(2)
+    }
+    aether_bin = aether_args_get(1)
+    aeb_home   = aether_args_get(2)
+    root       = aether_args_get(3)
+    main_bin   = aether_args_get(4)
+
+    // --- platform check: spawn_sandboxed is Linux-only ---
+    uname, _u = os.exec("uname -s")
+    is_linux = string.starts_with(string.trim(uname), "Linux")
+    if is_linux == 0 {
+        if string.length(os.getenv("AEB_SANDBOX_LEGACY")) == 0 {
+            println("aeb --sandbox: runtime containment is Linux-only (uname: ${string.trim(uname)})")
+            println("  use the container/VM layer there, or AEB_SANDBOX_LEGACY=1 to run UNCONTAINED.")
+            exit(3)
+        }
+        println("aeb --sandbox: LEGACY — non-Linux, running UNCONTAINED (AEB_SANDBOX_LEGACY set)")
+    }
+
+    // --- resolve the operator grant profile ---
+    grants = _resolve_grants(aether_bin, aeb_home, root)
+    if grants == null {
+        exit(3)  // _resolve_grants printed the refusal
+    }
+    if is_grant_all(grants) == 1 {
+        println("aeb --sandbox: WARNING — profile is grant-all; the build is effectively UNCONTAINED")
+    }
+
+    // --- ensure the preload .so is present (next to this binary) ---
+    if _ensure_preload(aether_bin, aeb_home) == 0 {
+        println("aeb --sandbox: cannot build libaether_sandbox.so — refusing (fail-closed)")
+        exit(3)
+    }
+
+    // --- assemble the build command into a run-script ---
+    // Re-emit the args aeb-main expects (argv[5..] = the build's argv).
+    build_cmd = "'${main_bin}'"
+    i = 5
+    n = aether_args_count()
+    while i < n {
+        build_cmd = string.concat(build_cmd, string.concat(" '", string.concat(aether_args_get(i), "'")))
+        i = i + 1
+    }
+    script = _write_run_script(root, aeb_home, build_cmd)
+    if string.length(script) == 0 {
+        println("aeb --sandbox: cannot write run-script — refusing")
+        exit(3)
+    }
+
+    println("aeb --sandbox: containing build under ${pair_count(grants)} grants (no tcp = network denied)")
+    // spawn_sandboxed(grants, program, arg): execs `sh <script>` with the
+    // grant list serialised to SHM + LD_PRELOAD set — the whole subtree is
+    // contained.
+    rc = spawn_sandboxed(grants, "sh", script)
+    exit(rc)
+}
+
+// _resolve_grants — operator profile → grant list, or null on refusal.
+_resolve_grants(aether_bin: string, aeb_home: string, root: string) {
+    profile = os.getenv("AEB_SANDBOX_PROFILE")
+    if string.length(profile) == 0 {
+        dflt = path.join(aeb_home, "sandbox/default.ae")
+        if file.exists(dflt) == 1 { profile = dflt }
+    }
+
+    if string.length(profile) == 0 {
+        // No profile file → the conservative built-in default (no tcp).
+        // repo = root; target dir = root/target (aeb's output convention);
+        // aeb_home so the build harness's own tools are exec/readable.
+        return default_profile(root, path.join(root, "target"), aeb_home)
+    }
+
+    // SECURITY: refuse a profile inside the build tree — an untrusted
+    // dispatch could otherwise ship its own (wider) exemption.
+    if _is_inside(profile, root) == 1 {
+        println("aeb --sandbox: refusing profile inside the build tree: ${profile}")
+        println("  the profile must be operator-trusted and out-of-tree (it constrains this tree).")
+        return null
+    }
+
+    // Compile + run the operator profile.ae; it emits "category\tpattern"
+    // lines via sandbox.emit. Captured stdout → parse() → grant list.
+    outdir = path.join(root, "target/_aeb")
+    os.system("mkdir -p '${outdir}' 2>/dev/null")
+    bin = path.join(outdir, ".sandbox-profile-compiled")
+    lib = path.join(aeb_home, "lib")
+    build_cmd = "'${aether_bin}' build '${profile}' --lib '${lib}' -o '${bin}' 2>&1"
+    brc = os.system(build_cmd)
+    if brc != 0 {
+        println("aeb --sandbox: profile did not compile: ${profile}")
+        println("  (a typo'd grant verb is a compile error — self-vetting; fix the profile)")
+        return null
+    }
+    out, _e = os.exec("'${bin}'")
+    g = parse(out)
+    if pair_count(g) == 0 {
+        println("aeb --sandbox: profile resolved to ZERO grants — refusing (deny-everything would break every build; state grants explicitly).")
+        return null
+    }
+    return g
+}
+
+// _ensure_preload — make sure libaether_sandbox.so sits next to this
+// binary (where aether_spawn_sandboxed's find_preload_path looks first).
+// Lazy-compile it from the aether install's runtime source if absent.
+// Returns 1 on success, 0 on failure.
+_ensure_preload(aether_bin: string, aeb_home: string) {
+    // This binary lives at $AEB_HOME/tools/aeb-sandbox → the .so beside it.
+    so = path.join(aeb_home, "tools/libaether_sandbox.so")
+    if file.exists(so) == 1 { return 1 }
+    // Find the aether install's runtime source: dirname(dirname(realpath
+    // ae))/share/aether/runtime/libaether_sandbox_preload.c
+    real, _r = os.exec("readlink -f '${aether_bin}' 2>/dev/null || command -v '${aether_bin}'")
+    real = string.trim(real)
+    if string.length(real) == 0 { real = aether_bin }
+    prefix = path.dirname(path.dirname(real))
+    src = path.join(prefix, "share/aether/runtime/libaether_sandbox_preload.c")
+    if file.exists(src) == 0 {
+        println("aeb --sandbox: preload source not found at ${src}")
+        return 0
+    }
+    cc = "cc -shared -fPIC -o '${so}' '${src}' -ldl -lrt 2>&1"
+    rc = os.system(cc)
+    if rc != 0 { return 0 }
+    if file.exists(so) == 1 { return 1 }
+    return 0
+}
+
+// _write_run_script — write the build command to a run-script under
+// target/_aeb/ and return its path (or "" on failure). spawn_sandboxed
+// execs with one arg, so the multi-arg build goes through `sh <script>`.
+_write_run_script(root: string, aeb_home: string, build_cmd: string) {
+    outdir = path.join(root, "target/_aeb")
+    os.system("mkdir -p '${outdir}' 2>/dev/null")
+    script = path.join(outdir, ".sandbox-run.sh")
+    // Carry AEB_HOME into the contained build's environment: aeb-link reads
+    // it from getenv (else falls back to "." → can't find ./tools/* → the
+    // build breaks). The matching `env AEB_*` grant lets the read through.
+    hdr = string.concat("#!/bin/sh\nexport AEB_HOME='", string.concat(aeb_home, "'\n"))
+    body = string.concat(hdr, string.concat(build_cmd, "\n"))
+    ok = file.write(script, body)
+    if ok == 0 { return "" }
+    os.system("chmod +x '${script}' 2>/dev/null")
+    return script
+}
+
+// _is_inside(p, root) — 1 if path p is under directory root (prefix match).
+_is_inside(p: string, root: string) {
+    if string.length(root) == 0 { return 0 }
+    r = root
+    rn = string.length(r)
+    if rn > 0 {
+        last = string.substring(r, rn - 1, rn)
+        if string.equals(last, "/") == 1 { r = string.substring(r, 0, rn - 1) }
+    }
+    prefix = string.concat(r, "/")
+    if string.starts_with(p, prefix) == 1 { return 1 }
+    return 0
+}

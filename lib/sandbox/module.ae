@@ -1,0 +1,254 @@
+// sandbox — the grant model for aeb's layer-3 runtime containment.
+//
+// Layer 3 of docs/build-veto-and-sandbox.md, the runtime half:
+// `aeb --sandbox` runs the build under Aether's `spawn_sandboxed` with a
+// deny-by-default grant profile, so a build that tries a denied syscall
+// (connect to an un-granted host, write outside target/, exec off the
+// allowlist) dies at the libc boundary regardless of how it computed the
+// command. See also docs/capability-entrypoint.md.
+//
+// A sandbox is a flat `list` of alternating (category, pattern) strings —
+// the EXACT shape Aether's `spawn_sandboxed(grants, program, arg)` and the
+// LD_PRELOAD preload consume (the preload reads "category:pattern\n" lines
+// from shared memory). Categories: fs_read, fs_write, exec, tcp,
+// tcp_listen, env (plus "*"/"*" for grant-all). Absence of a grant for a
+// category IS denial — there is no deny verb; deny-by-default.
+//
+// THE TRUSTED-HARNESS INVARIANT (same as lib/veto): the OPERATOR profile is
+// the ceiling, resolved out-of-tree and minted by the host. An in-tree
+// maintainer declaration can only NARROW within it (intersect) — never
+// widen. And the real fence is the SHM grant set the preload enforces, not
+// any in-language list the build computes: a forged wider list grants
+// nothing, because the syscall still hits the operator's preload.
+import std.string
+import std.list
+
+extern println(s: string)
+
+// --- constructors -------------------------------------------------------
+
+// new() — an empty sandbox (deny-everything until granted).
+new() {
+    return list.new()
+}
+
+// _wild(dir) — "dir/*" for a prefix-glob grant; tolerates a trailing slash.
+_wild(dir: string) {
+    n = string.length(dir)
+    if n == 0 { return "/*" }
+    last = string.substring(dir, n - 1, n)
+    if string.equals(last, "/") == 1 { return string.concat(dir, "*") }
+    return string.concat(dir, "/*")
+}
+
+// _add(s, cat, pat) — append one grant pair.
+_add(s: ptr, cat: string, pat: string) {
+    _c = list.add(s, cat)
+    _p = list.add(s, pat)
+    return s
+}
+
+// --- grant verbs (Aether's sandbox vocabulary, verbatim) ----------------
+
+grant_fs_read(s: ptr, path: string)   { return _add(s, "fs_read", path) }
+grant_fs_write(s: ptr, path: string)  { return _add(s, "fs_write", path) }
+grant_exec(s: ptr, cmd: string)       { return _add(s, "exec", cmd) }
+grant_tcp(s: ptr, host: string)       { return _add(s, "tcp", host) }
+grant_tcp_listen(s: ptr, host: string){ return _add(s, "tcp_listen", host) }
+grant_env(s: ptr, var_name: string)   { return _add(s, "env", var_name) }
+// fork/vfork/clone are denied by default; a build orchestrator MUST be able
+// to spawn compilers, so the default profile grants this. Pattern is "*".
+grant_fork(s: ptr)                    { return _add(s, "fork", "*") }
+// native: executable memory (JIT mmap/mprotect) + dlopen of escape-target
+// libraries. Most native builds don't need it; toolchains that JIT or
+// dlopen plugins do. Not in the default profile — grant per toolchain.
+grant_native(s: ptr, what: string)    { return _add(s, "native", what) }
+
+// grant_all(s) — the escape hatch (grant-all). A profile that calls this
+// is effectively unsandboxed; the veto/operator should flag it. Present so
+// "no --sandbox" / legacy can be expressed as a real grant set.
+grant_all(s: ptr)                     { return _add(s, "*", "*") }
+
+// --- introspection ------------------------------------------------------
+
+// pair_count(s) — number of (cat,pat) grants.
+pair_count(s: ptr) {
+    return list.size(s) / 2
+}
+
+// _cat(s, i) / _pat(s, i) — the i-th grant's category / pattern.
+_cat(s: ptr, i: int) {
+    v, _ = list.get(s, i * 2)
+    return v
+}
+_pat(s: ptr, i: int) {
+    v, _ = list.get(s, i * 2 + 1)
+    return v
+}
+
+// has_grant(s, cat, pat) — exact (cat,pat) membership.
+has_grant(s: ptr, cat: string, pat: string) {
+    n = pair_count(s)
+    i = 0
+    while i < n {
+        if string.equals(_cat(s, i), cat) == 1 {
+            if string.equals(_pat(s, i), pat) == 1 { return 1 }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// is_grant_all(s) — does the profile contain the "*","*" escape?
+is_grant_all(s: ptr) {
+    return has_grant(s, "*", "*")
+}
+
+// --- intersection: operator ceiling ∩ maintainer request ---------------
+//
+// effective = the grants present in BOTH a and b. The maintainer's request
+// (b) can only NARROW the operator ceiling (a) — a grant in b but not in a
+// is dropped (the maintainer cannot widen). A grant in a but not in b is
+// dropped (the maintainer narrowed it away — good self-tightening).
+//
+// Special case: if either side is grant-all ("*","*"), it acts as the
+// identity for that side (everything in the other side passes). This lets
+// the no-operator-ceiling case (a = grant_all) yield exactly b.
+intersect(a: ptr, b: ptr) {
+    out = new()
+    a_all = is_grant_all(a)
+    b_all = is_grant_all(b)
+    if a_all == 1 {
+        if b_all == 1 { return _add(out, "*", "*") }
+        // a is grant-all → effective = b
+        return _copy_into(out, b)
+    }
+    if b_all == 1 {
+        // b is grant-all → effective = a
+        return _copy_into(out, a)
+    }
+    // both concrete → keep grants present in both
+    n = pair_count(a)
+    i = 0
+    while i < n {
+        c = _cat(a, i)
+        p = _pat(a, i)
+        if has_grant(b, c, p) == 1 { _e = _add(out, c, p) }
+        i = i + 1
+    }
+    return out
+}
+
+// _copy_into(dst, src) — append every grant of src to dst; return dst.
+_copy_into(dst: ptr, src: ptr) {
+    n = pair_count(src)
+    i = 0
+    while i < n {
+        _e = _add(dst, _cat(src, i), _pat(src, i))
+        i = i + 1
+    }
+    return dst
+}
+
+// --- the conservative default profile -----------------------------------
+//
+// What an ordinary native build needs and no more: read the toolchain +
+// libs + the prepared tree, write only build outputs + the compilers'
+// staging dirs, exec only the standard toolchain locations — and NO
+// network. `repo` and `target_dir` are the node's source/output dirs the
+// host supplies. This is the operator-ceiling default when no profile is
+// named; tighten it via an operator profile.ae.
+//
+// NB: enumerating the toolchain correctly IS the work (constraint #2 in
+// docs/build-veto-and-sandbox.md). This default leans permissive on the
+// read/exec side (whole /usr, /lib) and strict on write + network — the
+// credential-exfil threat is network + reading secrets and writing them
+// out; denying tcp and constraining fs_write is the high-value part.
+default_profile(repo: string, target_dir: string, aeb_home: string) {
+    s = new()
+    // reads: toolchain, libs, the prepared tree, common config
+    _r1 = grant_fs_read(s, "/usr/*")
+    _r2 = grant_fs_read(s, "/lib/*")
+    _r3 = grant_fs_read(s, "/lib64/*")
+    _r4 = grant_fs_read(s, "/bin/*")
+    _r5 = grant_fs_read(s, "/etc/*")
+    _r6 = grant_fs_read(s, repo)
+    _r7 = grant_fs_read(s, "/tmp/*")
+    // aeb's own tooling tree ($AEB_HOME): aeb-main/aeb-link/the orchestrator
+    // + the SDK lib/ must be readable and exec'able — they ARE the build
+    // harness, not the untrusted graph.
+    _rh = grant_fs_read(s, _wild(aeb_home))
+    // writes: build outputs + compiler staging only
+    _w1 = grant_fs_write(s, target_dir)
+    _w2 = grant_fs_write(s, "/tmp/*")
+    // exec: the standard toolchain dirs + aeb's own tools
+    _x1 = grant_exec(s, "/usr/*")
+    _x2 = grant_exec(s, "/bin/*")
+    _x3 = grant_exec(s, "/lib/*")
+    _xh = grant_exec(s, _wild(aeb_home))
+    // fork: the build orchestrator spawns compilers — essential.
+    _fk = grant_fork(s)
+    // env the toolchain needs to function
+    _e1 = grant_env(s, "PATH")
+    _e2 = grant_env(s, "HOME")
+    _e3 = grant_env(s, "LANG")
+    _e4 = grant_env(s, "TMPDIR")
+    // aeb's own build machinery reads its config from the environment
+    // (aeb-link derives AEB_HOME from getenv → "." fallback breaks tool
+    // resolution; the orchestrator reads AEB_* mode flags + AETHER*). Grant
+    // the aeb/aether build env by prefix (the preload does prefix-glob on
+    // env names). This is the build's OWN config, not secrets — and the
+    // exfil threat is denied at the tcp layer regardless.
+    _e5 = grant_env(s, "AEB_*")
+    _e6 = grant_env(s, "AETHER*")
+    _e7 = grant_env(s, "BUILD_*")
+    _e8 = grant_env(s, "CC")
+    _e9 = grant_env(s, "CXX")
+    // NO grant_tcp — network denied (the point of the default profile)
+    return s
+}
+
+// --- wire round-trip: emit / parse the operator profile -----------------
+//
+// An operator authors a profile.ae OUT OF TREE that builds a sandbox via
+// these verbs and calls `sandbox.emit(s)`. The host compiles+runs it
+// (self-vetting — a typo'd verb is a compile error), captures stdout, and
+// `parse()`s it back into a grant list to hand to spawn_sandboxed. One
+// "category\tpattern" line per grant (tab-separated; patterns may contain
+// spaces, categories never do).
+emit(s: ptr) {
+    n = pair_count(s)
+    i = 0
+    while i < n {
+        println(string.concat(_cat(s, i), string.concat("\t", _pat(s, i))))
+        i = i + 1
+    }
+    return s
+}
+
+// parse(text) — inverse of emit(): newline-separated "category\tpattern"
+// rows → a grant list. Blank lines and lines without a tab are skipped.
+parse(text: string) {
+    s = new()
+    rest = text
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        if string.length(line) > 0 {
+            tab = string.index_of(line, "\t")
+            if tab > 0 {
+                cat = string.substring(line, 0, tab)
+                pat = string.substring(line, tab + 1, string.length(line))
+                _e = _add(s, cat, pat)
+            }
+        }
+    }
+    return s
+}

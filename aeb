@@ -270,6 +270,31 @@ while [[ $i -le $# ]]; do
             export AEB_VET_TOOLS="${AEB_VET_TOOLS}"$'\n'"${!i}"
         fi
         export AEB_VET=1   # naming a tool implies --vet
+    elif [[ "$a" == "--sandbox" ]]; then
+        # Layer 3 — runtime containment. Run the whole build under Aether's
+        # spawn_sandboxed with a deny-by-default grant profile (LD_PRELOAD
+        # propagates to the whole subtree: gcc/javac/cargo/…), so a denied
+        # syscall (connect to an un-granted host, write outside target/,
+        # exec off the allowlist) dies at the libc boundary regardless of
+        # how the build computed it. Profile: --sandbox-profile <path>, else
+        # $AEB_HOME/sandbox/default.ae, else the conservative built-in (no
+        # tcp). Linux-only. See docs/build-veto-and-sandbox.md +
+        # docs/capability-entrypoint.md.
+        export AEB_SANDBOX=1
+    elif [[ "$a" == "--sandbox-profile" ]]; then
+        i=$((i + 1))
+        if [[ $i -gt $# ]]; then
+            echo "aeb: --sandbox-profile requires a profile.ae path" >&2
+            exit 1
+        fi
+        _sp="${!i}"
+        if [[ ! -f "$_sp" ]]; then
+            echo "aeb: --sandbox-profile file not found: $_sp" >&2
+            exit 1
+        fi
+        # Absolute-resolve so it survives aeb's chdir into module dirs.
+        export AEB_SANDBOX_PROFILE="$(cd "$(dirname "$_sp")" && pwd)/$(basename "$_sp")"
+        export AEB_SANDBOX=1   # naming a profile implies --sandbox
     elif [[ "$a" == *:* ]]; then
         # Synonym target address: `path/to:name` (or bare `:name` in the
         # current dir) is the secondary spelling of `path/to/.name.ae`.
@@ -414,6 +439,29 @@ if [[ ! -x "$AEB_MAIN_BIN" ]]; then
     "$AETHER" build "$AEB_HOME/tools/aeb-main.ae" -o "$AEB_MAIN_BIN" 2>/dev/null
 fi
 
+# --- --sandbox gate: run the build under runtime containment ---------
+# When AEB_SANDBOX=1, the build is launched through tools/aeb-sandbox,
+# which spawn_sandboxed's the whole aeb-main run under the operator grant
+# profile. The launch command becomes a prefix array prepended to the
+# normal aeb-main argv; everything downstream (process group, reap,
+# timeout) is unchanged. Composes with --vet (vetted above, then run
+# contained here).
+AEB_LAUNCH=("$AEB_MAIN_BIN")
+if [[ -n "${AEB_SANDBOX:-}" ]]; then
+    AEB_SANDBOX_BIN="$AEB_HOME/tools/aeb-sandbox"
+    if [[ ! -x "$AEB_SANDBOX_BIN" ]]; then
+        "$AETHER" build "$AEB_HOME/tools/aeb-sandbox.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$AEB_SANDBOX_BIN" 2>/dev/null
+    fi
+    # Resolve $AETHER to an ABSOLUTE path for the sandboxed run: inside the
+    # sandbox the env is restricted (only granted vars survive), so a bare
+    # `ae` may not resolve via PATH — and a failed `ae`/`aetherc` exec kills
+    # the whole contained build. The absolute path is exec-checked against
+    # the exec grants directly, no PATH lookup needed.
+    AETHER_ABS="$(command -v "$AETHER" 2>/dev/null || echo "$AETHER")"
+    # aeb-sandbox <ae> <home> <root> <main-bin> [then the aeb-main argv]
+    AEB_LAUNCH=("$AEB_SANDBOX_BIN" "$AETHER_ABS" "$AEB_HOME" "$ROOT" "$AEB_MAIN_BIN")
+fi
+
 # --- Run the build in its own process group, then reap survivors -----
 # Bazel-style: the whole build (aeb-main -> aeb-link -> orchestrator ->
 # any process a step spawned) runs as one backgrounded job, which `set -m`
@@ -432,7 +480,14 @@ fi
 # must not abort the trampoline before the reap runs.
 set +e
 set -m
-"$AEB_MAIN_BIN" "$AETHER" "$AEB_HOME" "$ROOT" "$@" &
+# Under --sandbox the aether binary aeb-main receives (and shells out to)
+# must also be absolute — it ends up in the sandbox run-script's command,
+# where bare-name PATH lookup is unreliable under the restricted env.
+AEB_AETHER_ARG="$AETHER"
+if [[ -n "${AEB_SANDBOX:-}" ]]; then
+    AEB_AETHER_ARG="$(command -v "$AETHER" 2>/dev/null || echo "$AETHER")"
+fi
+"${AEB_LAUNCH[@]}" "$AEB_AETHER_ARG" "$AEB_HOME" "$ROOT" "$@" &
 __aeb_pid=$!
 # Forward interactive signals to the whole build group.
 trap 'kill -INT  -"$__aeb_pid" 2>/dev/null' INT
