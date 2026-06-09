@@ -1,0 +1,69 @@
+// $AEB_HOME/sandbox/default.ae — the shipped default --sandbox grant profile.
+//
+// Operator-trusted, OUT OF TREE (NOT a dot-prefixed build target — the tree
+// being sandboxed must not author its own grants). Override per-invocation
+// with `aeb --sandbox --sandbox-profile <path>`. Emits one "category\tpattern"
+// line per grant via sandbox.emit; aeb-sandbox parses that into the grant
+// list it hands to spawn_sandboxed.
+//
+// This mirrors lib/sandbox's built-in default_profile(): conservative —
+// read the toolchain/libs/tree, write only build outputs + staging, exec the
+// standard toolchain + aeb's own tools, fork (the orchestrator spawns
+// compilers), and NO network. Copy + tighten/loosen for your environment.
+//
+// NB: $AEB_HOME and the build root are not known at authoring time, so this
+// file grants the conventional locations directly. If your aeb install or
+// build tree lives elsewhere, add the matching grant_fs_read/grant_exec.
+import sandbox (new, grant_fs_read, grant_fs_write, grant_exec, grant_env,
+                grant_fork, emit)
+
+main() {
+    s = sandbox.new()
+
+    // reads: toolchain, libs, common config, device/proc sinks
+    sandbox.grant_fs_read(s, "/usr/*")
+    sandbox.grant_fs_read(s, "/lib/*")
+    sandbox.grant_fs_read(s, "/lib64/*")
+    sandbox.grant_fs_read(s, "/bin/*")
+    sandbox.grant_fs_read(s, "/etc/*")
+    sandbox.grant_fs_read(s, "/dev/*")
+    sandbox.grant_fs_read(s, "/proc/*")
+    // the build tree + aeb's install (adjust if non-standard)
+    sandbox.grant_fs_read(s, "/home/*")
+    sandbox.grant_fs_read(s, "/tmp/*")
+
+    // writes: build outputs + compiler staging + harmless device sinks
+    sandbox.grant_fs_write(s, "/tmp/*")
+    sandbox.grant_fs_write(s, "/dev/*")
+    // the build tree's target/ — broad here since the root isn't known at
+    // authoring time; tighten to your repo's target dir in a custom profile.
+    sandbox.grant_fs_write(s, "/home/*")
+
+    // exec: the standard toolchain dirs + (broadly) the tree where aeb stages
+    // and runs the per-node orchestrator. Tighten in a custom profile.
+    sandbox.grant_exec(s, "/usr/*")
+    sandbox.grant_exec(s, "/bin/*")
+    sandbox.grant_exec(s, "/lib/*")
+    sandbox.grant_exec(s, "/home/*")
+    sandbox.grant_exec(s, "/tmp/*")
+
+    // fork: the build orchestrator spawns compilers — essential.
+    sandbox.grant_fork(s)
+
+    // env the toolchain + aeb need
+    sandbox.grant_env(s, "PATH")
+    sandbox.grant_env(s, "HOME")
+    sandbox.grant_env(s, "LANG")
+    sandbox.grant_env(s, "TMPDIR")
+    sandbox.grant_env(s, "AEB_*")
+    sandbox.grant_env(s, "AETHER*")
+    sandbox.grant_env(s, "BUILD_*")
+    sandbox.grant_env(s, "CC")
+    sandbox.grant_env(s, "CXX")
+
+    // NO grant_tcp — network denied (the point of the default profile).
+    // Add e.g. sandbox.grant_tcp(s, "crates.io") in a custom profile for a
+    // build that legitimately fetches from a registry.
+
+    sandbox.emit(s)
+}

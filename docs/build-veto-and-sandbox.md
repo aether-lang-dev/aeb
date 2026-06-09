@@ -473,6 +473,43 @@ is the whole launch interface; absent a policy file, the **built-in default**
 fires (deny `extern`/`net`, allow the toolchain `exec` set) so the safe thing
 happens with zero config and `--vet` is never a silent no-op.
 
+### The three operator surfaces compose (and are kept separate on purpose)
+
+An operator drives three *distinct but composable* surfaces — they are
+deliberately **not** merged into one mega-policy object: each is proven and
+self-contained, each fails closed on its own, and the launch flags make the
+intent explicit. They line up one-per-layer:
+
+| Surface | Layer | Where it lives | Default |
+| --- | --- | --- | --- |
+| **veto policy** (`veto.*` rules) | 1a + 2b | `--veto-policy <f>` → `$AEB_HOME/veto/default.ae` → built-in | deny `extern`+`exec` |
+| **vet-tool(s)** (external scanners) | 1b | `--vet-tool '<cmd>'` (repeatable, CLI) | none (opt-in) |
+| **sandbox profile** (`sandbox.*` grants) | 3 | `--sandbox-profile <f>` → `$AEB_HOME/sandbox/default.ae` → built-in | conservative, **no tcp** |
+
+Both `default.ae` files are operator-trusted, **out of tree**, and refused if
+their path resolves *inside* the build tree (the sandboxed/vetted tree must
+not author its own exemption — same `_is_inside` check both gates use).
+
+A fully-armed invocation uses all three at once — static veto first
+(1a/1b/2b), then the build runs contained (3):
+
+```sh
+aeb --vet \
+    --veto-policy   /etc/aeb/veto.ae       \   # 2b: deny rules + coord allowlist
+    --vet-tool      'semgrep --error .'    \   # 1b: bring-your-own SAST
+    --vet-tool      '! grep -rq AKIA .'    \   # 1b: a second scanner
+    --sandbox \
+    --sandbox-profile /etc/aeb/grants.ae   \   # 3: deny-by-default grants (no tcp)
+    app/.build.ae
+```
+
+`--vet` and `--sandbox` are independent — use either alone, or together.
+`--veto-policy`/`--sandbox-profile`/`--vet-tool` each imply their gate, so
+naming a file/tool is enough. Each surface keeps its own `default.ae` so the
+zero-config path is safe per layer; copy a `default.ae` and tighten it for a
+custom policy (e.g. add `sandbox.grant_tcp(s, "crates.io")` for a build that
+legitimately fetches from a registry).
+
 ## SCOPE — read this first, it's the whole point
 
 These vetoes guard against **build-grammar escapes**: things the
