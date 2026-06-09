@@ -164,13 +164,109 @@ a category **is** denial — there is no `deny_*`; deny-by-default outside the
 declared set. `repo`/`target` are bound names the host supplies, not
 literals the build retypes.
 
-**Authority model: intersection with the operator ceiling.** The in-`aeb(cap)`
-grants are a *request* the build can use to *narrow*; the operator's policy
-is the *immovable ceiling*. Effective enforced grants = the operator set
-(the build can only ask for less, and even an ask for more is inert because
-enforcement is the SHM grant set, not the build's list). This preserves the
-trusted-harness invariant: a verdict/grant can't be overridden by the code
-it's about to compile.
+## Two-party authority — operator ceiling ∩ maintainer narrowing
+
+There are two parties who may express a sandbox, and they are not peers:
+
+- **Operator** (trusted, out-of-tree): the `--sandbox` profile resolved from
+  outside the source root (`$AEB_HOME/sandbox/…`, `--sandbox-profile`,
+  `AEB_SANDBOX_PROFILE`). This is the **ceiling**. Resolved exactly like
+  `--veto-policy`: an in-tree profile path is **refused** (`_is_inside(p,
+  root)`), because the thing being sandboxed must not ship its own exemption.
+- **Project maintainer** (untrusted, in-tree): an optional declaration inside
+  the `.build.ae` — what *this build claims it needs*. This can only
+  **narrow** within the operator ceiling.
+
+**The rule:** `effective = operator ∩ maintainer`. Neither party can widen
+the other; both can only narrow. The operator's choice constrains the
+maintainer's, never the reverse.
+
+| | operator grants `tcp:crates.io` | operator grants **no tcp** |
+| --- | --- | --- |
+| **maintainer asks `tcp:crates.io`** | allowed (both agree) | **denied** — operator ceiling wins |
+| **maintainer asks no tcp** | denied (maintainer narrowed) | denied (both deny) |
+
+The decisive cell is the threat: maintainer asks for `evil.com`, operator
+didn't grant it → **denied**. An untrusted in-tree declaration can never
+grant itself authority the operator withheld; it can only *return* authority
+(omitting `tcp` even where the operator allowed it — good self-tightening).
+
+### The maintainer declaration — a standalone `capabilities` function
+
+The maintainer's declaration reads best as a plain function *above* `aeb(…)`
+(reusable, and statically inspectable — see below), not a trailing block:
+
+```aether
+// project maintainer's declared envelope — a plain function above aeb()
+capabilities() {
+    c = sandbox.new()
+    sandbox.grant_fs_read(c, "src/*")
+    sandbox.grant_fs_write(c, "target/*")
+    sandbox.grant_exec(c, "/usr/bin/cc")
+    sandbox.grant_tcp(c, "crates.io")     // this build needs the registry
+    return c
+}
+
+aeb(cap) {
+    // narrow the host-supplied operator ceiling by the maintainer's ask
+    eff = sandbox.intersect(cap, capabilities())
+    run_sandboxed(eff) {
+        b = build.start()
+        rust.cargo_project(b) { crate_name("demo") }
+    }
+}
+```
+
+### Why letting untrusted in-tree code narrow is safe
+
+`capabilities()` is untrusted in-tree code, yet it participates in the
+sandbox grammar — safe because of two guarantees:
+
+1. **`intersect` only ever shrinks.** It cannot produce a grant in neither
+   input.
+2. **The fence is the operator's SHM grants, not whatever object `aeb(cap)`
+   computes.** The LD_PRELOAD preload enforces the operator ceiling at the
+   syscall boundary regardless of the `eff` the build constructs. A malicious
+   build that ignores `cap` and runs `run_sandboxed(capabilities())` with
+   `tcp:evil.com` **still** hits the operator's preload on `connect()` and
+   dies. The in-language intersection is the *honest* path; the SHM/preload
+   is the *enforced* ceiling.
+
+So the worst a malicious `capabilities()` can do is *try* to widen, and
+widening is structurally inert (the fence is elsewhere). The honest
+maintainer narrows; the dishonest one is contained anyway — the same posture
+as the rest of the veto stack: a clean declaration is not trusted; the
+out-of-tree enforcement is.
+
+### Static-readability bonus for the veto
+
+Because `capabilities()` is a plain top-level function, the **2b AST walk can
+read it statically** — before running anything — to see what the build
+*claims* it needs, and compare against the operator ceiling. A build whose
+`capabilities()` reaches for far more than the operator grants (e.g. wide
+`tcp`/`grant_all`) is a useful pre-run signal: "this build wants the network
+and you didn't give it any." The trailing-block form is harder to read this
+way; the standalone function is inspectable by name.
+
+### The four operating modes
+
+- **`--sandbox`, no maintainer declaration** → operator profile is the whole
+  capability; the build is a passenger. Un-sidesteppable.
+- **`--sandbox` + maintainer `capabilities()`** → `effective = operator ∩
+  maintainer`; the maintainer tightens within the operator's ceiling.
+- **No `--sandbox`, maintainer declares `aeb(cap)` + `capabilities()`** → the
+  maintainer's declaration is the capability (no operator ceiling; `cap`
+  defaults to grant-all and they narrow from there). The "I'm sandboxing my
+  own build for hygiene" case — useful even with no operator in the loop.
+- **Legacy `main()` only, under `--sandbox`** → no parameter to inject into;
+  refuse under strict `--sandbox` (a clear message), or host under the bare
+  operator profile via a `--sandbox-legacy` opt-in. Either way the LD_PRELOAD
+  layer still contains it — legacy `main()` cannot escape `--sandbox`, it
+  just doesn't get the in-language `cap` handle.
+
+This preserves the trusted-harness invariant throughout: a grant can't be
+widened by the code it's about to compile, and the enforced ceiling is always
+the operator's, sourced and applied from outside the tree.
 
 ## Open questions / blockers before implementation
 
@@ -192,11 +288,17 @@ it's about to compile.
    the build file dynamically at runtime; settle whether that is a
    compile-the-build-as-a-module-then-call path (as proven) or a
    dlopen/`std.dl` path (as `aether.tinygo_lib` uses for `.so`s).
-4. **`cap` object type.** The proof used a plain `list` (data, forgeable —
-   fine, since it is the grammar layer not the fence). Decide whether `cap`
-   stays a list the host reads to build the SHM grant set, or becomes an
-   opaque builder type (`build.sandbox`-style `_ctx`) for nicer narrowing
-   ergonomics. Either way it is **not** the enforcement boundary.
+4. **`cap` object type + the `sandbox.*` surface.** The proof used a plain
+   `list` (data, forgeable — fine, since it is the grammar layer not the
+   fence). The two-party section assumes a small `sandbox` module
+   (`sandbox.new`, `sandbox.grant_*`, `sandbox.intersect`) so the maintainer's
+   `capabilities()` and the `operator ∩ maintainer` narrowing read cleanly.
+   Decide whether `cap` stays a list the host reads to build the SHM grant
+   set, or becomes an opaque builder type (`build.sandbox`-style `_ctx`) for
+   nicer narrowing ergonomics — and whether `sandbox.intersect` lives in aeb's
+   lib tree or upstream. Either way `cap` is **not** the enforcement boundary;
+   the host derives the SHM grant set from the operator profile independently
+   of whatever object the build computes.
 
 ## Relationship to the rest of the veto stack
 
