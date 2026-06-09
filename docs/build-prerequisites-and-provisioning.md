@@ -204,6 +204,63 @@ Properties:
   *selects* a recipe from the operator's map; it cannot supply one. An
   unmapped token fails preflight; it never provisions.
 
+### Cross-distro package names — the token is distro-agnostic, the recipe is not
+
+A real wrinkle the token grammar deliberately hides: the same toolchain has
+**different package names (and sometimes different install strategies) per
+distro/package manager**. `jdk:21` is `openjdk-21-jdk` on Debian/`apt`,
+`java-21-openjdk-devel` on Fedora/`dnf`, `openjdk21` on Alpine/`apk`. One
+token, three names.
+
+The design rule that keeps this from leaking: **the `prereq` token stays
+distro-agnostic; distro-awareness lives entirely in the recipe.** The repo
+declares `jdk:21` and must *never* learn whether the fleet runs Debian or
+Alpine — that would drag the host environment up into the build graph, which
+is exactly the coupling `prereq` exists to avoid. So the divergence is the
+**recipe map's** problem, resolved three ways (in order of preference):
+
+1. **Distro-invariant recipes — the preferred shape, no divergence at all.**
+   A recipe that **fetches a pinned upstream tarball/installer to
+   `/usr/local`** (`zig:0.13`, the standalone Python builds, the Temurin JDK
+   tarball, the Go tarball) has *no* package manager in it, so the apt/rpm/apk
+   question never arises. This is already how most `--with=` recipes work, and
+   it is what the "recipes must pin, not float" rule pushes toward anyway. For
+   a *single, controlled base image* (the recommended posture — the operator
+   owns `aeb-agent-base`), most recipes can and should be this shape, and the
+   cross-distro problem largely evaporates.
+
+2. **Per-distro recipe map entries**, when a recipe genuinely wants the system
+   package manager (the base build toolchain, glibc dev headers, a JDK the
+   operator would rather get from apt). The recipe carries a small branch keyed
+   by the base image's package manager, which provisioning detects once
+   (`command -v apt-get || dnf || apk`):
+
+   ```
+   jdk:21 → {
+     apt:  "apt-get install -y openjdk-21-jdk",
+     dnf:  "dnf install -y java-21-openjdk-devel",
+     apk:  "apk add openjdk21",
+     # no branch for a PM → that distro is unsupported for this token →
+     # provisioning fails closed (NOT a silent fallback to a wrong package)
+   }
+   ```
+
+   Fail-closed is the discipline: a token whose recipe has **no branch for the
+   base image's package manager** is an `unmet-prereqs`/unprovisionable error,
+   never a guess at the package name.
+
+3. **Pin the base image's distro per fleet.** The simplest operational answer:
+   an `--allow-provision` fleet declares its base image (`aeb-agent-base` is
+   *one* distro the operator chose), so the recipe map only ever needs the
+   branch for *that* distro. Most operators run a single base; the per-distro
+   map (2) is only needed by an operator deliberately spanning Debian *and*
+   Alpine agents in one grid.
+
+So: prefer tarball recipes (no PM, no divergence); where a recipe must use a
+package manager, the map carries per-PM branches and fails closed on an
+unmapped PM; and a single-distro base sidesteps the whole question. The token
+the repo writes is invariant across all three.
+
 ## Routing: agents advertise held tokens
 
 Provisioning gives the agent grid a routing primitive. An agent's `ping`
@@ -267,3 +324,10 @@ all*; the veto/sandbox decide *what this build is permitted to do*.
   pyenv vs venv vs framework). The probe definition per toolchain is part of
   the recipe map, and a fuzzy/ambiguous probe should lean to **fail preflight**
   (fail-closed) rather than assume present.
+- **Cross-distro recipe form.** Addressed above ("Cross-distro package
+  names") — token stays distro-agnostic; recipe is tarball-preferred, else a
+  per-PM (apt/dnf/apk) branch that fails closed on an unmapped manager, with
+  single-distro-base as the simple out. Still to settle: whether the
+  per-distro map is keyed by detected package manager (apt/dnf/apk) or by a
+  declared base-image id, and whether aeb's shipped default recipes commit to
+  one base distro or carry the multi-PM branch from day one.
