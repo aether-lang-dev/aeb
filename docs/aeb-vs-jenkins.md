@@ -11,6 +11,11 @@ comparison is to a target shape, not to today's aeb. Where a capability
 exists today it's marked **[have]**; where it's design it's **[design]**;
 where it's not even planned it's **[no]**.
 
+> See also [`aeb-vs-snap-ci-and-the-wake-on-commit-flow.md`](aeb-vs-snap-ci-and-the-wake-on-commit-flow.md)
+> for the *pipeline-first* lineage (Snap CI / Go-GoCD) and the specific
+> "trigger is a hook, but is the *flow* it kicks off aeb's canonical,
+> branchable grammar?" question.
+
 ## Why Jenkins is the right mirror (and GHA/GitLab are not)
 
 GitHub Actions, GitLab CI, and Buildkite are **cloud, runner-rental**
