@@ -174,13 +174,19 @@ default_profile(repo: string, target_dir: string, aeb_home: string) {
     _r5 = grant_fs_read(s, "/etc/*")
     _r6 = grant_fs_read(s, repo)
     _r7 = grant_fs_read(s, "/tmp/*")
+    _r8 = grant_fs_read(s, "/dev/*")
+    _r9 = grant_fs_read(s, "/proc/*")
     // aeb's own tooling tree ($AEB_HOME): aeb-main/aeb-link/the orchestrator
     // + the SDK lib/ must be readable and exec'able — they ARE the build
     // harness, not the untrusted graph.
     _rh = grant_fs_read(s, _wild(aeb_home))
-    // writes: build outputs + compiler staging only
+    // writes: build outputs + compiler staging + the harmless device sinks
+    // every shell redirect / toolchain touches (/dev/null, /dev/tty, …).
+    // Without /dev/null, `cmd 2>/dev/null` fails and tools that probe it
+    // (resolve-imports.sh, configure-style scripts) spin/abort.
     _w1 = grant_fs_write(s, target_dir)
     _w2 = grant_fs_write(s, "/tmp/*")
+    _w3 = grant_fs_write(s, "/dev/*")
     // exec: the standard toolchain dirs + aeb's own tools
     _x1 = grant_exec(s, "/usr/*")
     _x2 = grant_exec(s, "/bin/*")

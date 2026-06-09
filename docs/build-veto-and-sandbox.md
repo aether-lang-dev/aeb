@@ -823,13 +823,19 @@ maybe_veto_build(repo, target, purpose):
    `--sandbox-profile` trampoline wiring are in. **Containment is proven:** a
    controlled network build through `aeb-sandbox` is blocked at libc (curl
    exit 2, no exfil) while the unsandboxed baseline connects. **But** a real
-   `aeb --sandbox <target>` does not yet complete: the aeb orchestrator's
-   multi-stage native pipeline (`ae`/`aetherc` → `cc` → link `libaether.a` →
-   run `_ae_build_all`) **segfaults under the preload**, while a trivial
-   aether binary and a subprocess-spawning binary both run fine — so it is
-   specific to the self-rebuilding toolchain, likely nested/re-entrant
-   `spawn_sandboxed` or the link/exec interception. Upstream ask:
-   `../aether/sandbox-preload-toolchain-segfault.md`.
+   `aeb --sandbox <target>` does not yet complete. **Blocker #1 (the
+   toolchain-child segfault) was FIXED upstream in aether 0.229.0** —
+   the preload's unsafe `vfork()` wrapper was removed (credited to aeb's
+   report); the `ae`→gcc→cc1→ld pipeline now runs under `spawn_sandboxed`,
+   and granting `fs_write /dev/*` (esp. `/dev/null`) + `fs_read /dev/*,/proc/*`
+   in `default_profile` cleared a `resolve-imports.sh` retry loop.
+   **Blocker #2 is still open:** `aeb-main` doing real work **segfaults merely
+   from the preload being LOADED** — `LD_PRELOAD=libaether_sandbox.so aeb-main
+   …` → SIGSEGV (rc 139), with NO `spawn_sandboxed`, NO SHM, NO active grants
+   — so it's the interception path itself (the `real_*` dlsym wrappers), not
+   grant denial. Trivial binaries and no-arg aeb-main are fine; only the
+   fork/exec/open-heavy orchestration faults. Upstream ask updated with the
+   one-line repro: `../aether/sandbox-preload-toolchain-segfault.md`.
 4. ~~**Layer 2b — `aetherc --emit=ast` + aeb-side AST walk.**~~ **SHIPPED
    (slice, 2026-06-08).** `aetherc --emit=ast` landed in aether **v0.226.0**
    (name-resolved AST as JSON: `kind`/`file`/`line` + resolved `callee`,
