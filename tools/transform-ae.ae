@@ -3,7 +3,12 @@
 // Usage: transform-ae <source> <func_name> <label> <output> <lib_dir> <aeb_home>
 //
 // Transforms:
-// 1. Renames main() to func_name(s: ptr)
+// 1. Renames the entrypoint to func_name(s: ptr). The entrypoint may be
+//    written either as legacy `main()` or as the modern capability form
+//    `aeb(cap)` — both lower to the same context-receiving function (aeb
+//    already injects a build context; `cap` is just the nicer spelling for
+//    "the handle the trusted host passed in"). The build body uses
+//    `build.start()` regardless, so the param NAME the user chose is sugar.
 // 2. Replaces build.start() with build.begin(s, "label") + guard
 // 3. Strips .ae filenames from dep() references (runtime needs dirs)
 // 4. Injects transitive SDK imports at the top
@@ -27,7 +32,14 @@ main() {
     aeb_home = aether_args_get(6)
 
     // Step 1: write a sed script to a temp file (avoids shell quoting issues)
+    // Two entrypoint spellings lower to the same `func_name(s: ptr) {`:
+    //   legacy  `main() {`
+    //   modern  `aeb(<anything>) {`   (the capability form; param name is sugar)
+    // The `aeb(` rule matches any single identifier between the parens.
     sed_script = "s/^main() {/"
+    sed_script = string.concat(sed_script, func_name)
+    sed_script = string.concat(sed_script, "(s: ptr) {/\n")
+    sed_script = string.concat(sed_script, "s/^aeb([A-Za-z_][A-Za-z0-9_]*) {/")
     sed_script = string.concat(sed_script, func_name)
     sed_script = string.concat(sed_script, "(s: ptr) {/\n")
     sed_script = string.concat(sed_script, "s|b = build\\.start()|b = build.begin(s, \"")
