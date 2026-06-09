@@ -843,6 +843,19 @@ maybe_veto_build(repo, target, purpose):
    **Layer 3 is now UNBLOCKED:** `aeb --sandbox <target>` runs the real
    orchestrator pipeline to completion (rc 0), contained under the grant
    profile, no segfault — no aether change beyond the 0.229.0 vfork fix.
+   **Hardened further by aether 0.230.0 (issue #668):** the `fork`/process-
+   creation denial is now a **kernel-level seccomp-bpf fence** installed by
+   `spawn_sandboxed` (post-fork, pre-exec), not just an LD_PRELOAD
+   libc-symbol intercept. The old libc fence was bypassable by a raw
+   `syscall(SYS_clone3, …)` or glibc's inline `__vfork` (no libc symbol) —
+   so a malicious build could spawn processes despite a no-`fork` grant; gcc
+   itself uses those paths for `cc1`/`as`/`ld`. Now trapped with `EPERM` at
+   the kernel regardless of call path (x86_64; fail-closed `exit(126)` if
+   seccomp setup fails). This closes a real containment escape in aeb's
+   threat model. The fence lives in the launcher's runtime (compiled into
+   `tools/aeb-sandbox`), which `make install` rebuilds unconditionally — so
+   aeb picks it up automatically; the only always-rebuild we manage by hand
+   is the preload `.so`.
 4. ~~**Layer 2b — `aetherc --emit=ast` + aeb-side AST walk.**~~ **SHIPPED
    (slice, 2026-06-08).** `aetherc --emit=ast` landed in aether **v0.226.0**
    (name-resolved AST as JSON: `kind`/`file`/`line` + resolved `callee`,
