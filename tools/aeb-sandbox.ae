@@ -145,13 +145,23 @@ _resolve_grants(aether_bin: string, aeb_home: string, root: string) {
 }
 
 // _ensure_preload — make sure libaether_sandbox.so sits next to this
-// binary (where aether_spawn_sandboxed's find_preload_path looks first).
-// Lazy-compile it from the aether install's runtime source if absent.
-// Returns 1 on success, 0 on failure.
+// binary (where aether_spawn_sandboxed's find_preload_path looks first),
+// compiled from the CURRENT aether install's runtime source. Returns 1 on
+// success, 0 on failure.
+//
+// ALWAYS REBUILD — never trust a cached `.so`. This was a real, painful
+// trap: a `.so` built from a PRE-0.229.0 source (still carrying the unsafe
+// `vfork()` wrapper) was silently reused after the aether upgrade,
+// re-introducing the fixed bug — a SIGSEGV in a `sh -c` build child at its
+// `vfork()`, cascading to rc 139/255 under --sandbox. An mtime check didn't
+// save us (a stale `.so` with a coincidentally-newer mtime than the source
+// defeats it). The preload is a 26 KB single-file `cc` (~tens of ms) built
+// once per --sandbox run, so unconditional rebuild is the right trade:
+// correctness over a negligible cache. (Content-hashing would also work;
+// always-rebuild is simpler and has no failure mode.)
 _ensure_preload(aether_bin: string, aeb_home: string) {
     // This binary lives at $AEB_HOME/tools/aeb-sandbox → the .so beside it.
     so = path.join(aeb_home, "tools/libaether_sandbox.so")
-    if file.exists(so) == 1 { return 1 }
     // Find the aether install's runtime source: dirname(dirname(realpath
     // ae))/share/aether/runtime/libaether_sandbox_preload.c
     real, _r = os.exec("readlink -f '${aether_bin}' 2>/dev/null || command -v '${aether_bin}'")
@@ -163,6 +173,7 @@ _ensure_preload(aether_bin: string, aeb_home: string) {
         println("aeb --sandbox: preload source not found at ${src}")
         return 0
     }
+    // Rebuild unconditionally from the CURRENT source.
     cc = "cc -shared -fPIC -o '${so}' '${src}' -ldl -lrt 2>&1"
     rc = os.system(cc)
     if rc != 0 { return 0 }

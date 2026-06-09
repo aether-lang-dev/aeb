@@ -192,6 +192,11 @@ default_profile(repo: string, target_dir: string, aeb_home: string) {
     _x2 = grant_exec(s, "/bin/*")
     _x3 = grant_exec(s, "/lib/*")
     _xh = grant_exec(s, _wild(aeb_home))
+    // aeb stages + runs the per-node orchestrator binary (_ae_build_all) and
+    // produced test/exe binaries under the build's target dir and the repo,
+    // so those must be exec'able too.
+    _xt = grant_exec(s, _wild(target_dir))
+    _xr = grant_exec(s, _wild(repo))
     // fork: the build orchestrator spawns compilers — essential.
     _fk = grant_fork(s)
     // env the toolchain needs to function
