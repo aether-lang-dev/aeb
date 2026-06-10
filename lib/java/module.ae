@@ -418,55 +418,6 @@ _javac_bin_for(want: string, builder_map: ptr) {
     return path.join(home, "bin/javac")
 }
 
-// _read_argfile_lines(path) — read a javac argfile (one source path
-// per line) into a sorted list. Sorted because `find`'s order isn't
-// deterministic across filesystems and we want stable cache keys.
-_read_argfile_lines(argfile_path: string) {
-    raw, _err = io.read_file(argfile_path)
-    content = string.trim(raw)
-    out = list.new()
-    if string.length(content) == 0 { return out }
-    rest = content
-    while string.length(rest) > 0 {
-        nl = string.index_of(rest, "\n")
-        line = ""
-        if nl < 0 {
-            line = rest
-            rest = ""
-        } else {
-            line = string.substring(rest, 0, nl)
-            rest = string.substring(rest, nl + 1, string.length(rest))
-        }
-        line = string.trim(line)
-        if string.length(line) > 0 {
-            list.add(out, line)
-        }
-    }
-    // Sort via shell — std.list lacks a sort primitive, and shelling
-    // to sort is cheap (typical N is dozens to hundreds).
-    cmd = "printf '%s\\n' '${content}' | sort"
-    sorted_raw, _err2 = os.exec(cmd)
-    sorted_content = string.trim(sorted_raw)
-    sorted = list.new()
-    rest2 = sorted_content
-    while string.length(rest2) > 0 {
-        nl = string.index_of(rest2, "\n")
-        line = ""
-        if nl < 0 {
-            line = rest2
-            rest2 = ""
-        } else {
-            line = string.substring(rest2, 0, nl)
-            rest2 = string.substring(rest2, nl + 1, string.length(rest2))
-        }
-        line = string.trim(line)
-        if string.length(line) > 0 {
-            list.add(sorted, line)
-        }
-    }
-    return sorted
-}
-
 // Compute the cache key for a javac compile action. Inputs in
 // canonical order; each part length-prefixed via cache.hash_inputs
 // so distinct concatenations can't collide.
@@ -522,7 +473,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
     list.add(parts, string.concat("cmd:", javac_cmd_str))
 
     // Each .java source's path + content hash, in sorted order.
-    sources = _read_argfile_lines(argfile_path)
+    sources = build._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -554,39 +505,6 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
 
     digest, derr = cache.hash_inputs(parts)
     return digest, derr
-}
-
-// Tar a directory tree to a temp file, return (tar_path, "") or
-// ("", err). Used to bundle a target/<module>/classes/ tree for
-// cache.put. Uncompressed — cache.put zlibs it on the way in.
-_tar_dir(src_dir: string) {
-    tmp_raw, _err = os.exec("mktemp")
-    tmp = string.trim(tmp_raw)
-    if string.length(tmp) == 0 {
-        return "", "mktemp failed"
-    }
-    cmd = "tar -cf '${tmp}' -C '${src_dir}' . 2>&1"
-    out, eerr = os.exec(cmd)
-    if string.length(eerr) > 0 {
-        return "", string.concat("tar failed: ", eerr)
-    }
-    return tmp, ""
-}
-
-// Untar a tarball into a directory. Wipes dest_dir first so the
-// untar starts from a clean state (avoids stale files mixing with
-// the cached set). Returns "" on success or err string.
-_untar_into(tar_path: string, dest_dir: string) {
-    os.system("rm -rf '${dest_dir}'")
-    merr = fs.mkdir_p(dest_dir)
-    if string.length(merr) > 0 { return merr }
-    cmd = "tar -xf '${tar_path}' -C '${dest_dir}' 2>&1"
-    out, _eerr = os.exec(cmd)
-    if string.length(out) > 0 {
-        // tar prints to stdout via 2>&1 only on error; success is silent.
-        return string.concat("untar failed: ", out)
-    }
-    return ""
 }
 
 builder javac(ctx: ptr) {
@@ -692,7 +610,7 @@ builder javac(ctx: ptr) {
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = _untar_into(tmp_tar, classes_dir)
+                    uerr = build._untar_into(tmp_tar, classes_dir)
                     os.system("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: javac cache hit ${cache_key}")
@@ -725,7 +643,7 @@ builder javac(ctx: ptr) {
         }
         // Populate the cache with the freshly-compiled tree. Best-effort.
         if string.length(cache_key) > 0 {
-            tar_path, terr = _tar_dir(classes_dir)
+            tar_path, terr = build._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
                 os.system("rm -f '${tar_path}'")
@@ -860,7 +778,7 @@ builder javac_test(ctx: ptr) {
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = _untar_into(tmp_tar, test_classes)
+                    uerr = build._untar_into(tmp_tar, test_classes)
                     os.system("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: javac-test cache hit ${cache_key}")
@@ -891,7 +809,7 @@ builder javac_test(ctx: ptr) {
             return exit_code
         }
         if string.length(cache_key) > 0 {
-            tar_path, terr = _tar_dir(test_classes)
+            tar_path, terr = build._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
                 os.system("rm -f '${tar_path}'")
