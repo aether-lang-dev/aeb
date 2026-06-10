@@ -4,6 +4,25 @@
 
 ### Added
 
+- **Content-addressed cache wired into every artifact-producing SDK.**
+  Previously only `lib/aether`, `lib/java`, and `lib/maven` participated
+  in the `lib/cache` (sha256+zlib) store; now `lib/kotlin`, `lib/scala`,
+  `lib/ts`, `lib/dotnet`, `lib/go`, `lib/rust`, and `lib/clojure` do too,
+  so warm rebuilds restore the compiled artifact and skip the compiler,
+  reporting `[hit]` in `[telemetry]`. Each follows the `lib/java`
+  reference: a pure `_cache_key_for_<sdk>` (toolchain version + command
+  string + sorted per-source hashes + dep-artifact content) gates
+  `cache.get`/`cache.put`; cross-language metadata artifacts are always
+  recomputed, never cached. SDK-specific guards: `lib/ts` excludes
+  `*.tsbuildinfo` and only caches a non-empty out-dir (so a project
+  tsconfig redirecting output never false-hits); `lib/dotnet` caches
+  `bin/<config>` only (never the non-portable `obj/`) and skips test
+  projects (`dotnet test --no-build` needs `obj/`); `lib/go` and
+  `lib/rust` cache the single output binary/.so. `lib/python` is `n/a`
+  by design (a venv isn't portably cacheable). Shared helpers
+  (`_tar_dir`, `_untar_into`, `_read_argfile_lines`, `_dir_nonempty`)
+  moved to `lib/build`; every key derivation has a
+  `tests/test_<sdk>_cache.ae` unit test.
 - **Supply-chain build veto + runtime sandbox (`aeb --vet` / `--sandbox`).**
   A layered defense that treats the build itself as an untrusted
   supply-chain surface (see `docs/build-veto-and-sandbox.md`). The veto runs
