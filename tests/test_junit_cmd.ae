@@ -24,13 +24,18 @@ _assert_eq(label: string, actual: string, expected: string) {
 }
 
 main() {
+    // Host-specific dynamic-library env var (DYLD_LIBRARY_PATH on macOS,
+    // LD_LIBRARY_PATH on Linux) — junit_cmd emits build._dyld_env_var();
+    // mirror it so the expectation holds on both platforms.
+    dyld = build._dyld_env_var()
+
     _assert_eq("no-config no-ldpath",
         junit_cmd("classes:deps.jar", "com.example.FooTests", "", null),
         "java -cp classes:deps.jar org.junit.runner.JUnitCore com.example.FooTests")
 
     _assert_eq("with ld_path",
         junit_cmd("classes", "com.example.FooTests", "/lib/native", null),
-        "LD_LIBRARY_PATH=/lib/native java -Djava.library.path=/lib/native -cp classes org.junit.runner.JUnitCore com.example.FooTests")
+        "${dyld}=/lib/native java -Djava.library.path=/lib/native -cp classes org.junit.runner.JUnitCore com.example.FooTests")
 
     opts3 = map_new()
     map_put(opts3, "jvm_args", "-Xmx2g -ea")
@@ -43,7 +48,7 @@ main() {
     map_put(opts4, "extra", "-Dtest.env=ci")
     _assert_eq("ld_path+jvm_args+extra",
         junit_cmd("cp", "Tests", "/lib", opts4),
-        "LD_LIBRARY_PATH=/lib java -Djava.library.path=/lib -Xmx4g -Dtest.env=ci -cp cp org.junit.runner.JUnitCore Tests")
+        "${dyld}=/lib java -Djava.library.path=/lib -Xmx4g -Dtest.env=ci -cp cp org.junit.runner.JUnitCore Tests")
 
     println("junit_cmd tests done")
 }

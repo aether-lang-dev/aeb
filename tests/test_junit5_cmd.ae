@@ -24,13 +24,18 @@ _assert_eq(label: string, actual: string, expected: string) {
 }
 
 main() {
+    // Host-specific dynamic-library env var (DYLD_LIBRARY_PATH on macOS,
+    // LD_LIBRARY_PATH on Linux) — junit5_cmd emits build._dyld_env_var();
+    // mirror it so the expectation holds on both platforms.
+    dyld = build._dyld_env_var()
+
     _assert_eq("no-config no-ldpath",
         junit5_cmd("test-classes:deps.jar", "out/test-classes", "", null),
         "timeout 60 java -Dtestcontainers.ryuk.disabled=true -cp test-classes:deps.jar org.junit.platform.console.ConsoleLauncher execute --scan-classpath=out/test-classes --fail-if-no-tests")
 
     _assert_eq("with ld_path",
         junit5_cmd("test-classes", "out/test-classes", "/lib/native", null),
-        "timeout 60 env LD_LIBRARY_PATH=/lib/native java -Djava.library.path=/lib/native -Dtestcontainers.ryuk.disabled=true -cp test-classes org.junit.platform.console.ConsoleLauncher execute --scan-classpath=out/test-classes --fail-if-no-tests")
+        "timeout 60 env ${dyld}=/lib/native java -Djava.library.path=/lib/native -Dtestcontainers.ryuk.disabled=true -cp test-classes org.junit.platform.console.ConsoleLauncher execute --scan-classpath=out/test-classes --fail-if-no-tests")
 
     opts3 = map_new()
     map_put(opts3, "test_timeout", "120")
@@ -63,7 +68,7 @@ main() {
     map_put(opts7, "enable_preview", "true")
     _assert_eq("ld_path+timeout+jvm_args+extra+preview",
         junit5_cmd("cp", "td", "/lib", opts7),
-        "timeout 300 env LD_LIBRARY_PATH=/lib java -Djava.library.path=/lib -Dtestcontainers.ryuk.disabled=true -Xmx4g -Dtest.env=ci --enable-preview -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests")
+        "timeout 300 env ${dyld}=/lib java -Djava.library.path=/lib -Dtestcontainers.ryuk.disabled=true -Xmx4g -Dtest.env=ci --enable-preview -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests")
 
     println("junit5_cmd tests done")
 }

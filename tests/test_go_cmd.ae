@@ -25,6 +25,11 @@ _assert_eq(label: string, actual: string, expected: string) {
 }
 
 main() {
+    // The dynamic-library env var is host-specific (DYLD_LIBRARY_PATH on
+    // macOS, LD_LIBRARY_PATH on Linux) — go_test_cmd emits whatever the
+    // host uses via build._dyld_env_var(). Mirror that here so the
+    // expectation is correct on both platforms.
+    dyld = build._dyld_env_var()
     cmd1 = go_build_cmd("/src/mymod", "/out/lib/mymod.so", null)
     _assert_eq("build: no-config", cmd1,
         "cd /src/mymod && go build -o /out/lib/mymod.so")
@@ -61,7 +66,7 @@ main() {
         "cd /src && go test -v .")
 
     _assert_eq("test: ld_path", go_test_cmd("/src", "/lib/path", null),
-        "cd /src && LD_LIBRARY_PATH=/lib/path go test -v .")
+        "cd /src && ${dyld}=/lib/path go test -v .")
 
     opts8 = map_new()
     map_put(opts8, "verbose", "true")
