@@ -106,7 +106,23 @@ _normalise(out: string) {
     return string.trim(sorted_raw)
 }
 
+// _ensure_extract_deps_built — extract-deps is a compiled tool, not a
+// lib, so this test runs it as a subprocess. The unit-test harness
+// doesn't pre-build tools/, so build it on demand with the harness's
+// chosen compiler ($AETHER, exported by tests/run.sh) if it isn't there.
+// Honors AEB_EXTRACT_DEPS_BIN (the harness may point at its own build).
+_ensure_extract_deps_built() {
+    if string.length(os.getenv("AEB_EXTRACT_DEPS_BIN")) > 0 { return 0 }
+    if file.exists("tools/extract-deps") == 1 { return 0 }
+    ae_bin = os.getenv("AETHER")
+    if string.length(ae_bin) == 0 { ae_bin = "ae" }
+    os.system("${ae_bin} build tools/extract-deps.ae -o tools/extract-deps --lib lib --lib tools >/dev/null 2>&1")
+    return 0
+}
+
 main() {
+    _ensure_extract_deps_built()
+
     root = _mktempdir()
     _setup_fixture(root)
 

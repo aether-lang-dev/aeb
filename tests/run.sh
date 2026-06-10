@@ -26,6 +26,11 @@ LIB_DIR="$REPO_ROOT/lib"
 TOOLS_DIR="$REPO_ROOT/tools"
 
 AETHER="${AETHER:-ae}"
+# Export so tests that themselves shell out to the compiler (e.g.
+# test_aeb_query_cmd builds a tool, test_extract_deps_scan builds
+# tools/extract-deps on demand) use the SAME toolchain the harness used,
+# not whatever bare `ae` happens to be on PATH.
+export AETHER
 PATTERN="${1:-}"
 
 if ! command -v "$AETHER" >/dev/null 2>&1; then

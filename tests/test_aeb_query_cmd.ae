@@ -37,7 +37,12 @@ _run(cmd: string) {
 
 main() {
     tool = "/tmp/aeb-query-test"
-    build_rc = os.system(string.concat("ae build tools/aeb-query.ae -o ", string.concat(tool, " >/dev/null 2>&1")))
+    // Build aeb-query with the harness's chosen compiler ($AETHER,
+    // exported by tests/run.sh), not bare `ae` from PATH — the two can
+    // differ (an overridden toolchain, or a broken PATH `ae`).
+    ae_bin = os.getenv("AETHER")
+    if string.length(ae_bin) == 0 { ae_bin = "ae" }
+    build_rc = os.system(string.concat(ae_bin, string.concat(" build tools/aeb-query.ae -o ", string.concat(tool, " >/dev/null 2>&1"))))
     if build_rc != 0 {
         println("FAIL: build aeb-query")
         return 0
