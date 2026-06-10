@@ -4,6 +4,7 @@
 // via clojure.test (built into Clojure). Maven deps are resolved
 // via the maven module (Clojure uses Maven coordinates).
 import build
+import cache
 import maven
 import std.string
 import std.io
@@ -139,6 +140,68 @@ _dep_src_classpath(ctx: ptr) {
 // --- SDK functions ---
 
 // Compile Clojure sources.
+// _clj_java_version() — `java -version` first line, memoised per build.
+// AOT runs `java ... clojure.main`, so the JVM version is a real
+// bytecode-target invalidator. Returns "" when java is absent.
+_clj_java_version() {
+    cached = os.getenv("_AEB_JAVA_VERSION_CACHE")
+    if string.length(cached) > 0 { return cached }
+    raw, _err = os.exec("java -version 2>&1 | head -1")
+    return string.trim(raw)
+}
+
+// _cache_key_for_clj — cache key for a Clojure AOT compile (only the
+// main_ns branch produces a cacheable classes/ tree). Inputs
+// (length-prefixed, sorted via cache.hash_inputs):
+//   - java version — AOT bytecode-target invalidator
+//   - the maven classpath string — embeds the pinned Clojure jar
+//     version + every resolved dep, so a clojure or dep bump busts it
+//   - the AOT namespace
+//   - canonical AOT command string
+//   - each .clj source's path + content hash, sorted by path
+//   - each dep's clojure_src_path artifact content (upstream sources)
+//
+// Returns ("", err) on any source read failure.
+_cache_key_for_clj(ctx: ptr, argfile_path: string, aot_cmd_str: string, maven_cp: string, ns: string) {
+    parts = list.new()
+
+    list.add(parts, string.concat("java:", _clj_java_version()))
+    list.add(parts, string.concat("clj-mavencp:", maven_cp))
+    list.add(parts, string.concat("ns:", ns))
+    list.add(parts, string.concat("cmd:", aot_cmd_str))
+
+    sources = build._read_argfile_lines(argfile_path)
+    nsrc = list.size(sources)
+    si = 0
+    while si < nsrc {
+        src, _ = list.get(sources, si)
+        sh, serr = cache.hash_file(src)
+        if string.length(serr) > 0 {
+            return "", serr
+        }
+        list.add(parts, string.concat("src:", src))
+        list.add(parts, string.concat("src-hash:", sh))
+        si = si + 1
+    }
+
+    deps, _ = map.get(ctx, "deps")
+    dn = list.size(deps)
+    di = 0
+    while di < dn {
+        dp, _ = list.get(deps, di)
+        dm = build._strip_lang(dp)
+        dep_src = build._read_dep_artifact(ctx, dm, "clojure_src_path")
+        if string.length(dep_src) > 0 {
+            list.add(parts, string.concat("dep:", dm))
+            list.add(parts, string.concat("dep-src:", dep_src))
+        }
+        di = di + 1
+    }
+
+    digest, derr = cache.hash_inputs(parts)
+    return digest, derr
+}
+
 // If main_ns is set, AOT compiles to .class files.
 // Otherwise validates sources are loadable.
 builder compile(ctx: ptr) {
@@ -184,12 +247,64 @@ builder compile(ctx: ptr) {
         if map.has(_builder, "main_ns") == 1 {
             ns, _ = map.get(_builder, "main_ns")
             cmd = clj_aot_compile_cmd(classes_dir, cp, ns)
-            exit_code = os.system(cmd)
-            if exit_code != 0 {
-                println("${mod_dir}: clojure AOT compilation failed")
-                build.fail(ctx, "clojure AOT compilation failed")
-                return exit_code
+
+            // Source set for the cache key (every .clj under src/).
+            argfile = path.join(target_dir, "clj_sources.txt")
+            os.system("find '${src_root}' -name '*.clj' > '${argfile}' 2>/dev/null || true")
+
+            // Cache check: restore the AOT classes/ tree on hit.
+            cache_key = ""
+            exit_code = -1
+            if cache.available() == 1 {
+                ck, kerr = _cache_key_for_clj(ctx, argfile, cmd, maven_cp, ns)
+                if string.length(kerr) == 0 {
+                    cache_key = ck
+                    tmp_raw, _terr = os.exec("mktemp")
+                    tmp_tar = string.trim(tmp_raw)
+                    if string.length(tmp_tar) > 0 {
+                        grc = cache.get(cache_key, tmp_tar)
+                        if string.length(grc) == 0 {
+                            uerr = build._untar_into(tmp_tar, classes_dir)
+                            os.system("rm -f '${tmp_tar}'")
+                            if string.length(uerr) == 0 {
+                                println("${mod_dir}: clojure AOT cache hit ${cache_key}")
+                                build._record_cache(ctx, "hit")
+                                exit_code = 0
+                            } else {
+                                os.system("rm -rf '${classes_dir}'")
+                                build._mkdirs(classes_dir)
+                            }
+                        } else {
+                            os.system("rm -f '${tmp_tar}'")
+                        }
+                    }
+                }
             }
+
+            if exit_code == -1 {
+                if cache.available() == 0 {
+                    build._record_cache(ctx, "unavailable")
+                } else {
+                    build._record_cache(ctx, "miss")
+                }
+                exit_code = os.system(cmd)
+                if exit_code != 0 {
+                    println("${mod_dir}: clojure AOT compilation failed")
+                    build.fail(ctx, "clojure AOT compilation failed")
+                    return exit_code
+                }
+                if string.length(cache_key) > 0 {
+                    tar_path, terr = build._tar_dir(classes_dir)
+                    if string.length(terr) == 0 {
+                        perr = cache.put(cache_key, tar_path)
+                        os.system("rm -f '${tar_path}'")
+                        if string.length(perr) > 0 {
+                            println("${mod_dir}: clojure AOT cache write failed: ${perr}")
+                        }
+                    }
+                }
+            }
+
             _e1 = io.write_file(path.join(target_dir, ".timestamp"), "")
             return 0
         }

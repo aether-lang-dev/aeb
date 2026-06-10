@@ -2,6 +2,23 @@
 //
 // Creates a venv in .aeb/venv/, installs pip deps, runs tests via pytest,
 // lints via ruff, type-checks via mypy, and packages via build+twine.
+//
+// CONTENT-ADDRESSED CACHE — deliberately NOT wired (unlike java, kotlin,
+// scala, ts, dotnet, go, rust, clojure). Python has no compile step that
+// produces a durable, content-addressable artifact worth caching:
+//   - `install` produces a venv: thousands of files with absolute-path
+//     shebangs and machine-specific compiled .pyc — not portable, huge to
+//     tar, and pip already skips already-satisfied installs. Caching it
+//     cross-machine would be a correctness hazard, not a speedup.
+//   - `pytest` / `lint` / `typecheck` are run actions, not artifact
+//     builds — nothing to restore.
+//   - `package`/`codegen` emit multi-file output sets; codegen already
+//     documents its own deferral below.
+// The one defensibly cacheable surface is the wheel produced by
+// `python.package` (`dist/*.whl` — a single content-addressable artifact);
+// that is the natural place to extend caching here if a real consumer
+// asks. Until then these builders simply leave the cache marker absent,
+// which the orchestrator renders as `[n/a]` in telemetry.
 import build
 import std.string
 import std.io
