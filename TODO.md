@@ -1273,6 +1273,21 @@ runner/secrets/approval/deploy wrapper (CI's).
   auth relies on the runner's ambient git credential helper / SSH agent (aeb
   never manages secrets — that's CI's column).
 
+### Gentoo-style source-dependency graph — `.src.ae` + `src.fetch` + USE flags
+
+**Designed/analysed; no code yet.** Design doc:
+[docs/gentoo-style-src-deps.md](docs/gentoo-style-src-deps.md). aeb's core
+already IS a source-dep graph that makes binaries as it traverses (the DAG +
+the bootstrap-tool pattern). "Gentoo-style" adds three things, each modeled on
+an existing mechanism: (1) a `src` SDK — `src.fetch(url, sha256)` (the one
+genuinely-new primitive; shared with provisioning's pinned fetches), (2) a
+`.src.ae` from-source dep node (same dot-suffix shape as `.crate.ae`/`.jar.ae`,
+resolving to built-from-source artifact), (3) USE flags — a graph-wide feature
+vector (`--use`, modeled on `--coverage`, with cache-key segregation). System-
+install/slots deliberately left out (aeb's hermetic `target/` is the better
+answer). Composes with --vet/--sandbox (a fetched tree is untrusted) and shares
+the fetch primitive with prereq()/provisioning.
+
 ### Build prerequisites & provisioning — `prereq()` / preflight / podman layering
 
 **Fully designed; no code yet.** Design doc:

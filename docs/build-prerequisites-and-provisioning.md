@@ -312,6 +312,13 @@ all*; the veto/sandbox decide *what this build is permitted to do*.
 
 ## Open edges (not yet decided)
 
+- **Shared `src.fetch` with source-deps.** The pinned-tarball fetch a
+  provisioning recipe uses is the same primitive a Gentoo-style *from-source
+  dependency node* needs — see
+  [`gentoo-style-src-deps.md`](gentoo-style-src-deps.md). A `.src.ae` could in
+  fact *be* what a provisioning recipe builds (prereq = "have it installed",
+  a source-dep = "build it here as a graph node"; same determinism goal, two
+  grains). Build the fetch once, share it.
 - **SDK-contributed prerequisites.** `zig.build_pkg` *inherently* needs `zig` —
   should `lib/zig` contribute `prereq("zig:…")` automatically when its builder
   is invoked (DRY across the fleet), or must each leaf restate it? skir's
