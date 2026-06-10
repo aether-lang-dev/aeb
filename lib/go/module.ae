@@ -1,5 +1,6 @@
 // go — Go SDK for aether.build
 import build
+import cache
 import std.string
 import std.io
 import std.os
@@ -145,6 +146,84 @@ go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
     return cmd
 }
 
+// _go_version() — `go version`, memoised per build via an env-var
+// cache. Returns "" when go is absent.
+_go_version() {
+    cached = os.getenv("_AEB_GO_VERSION_CACHE")
+    if string.length(cached) > 0 { return cached }
+    raw, _err = os.exec("go version 2>&1 | head -1")
+    return string.trim(raw)
+}
+
+// _cache_key_for_go — cache key for a go_build action. The output is a
+// single binary/.so, cached as one file (not a tar). Inputs
+// (length-prefixed, sorted via cache.hash_inputs):
+//   - go version — toolchain-bump invalidator
+//   - canonical go build command string — buildmode, tags, ldflags,
+//     race, env prefix, -o
+//   - each .go source's path + content hash, sorted by path
+//   - go.mod + go.sum content — the cheap correct proxy for the module
+//     graph without parsing it (a dep version bump shows up here)
+//   - each dep's shared_library_deps_including_transitive content
+//
+// NOTE: lower marginal value than the JVM SDKs — go has its own build
+// cache ($GOCACHE), so this mainly buys telemetry [hit] parity and
+// cross-machine warm starts (skipping the `go build` fork entirely).
+//
+// Returns ("", err) on any source read failure.
+_cache_key_for_go(ctx: ptr, argfile_path: string, go_build_cmd_str: string, source_dir: string) {
+    parts = list.new()
+
+    list.add(parts, string.concat("go:", _go_version()))
+    list.add(parts, string.concat("cmd:", go_build_cmd_str))
+
+    sources = build._read_argfile_lines(argfile_path)
+    nsrc = list.size(sources)
+    si = 0
+    while si < nsrc {
+        src, _ = list.get(sources, si)
+        sh, serr = cache.hash_file(src)
+        if string.length(serr) > 0 {
+            return "", serr
+        }
+        list.add(parts, string.concat("src:", src))
+        list.add(parts, string.concat("src-hash:", sh))
+        si = si + 1
+    }
+
+    gomod = path.join(source_dir, "go.mod")
+    if file.exists(gomod) == 1 {
+        mh, mherr = cache.hash_file(gomod)
+        if string.length(mherr) == 0 {
+            list.add(parts, string.concat("go.mod:", mh))
+        }
+    }
+    gosum = path.join(source_dir, "go.sum")
+    if file.exists(gosum) == 1 {
+        sumh, sumherr = cache.hash_file(gosum)
+        if string.length(sumherr) == 0 {
+            list.add(parts, string.concat("go.sum:", sumh))
+        }
+    }
+
+    deps, _ = map.get(ctx, "deps")
+    dn = list.size(deps)
+    di = 0
+    while di < dn {
+        dp, _ = list.get(deps, di)
+        dm = build._strip_lang(dp)
+        dep_sh = build._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
+        if string.length(dep_sh) > 0 {
+            list.add(parts, string.concat("dep:", dm))
+            list.add(parts, string.concat("dep-sh:", dep_sh))
+        }
+        di = di + 1
+    }
+
+    digest, derr = cache.hash_inputs(parts)
+    return digest, derr
+}
+
 // --- SDK functions ---
 
 // Compile-check Go packages without producing a binary.
@@ -191,16 +270,9 @@ builder go_build(ctx: ptr) {
 
     lib_dir = path.join(target_dir, "lib")
     build._mkdirs(lib_dir)
-
     ts_file = path.join(lib_dir, ".timestamp")
-    if build._needs_rebuild(source_dir, ts_file) == 0 {
-        println("${mod_dir}: skipping compilation of Go prod & test code (not changed)")
-        return 0
-    }
 
     println("${mod_dir}: compiling Go prod & test code")
-
-    os.system("cd ${source_dir} && go mod tidy")
 
     out_name = ""
     if _builder != null {
@@ -214,10 +286,48 @@ builder go_build(ctx: ptr) {
     }
     out_path = path.join(lib_dir, out_name)
     bld_cmd = go_build_cmd(source_dir, out_path, _builder)
-    exit_code = os.system(bld_cmd)
-    if exit_code != 0 {
-        println("${mod_dir}: go build failed")
-        return exit_code
+
+    // Source set for the cache key (every .go under source_dir).
+    argfile = path.join(target_dir, "go_sources.txt")
+    os.system("find '${source_dir}' -name '*.go' > '${argfile}' 2>/dev/null || true")
+
+    // Cache check: the output is a single file, restored directly on a
+    // hit (no tar). exit_code sentinel: 0 = hit, -1 = build below.
+    cache_key = ""
+    exit_code = -1
+    if cache.available() == 1 {
+        ck, kerr = _cache_key_for_go(ctx, argfile, bld_cmd, source_dir)
+        if string.length(kerr) == 0 {
+            cache_key = ck
+            grc = cache.get(cache_key, out_path)
+            if string.length(grc) == 0 {
+                os.system("chmod +x '${out_path}' 2>/dev/null || true")
+                println("${mod_dir}: go build cache hit ${cache_key}")
+                build._record_cache(ctx, "hit")
+                exit_code = 0
+            }
+        }
+    }
+
+    if exit_code == -1 {
+        if cache.available() == 0 {
+            build._record_cache(ctx, "unavailable")
+        } else {
+            build._record_cache(ctx, "miss")
+        }
+        os.system("cd ${source_dir} && go mod tidy")
+        exit_code = os.system(bld_cmd)
+        if exit_code != 0 {
+            println("${mod_dir}: go build failed")
+            build.fail(ctx, "go build failed")
+            return exit_code
+        }
+        if string.length(cache_key) > 0 {
+            perr = cache.put(cache_key, out_path)
+            if string.length(perr) > 0 {
+                println("${mod_dir}: go build cache write failed: ${perr}")
+            }
+        }
     }
 
     build._write_artifact(ctx, "ldlibdeps", out_path)
