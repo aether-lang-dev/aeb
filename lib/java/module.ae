@@ -261,9 +261,209 @@ builder jar_vendored(ctx: ptr, jar_path: string) {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
-    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", jar_path)
+    // Resolve repo-root-relative jar paths to absolute so the classpath works
+    // regardless of the consumer's cwd. The .jar.ae stays portable (relative).
+    abs_jar = jar_path
+    if string.equals(string.substring(jar_path, 0, 1), "/") == 0 {
+        abs_jar = path.join(build._get(ctx, "root"), jar_path)
+    }
+    _accumulate_classpath_jar(ctx, abs_jar)
     println("${mod_dir}: vendored jar ${jar_path}")
     return 0
+}
+
+// _accumulate_classpath_jar(ctx, abs_jar) — append one absolute jar path to
+// the per-build classpath list and rewrite the whole newline-separated
+// jvm_classpath_deps_including_transitive artifact. Shared by jar_vendored
+// (committed jar) and jar_pinned (coord + sha256). The map is per-build, so
+// a fresh build resets the list (no stale cross-run accumulation).
+_accumulate_classpath_jar(ctx: ptr, abs_jar: string) {
+    if map.has(ctx, "_vendored_jars") == 0 {
+        _e0 = map.put(ctx, "_vendored_jars", list.new())
+    }
+    vj, _ = map.get(ctx, "_vendored_jars")
+    _a = list.add(vj, abs_jar)
+    content = ""
+    n = list.size(vj)
+    k = 0
+    while k < n {
+        jp, _ = list.get(vj, k)
+        if k == 0 { content = jp } else { content = string.concat(string.concat(content, "\n"), jp) }
+        k = k + 1
+    }
+    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", content)
+}
+
+// jar_pinned(b, "g:a:v", "<sha256>") — declare a Maven coordinate pinned to
+// its sha256, WITHOUT committing the jar bytes. The jar is resolved from a
+// content-addressed cache (~/.cache/aeb/jars/<sha256>.jar); on a miss it is
+// sourced from ~/.m2 or fetched from Maven Central, verified against the
+// pinned sha256 (FAIL-CLOSED on mismatch), and cached. Same accumulate-into-
+// the-classpath-artifact contract as jar_vendored — so a .jar.ae becomes a
+// committed lockfile (coord + hash) and the repo holds no binaries. The hash
+// doubles as a supply-chain pin (cf. aeb --vet / --sbom-json).
+builder jar_pinned(ctx: ptr, coord: string, sha256: string) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+    jar = _resolve_pinned_jar(coord, sha256, "")
+    if string.length(jar) == 0 {
+        println("${mod_dir}: jar_pinned: ${coord} unresolved (sha256 mismatch, or not in ~/.m2 and fetch failed)")
+        build.fail(ctx, "jar_pinned: ${coord} unresolved")
+        return 1
+    }
+    _accumulate_classpath_jar(ctx, jar)
+    println("${mod_dir}: pinned ${coord}")
+    return 0
+}
+
+// --- mvn_repo: a pinned dependency closure scoped by resolution repos ---
+//
+//   java.mvn_repo(b) {
+//       central()                          // Maven Central (shorthand)
+//       repo("https://nexus.corp/maven")   // 0+ more, tried in order
+//       pinned("g:a:v", "<sha256>")        // the locked closure
+//       pinned(...)
+//   }
+//
+// Each pinned coordinate resolves from the content-addressed cache, then
+// ~/.m2, then each declared repo in order — verified against its sha256
+// (fail-closed). Because the hash is the trust boundary, the repo list is a
+// pure reachability concern: list any mirror/proxy. Setters central/repo/
+// pinned are bare-imported: `import java (central, repo, pinned)`.
+
+central(_ctx: ptr) {
+    _append_repo(_ctx, "https://repo1.maven.org/maven2")
+}
+repo(_ctx: ptr, url: string) {
+    _append_repo(_ctx, url)
+}
+_append_repo(ctx: ptr, url: string) {
+    if map.has(ctx, "mvn_repos") == 0 { _e = map.put(ctx, "mvn_repos", list.new()) }
+    rl, _ = map.get(ctx, "mvn_repos")
+    _a = list.add(rl, string.concat(url, ""))
+}
+pinned(_ctx: ptr, coord: string, sha: string) {
+    if map.has(_ctx, "mvn_pinned") == 0 { _e = map.put(_ctx, "mvn_pinned", list.new()) }
+    pl, _ = map.get(_ctx, "mvn_pinned")
+    entry = string.concat(string.concat(coord, "|"), sha)
+    _a = list.add(pl, entry)
+}
+
+builder mvn_repo(ctx: ptr) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+    if _builder == null {
+        println("${mod_dir}: mvn_repo: empty block — declare pinned(...) deps")
+        return 0
+    }
+
+    // Join declared repos (newline-separated); _resolve defaults to Central.
+    repos_nl = ""
+    if map.has(_builder, "mvn_repos") == 1 {
+        rl, _ = map.get(_builder, "mvn_repos")
+        nr = list.size(rl)
+        j = 0
+        while j < nr {
+            u, _ = list.get(rl, j)
+            if j == 0 { repos_nl = u } else { repos_nl = string.concat(string.concat(repos_nl, "\n"), u) }
+            j = j + 1
+        }
+    }
+
+    if map.has(_builder, "mvn_pinned") == 0 {
+        println("${mod_dir}: mvn_repo: no pinned(...) deps")
+        return 0
+    }
+    deps, _ = map.get(_builder, "mvn_pinned")
+    nd = list.size(deps)
+    i = 0
+    while i < nd {
+        entry, _ = list.get(deps, i)
+        kv = string.split(entry, "|")
+        if string.array_size(kv) == 2 {
+            coord = string.concat(string.array_get(kv, 0), "")
+            sha = string.concat(string.array_get(kv, 1), "")
+            string.array_free(kv)
+            jar = _resolve_pinned_jar(coord, sha, repos_nl)
+            if string.length(jar) == 0 {
+                println("${mod_dir}: mvn_repo: ${coord} unresolved (sha256 mismatch, or unreachable in all repos)")
+                build.fail(ctx, "mvn_repo: ${coord} unresolved")
+                return 1
+            }
+            _accumulate_classpath_jar(ctx, jar)
+            println("${mod_dir}: pinned ${coord}")
+        } else {
+            string.array_free(kv)
+        }
+        i = i + 1
+    }
+    return 0
+}
+
+// _resolve_pinned_jar(coord, sha256) — return an absolute path to the jar for
+// `g:a:v` whose content sha256 == the pin, or "" on failure. Content-addressed
+// cache first (the filename IS the verification), then ~/.m2, then a Maven
+// Central fetch — each candidate hashed and checked before it's trusted.
+_resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
+    home = os.getenv("HOME")
+    cache_dir = "${home}/.cache/aeb/jars"
+    cached = "${cache_dir}/${sha256}.jar"
+    if file.exists(cached) == 1 { return cached }
+    _mk = os.system("mkdir -p '${cache_dir}'")
+
+    parts = string.split(coord, ":")
+    if string.array_size(parts) < 3 { string.array_free(parts); return "" }
+    // Own the substrings (string.concat(...,"")) before array_free — array_get
+    // returns pointers into the array, which array_free reclaims.
+    g = string.concat(string.array_get(parts, 0), "")
+    a = string.concat(string.array_get(parts, 1), "")
+    v = string.concat(string.array_get(parts, 2), "")
+    string.array_free(parts)
+    gp_raw, _eg = os.exec("printf '%s' '${g}' | tr '.' '/'")
+    gp = string.trim(gp_raw)
+    jarname = "${a}-${v}.jar"
+
+    tmp = "${cache_dir}/.tmp-${sha256}.jar"
+    _rm = os.system("rm -f '${tmp}'")
+
+    m2 = "${home}/.m2/repository/${gp}/${a}/${v}/${jarname}"
+    got = 0
+    if file.exists(m2) == 1 {
+        _cp = os.system("cp '${m2}' '${tmp}'")
+        got = 1
+    }
+    if got == 0 {
+        // Try each declared repo in order (Maven Central by default). The
+        // sha256 below verifies whatever any repo serves, so the repo list is
+        // a pure reachability concern — list mirrors/proxies freely.
+        repos = repos_nl
+        if string.length(repos) == 0 { repos = "https://repo1.maven.org/maven2" }
+        rparts = string.split(repos, "\n")
+        nr = string.array_size(rparts)
+        ri = 0
+        while ri < nr {
+            base = string.array_get(rparts, ri)
+            if string.length(base) > 0 {
+                url = "${base}/${gp}/${a}/${v}/${jarname}"
+                rc = os.system("curl -fsSL '${url}' -o '${tmp}' 2>/dev/null")
+                if rc == 0 { got = 1  ri = nr }
+            }
+            ri = ri + 1
+        }
+        string.array_free(rparts)
+    }
+    if got == 0 { return "" }
+
+    actual_raw, _es = os.exec("sha256sum '${tmp}' | cut -d' ' -f1")
+    actual = string.trim(actual_raw)
+    if string.equals(actual, sha256) == 0 {
+        _rm2 = os.system("rm -f '${tmp}'")
+        return ""
+    }
+    _mv = os.system("mv '${tmp}' '${cached}'")
+    return cached
 }
 
 // jar_registry — declare a jar to fetch from Maven Central. Adds the coord
@@ -1180,14 +1380,21 @@ builder junit5(ctx: ptr) {
 
     println("${mod_dir}: running tests (JUnit 5)")
     cmd = junit5_cmd(classpath, test_classes, ld_path, _builder)
-    // Tee to target/<module>/test_output.log — durable record for
-    // failure diagnosis post-build (terminal scrollback isn't
-    // reliable in CI), also feeds the summary parser. 2>&1 first
-    // so junit-platform-console's stderr lands in the file too.
+    // Run from the module's source dir (like surefire) so tests that resolve
+    // relative resource/file paths (e.g. src/test/resources/...) find them.
+    // Tee to target/<module>/test_output.log for the summary parser + a
+    // durable post-build record. Capture the runner's REAL exit via an rc
+    // file — a bare `cmd | tee` reports tee's exit (always 0), masking
+    // failures. Honors env(K,V) via the export prefix.
     build._mkdirs(target_dir)
+    source_dir = build._get(ctx, "source_dir")
     out_path = path.join(target_dir, "test_output.log")
-    full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = os.system(full_cmd)
+    rc_file = path.join(target_dir, "test_exit.rc")
+    inner = "cd \"${source_dir}\" && ( ${cmd} 2>&1; echo $? > \"${rc_file}\" ) | tee \"${out_path}\""
+    full_cmd = string.concat(build._env_export_prefix(_builder), inner)
+    _ig = os.system(full_cmd)
+    rc_txt, _rcerr = io.read_file(rc_file)
+    exit_code, _ec = string.to_int(string.trim(rc_txt))
     out_text, _orerr = fs.read(out_path)
     if exit_code == 124 {
         build._record_test_result(ctx, 0, 1)

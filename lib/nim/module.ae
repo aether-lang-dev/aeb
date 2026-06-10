@@ -1,0 +1,32 @@
+// nim — Nim SDK for aeb.
+//
+// Drives an existing Nim project as-is. Default verbs run `nimble`;
+// projects that compile/run explicit test files (the common shape for
+// an FFI binding) override with step(...). Env injection (e.g. a shared
+// `.so` path read at runtime) rides the shared env(...) setter.
+//
+//   import build
+//   import nim
+//   import build (env, step)
+//   nim.test(b) {
+//       env("SERVIRTIUM_VCR_LIB", lib)
+//       step("for t in tests/*.nim; do nim c -r --path:src \"$t\" || exit 1; done")
+//   }
+//
+// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+import build
+import std.string
+
+// nim.build(b) — `nimble build` (override with step for `nim c …`).
+builder build(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: compiling (nim)")
+    return build._run_project(ctx, _builder, "nimble build", 0)
+}
+
+// nim.test(b) — `nimble test`. Reports pass/fail telemetry.
+builder test(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (nim)")
+    return build._run_project(ctx, _builder, "nimble test", 1)
+}

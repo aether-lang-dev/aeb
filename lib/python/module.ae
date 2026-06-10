@@ -1044,3 +1044,12 @@ _codegen_resolve(cwd: string, p: string) {
     if string.equals(first, "/") == 1 { return p }
     return path.join(cwd, p)
 }
+
+// python.test(b) — run the project's pytest as-is (system python3, no
+// venv), the "drive an existing project" counterpart to the venv-based
+// `pytest` builder. Foundation-backed: honors env(K,V)/step/workdir.
+builder test(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (pytest)")
+    return build._run_project(ctx, _builder, "python3 -m pytest -q", 1)
+}

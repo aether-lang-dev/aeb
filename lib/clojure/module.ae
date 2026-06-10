@@ -25,6 +25,12 @@ test_timeout(_ctx: ptr, seconds: string) {
     _e = map.put(_ctx, "test_timeout", seconds)
 }
 
+// source_layout("maven idiomatic") — sources at src/main/clojure and
+// src/test/clojure (Maven), instead of the default lein-style src/ + test/.
+source_layout(_ctx: ptr, layout: string) {
+    _e = map.put(_ctx, "source_layout", layout)
+}
+
 // output_jar("app.jar") — name of the uberjar produced by
 // `clojure.uberjar(b)`. Resolved against `target/<mod>/bin/`.
 // Default when unset: `<source_dir_basename>-standalone.jar`
@@ -222,6 +228,15 @@ builder test(ctx: ptr) {
 
     src_root = path.join(source_dir, "src")
     test_root = path.join(source_dir, "test")
+    if _builder != null {
+        if map.has(_builder, "source_layout") == 1 {
+            lay, _ = map.get(_builder, "source_layout")
+            if lay == "maven idiomatic" {
+                src_root = path.join(source_dir, "src/main/clojure")
+                test_root = path.join(source_dir, "src/test/clojure")
+            }
+        }
+    }
 
     // Build classpath: src + test + dep src + maven deps
     cp = src_root
@@ -238,6 +253,13 @@ builder test(ctx: ptr) {
     if string.length(maven_cp) > 0 {
         tmp4 = string.concat(cp, ":")
         cp = string.concat(tmp4, maven_cp)
+    }
+
+    // JVM jar deps from build.dep'd modules — the clojure runtime jars and
+    // any cross-language component (e.g. a Java binding the tests :import).
+    jvm_dep_cp = build._build_dep_classpath(ctx)
+    if string.length(jvm_dep_cp) > 0 {
+        cp = string.concat(string.concat(cp, ":"), jvm_dep_cp)
     }
 
     // Discover test namespaces from *_test.clj files
@@ -263,6 +285,9 @@ builder test(ctx: ptr) {
         }
     }
     cmd = clj_test_cmd(cp, quoted, timeout_secs)
+    // Inject env (e.g. SERVIRTIUM_VCR_LIB) so the clojure.main JVM — and any
+    // native lib a :import'd binding loads — sees it.
+    cmd = string.concat(build._env_export_prefix(_builder), cmd)
 
     // clojure.test prints a summary of the form
     //   "Ran 14 tests containing 30 assertions. 0 failures, 0 errors."

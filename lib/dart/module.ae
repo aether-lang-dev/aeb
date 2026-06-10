@@ -318,7 +318,7 @@ builder test(ctx: ptr) {
         }
     }
 
-    cmd = test_cmd(dart, source_dir, path_part)
+    cmd = string.concat(build._env_export_prefix(_builder), test_cmd(dart, source_dir, path_part))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
     exit_code = os.system(full_cmd)
@@ -741,4 +741,13 @@ _codegen_resolve(cwd: string, p: string) {
     first = string.substring(p, 0, 1)
     if string.equals(first, "/") == 1 { return p }
     return path.join(cwd, p)
+}
+
+// dart.test_existing(b) — run an existing Dart project's tests as-is with
+// full step/env control (e.g. `dart pub get` then `dart test -j 1`).
+// Foundation-backed counterpart to the metadata-owning `test` builder.
+builder test_existing(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (dart test)")
+    return build._run_project(ctx, _builder, "dart test", 1)
 }

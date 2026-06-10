@@ -1,0 +1,38 @@
+// elixir — Elixir SDK for aeb.
+//
+// Drives an existing Mix project as-is (the upstream owns mix.exs);
+// aeb runs `mix` in the project dir and classifies the exit code.
+// Env injection (for a NIF path, an ERL_LIBS root, etc.) rides the
+// shared `env(...)` setter from lib/build.
+//
+//   import build
+//   import elixir
+//   import build (env)
+//   aeb(cap) {
+//       b = build.start()
+//       build.dep(b, "erlang/.build.ae")
+//       ebin = build.dep_artifact(b, "erlang/.build.ae", "nif_ebin")
+//       elixir.test(b) { env("SERVIRTIUM_NIF_EBIN", ebin) }
+//   }
+//
+// Setters available in the block (all from lib/build, bare-imported):
+//   env(K, V)        inject an env var (repeatable)
+//   step("…")        override/extend the command(s) (repeatable)
+//   workdir("dir")   run elsewhere than the module's own dir
+import build
+import std.string
+import std.os
+
+// elixir.compile(b) — `mix compile`. Build-phase verb.
+builder compile(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: compiling (mix compile)")
+    return build._run_project(ctx, _builder, "mix compile", 0)
+}
+
+// elixir.test(b) — `mix test`. Reports pass/fail telemetry.
+builder test(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (mix test)")
+    return build._run_project(ctx, _builder, "mix test", 1)
+}

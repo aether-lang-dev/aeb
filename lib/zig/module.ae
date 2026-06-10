@@ -143,7 +143,7 @@ builder test(ctx: ptr) {
     println("${mod_dir}: running tests (zig build test)")
 
     zig = _zig_of(_builder)
-    cmd = test_cmd(zig, source_dir, _optimize_flag(_optimize_of(_builder)))
+    cmd = string.concat(build._env_export_prefix(_builder), test_cmd(zig, source_dir, _optimize_flag(_optimize_of(_builder))))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
     exit_code = os.system(full_cmd)
@@ -251,4 +251,14 @@ _is_digit_zig(c: string) {
     if string.equals(c, "8") == 1 { return 1 }
     if string.equals(c, "9") == 1 { return 1 }
     return 0
+}
+
+// zig.test_existing(b) — run an existing Zig project's tests as-is with
+// honest exit-code propagation (no `| tee` pipeline that would mask the
+// runner's exit). Foundation-backed counterpart to the `test` builder;
+// honors env(K,V)/step/workdir.
+builder test_existing(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (zig build test)")
+    return build._run_project(ctx, _builder, "zig build test", 1)
 }

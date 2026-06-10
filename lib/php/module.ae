@@ -1,0 +1,26 @@
+// php — PHP SDK for aeb.
+//
+// Drives an existing PHP project as-is. `php.test` defaults to
+// `phpunit`; projects that bootstrap a phar or pass a config file
+// override/extend with step(...). Env injection (e.g. a shared `.so`
+// path read by an FFI binding) rides the shared env(...) setter.
+//
+//   import build
+//   import php
+//   import build (env, step)
+//   php.test(b) {
+//       env("SERVIRTIUM_VCR_LIB", lib)
+//       step("[ -f phpunit.phar ] || curl -fsSL https://phar.phpunit.de/phpunit-11.phar -o phpunit.phar")
+//       step("php phpunit.phar --configuration phpunit.xml")
+//   }
+//
+// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+import build
+import std.string
+
+// php.test(b) — `phpunit` by default. Reports pass/fail telemetry.
+builder test(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (php)")
+    return build._run_project(ctx, _builder, "phpunit", 1)
+}

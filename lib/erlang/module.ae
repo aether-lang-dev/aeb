@@ -1,0 +1,33 @@
+// erlang — Erlang/OTP SDK for aeb.
+//
+// Drives an existing Erlang build as-is. NIF/OTP builds are bespoke
+// (compile a C NIF, erlc the modules, stage an .app), so `erlang.compile`
+// has no single default command — declare the steps explicitly. Env
+// injection rides the shared env(...) setter. (Named `compile`, not
+// `build`, so it does not shadow the imported `build` module here.)
+//
+//   import build
+//   import erlang
+//   import build (step)
+//   erlang.compile(b) {
+//       step("cc ... -o priv/foo_nif.so")
+//       step("erlc -o ebin src/foo.erl")
+//   }
+//
+// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+import build
+import std.string
+
+// erlang.compile(b) — run the declared build steps; success/fail telemetry.
+builder compile(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: building (erlang)")
+    return build._run_project(ctx, _builder, "rebar3 compile", 0)
+}
+
+// erlang.eunit(b) — `rebar3 eunit` by default. Reports pass/fail telemetry.
+builder eunit(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (eunit)")
+    return build._run_project(ctx, _builder, "rebar3 eunit", 1)
+}

@@ -1,0 +1,127 @@
+// mvn-to-aeb — generate an aeb java jar-deps module from a Maven project's
+// transitive dependency tree. The "Aether version" of analyze-mvn-deps:
+// it runs `mvn dependency:tree`, flattens to unique GAVs, maps each to its
+// jar in ~/.m2, vendors the jars, and emits a `.jar.ae` lib-deps module that
+// consumers `build.dep` — so the per-build path never invokes Maven.
+//
+// Usage:
+//   mvn-to-aeb <mvn_project_dir> <repo_root> <module_rel> <name> [exclude_artifact]
+//     mvn_project_dir  : dir containing pom.xml (dependency:tree runs here)
+//     repo_root        : consumer repo root (jars + .ae are written under it)
+//     module_rel       : module dir relative to repo_root (e.g. libs/java/selenium)
+//     name             : module name (emits .<name>.jar.ae, e.g. .selenium.jar.ae)
+//     exclude_artifact : optional artifactId to skip (e.g. the project's own)
+//
+// Output:
+//   <repo_root>/<module_rel>/jars/<artifact>-<version>.jar   (vendored)
+//   <repo_root>/<module_rel>/.<name>.jar.ae                   (java.jar_vendored per jar)
+
+import std.string
+import std.io
+import std.os
+import std.list
+
+// _parser_script() — the POSIX-sh helper that turns the dependency:tree
+// file into "<jarname>|<m2-source-path>" lines for every resolvable jar.
+// Field parsing in shell is more robust than Aether string-splitting, and
+// uses only unbraced `$x` so Aether's ${...} interpolation leaves it intact.
+_parser_script() {
+    s = "#!/bin/sh\n"
+    s = string.concat(s, "tree=\"$1\"; exclude=\"$2\"\n")
+    s = string.concat(s, "grep -hoE '[A-Za-z0-9._-]+:[A-Za-z0-9._-]+:jar:[^[:space:]]+' \"$tree\" | sort -u | grep -v \":$exclude:\" | while IFS= read -r gav; do\n")
+    s = string.concat(s, "  g=$(printf '%s' \"$gav\" | cut -d: -f1)\n")
+    s = string.concat(s, "  a=$(printf '%s' \"$gav\" | cut -d: -f2)\n")
+    s = string.concat(s, "  rest=$(printf '%s' \"$gav\" | cut -d: -f4-)\n")
+    s = string.concat(s, "  nf=$(printf '%s' \"$rest\" | awk -F: '{print NF}')\n")
+    s = string.concat(s, "  if [ \"$nf\" -ge 3 ]; then\n")
+    s = string.concat(s, "    cl=$(printf '%s' \"$rest\" | cut -d: -f1); v=$(printf '%s' \"$rest\" | cut -d: -f2); jar=\"$a-$v-$cl.jar\"\n")
+    s = string.concat(s, "  else\n")
+    s = string.concat(s, "    v=$(printf '%s' \"$rest\" | cut -d: -f1); jar=\"$a-$v.jar\"\n")
+    s = string.concat(s, "  fi\n")
+    s = string.concat(s, "  gp=$(printf '%s' \"$g\" | tr '.' '/')\n")
+    s = string.concat(s, "  src=\"$HOME/.m2/repository/$gp/$a/$v/$jar\"\n")
+    s = string.concat(s, "  if [ -f \"$src\" ]; then sha=$(sha256sum \"$src\" | cut -d' ' -f1); printf '%s:%s:%s|%s\\n' \"$g\" \"$a\" \"$v\" \"$sha\"; fi\n")
+    s = string.concat(s, "done\n")
+    return s
+}
+
+main() {
+    argc = aether_args_count()
+    if argc < 5 {
+        println("Usage: mvn-to-aeb <mvn_project_dir> <repo_root> <module_rel> <name> [exclude_artifact]")
+        exit(1)
+    }
+    mvn_dir = aether_args_get(1)
+    repo_root = aether_args_get(2)
+    module_rel = aether_args_get(3)
+    name = aether_args_get(4)
+    exclude = "__none__"
+    if argc >= 6 { exclude = aether_args_get(5) }
+
+    module_dir = "${repo_root}/${module_rel}"
+    _mk = os.system("mkdir -p \"${module_dir}\"")
+
+    // 1. mvn dependency:tree -> temp file (offline; project must be installed).
+    tree = "/tmp/mvn-to-aeb-tree.txt"
+    _rm = os.system("rm -f \"${tree}\"")
+    rc = os.system("cd \"${mvn_dir}\" && mvn -o dependency:tree -DoutputFile=\"${tree}\" -DappendOutput=true >/dev/null 2>&1")
+    if rc != 0 {
+        println("mvn-to-aeb: 'mvn -o dependency:tree' failed in ${mvn_dir} (is the project installed? are deps in ~/.m2?)")
+        exit(1)
+    }
+
+    // 2. Run the parser script -> "<jarname>|<m2src>" lines.
+    script = "/tmp/mvn-to-aeb-parse.sh"
+    serr = io.write_file(script, _parser_script())
+    if serr != "" { println("mvn-to-aeb: cannot write parser: ${serr}"); exit(1) }
+    out, eerr = os.exec("sh \"${script}\" \"${tree}\" \"${exclude}\"")
+    if eerr != "" { println("mvn-to-aeb: dep extraction failed: ${eerr}"); exit(1) }
+
+    parts = string.split(string.trim(out), "\n")
+    np = string.array_size(parts)
+
+    // 3. Emit one jar_pinned(coord, sha256) line per dep — no bytes copied.
+    lines = ""
+    count = 0
+    i = 0
+    while i < np {
+        entry = string.array_get(parts, i)
+        if string.length(entry) > 0 {
+            kv = string.split(entry, "|")
+            if string.array_size(kv) == 2 {
+                coord = string.array_get(kv, 0)
+                sha = string.array_get(kv, 1)
+                lines = string.concat(lines, "        pinned(\"${coord}\", \"${sha}\")\n")
+                count = count + 1
+            }
+            string.array_free(kv)
+        }
+        i = i + 1
+    }
+    string.array_free(parts)
+
+    // 4. Emit the .jar.ae lib-deps module.
+    body = "// .${name}.jar.ae — Maven dependency closure for `${name}`, pinned by sha256.\n"
+    body = string.concat(body, "// Generated by tools/mvn-to-aeb from `mvn dependency:tree` of ${mvn_dir}.\n")
+    body = string.concat(body, "// A committed lockfile: coordinate + content hash, no jar bytes. mvn_repo\n")
+    body = string.concat(body, "// resolves each pinned() from the cache, ~/.m2, or the declared repos\n")
+    body = string.concat(body, "// (Central by default), verifying the sha256 fail-closed before use. Add\n")
+    body = string.concat(body, "// repo(\"https://your-mirror/maven\") lines for an internal proxy.\n")
+    body = string.concat(body, "import build\n")
+    body = string.concat(body, "import java\n")
+    body = string.concat(body, "import java (central, repo, pinned)\n\n")
+    body = string.concat(body, "aeb(cap) {\n")
+    body = string.concat(body, "    b = build.start()\n")
+    body = string.concat(body, "    java.mvn_repo(b) {\n")
+    body = string.concat(body, "        central()\n")
+    body = string.concat(body, lines)
+    body = string.concat(body, "    }\n")
+    body = string.concat(body, "}\n")
+
+    ae_path = "${repo_root}/${module_rel}/.${name}.jar.ae"
+    werr = io.write_file(ae_path, body)
+    if werr != "" { println("mvn-to-aeb: cannot write module: ${werr}"); exit(1) }
+
+    println("mvn-to-aeb: pinned ${count} coordinates (sha256) -> no jar bytes committed")
+    println("mvn-to-aeb: wrote ${ae_path}")
+}

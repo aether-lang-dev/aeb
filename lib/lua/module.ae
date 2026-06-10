@@ -1,0 +1,27 @@
+// lua — Lua SDK for aeb.
+//
+// Drives an existing Lua project as-is. `lua.test` defaults to the
+// `busted` runner; projects with a custom harness (or a C-extension
+// build step) override/extend with step(...). Env injection (e.g.
+// LUA_CPATH, a shared `.so` path) rides the shared env(...) setter.
+//
+//   import build
+//   import lua
+//   import build (env, step)
+//   lua.test(b) {
+//       env("SERVIRTIUM_VCR_LIB", lib)
+//       env("LUA_CPATH", "./?.so;;")
+//       step("./build.sh \"${core}\"")
+//       step("lua5.4 tests/run_all.lua")
+//   }
+//
+// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+import build
+import std.string
+
+// lua.test(b) — `busted` by default. Reports pass/fail telemetry.
+builder test(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (lua)")
+    return build._run_project(ctx, _builder, "busted", 1)
+}

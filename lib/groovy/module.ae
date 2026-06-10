@@ -1,0 +1,212 @@
+// groovy — Groovy SDK for aeb.
+//
+// Compiles Groovy with `groovyc` to JVM .class files; tests (typically
+// JUnit 5) then run via the language-agnostic java.junit5. Mirrors
+// lib/kotlin: the SDK resolves the Groovy install (GROOVY_HOME / /opt /
+// apt) and puts its runtime jars on the classpath, so a .build.ae just
+// says groovy.groovyc(b).
+//
+//   import build
+//   import groovy
+//   import groovy (source_layout)
+//   aeb(cap) { b = build.start(); build.dep(b, "java/.build.ae")
+//              groovy.groovyc(b) { source_layout("maven idiomatic") } }
+import build
+import maven
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+source_layout(_ctx: ptr, layout: string) {
+    _e = map.put(_ctx, "source_layout", layout)
+}
+
+// target_bytecode("22") — emit class files at this JDK bytecode level
+// (groovy reads it from -Dgroovy.target.bytecode). Needed when the running
+// JDK is newer than groovy's ASM understands (e.g. groovyc on JDK 25 would
+// emit major-69 it can't re-read at test-compile); also matches an existing
+// project's pom release level so the classes interop with javac/kotlinc out.
+target_bytecode(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "groovy_target_bytecode", ver)
+}
+
+// _java_opts(builder_map) — the `JAVA_OPTS="..." ` prefix that carries
+// target_bytecode into the groovyc process, or "" when unset.
+_java_opts(builder_map: ptr) {
+    if builder_map != null {
+        if map.has(builder_map, "groovy_target_bytecode") == 1 {
+            v, _ = map.get(builder_map, "groovy_target_bytecode")
+            return "JAVA_OPTS=\"-Dgroovy.target.bytecode=${v}\" "
+        }
+    }
+    return ""
+}
+
+// --- Command builder (pure) ---
+
+// groovyc_cmd — `groovyc -d <out> -cp <cp> <files>`. Pure.
+groovyc_cmd(groovyc_bin: string, classes_dir: string, classpath: string, file_list: string) {
+    return "${groovyc_bin} -d ${classes_dir} -cp ${classpath} ${file_list}"
+}
+
+// --- Install resolution ---
+
+// _groovy_home() — GROOVY_HOME wins; else the first probed root whose
+// bin/groovyc exists. /opt/groovy (a modern hand-installed 4.x) is
+// preferred over /usr/share/groovy (apt, often an ancient 2.x that
+// won't run on a current JDK). "" → bare `groovyc` on PATH.
+_groovy_home() {
+    env_home = os.getenv("GROOVY_HOME")
+    if env_home != 0 { return env_home }
+    opt = "/opt/groovy"
+    if file.exists(path.join(opt, "bin/groovyc")) == 1 { return opt }
+    apt = "/usr/share/groovy"
+    if file.exists(path.join(apt, "bin/groovyc")) == 1 { return apt }
+    return ""
+}
+
+_groovyc_bin(groovy_home: string) {
+    if string.length(groovy_home) > 0 {
+        cand = path.join(groovy_home, "bin/groovyc")
+        if file.exists(cand) == 1 { return cand }
+    }
+    return "groovyc"
+}
+
+// _groovy_jars_nl(home) — newline-separated list of groovy's OWN runtime
+// jars (groovy-*.jar: core + json/xml/etc. modules) under <home>/lib, for
+// the compile classpath and the published-for-consumers artifact. Filters
+// to `groovy-*.jar` deliberately: a groovy distro's lib/ also bundles its
+// test-support deps (junit-platform-launcher, testng, ant, jackson…), and
+// leaking those onto a consumer's classpath shadows the consumer's own
+// junit with groovy's older one (forExecution() NoSuchMethodError).
+_groovy_jars_nl(groovy_home: string) {
+    if string.length(groovy_home) == 0 { return "" }
+    libdir = path.join(groovy_home, "lib")
+    raw, _e = os.exec("ls '${libdir}'/groovy-*.jar 2>/dev/null")
+    return string.trim(raw)
+}
+
+// _nl_to_colon(s) — newline-separated → colon-separated (classpath form).
+_nl_to_colon(s: string) {
+    if string.length(s) == 0 { return "" }
+    out, _e = os.exec("printf '%s' '${s}' | tr '\n' ':' | sed 's/:$//'")
+    return string.trim(out)
+}
+
+// --- SDK functions ---
+
+// groovy.groovyc(b) — compile src/main/groovy (or flat *.groovy).
+builder groovyc(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    classes_dir = path.join(target_dir, "classes")
+    build._mkdirs(classes_dir)
+    println("${mod_dir}: compiling prod code (groovyc)")
+
+    groovy_home = _groovy_home()
+    groovyc_bin = _groovyc_bin(groovy_home)
+    groovy_jars_nl = _groovy_jars_nl(groovy_home)
+    groovy_cp = _nl_to_colon(groovy_jars_nl)
+
+    dep_cp = build._build_dep_classpath(ctx)
+    maven_cp = maven.classpath(ctx)
+    classpath = string.concat(classes_dir, ":")
+    classpath = string.concat(classpath, groovy_cp)
+    if string.length(dep_cp) > 0 { classpath = string.concat(string.concat(classpath, ":"), dep_cp) }
+    if string.length(maven_cp) > 0 { classpath = string.concat(string.concat(classpath, ":"), maven_cp) }
+
+    file_list = _source_files(_builder, source_dir, "src/main/groovy")
+    if string.length(file_list) == 0 {
+        println("${mod_dir}: no Groovy source files found")
+        return 0
+    }
+
+    rc = os.system(string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, classes_dir, classpath, file_list)))
+    if rc != 0 {
+        println("${mod_dir}: groovyc failed")
+        build.fail(ctx, "groovyc failed")
+        return rc
+    }
+
+    // Publish classes + groovy runtime jars so consumers (groovyc_test,
+    // java.junit5) get them transitively on classpath.
+    cp_out = string.concat(classes_dir, "\n")
+    cp_out = string.concat(cp_out, groovy_jars_nl)
+    if string.length(dep_cp) > 0 { cp_out = string.concat(string.concat(cp_out, "\n"), _colon_to_nl(dep_cp)) }
+    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
+    return 0
+}
+
+// groovy.groovyc_test(b) — compile src/test/groovy (or flat *.groovy)
+// into target/<mod>/test-classes, where java.junit5 scans.
+builder groovyc_test(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    test_classes = path.join(target_dir, "test-classes")
+    build._mkdirs(test_classes)
+    println("${mod_dir}: compiling test code (groovyc)")
+
+    groovy_home = _groovy_home()
+    groovyc_bin = _groovyc_bin(groovy_home)
+    groovy_cp = _nl_to_colon(_groovy_jars_nl(groovy_home))
+
+    dep_cp = build._build_dep_classpath(ctx)
+    lib_cp = build._build_lib_classpath(ctx)
+    classpath = string.concat(test_classes, ":")
+    classpath = string.concat(classpath, groovy_cp)
+    if string.length(dep_cp) > 0 { classpath = string.concat(string.concat(classpath, ":"), dep_cp) }
+    if string.length(lib_cp) > 0 { classpath = string.concat(string.concat(classpath, ":"), lib_cp) }
+
+    file_list = _source_files(_builder, source_dir, "src/test/groovy")
+    if string.length(file_list) == 0 {
+        println("${mod_dir}: no Groovy test source files found")
+        return 0
+    }
+
+    rc = os.system(string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, test_classes, classpath, file_list)))
+    if rc != 0 {
+        println("${mod_dir}: groovyc (test) failed")
+        build.fail(ctx, "groovyc (test) failed")
+        return rc
+    }
+    return 0
+}
+
+// _source_files(ctx, source_dir, maven_subdir) — space-separated .groovy
+// files: src/<...>/groovy recursively under source_layout("maven
+// idiomatic"), else flat source_dir/*.groovy.
+_source_files(builder_map: ptr, source_dir: string, maven_subdir: string) {
+    use_maven = 0
+    if builder_map != null {
+        if map.has(builder_map, "source_layout") == 1 {
+            lay, _ = map.get(builder_map, "source_layout")
+            if lay == "maven idiomatic" { use_maven = 1 }
+        }
+    }
+    root = source_dir
+    if use_maven == 1 { root = path.join(source_dir, maven_subdir) }
+    depth = ""
+    if use_maven == 0 { depth = "-maxdepth 1 " }
+    raw, _e = os.exec("find '${root}' ${depth}-name '*.groovy' 2>/dev/null | tr '\n' ' '")
+    return string.trim(raw)
+}
+
+// _colon_to_nl(s) — colon-separated → newline-separated (artifact form).
+_colon_to_nl(s: string) {
+    if string.length(s) == 0 { return "" }
+    out, _e = os.exec("printf '%s' '${s}' | tr ':' '\n'")
+    return string.trim(out)
+}

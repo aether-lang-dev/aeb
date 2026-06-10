@@ -257,7 +257,7 @@ builder rspec(ctx: ptr) {
 
     bundle = _resolve_bundle_bin()
     args_str = _rspec_args_str(_builder)
-    cmd = rspec_cmd(bundle, source_dir, args_str)
+    cmd = string.concat(build._env_export_prefix(_builder), rspec_cmd(bundle, source_dir, args_str))
     rc = os.system(cmd)
     if rc != 0 {
         // rspec exits non-zero on test failure; record one logical

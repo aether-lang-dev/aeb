@@ -283,3 +283,20 @@ classpath(ctx: ptr) {
     build._write_artifact(ctx, "maven_classpath", own_cp)
     return own_cp
 }
+
+// maven.test(b) / maven.install(b) — drive an existing Maven project
+// (pom.xml) as-is: the idiomatic verb for any JVM-language binding that
+// runs through Maven (Java/Kotlin/Scala/Clojure/Groovy). Foundation-backed:
+// honors env(K,V) (e.g. JAVA_HOME, a shared .so), step(...) (e.g. install a
+// sibling module first), workdir(...). Named `install`, not `build`, so it
+// does not shadow the imported `build` module inside this file.
+builder test(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (mvn test)")
+    return build._run_project(ctx, _builder, "mvn -q test", 1)
+}
+builder install(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: building (mvn install)")
+    return build._run_project(ctx, _builder, "mvn -q -DskipTests install", 0)
+}

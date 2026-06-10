@@ -606,3 +606,12 @@ _is_digit_dn(c: string) {
     if string.equals(c, "9") == 1 { return 1 }
     return 0
 }
+
+// dotnet.test_existing(b) — `dotnet test` on an upstream project as-is
+// (builds, unlike the `--no-build` `test` builder). Foundation-backed:
+// honors env(K,V)/step/workdir.
+builder test_existing(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (dotnet test)")
+    return build._run_project(ctx, _builder, "dotnet test --nologo", 1)
+}

@@ -1,0 +1,33 @@
+// javascript — JavaScript/Node SDK for aeb.
+//
+// Drives an existing Node project as-is. `javascript.test` defaults to
+// `npm test`; projects that install deps first or invoke a runner
+// directly override/extend with step(...). Env injection (e.g. a shared
+// `.so` path read by an FFI binding) rides the shared env(...) setter.
+//
+//   import build
+//   import javascript
+//   import build (env, step)
+//   javascript.test(b) {
+//       env("SERVIRTIUM_VCR_LIB", lib)
+//       step("npm install --silent --no-audit --no-fund")
+//       step("npx jest --runInBand")
+//   }
+//
+// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+import build
+import std.string
+
+// javascript.build(b) — `npm install`.
+builder build(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: installing (npm install)")
+    return build._run_project(ctx, _builder, "npm install", 0)
+}
+
+// javascript.test(b) — `npm test` by default. Reports pass/fail telemetry.
+builder test(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (npm test)")
+    return build._run_project(ctx, _builder, "npm test", 1)
+}

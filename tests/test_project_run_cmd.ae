@@ -1,0 +1,53 @@
+// Tests for lib/build's pure run-existing-project command assembler
+// (_project_run_cmd) — the shared foundation under the per-language
+// SDKs (elixir/nim/lua/php/haskell .test verbs).
+
+import build (_project_run_cmd)
+import std.string
+import std.list
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+_list1(a: string) {
+    l = list.new()
+    _x = list.add(l, a)
+    return l
+}
+_list2(a: string, b: string) {
+    l = list.new()
+    _x = list.add(l, a)
+    _y = list.add(l, b)
+    return l
+}
+
+main() {
+    empty = list.new()
+
+    // no env, single default step
+    _eq("plain single step",
+        _project_run_cmd("/proj", empty, _list1("mix test")),
+        "cd \"/proj\" && mix test")
+
+    // one env injection
+    _eq("one env",
+        _project_run_cmd("/proj", _list1("SERVIRTIUM_VCR_LIB='/p/lib.so'"), _list1("cargo test")),
+        "cd \"/proj\" && export SERVIRTIUM_VCR_LIB='/p/lib.so' && cargo test")
+
+    // two env + two sequential steps (fail-fast &&)
+    _eq("two env two steps",
+        _project_run_cmd("/proj",
+            _list2("A='1'", "B='2'"),
+            _list2("mix deps.get", "mix test")),
+        "cd \"/proj\" && export A='1' && export B='2' && mix deps.get && mix test")
+
+    // a step keeping its own embedded quotes (no nested bash -c)
+    _eq("step with embedded quotes",
+        _project_run_cmd("/n", empty,
+            _list1("for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done")),
+        "cd \"/n\" && for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done")
+}

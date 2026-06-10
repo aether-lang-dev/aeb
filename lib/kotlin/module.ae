@@ -256,8 +256,22 @@ builder kotlinc_test(ctx: ptr) {
         classpath = string.concat(string.concat(classpath, ":"), lib_cp)
     }
 
-    kt_pat = path.join(source_dir, "*.kt")
-    file_list = build._collect_file_list(kt_pat)
+    // Honor source_layout("maven idiomatic") like kotlinc does: tests live
+    // under src/test/kotlin (recursively), not flat in source_dir.
+    file_list = ""
+    use_maven = 0
+    if map.has(_builder, "source_layout") == 1 {
+        layout_t, _ = map.get(_builder, "source_layout")
+        if layout_t == "maven idiomatic" { use_maven = 1 }
+    }
+    if use_maven == 1 {
+        tsrc = path.join(source_dir, "src/test/kotlin")
+        fl_raw, _efl = os.exec("find '${tsrc}' -name '*.kt' 2>/dev/null | tr '\n' ' '")
+        file_list = string.trim(fl_raw)
+    } else {
+        kt_pat = path.join(source_dir, "*.kt")
+        file_list = build._collect_file_list(kt_pat)
+    }
     if string.length(file_list) == 0 {
         println("${mod_dir}: no Kotlin test source files found")
         return 0

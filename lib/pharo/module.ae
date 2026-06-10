@@ -1,0 +1,26 @@
+// pharo — Pharo/Smalltalk SDK for aeb.
+//
+// Drives an existing Pharo project as-is. Pharo test orchestration is
+// project-specific (load Tonel sources into a throwaway image, run SUnit
+// headless), so `pharo.test` defaults to a `./run-tests.sh` runner the
+// project provides; override with step(...). Env injection (e.g. a shared
+// `.so` path via uFFI, PHARO_DIR) rides the shared env(...) setter.
+//
+//   import build
+//   import pharo
+//   import build (env)
+//   pharo.test(b) {
+//       env("SERVIRTIUM_VCR_LIB", lib)
+//       env("PHARO_DIR", pharo_dir)
+//   }
+//
+// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+import build
+import std.string
+
+// pharo.test(b) — project `./run-tests.sh` by default. Reports pass/fail.
+builder test(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    println("${mod_dir}: running tests (pharo)")
+    return build._run_project(ctx, _builder, "./run-tests.sh", 1)
+}

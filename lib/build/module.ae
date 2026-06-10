@@ -808,6 +808,197 @@ _write_artifact(ctx: ptr, artifact: string, content: string) {
     _e = fs.write_atomic(p, content, string.length(content))
 }
 
+// --- Public artifact handoff across a dep() edge ---
+//
+// The producer/consumer pair that lets a node read what a dep it
+// already dep()'d produced, WITHOUT either side hardcoding a path.
+// Symmetric with build.dep(): the same `path/.build.ae` label that
+// declares the edge also addresses the artifact.
+//
+//   publish_artifact(b, "shared_lib", "/abs/path/libfoo.so")
+//       — producer side, inside the dep's .build.ae: records a named
+//         value into this node's target/<buildtype>/<dir>/.
+//   dep_artifact(b, "core/.build.ae", "shared_lib")
+//       — consumer side: reads the value the named dep published, by
+//         the SAME label passed to build.dep(). Returns "" if the dep
+//         published nothing under that name.
+//
+// The value is an opaque string (a path, a coordinate, a hash) — aeb
+// neither interprets nor relocates it. Use it for FFI shared objects,
+// generated headers, resolved classpaths: anything one node makes and
+// another consumes. program_binary_of() is the runnable-binary
+// specialisation of dep_artifact() with legacy-key fallback.
+publish_artifact(ctx: ptr, artifact: string, value: string) {
+    td = _get(ctx, "target_dir")
+    _mkdirs(td)
+    _write_artifact(ctx, artifact, value)
+}
+
+dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
+    return string.trim(_read_dep_artifact(ctx, dep_module, artifact))
+}
+
+// --- Run-existing-project foundation (shared by the per-language SDKs) ---
+//
+// The language SDKs that drive an upstream project's OWN toolchain
+// (`mix test`, `nim c -r`, `zig build test`, `cargo test` against an
+// existing Cargo.toml, …) instead of aeb emitting the compile command
+// all share the same three needs: pick a working dir, inject some env
+// vars (typically dep artifacts — a shared `.so`, a NIF path), run one
+// or more shell steps, classify the exit code. That common machinery
+// lives here; each SDK supplies only its language's default command.
+//
+// Three bare-importable setters drive it from inside a builder block:
+//
+//   workdir("kotlin")           — run in <root>/<dir> (default: the
+//                                 module's own source dir, so most
+//                                 leaves never set it).
+//   env("SERVIRTIUM_VCR_LIB", p)— inject K=V (repeatable). Values are
+//                                 usually build.dep_artifact(...) results.
+//   step("mix deps.get")        — a shell step (repeatable; sequential,
+//                                 fail-fast). Omit to use the SDK's
+//                                 default runner command.
+//
+// A consumer writes:  import build (env)   elixir.test(b) { env("K", v) }
+
+workdir(_ctx: ptr, d: string) {
+    _e = map.put(_ctx, "proc_workdir", d)
+}
+
+// env(K, V) — append an env injection. Stored pre-rendered as the
+// `K='V'` fragment a later `export` consumes (single-quoted: safe for
+// paths/coords, the only values that flow here).
+env(_ctx: ptr, k: string, v: string) {
+    frag = string.concat(k, "='")
+    frag = string.concat(frag, v)
+    frag = string.concat(frag, "'")
+    if map.has(_ctx, "proc_env") == 1 {
+        l, _ = map.get(_ctx, "proc_env")
+        _a = list.add(l, frag)
+    } else {
+        l = list.new()
+        _a = list.add(l, frag)
+        _p = map.put(_ctx, "proc_env", l)
+    }
+}
+
+// step(cmd) — append a shell step. Multiple calls run sequentially,
+// fail-fast (joined with `&&`).
+step(_ctx: ptr, cmd: string) {
+    if map.has(_ctx, "proc_steps") == 1 {
+        l, _ = map.get(_ctx, "proc_steps")
+        _a = list.add(l, cmd)
+    } else {
+        l = list.new()
+        _a = list.add(l, cmd)
+        _p = map.put(_ctx, "proc_steps", l)
+    }
+}
+
+// _project_run_cmd(absdir, env_pairs, steps) — pure: assemble the
+// single shell string `cd "<dir>" && export K='V' ... && step1 && step2`.
+// No nested `bash -c`, so steps may contain their own quotes freely.
+// Tested in tests/test_project_run_cmd.ae.
+_project_run_cmd(absdir: string, env_pairs: ptr, steps: ptr) {
+    cmd = string.concat("cd \"", absdir)
+    cmd = string.concat(cmd, "\"")
+    ne = list.size(env_pairs)
+    i = 0
+    while i < ne {
+        frag, _ = list.get(env_pairs, i)
+        cmd = string.concat(cmd, " && export ")
+        cmd = string.concat(cmd, frag)
+        i = i + 1
+    }
+    ns = list.size(steps)
+    j = 0
+    while j < ns {
+        st, _ = list.get(steps, j)
+        cmd = string.concat(cmd, " && ")
+        cmd = string.concat(cmd, st)
+        j = j + 1
+    }
+    return cmd
+}
+
+// _env_export_prefix(bmap) — render the `export K='V' && ` chain an
+// EXISTING SDK verb prepends to its assembled command so the foundation's
+// env(K,V) setter injects into a verb that wasn't built on _run_project
+// (rust.cargo_test_existing, python.pytest, dotnet.test, ruby.rspec, …).
+// `export` (not an inline prefix) so the vars survive the verb's own
+// internal `cd X && runner`. Empty string when no env() was set, so the
+// verb is byte-identical for callers that don't inject — backward compatible.
+_env_export_prefix(bmap: ptr) {
+    if bmap == null { return "" }
+    if map.has(bmap, "proc_env") == 0 { return "" }
+    pairs, _ = map.get(bmap, "proc_env")
+    n = list.size(pairs)
+    if n == 0 { return "" }
+    out = ""
+    i = 0
+    while i < n {
+        frag, _ = list.get(pairs, i)
+        out = string.concat(out, "export ")
+        out = string.concat(out, frag)
+        out = string.concat(out, " && ")
+        i = i + 1
+    }
+    return out
+}
+
+// _run_project(ctx, bmap, default_step, is_test) — the SDK-facing entry.
+// `ctx` carries the build context (source_dir/target_dir/root); `bmap`
+// is the builder block-map (`_builder`) holding the setter values
+// (proc_workdir/env/steps) — they are DISTINCT maps, so the SDK must
+// pass `_builder` through (it's null for an empty `{}` block). Falls
+// back to source_dir and `default_step`, runs the assembled command,
+// classifies the exit code (test → _record_test_result; build/dist →
+// success/fail + .timestamp), returns the exit code.
+_run_project(ctx: ptr, bmap: ptr, default_step: string, is_test: int) {
+    source_dir = _get(ctx, "source_dir")
+    target_dir = _get(ctx, "target_dir")
+    mod_dir = _get(ctx, "module_dir")
+    root = _get(ctx, "root")
+    _mkdirs(target_dir)
+
+    absdir = source_dir
+    env_pairs = list.new()
+    steps = list.new()
+    if bmap != null {
+        if map.has(bmap, "proc_workdir") == 1 {
+            wd, _ = map.get(bmap, "proc_workdir")
+            absdir = path.join(root, wd)
+        }
+        if map.has(bmap, "proc_env") == 1 { env_pairs, _ = map.get(bmap, "proc_env") }
+        if map.has(bmap, "proc_steps") == 1 { steps, _ = map.get(bmap, "proc_steps") }
+    }
+    if list.size(steps) == 0 { _d = list.add(steps, default_step) }
+
+    cmd = _project_run_cmd(absdir, env_pairs, steps)
+    exit_code = os.system(cmd)
+
+    if is_test == 1 {
+        if exit_code != 0 {
+            _record_test_result(ctx, 0, 1)
+            println("${mod_dir}: tests FAILED")
+            fail(ctx, "tests FAILED")
+            return exit_code
+        }
+        _record_test_result(ctx, 1, 0)
+        println("${mod_dir}: tests PASSED")
+        _e = io.write_file(path.join(target_dir, ".timestamp"), "")
+        return 0
+    }
+
+    if exit_code != 0 {
+        println("${mod_dir}: build FAILED")
+        fail(ctx, "build FAILED")
+        return exit_code
+    }
+    _e2 = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
 // _record_cache(ctx, outcome) — SDK builders call this after a
 // cache decision so the orchestrator can read it post-build for
 // telemetry. `outcome` is one of: "hit", "miss", "unavailable",

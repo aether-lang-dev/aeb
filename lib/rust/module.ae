@@ -1217,7 +1217,7 @@ builder cargo_test_existing(ctx: ptr) {
     }
 
     println("${mod_dir}: running tests (cargo test)")
-    cmd = cargo_test_cmd(source_dir, _builder)
+    cmd = string.concat(build._env_export_prefix(_builder), cargo_test_cmd(source_dir, _builder))
     exit_code = os.system(cmd)
     if exit_code != 0 {
         build._record_test_result(ctx, 0, 1)
