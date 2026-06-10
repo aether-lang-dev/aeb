@@ -26,6 +26,7 @@ tools/resolve-dep
 tools/scan-ae-files
 tools/topo-sort
 tools/transform-ae
+tools/mvn-to-aeb
 
 # aeb modules
 .aeb/
