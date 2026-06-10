@@ -215,6 +215,20 @@ while [[ $i -le $# ]]; do
             exit 1
         fi
         export AEB_TESTS_JSON="${!i}"
+    elif [[ "$a" == "--resolve-only" ]]; then
+        # Tier B — supply-chain SBOM. Resolve the target's dependency
+        # coordinates to their full transitive closure and emit it, WITHOUT
+        # building. Feeds a CVE/banned-dep scanner (e.g. aeb --vet-tool
+        # 'grype sbom:out.json'). aeb emits the SBOM; the scanner judges.
+        export AEB_RESOLVE_ONLY=1
+    elif [[ "$a" == "--sbom-json" ]]; then
+        i=$((i + 1))
+        if [[ $i -gt $# ]]; then
+            echo "aeb: --sbom-json requires an output path (or - for stdout)" >&2
+            exit 1
+        fi
+        export AEB_SBOM_JSON="${!i}"
+        export AEB_RESOLVE_ONLY=1   # naming an output implies --resolve-only
     elif [[ "$a" == "--timeout" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then
@@ -339,6 +353,39 @@ while [[ $i -le $# ]]; do
     i=$((i + 1))
 done
 set -- "${ARGS[@]+"${ARGS[@]}"}"
+
+# --- --resolve-only gate: emit the dependency-coordinate SBOM, DON'T build --
+# Tier B of the supply-chain veto (docs/build-veto-and-sandbox.md). Resolve
+# the named targets' declared coordinates to their transitive closure and
+# emit it as JSON ({"maven":[g:a:v,...]}), then exit — no build. A scanner
+# (grype/osv-scanner) consumes the SBOM, typically via `aeb --vet-tool`.
+if [[ -n "${AEB_RESOLVE_ONLY:-}" ]]; then
+    _sbom_targets=()
+    for _a in "$@"; do
+        case "$_a" in *.ae) _sbom_targets+=("$_a") ;; esac
+    done
+    if [[ ${#_sbom_targets[@]} -eq 0 ]]; then
+        echo "aeb: --resolve-only needs a target (e.g. aeb --resolve-only app/.build.ae)" >&2
+        exit 2
+    fi
+    AEB_SBOM_BIN="$AEB_HOME/tools/aeb-sbom"
+    if [[ ! -x "$AEB_SBOM_BIN" ]]; then
+        "$AETHER" build "$AEB_HOME/tools/aeb-sbom.ae" --lib "$AEB_HOME/lib" -o "$AEB_SBOM_BIN" 2>/dev/null
+    fi
+    _sbom_out="$("$AEB_SBOM_BIN" "$AEB_HOME" "${_sbom_targets[@]}")"
+    _sbom_rc=$?
+    if [[ $_sbom_rc -ne 0 ]]; then
+        echo "aeb: --resolve-only failed (rc $_sbom_rc)" >&2
+        exit "$_sbom_rc"
+    fi
+    if [[ -n "${AEB_SBOM_JSON:-}" && "${AEB_SBOM_JSON}" != "-" ]]; then
+        printf '%s\n' "$_sbom_out" > "${AEB_SBOM_JSON}"
+        echo "aeb: SBOM written to ${AEB_SBOM_JSON}" >&2
+    else
+        printf '%s\n' "$_sbom_out"
+    fi
+    exit 0
+fi
 
 # --- Remote offload: --use-remote-agents routes to aeb-remote instead of
 # building locally. It leases from the --agents pool, names git HEAD as the

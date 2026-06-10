@@ -36,6 +36,15 @@
     `binding.gyp` presence, `pre/postinstall` manifest hooks, `curl|sh`
     fetch-and-exec, a patch-introduced `extern`, a patch-touches-disallowed-
     path rule kind, and an opt-in tree-size cap (`AEB_AGENT_MAX_TREE_MB`).
+  - **`aeb --resolve-only [--sbom-json <path>]`** (Tier B, dependency-CVE /
+    SBOM) — resolve the target's dependency coordinates to their full
+    **transitive closure** and emit it as JSON (`{"maven":["g:a:v",…]}`)
+    **without building**. `tools/aeb-sbom` greps the coordinate `dep()`s
+    statically (no build execution) and runs the resolver's new `--output sbom`
+    mode. aeb emits the SBOM; the verdict is delegated to a scanner via
+    `--vet-tool` (`grype sbom:out.json --fail-on high`) — catching the *which
+    dependency versions* class (known-CVE, banned) the AST veto and sandbox
+    can't see. Maven slice; cargo/npm to follow.
 
 - **`aeb(cap)` capability entrypoint for build files.** A `.build.ae`/
   `.tests.ae`/... may declare `aeb(cap)` instead of `main()`, where `cap` is

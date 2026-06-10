@@ -761,22 +761,26 @@ agent-side Tier-A rules (secrets, binding.gyp, pre/postinstall, curl|sh,
 tree-size cap). Two tiers from the build-order remain, covering threats the
 shipped layers don't:
 
-| Item             | What                                                                                                             | Effort | Character               |
-|------------------|------------------------------------------------------------------------------------------------------------------|--------|-------------------------|
-| 5 — Tier C spike | --lib doppelganger that records build intent (os.system/dep/link_flag/codegen) instead of executing it           | Medium | aeb-unique, exploratory |
-| 6 — Tier B       | --resolve-only: expose the resolved dependency-coordinate closure for a CVE/banned-dep veto without a full build | Medium | SBOM/supply-chain       |
+| Item             | What                                                                                                             | Effort | Status                          |
+|------------------|------------------------------------------------------------------------------------------------------------------|--------|---------------------------------|
+| 6 — Tier B       | --resolve-only: expose the resolved dependency-coordinate closure for a CVE/banned-dep veto without a full build | Medium | **SHIPPED (maven, 2026-06-10)** |
+| 5 — Tier C spike | --lib doppelganger that records build intent (os.system/dep/link_flag/codegen) instead of executing it           | Medium | aeb-unique, exploratory (OPEN)  |
 
-Notes for whoever picks these up:
-- **Tier B** likely splits into (a) an aeb-side `--resolve-only`/SBOM-emit
-  primitive that exposes the resolved maven/cargo/npm coordinate closure, and
-  (b) the verdict, which may be better delegated to an off-the-shelf scanner
-  via `--vet-tool` (grype / osv-scanner / OWASP dependency-check) — same
-  "aeb invokes a SAST engine rather than becoming one" principle as layer 1b.
-  It catches the *which dependency versions* class (known-CVE, banned) that
-  the AST veto and sandbox can't see (they inspect build *behaviour*).
-- **Tier C** reads the build's *intent* (what it WOULD do) statically by
-  swapping in a recording `--lib` — complementary to 2b's AST/symbol view.
-  No aether change needed; the `--lib` swap is free in aeb.
+- **Tier B — SHIPPED (maven slice).** `aeb --resolve-only [--sbom-json
+  <path>]` resolves the coordinate closure (transitive) and emits
+  `{"maven":[g:a:v,...]}` JSON *without building*. `tools/aeb-sbom` greps the
+  coordinate `dep()`s statically (no build execution — the veto philosophy) +
+  runs `aeb-resolve.jar --output sbom` (new mode). Verdict delegated to a
+  scanner via `--vet-tool` (`grype sbom:out.json`), the 1b principle. Catches
+  the *which dependency versions* class (known-CVE, banned) the AST veto +
+  sandbox can't see (they inspect build *behaviour*). Verified end-to-end
+  (jackson-databind:2.9.0 -> transitive closure -> scanner vetoes via
+  --vet-tool). **Remaining:** cargo (`.crate.ae`) + npm (`npm:`) slices — same
+  shape, an `--output sbom` for those resolvers.
+- **Tier C** (the one veto tier still fully open) reads the build's *intent*
+  (what it WOULD do) statically by swapping in a recording `--lib` —
+  complementary to 2b's AST/symbol view. No aether change needed; the `--lib`
+  swap is free in aeb.
 
 ## ~~`aeb --init` documentation~~ (done)
 

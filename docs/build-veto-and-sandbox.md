@@ -931,9 +931,25 @@ maybe_veto_build(repo, target, purpose):
 5. **Tier C spike** — the `--lib` doppelganger that records build intent
    (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
    route to "read the build's intent" with no aether change. Parallel to 2b.
-6. **Tier B** — a `--resolve-only`/meta-emit mode exposing the resolved
-   coordinate closure to a CVE/banned-dep veto without a full build; OWASP-style
-   check as the first tier-B rule.
+6. ~~**Tier B** — a `--resolve-only`/meta-emit mode exposing the resolved
+   coordinate closure to a CVE/banned-dep veto without a full build.~~
+   **SHIPPED (2026-06-10, maven slice).** `aeb --resolve-only [--sbom-json
+   <path>]` resolves the target's declared coordinates to their full
+   **transitive closure** and emits it as JSON (`{"maven":["g:a:v",…]}`)
+   **without building** — `tools/aeb-sbom` greps the coordinate `dep()`s
+   statically (no build execution; the veto philosophy) and runs the existing
+   `aeb-resolve.jar` with the new `--output sbom` mode (one G:A:V per resolved
+   artifact, sorted+deduped). aeb emits the SBOM; the **verdict is delegated to
+   a scanner** via `--vet-tool` (the 1b principle — "aeb invokes a SAST engine
+   rather than becoming one"): `aeb --vet-tool 'grype sbom:out.json --fail-on
+   high'`. This catches the *which dependency versions* class (known-CVE,
+   banned) that the AST veto and sandbox can't see — they inspect build
+   *behaviour*, not resolved versions. Live-verified: `jackson-databind:2.9.0`
+   → its transitive closure (annotations+core+databind) emitted, a scanner
+   reading the SBOM vetoes through `--vet-tool` (REFUSED, exit 3), a clean
+   version (`2.15.0`) clears. **Next:** cargo (`.crate.ae`) + npm (`npm:…`)
+   slices follow the same shape; an `--output sbom` for those ecosystems'
+   resolvers.
 
 ## The one-line summary
 

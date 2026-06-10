@@ -1,0 +1,172 @@
+// aeb-sbom — the --resolve-only / SBOM-emit tool (build-veto Tier B).
+//
+// Resolves a target's declared dependency coordinates to their full
+// TRANSITIVE closure WITHOUT building, and emits the closure as JSON. This is
+// the supply-chain layer the AST veto and the sandbox can't cover: they
+// inspect build *behaviour*; this exposes *which dependency versions* the
+// build pulls, so a CVE / banned-dep / version scanner can veto on it.
+//
+//   Usage: aeb-sbom <aeb-home> <target.ae> [<target.ae> ...]
+//
+// aeb does NOT do the CVE matching — it emits the SBOM and a scanner (grype /
+// osv-scanner / OWASP dependency-check) does the verdict via `aeb --vet-tool`
+// (same "aeb invokes a SAST engine rather than becoming one" principle as 1b).
+//
+// Coordinate extraction is STATIC and greppable (the veto philosophy: read
+// the declaration, never run the build): a `build.dep(b, "<x>")` whose arg
+// has a `:` and no `/` is a maven coordinate (the same classification
+// lib/build uses). v1 is maven-only; cargo (`.crate.ae`) and npm
+// (`npm:<pkg>`) follow the same shape.
+//
+// Output (stdout): JSON { "maven": ["g:a:v", ...] } — the resolved
+// transitive closure, sorted + de-duped (the resolver already sorts).
+import std.string
+import std.os
+import std.file
+import std.io
+import std.list
+import std.map
+import std.path
+
+extern println(s: string)
+extern aether_args_count() -> int
+extern aether_args_get(i: int) -> string
+extern exit(code: int)
+
+main() {
+    if aether_args_count() < 3 {
+        println("usage: aeb-sbom <aeb-home> <target.ae> ...")
+        exit(2)
+    }
+    aeb_home = aether_args_get(1)
+
+    // --- collect the declared maven coordinates across all targets ---
+    coords = list.new()
+    seen = map.new()
+    i = 2
+    n = aether_args_count()
+    while i < n {
+        tgt = aether_args_get(i)
+        i = i + 1
+        if string.length(tgt) > 0 {
+            _collect_maven_coords(tgt, coords, seen)
+        }
+    }
+
+    // --- resolve to the transitive closure via aeb-resolve.jar --output sbom ---
+    resolver_jar = path.join(aeb_home, "tools/aeb-resolve.jar")
+    resolved = list.new()
+    rseen = map.new()
+    if list.size(coords) > 0 {
+        if file.exists(resolver_jar) == 0 {
+            println("aeb-sbom: resolver not found: ${resolver_jar}")
+            exit(3)
+        }
+        cmd = "java -jar '${resolver_jar}' --output sbom"
+        ci = 0
+        cn = list.size(coords)
+        while ci < cn {
+            c, _ = list.get(coords, ci)
+            cmd = string.concat(cmd, string.concat(" '", string.concat(c, "'")))
+            ci = ci + 1
+        }
+        out, _e = os.exec(cmd)
+        _parse_lines_into(out, resolved, rseen)
+    }
+
+    // --- emit JSON: { "maven": [ ... ] } ---
+    println(_json_maven(resolved))
+    exit(0)
+}
+
+// _collect_maven_coords(tgt, coords, seen) — scan a target .ae file for
+// `dep(b, "<x>")` calls whose arg is a maven coordinate (`:` present, no `/`),
+// adding each (de-duped) to `coords`.
+_collect_maven_coords(tgt: string, coords: ptr, seen: ptr) {
+    if file.exists(tgt) == 0 { return 0 }
+    content, rerr = io.read_file(tgt)
+    if rerr != "" { return 0 }
+    needle = "dep(b, \""
+    nlen = string.length(needle)
+    rest = content
+    while string.length(rest) > 0 {
+        idx = string.index_of(rest, needle)
+        if idx < 0 { return 0 }
+        tail = string.substring(rest, idx + nlen, string.length(rest))
+        // the dep arg runs up to the closing quote
+        q = string.index_of(tail, "\"")
+        if q < 0 { return 0 }
+        arg = string.substring(tail, 0, q)
+        rest = string.substring(tail, q + 1, string.length(tail))
+        // maven-coordinate classification: has ':' and no '/'
+        if string.index_of(arg, ":") >= 0 {
+            if string.index_of(arg, "/") < 0 {
+                if map.has(seen, arg) == 0 {
+                    _s = map.put(seen, arg, "1")
+                    _a = list.add(coords, arg)
+                }
+            }
+        }
+    }
+    return 0
+}
+
+// _parse_lines_into(text, out, seen) — newline-split, trim, de-dupe, append.
+_parse_lines_into(text: string, out: ptr, seen: ptr) {
+    rest = text
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        t = string.trim(line)
+        if string.length(t) > 0 {
+            if map.has(seen, t) == 0 {
+                _s = map.put(seen, t, "1")
+                _a = list.add(out, t)
+            }
+        }
+    }
+    return 0
+}
+
+// _json_maven(coords) — { "maven": ["g:a:v", ...] } as a one-line JSON string.
+_json_maven(coords: ptr) {
+    s = "{\"maven\":["
+    n = list.size(coords)
+    i = 0
+    while i < n {
+        c, _ = list.get(coords, i)
+        if i > 0 { s = string.concat(s, ",") }
+        s = string.concat(s, string.concat("\"", string.concat(_json_escape(c), "\"")))
+        i = i + 1
+    }
+    s = string.concat(s, "]}")
+    return s
+}
+
+// _json_escape(s) — minimal: backslash + double-quote. Coordinates never
+// contain control chars, so this is sufficient.
+_json_escape(s: string) {
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, "\\") == 1 {
+            out = string.concat(out, "\\\\")
+        } else {
+            if string.equals(ch, "\"") == 1 {
+                out = string.concat(out, "\\\"")
+            } else {
+                out = string.concat(out, ch)
+            }
+        }
+    }
+    return out
+}

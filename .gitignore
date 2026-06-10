@@ -43,3 +43,4 @@ itests/agent-container/deploy-containerfile-to-nuc.sh
 /.claude/
 tools/aeb-sandbox
 tools/libaether_sandbox.so
+tools/aeb-sbom

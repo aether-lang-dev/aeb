@@ -136,6 +136,24 @@ public class MavenResolver {
             System.err.println("warning: some dependencies could not be resolved: " + e.getMessage());
         }
 
+        // SBOM mode: emit the resolved TRANSITIVE coordinate closure as one
+        // "group:artifact:version" per line — the supply-chain veto (Tier B,
+        // docs/build-veto-and-sandbox.md) feeds this to a CVE/banned-dep
+        // scanner. The full closure is already computed for classpath; here we
+        // emit the coordinates rather than the jar paths. Sorted + de-duped so
+        // the output is stable (content-addressable, diffable).
+        if ("sbom".equals(outputMode)) {
+            java.util.TreeSet<String> coords = new java.util.TreeSet<>();
+            for (ArtifactResult artifactResult : result.getArtifactResults()) {
+                Artifact a = artifactResult.getArtifact();
+                coords.add(a.getGroupId() + ":" + a.getArtifactId() + ":" + a.getVersion());
+            }
+            for (String c : coords) {
+                System.out.println(c);
+            }
+            return;
+        }
+
         List<String> jarPaths = new ArrayList<>();
         for (ArtifactResult artifactResult : result.getArtifactResults()) {
             File file = artifactResult.getArtifact().getFile();
