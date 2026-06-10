@@ -183,7 +183,7 @@ scoped LLMs; the gaps are honest, not hidden.
 
 Runtime flow (one `aeb` invocation):
 
-1. **Bash trampoline** (`./aeb`, ~50 lines) sets `AETHER`, `AEB_HOME`,
+1. **Bash trampoline** (`./aeb`, ~635 lines) sets `AETHER`, `AEB_HOME`,
    `ROOT`, optional `DOCKER_HOST` for podman. Routes `--init` /
    `gcheckout` / `--version` to subcommand-specific binaries; falls
    through to `tools/aeb-main` for normal builds.
@@ -216,8 +216,12 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
 
 ## Files/dirs worth knowing
 
-- `aeb` — bash trampoline. ~50 lines. Read it first if anything about
-  trampoline behaviour confuses you.
+- `aeb` — bash trampoline. ~635 lines (env setup, the full flag grammar,
+  lazy-build dispatch, and the build-supervision tail: process group +
+  signal-forward + timeout + group-reap). Read it first if anything about
+  trampoline behaviour confuses you. (A native Aether port is hedged — see
+  TODO.md § "Full Aether CLI entrypoint" + `../aether/aeb-process-
+  supervision-primitives.md`.)
 - `tools/aeb-link.ae` — the per-build orchestration. THE largest
   Aether file. If a build fails between scan and link, the bug is
   here.

@@ -124,6 +124,21 @@ macOS, WSL, Git-Bash), with no native Windows/PowerShell story.
 entrypoint that does everything the trampoline does today, so bash is no
 longer on the critical path.
 
+**Decision (2026-06-10): hedge — keep the bash trampoline for now.** The
+flag-parsing / env-setup / lazy-build-dispatch bulk ports cleanly, but the
+*build-supervision tail* (own process group via `set -m`, forward INT/TERM
+to the group, timeout watchdog TERM→KILL, group-reap leaked daemons) is the
+one piece bash does well precisely because POSIX job control is free there.
+`std.os` has the building blocks (`os_run_pipe`→pid, `os_wait_pid`,
+`os_execv`, `os_getpid`) but exposes **no** `kill`/`killpg`, signal-handler
+registration, process-group placement, or wait-with-timeout — so a native
+port today means hand-rolled FFI on the highest-blast-radius code, for zero
+new capability. Filed the gap upstream:
+`../aether/aeb-process-supervision-primitives.md` (asks for an
+`os.run_supervised(...)` high-level primitive, or the four low-level pieces).
+Revisit a native entrypoint once those land. (NB: the trampoline is ~635
+lines now, not the "~50-line thin trampoline" older notes claim.)
+
 Why it's worth doing:
 - **Portability.** A compiled entrypoint runs anywhere Aether targets,
   including native Windows — at which point the `:`-in-target /
