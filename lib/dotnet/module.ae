@@ -4,6 +4,7 @@
 // then compiles via dotnet build and tests via dotnet test.
 // NuGet versions come from Directory.Packages.props (central management).
 import build
+import cache
 import std.string
 import std.io
 import std.os
@@ -212,6 +213,155 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
     return xml
 }
 
+// _dotnet_version() — `dotnet --version`, memoised per build via an
+// env-var cache. An SDK bump changes Roslyn output, so it's a real
+// invalidator. Returns "" when dotnet is absent.
+_dotnet_version() {
+    cached = os.getenv("_AEB_DOTNET_VERSION_CACHE")
+    if string.length(cached) > 0 { return cached }
+    raw, _err = os.exec("dotnet --version 2>&1 | head -1")
+    return string.trim(raw)
+}
+
+// _hash_if_present(parts, label, p) — append label + content hash of
+// file `p` to `parts` when it exists. Used for the optional central
+// package-management props files.
+_hash_if_present(parts: ptr, label: string, p: string) {
+    if file.exists(p) == 1 {
+        h, herr = cache.hash_file(p)
+        if string.length(herr) == 0 {
+            list.add(parts, string.concat(label, h))
+        }
+    }
+}
+
+// _cache_key_for_dotnet — cache key for a dotnet build action. Inputs
+// (length-prefixed, sorted via cache.hash_inputs):
+//   - dotnet SDK version — Roslyn-output invalidator
+//   - csproj fingerprint: the generated XML (build_project) or the
+//     upstream .csproj content (build_project_existing) — captures TFM,
+//     nuget refs, project refs, nullable, etc.
+//   - configuration (Release/Debug)
+//   - each .cs source's path + content hash, sorted by path
+//   - Directory.Packages.props / Directory.Build.props content (central
+//     package management) at source_dir and root — a version bump there
+//     must bust the key. Best-effort to those two locations; a props
+//     file at an intermediate ancestor is not walked (documented).
+//   - each dep's dotnet_nuget_deps / dotnet_vendored_refs artifact
+//     content — captures upstream dep changes
+//
+// FALSE-HIT HAZARD: a ProjectReference dep rebuilt to the same csproj
+// but different source isn't fully reflected; the dep artifact content
+// hash catches nuget/vendored changes. Full correctness would hash each
+// dep's built bin/ — punted for v1. The cache.put non-empty guard in
+// the builders means a wrong output-dir guess never populates the cache.
+//
+// Returns ("", err) on any source read failure.
+_cache_key_for_dotnet(ctx: ptr, argfile_path: string, csproj_fingerprint: string, config: string, source_dir: string, root: string) {
+    parts = list.new()
+
+    list.add(parts, string.concat("dotnet:", _dotnet_version()))
+    list.add(parts, string.concat("csproj:", csproj_fingerprint))
+    list.add(parts, string.concat("config:", config))
+
+    sources = build._read_argfile_lines(argfile_path)
+    nsrc = list.size(sources)
+    si = 0
+    while si < nsrc {
+        src, _ = list.get(sources, si)
+        sh, serr = cache.hash_file(src)
+        if string.length(serr) > 0 {
+            return "", serr
+        }
+        list.add(parts, string.concat("src:", src))
+        list.add(parts, string.concat("src-hash:", sh))
+        si = si + 1
+    }
+
+    _hash_if_present(parts, "pkgprops-src:", path.join(source_dir, "Directory.Packages.props"))
+    _hash_if_present(parts, "buildprops-src:", path.join(source_dir, "Directory.Build.props"))
+    _hash_if_present(parts, "pkgprops-root:", path.join(root, "Directory.Packages.props"))
+    _hash_if_present(parts, "buildprops-root:", path.join(root, "Directory.Build.props"))
+
+    deps, _ = map.get(ctx, "deps")
+    dn = list.size(deps)
+    di = 0
+    while di < dn {
+        dp, _ = list.get(deps, di)
+        dm = build._strip_lang(dp)
+        dep_n = build._read_dep_artifact(ctx, dm, "dotnet_nuget_deps_including_transitive")
+        if string.length(dep_n) > 0 {
+            list.add(parts, string.concat("dep-nuget:", dm))
+            list.add(parts, string.concat("dep-nuget-deps:", dep_n))
+        }
+        dep_v = build._read_dep_artifact(ctx, dm, "dotnet_vendored_refs_including_transitive")
+        if string.length(dep_v) > 0 {
+            list.add(parts, string.concat("dep-vendored:", dm))
+            list.add(parts, string.concat("dep-vendored-refs:", dep_v))
+        }
+        di = di + 1
+    }
+
+    digest, derr = cache.hash_inputs(parts)
+    return digest, derr
+}
+
+// _dotnet_cache_restore — shared cache get/restore for the dotnet build
+// builders. Caches `bin/<config>` under source_dir (NOT obj/, which
+// holds non-portable absolute-path assets). Returns 1 on a cache hit
+// (caller skips the build), 0 on miss/unavailable (caller builds, then
+// calls _dotnet_cache_store). Records the telemetry outcome. Writes the
+// resolved key into ctx under "_dotnet_cache_key" for the store step.
+_dotnet_cache_restore(ctx: ptr, argfile: string, fingerprint: string, config: string, source_dir: string, root: string) {
+    map.put(ctx, "_dotnet_cache_key", "")
+    if cache.available() == 0 {
+        build._record_cache(ctx, "unavailable")
+        return 0
+    }
+    ck, kerr = _cache_key_for_dotnet(ctx, argfile, fingerprint, config, source_dir, root)
+    if string.length(kerr) > 0 {
+        build._record_cache(ctx, "miss")
+        return 0
+    }
+    map.put(ctx, "_dotnet_cache_key", ck)
+    bin_dir = path.join(path.join(source_dir, "bin"), config)
+    tmp_raw, _terr = os.exec("mktemp")
+    tmp_tar = string.trim(tmp_raw)
+    if string.length(tmp_tar) > 0 {
+        grc = cache.get(ck, tmp_tar)
+        if string.length(grc) == 0 {
+            uerr = build._untar_into(tmp_tar, bin_dir)
+            os.system("rm -f '${tmp_tar}'")
+            if string.length(uerr) == 0 {
+                build._record_cache(ctx, "hit")
+                return 1
+            }
+            os.system("rm -rf '${bin_dir}'")
+        } else {
+            os.system("rm -f '${tmp_tar}'")
+        }
+    }
+    build._record_cache(ctx, "miss")
+    return 0
+}
+
+// _dotnet_cache_store — tar bin/<config> and cache.put under the key
+// stashed by _dotnet_cache_restore. No-op when the key is empty or the
+// bin dir is empty (a custom OutputPath redirected output elsewhere —
+// guard against caching an empty tree → never a false hit).
+_dotnet_cache_store(ctx: ptr, config: string, source_dir: string) {
+    ck, _ = map.get(ctx, "_dotnet_cache_key")
+    if string.length(ck) == 0 { return 0 }
+    bin_dir = path.join(path.join(source_dir, "bin"), config)
+    if build._dir_nonempty(bin_dir) == 0 { return 0 }
+    tar_path, terr = build._tar_dir(bin_dir)
+    if string.length(terr) == 0 {
+        perr = cache.put(ck, tar_path)
+        os.system("rm -f '${tar_path}'")
+    }
+    return 0
+}
+
 // --- SDK functions ---
 
 // Generate .csproj and build a .NET project.
@@ -405,11 +555,38 @@ builder build_project(ctx: ptr) {
         }
     }
 
-    cmd = dotnet_build_cmd(csproj, config)
-    exit_code = os.system(cmd)
-    if exit_code != 0 {
-        println("${mod_dir}: dotnet build failed")
-        return exit_code
+    // Test projects are NOT cached: the `test` builder runs
+    // `dotnet test --no-build`, which needs obj/ (project.assets.json,
+    // build props) present — and obj/ is intentionally not cached
+    // (non-portable absolute paths). Caching only bin/ would leave a
+    // restored test project unable to run. Record n/a and always build.
+    is_test = 0
+    if _builder != null {
+        if map.has(_builder, "is_test_project") == 1 { is_test = 1 }
+    }
+
+    cached = 0
+    if is_test == 0 {
+        argfile = path.join(target_dir, "dotnet_sources.txt")
+        os.system("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        cached = _dotnet_cache_restore(ctx, argfile, xml, config, source_dir, root)
+        if cached == 1 {
+            println("${mod_dir}: dotnet cache hit")
+        }
+    } else {
+        build._record_cache(ctx, "n/a")
+    }
+
+    if cached == 0 {
+        cmd = dotnet_build_cmd(csproj, config)
+        exit_code = os.system(cmd)
+        if exit_code != 0 {
+            println("${mod_dir}: dotnet build failed")
+            return exit_code
+        }
+        if is_test == 0 {
+            _dotnet_cache_store(ctx, config, source_dir)
+        }
     }
 
     _ets = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -447,6 +624,7 @@ builder build_project_existing(ctx: ptr) {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
+    root = build._get(ctx, "root")
     build._mkdirs(target_dir)
 
     // Resolve .csproj path: explicit setter override > single-file
@@ -488,11 +666,38 @@ builder build_project_existing(ctx: ptr) {
     }
 
     println("${mod_dir}: compiling existing project (${csproj})")
-    cmd = dotnet_build_cmd(csproj, config)
-    exit_code = os.system(cmd)
-    if exit_code != 0 {
-        println("${mod_dir}: dotnet build failed")
-        return exit_code
+
+    // Same test-project carve-out as build_project (see there).
+    is_test = 0
+    if _builder != null {
+        if map.has(_builder, "is_test_project") == 1 { is_test = 1 }
+    }
+
+    cached = 0
+    if is_test == 0 {
+        // Fingerprint = the upstream .csproj content.
+        fp_raw, _efp = io.read_file(csproj)
+        fingerprint = string.trim(fp_raw)
+        argfile = path.join(target_dir, "dotnet_sources.txt")
+        os.system("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        cached = _dotnet_cache_restore(ctx, argfile, fingerprint, config, source_dir, root)
+        if cached == 1 {
+            println("${mod_dir}: dotnet cache hit")
+        }
+    } else {
+        build._record_cache(ctx, "n/a")
+    }
+
+    if cached == 0 {
+        cmd = dotnet_build_cmd(csproj, config)
+        exit_code = os.system(cmd)
+        if exit_code != 0 {
+            println("${mod_dir}: dotnet build failed")
+            return exit_code
+        }
+        if is_test == 0 {
+            _dotnet_cache_store(ctx, config, source_dir)
+        }
     }
 
     _ets = io.write_file(path.join(target_dir, ".timestamp"), "")
