@@ -1,0 +1,42 @@
+// Tests for lib/java's pinned-dependency path derivation — the pure piece of
+// java.jar_pinned / java.mvn_repo that maps a "g:a:v" coordinate to its jar
+// location under any repo root (~/.m2/repository or a remote base URL).
+
+import java (_pinned_relpath, _dots_to_slashes)
+import std.string
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- _dots_to_slashes: Maven group → path segment ---
+    _eq("dots: multi-segment", _dots_to_slashes("org.junit.jupiter"), "org/junit/jupiter")
+    _eq("dots: single segment", _dots_to_slashes("clojure"), "clojure")
+    _eq("dots: empty", _dots_to_slashes(""), "")
+
+    // --- _pinned_relpath: "g:a:v" → "<g/path>/<a>/<v>/<a>-<v>.jar" ---
+    _eq("relpath: junit-jupiter",
+        _pinned_relpath("org.junit.jupiter:junit-jupiter:6.0.3"),
+        "org/junit/jupiter/junit-jupiter/6.0.3/junit-jupiter-6.0.3.jar")
+    _eq("relpath: selenium-java",
+        _pinned_relpath("org.seleniumhq.selenium:selenium-java:4.39.0"),
+        "org/seleniumhq/selenium/selenium-java/4.39.0/selenium-java-4.39.0.jar")
+    _eq("relpath: single-segment group (clojure)",
+        _pinned_relpath("org.clojure:clojure:1.12.0"),
+        "org/clojure/clojure/1.12.0/clojure-1.12.0.jar")
+    // a real coordinate whose version is long and dash-laden — must NOT be
+    // mangled (the version is taken whole, not re-parsed).
+    _eq("relpath: gnarly version (listenablefuture)",
+        _pinned_relpath("com.google.guava:listenablefuture:9999.0-empty-to-avoid-conflict-with-guava"),
+        "com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/listenablefuture-9999.0-empty-to-avoid-conflict-with-guava.jar")
+    // hyphenated artifact id stays intact
+    _eq("relpath: hyphenated artifact",
+        _pinned_relpath("org.junit.platform:junit-platform-console-standalone:6.0.3"),
+        "org/junit/platform/junit-platform-console-standalone/6.0.3/junit-platform-console-standalone-6.0.3.jar")
+    _eq("relpath: not a g:a:v coord → empty", _pinned_relpath("not-a-coord"), "")
+    _eq("relpath: only g:a → empty", _pinned_relpath("org.foo:bar"), "")
+}

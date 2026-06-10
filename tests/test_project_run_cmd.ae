@@ -1,10 +1,13 @@
-// Tests for lib/build's pure run-existing-project command assembler
-// (_project_run_cmd) — the shared foundation under the per-language
-// SDKs (elixir/nim/lua/php/haskell .test verbs).
+// Tests for lib/build's run-existing-project command machinery — the shared
+// foundation under every per-language "drive the upstream toolchain" SDK
+// (elixir/nim/lua/php/haskell/javascript/pharo/erlang .test/.build, the env-
+// aware maven/python/dotnet/dart/gleam/zig verbs). Confirms the EXACT shell
+// string that would be exec'd across the env / step / workdir permutations.
 
-import build (_project_run_cmd)
+import build (_project_run_cmd, _run_project_cmd, _env_export_prefix, env, step, workdir)
 import std.string
 import std.list
+import std.map
 
 extern println(s: string)
 
@@ -12,42 +15,108 @@ _eq(label: string, got: string, want: string) {
     if string.equals(got, want) == 1 { println("PASS: ${label}") }
     else { println("FAIL: ${label} (got '${got}' want '${want}')") }
 }
-
-_list1(a: string) {
-    l = list.new()
-    _x = list.add(l, a)
-    return l
-}
-_list2(a: string, b: string) {
-    l = list.new()
-    _x = list.add(l, a)
-    _y = list.add(l, b)
-    return l
-}
+_l1(a: string) { l = list.new()  _x = list.add(l, a)  return l }
+_l2(a: string, b: string) { l = list.new()  _x = list.add(l, a)  _y = list.add(l, b)  return l }
 
 main() {
     empty = list.new()
 
-    // no env, single default step
+    // --- _project_run_cmd: the low-level assembler (absdir, env list, steps) ---
     _eq("plain single step",
-        _project_run_cmd("/proj", empty, _list1("mix test")),
+        _project_run_cmd("/proj", empty, _l1("mix test")),
         "cd \"/proj\" && mix test")
-
-    // one env injection
     _eq("one env",
-        _project_run_cmd("/proj", _list1("SERVIRTIUM_VCR_LIB='/p/lib.so'"), _list1("cargo test")),
+        _project_run_cmd("/proj", _l1("SERVIRTIUM_VCR_LIB='/p/lib.so'"), _l1("cargo test")),
         "cd \"/proj\" && export SERVIRTIUM_VCR_LIB='/p/lib.so' && cargo test")
-
-    // two env + two sequential steps (fail-fast &&)
-    _eq("two env two steps",
-        _project_run_cmd("/proj",
-            _list2("A='1'", "B='2'"),
-            _list2("mix deps.get", "mix test")),
+    _eq("two env + two steps (fail-fast &&)",
+        _project_run_cmd("/proj", _l2("A='1'", "B='2'"), _l2("mix deps.get", "mix test")),
         "cd \"/proj\" && export A='1' && export B='2' && mix deps.get && mix test")
-
-    // a step keeping its own embedded quotes (no nested bash -c)
-    _eq("step with embedded quotes",
-        _project_run_cmd("/n", empty,
-            _list1("for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done")),
+    _eq("step keeps its own embedded quotes (no nested bash -c)",
+        _project_run_cmd("/n", empty, _l1("for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done")),
         "cd \"/n\" && for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done")
+
+    // --- _run_project_cmd: resolution from a builder map, built via the REAL
+    //     env()/step()/workdir() setters (so this also exercises those). ---
+    _eq("null bmap → source_dir + default step",
+        _run_project_cmd("/m", "/r", null, "mix test"), "cd \"/m\" && mix test")
+
+    be = map.new()
+    env(be, "SERVIRTIUM_VCR_LIB", "/p/lib.so")
+    _eq("env() setter → one export before default",
+        _run_project_cmd("/m", "/r", be, "cargo test"),
+        "cd \"/m\" && export SERVIRTIUM_VCR_LIB='/p/lib.so' && cargo test")
+
+    be2 = map.new()
+    env(be2, "JAVA_HOME", "/jdk")
+    env(be2, "SERVIRTIUM_VCR_LIB", "/lib.so")
+    _eq("two env() setters → exports in order",
+        _run_project_cmd("/m", "/r", be2, "mvn -q test"),
+        "cd \"/m\" && export JAVA_HOME='/jdk' && export SERVIRTIUM_VCR_LIB='/lib.so' && mvn -q test")
+
+    bw = map.new()
+    workdir(bw, "kotlin")
+    _eq("workdir() setter → root-relative cd",
+        _run_project_cmd("/m", "/r", bw, "mvn -q test"), "cd \"/r/kotlin\" && mvn -q test")
+
+    bs = map.new()
+    step(bs, "mix deps.get >/dev/null 2>&1")
+    step(bs, "mix test")
+    _eq("step() setters override the default",
+        _run_project_cmd("/m", "/r", bs, "mix test"),
+        "cd \"/m\" && mix deps.get >/dev/null 2>&1 && mix test")
+
+    // the real elixir shape: env + two steps
+    bes = map.new()
+    env(bes, "SERVIRTIUM_NIF_EBIN", "/e/ebin")
+    step(bes, "mix deps.get >/dev/null 2>&1")
+    step(bes, "mix test")
+    _eq("env + steps (elixir node)",
+        _run_project_cmd("/m", "/r", bes, "mix test"),
+        "cd \"/m\" && export SERVIRTIUM_NIF_EBIN='/e/ebin' && mix deps.get >/dev/null 2>&1 && mix test")
+
+    // the real kotlin shape: workdir + env + subshell-install step + test step
+    bk = map.new()
+    workdir(bk, "kotlin")
+    env(bk, "JAVA_HOME", "/jdk")
+    step(bk, "(cd ../java && mvn -q -DskipTests install)")
+    step(bk, "mvn -q test")
+    _eq("workdir + env + steps (kotlin node)",
+        _run_project_cmd("/m", "/r", bk, "mvn -q test"),
+        "cd \"/r/kotlin\" && export JAVA_HOME='/jdk' && (cd ../java && mvn -q -DskipTests install) && mvn -q test")
+
+    // --- _env_export_prefix: the prefix the ENHANCED existing verbs prepend
+    //     (rust.cargo_test_existing, ruby.rspec, zig/dart/gleam.test, junit5) ---
+    _eq("env prefix: null bmap → empty", _env_export_prefix(null), "")
+    bp0 = map.new()
+    _eq("env prefix: no env → empty", _env_export_prefix(bp0), "")
+    bp1 = map.new()
+    env(bp1, "SERVIRTIUM_VCR_LIB", "/lib.so")
+    _eq("env prefix: one", _env_export_prefix(bp1), "export SERVIRTIUM_VCR_LIB='/lib.so' && ")
+    bp2 = map.new()
+    env(bp2, "A", "1")
+    env(bp2, "B", "2")
+    _eq("env prefix: two", _env_export_prefix(bp2), "export A='1' && export B='2' && ")
+
+    // --- per-language SDK DEFAULT exec strings (what each verb runs with an
+    //     empty block, at module /m). A greppable spec of every SDK's default. ---
+    _eq("elixir.test",            _run_project_cmd("/m", "/r", null, "mix test"),                 "cd \"/m\" && mix test")
+    _eq("elixir.compile",         _run_project_cmd("/m", "/r", null, "mix compile"),              "cd \"/m\" && mix compile")
+    _eq("nim.test",               _run_project_cmd("/m", "/r", null, "nimble test"),              "cd \"/m\" && nimble test")
+    _eq("nim.build",              _run_project_cmd("/m", "/r", null, "nimble build"),             "cd \"/m\" && nimble build")
+    _eq("lua.test",               _run_project_cmd("/m", "/r", null, "busted"),                   "cd \"/m\" && busted")
+    _eq("php.test",               _run_project_cmd("/m", "/r", null, "phpunit"),                  "cd \"/m\" && phpunit")
+    _eq("haskell.test",           _run_project_cmd("/m", "/r", null, "cabal test"),               "cd \"/m\" && cabal test")
+    _eq("haskell.build",          _run_project_cmd("/m", "/r", null, "cabal build"),              "cd \"/m\" && cabal build")
+    _eq("javascript.test",        _run_project_cmd("/m", "/r", null, "npm test"),                 "cd \"/m\" && npm test")
+    _eq("javascript.build",       _run_project_cmd("/m", "/r", null, "npm install"),              "cd \"/m\" && npm install")
+    _eq("pharo.test",             _run_project_cmd("/m", "/r", null, "./run-tests.sh"),           "cd \"/m\" && ./run-tests.sh")
+    _eq("erlang.compile",         _run_project_cmd("/m", "/r", null, "rebar3 compile"),           "cd \"/m\" && rebar3 compile")
+    _eq("erlang.eunit",           _run_project_cmd("/m", "/r", null, "rebar3 eunit"),             "cd \"/m\" && rebar3 eunit")
+    _eq("maven.test",             _run_project_cmd("/m", "/r", null, "mvn -q test"),              "cd \"/m\" && mvn -q test")
+    _eq("maven.install",          _run_project_cmd("/m", "/r", null, "mvn -q -DskipTests install"), "cd \"/m\" && mvn -q -DskipTests install")
+    _eq("python.test",            _run_project_cmd("/m", "/r", null, "python3 -m pytest -q"),     "cd \"/m\" && python3 -m pytest -q")
+    _eq("dotnet.test_existing",   _run_project_cmd("/m", "/r", null, "dotnet test --nologo"),     "cd \"/m\" && dotnet test --nologo")
+    _eq("dart.test_existing",     _run_project_cmd("/m", "/r", null, "dart test"),                "cd \"/m\" && dart test")
+    _eq("gleam.test_existing",    _run_project_cmd("/m", "/r", null, "gleam test"),               "cd \"/m\" && gleam test")
+    _eq("zig.test_existing",      _run_project_cmd("/m", "/r", null, "zig build test"),           "cd \"/m\" && zig build test")
 }

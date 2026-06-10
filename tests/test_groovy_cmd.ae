@@ -1,0 +1,36 @@
+// Tests for lib/groovy's pure command pieces: the groovyc invocation string
+// and the JAVA_OPTS bytecode-target prefix.
+
+import groovy (groovyc_cmd, _java_opts, target_bytecode)
+import std.string
+import std.map
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- groovyc_cmd(bin, classes_dir, classpath, file_list) ---
+    _eq("groovyc resolved bin + multi-entry cp",
+        groovyc_cmd("/opt/groovy/bin/groovyc", "/t/classes", "/cp/a.jar:/cp/b.jar", "Foo.groovy Bar.groovy"),
+        "/opt/groovy/bin/groovyc -d /t/classes -cp /cp/a.jar:/cp/b.jar Foo.groovy Bar.groovy")
+    _eq("groovyc bare bin (PATH fallback)",
+        groovyc_cmd("groovyc", "/t", "cp", "F.groovy"),
+        "groovyc -d /t -cp cp F.groovy")
+
+    // --- _java_opts(builder_map): target_bytecode → JAVA_OPTS prefix ---
+    _eq("java_opts: null bmap → empty", _java_opts(null), "")
+    bm0 = map.new()
+    _eq("java_opts: target_bytecode unset → empty", _java_opts(bm0), "")
+    bm = map.new()
+    target_bytecode(bm, "22")
+    _eq("java_opts: target_bytecode(22)",
+        _java_opts(bm), "JAVA_OPTS=\"-Dgroovy.target.bytecode=22\" ")
+    bm2 = map.new()
+    target_bytecode(bm2, "17")
+    _eq("java_opts: target_bytecode(17)",
+        _java_opts(bm2), "JAVA_OPTS=\"-Dgroovy.target.bytecode=17\" ")
+}

@@ -954,13 +954,13 @@ _env_export_prefix(bmap: ptr) {
 // back to source_dir and `default_step`, runs the assembled command,
 // classifies the exit code (test → _record_test_result; build/dist →
 // success/fail + .timestamp), returns the exit code.
-_run_project(ctx: ptr, bmap: ptr, default_step: string, is_test: int) {
-    source_dir = _get(ctx, "source_dir")
-    target_dir = _get(ctx, "target_dir")
-    mod_dir = _get(ctx, "module_dir")
-    root = _get(ctx, "root")
-    _mkdirs(target_dir)
-
+// _run_project_cmd(source_dir, root, bmap, default_step) — pure: resolve
+// workdir/env/steps from the builder block-map (falling back to source_dir
+// and the SDK's default_step) and assemble the exact shell string that
+// _run_project would exec. The testable core; covered exhaustively in
+// tests/test_run_project_cmd.ae for the env/step/workdir permutations every
+// per-language SDK funnels through.
+_run_project_cmd(source_dir: string, root: string, bmap: ptr, default_step: string) {
     absdir = source_dir
     env_pairs = list.new()
     steps = list.new()
@@ -973,8 +973,17 @@ _run_project(ctx: ptr, bmap: ptr, default_step: string, is_test: int) {
         if map.has(bmap, "proc_steps") == 1 { steps, _ = map.get(bmap, "proc_steps") }
     }
     if list.size(steps) == 0 { _d = list.add(steps, default_step) }
+    return _project_run_cmd(absdir, env_pairs, steps)
+}
 
-    cmd = _project_run_cmd(absdir, env_pairs, steps)
+_run_project(ctx: ptr, bmap: ptr, default_step: string, is_test: int) {
+    source_dir = _get(ctx, "source_dir")
+    target_dir = _get(ctx, "target_dir")
+    mod_dir = _get(ctx, "module_dir")
+    root = _get(ctx, "root")
+    _mkdirs(target_dir)
+
+    cmd = _run_project_cmd(source_dir, root, bmap, default_step)
     exit_code = os.system(cmd)
 
     if is_test == 1 {

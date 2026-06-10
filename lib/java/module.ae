@@ -406,6 +406,34 @@ builder mvn_repo(ctx: ptr) {
 // `g:a:v` whose content sha256 == the pin, or "" on failure. Content-addressed
 // cache first (the filename IS the verification), then ~/.m2, then a Maven
 // Central fetch — each candidate hashed and checked before it's trusted.
+// _dots_to_slashes(s) — pure: "a.b.c" -> "a/b/c" (Maven group → path). No shell.
+_dots_to_slashes(s: string) {
+    out = ""
+    n = string.length(s)
+    i = 0
+    while i < n {
+        ch = string.substring(s, i, i + 1)
+        if string.equals(ch, ".") == 1 { out = string.concat(out, "/") } else { out = string.concat(out, ch) }
+        i = i + 1
+    }
+    return out
+}
+
+// _pinned_relpath("g:a:v") — pure: the Maven-layout relative path
+// "<group/with/slashes>/<a>/<v>/<a>-<v>.jar", valid under any repo root
+// (~/.m2/repository or a remote base URL). "" if not a g:a:v coordinate.
+// Tested in tests/test_jar_pinned.ae.
+_pinned_relpath(coord: string) {
+    parts = string.split(coord, ":")
+    if string.array_size(parts) < 3 { string.array_free(parts); return "" }
+    g = string.concat(string.array_get(parts, 0), "")
+    a = string.concat(string.array_get(parts, 1), "")
+    v = string.concat(string.array_get(parts, 2), "")
+    string.array_free(parts)
+    gp = _dots_to_slashes(g)
+    return "${gp}/${a}/${v}/${a}-${v}.jar"
+}
+
 _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
     home = os.getenv("HOME")
     cache_dir = "${home}/.cache/aeb/jars"
@@ -413,22 +441,13 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
     if file.exists(cached) == 1 { return cached }
     _mk = os.system("mkdir -p '${cache_dir}'")
 
-    parts = string.split(coord, ":")
-    if string.array_size(parts) < 3 { string.array_free(parts); return "" }
-    // Own the substrings (string.concat(...,"")) before array_free — array_get
-    // returns pointers into the array, which array_free reclaims.
-    g = string.concat(string.array_get(parts, 0), "")
-    a = string.concat(string.array_get(parts, 1), "")
-    v = string.concat(string.array_get(parts, 2), "")
-    string.array_free(parts)
-    gp_raw, _eg = os.exec("printf '%s' '${g}' | tr '.' '/'")
-    gp = string.trim(gp_raw)
-    jarname = "${a}-${v}.jar"
+    relpath = _pinned_relpath(coord)
+    if string.length(relpath) == 0 { return "" }
 
     tmp = "${cache_dir}/.tmp-${sha256}.jar"
     _rm = os.system("rm -f '${tmp}'")
 
-    m2 = "${home}/.m2/repository/${gp}/${a}/${v}/${jarname}"
+    m2 = "${home}/.m2/repository/${relpath}"
     got = 0
     if file.exists(m2) == 1 {
         _cp = os.system("cp '${m2}' '${tmp}'")
@@ -446,7 +465,7 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
         while ri < nr {
             base = string.array_get(rparts, ri)
             if string.length(base) > 0 {
-                url = "${base}/${gp}/${a}/${v}/${jarname}"
+                url = "${base}/${relpath}"
                 rc = os.system("curl -fsSL '${url}' -o '${tmp}' 2>/dev/null")
                 if rc == 0 { got = 1  ri = nr }
             }
