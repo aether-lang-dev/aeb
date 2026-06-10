@@ -752,36 +752,31 @@ build.javac(b) {
 }
 ```
 
-## Build-veto tiers — ALL SHIPPED (0/1a/1b/2b/3 + Tier B + Tier C)
+## Supply-chain veto + sandbox — stack COMPLETE; frontier follow-ups
 
-The supply-chain veto stack (docs/build-veto-and-sandbox.md) is complete:
-`aeb --vet` (AST deny-rules + coordinate allowlist), `--vet-tool` (external
-SAST), `--sandbox` (runtime containment), agent-side Tier-A rules (secrets,
-binding.gyp, pre/postinstall, curl|sh, tree-size cap), **Tier B** (SBOM/CVE),
-and **Tier C** (doppelganger intent trace).
+The veto/sandbox stack (docs/build-veto-and-sandbox.md) is complete and
+shipped: the tree & patch rule scan (agent-side), the external-scanner hook
+(`--vet-tool`), the AST veto (`--vet`), the dependency SBOM/CVE
+(`--resolve-only`), the intent trace (`--trace-intent`), and the runtime
+sandbox (`--sandbox`). What remains are *extensions* of shipped capabilities,
+not missing layers:
 
-| Item             | What                                                                                                             | Status                          |
-|------------------|------------------------------------------------------------------------------------------------------------------|---------------------------------|
-| 6 — Tier B       | --resolve-only: expose the resolved dependency-coordinate closure for a CVE/banned-dep veto without a full build | **SHIPPED (maven, 2026-06-10)** |
-| 5 — Tier C       | --lib doppelganger that records build intent (os.system/exec/run) instead of executing it                       | **SHIPPED (2026-06-10)**        |
-
-- **Tier B — SHIPPED (maven slice).** `aeb --resolve-only [--sbom-json
-  <path>]` resolves the coordinate closure (transitive) and emits
-  `{"maven":[g:a:v,...]}` JSON *without building*. `tools/aeb-sbom` greps the
-  coordinate `dep()`s statically + runs `aeb-resolve.jar --output sbom`.
-  Verdict delegated to a scanner via `--vet-tool` (`grype sbom:out.json`).
-  Catches the *which dependency versions* class. **Remaining:** cargo
-  (`.crate.ae`) + npm (`npm:`) slices — same shape.
-- **Tier C — SHIPPED.** `aeb --trace-intent [--intent-json <path>]` runs the
-  leaf against a doppelganger `std.os` (`lib/veto_trace_os`) that RECORDS
-  os.system/exec/run* instead of executing, emitting `{"system":[...],...}`
-  JSON. The Action!/--lib trick: `std.os` is the universal shell-out
-  chokepoint, so one shadowed lib captures every SDK's intent, no SDK edits.
-  Verified: an evil curl|sh is recorded not run; the JSON drives a --vet-tool
-  veto. Limits (by design): orchestration only, one path, opaque=`<computed>`.
-  **Remaining:** record dep/link_flag/std.net categories too (currently the
-  os.* shell-out surface); whole-tree --trace-intent via orchestrator
-  integration.
+- **SBOM/CVE — more ecosystems.** `--resolve-only` ships the maven slice
+  (`aeb-resolve.jar --output sbom`). Add cargo (`.crate.ae`) + npm (`npm:`)
+  the same way — an `--output sbom` for those resolvers, merged into the
+  emitted JSON.
+- **Intent trace — more categories + whole-tree.** `--trace-intent` records
+  the `os.*` shell-out surface (the universal chokepoint). Extend the
+  doppelganger to also record `dep`/`link_flag`/`std.net` intent; and wire a
+  whole-tree `--trace-intent` that walks the DAG (currently per-leaf) via
+  orchestrator integration.
+- **Agent-side `spawn_sandboxed` wiring.** `aeb --sandbox` ships for the
+  non-agent CLI; the *agent* hosting a dispatch under the sandbox per its
+  operator profile is still the design seam
+  (docs/build-veto-and-sandbox.md / run-policy-class-and-cloud-leverage.md).
+- **One-policy-object option (deliberately deferred).** The three operator
+  surfaces (veto policy / `--vet-tool` / sandbox profile) are kept separate on
+  purpose; a single `policy.ae` driving all three was considered and parked.
 
 ## ~~`aeb --init` documentation~~ (done)
 
