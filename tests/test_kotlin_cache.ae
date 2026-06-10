@@ -1,0 +1,134 @@
+// Tests for the kotlinc cache-key derivation in lib/kotlin/module.ae.
+//
+// _cache_key_for_kotlinc(ctx, builder_map, argfile_path, cmd, stdlib_jar)
+// reads .kt sources via cache.hash_file, the stdlib jar via
+// cache.hash_file, and dep artifacts via build._read_dep_artifact, so
+// tests stage real fixtures under a tmpdir per case. Same shape as
+// test_java_cache.ae. Unlike java's test, this does NOT assert the
+// toolchain probe is non-empty: kotlinc is often absent on a dev box,
+// and _kotlinc_version() returns "" then — the key is still
+// deterministic within a run, which is what we test.
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+import build
+import kotlin (_cache_key_for_kotlinc)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if actual == expected {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected: '${expected}'")
+        println("  actual:   '${actual}'")
+    }
+}
+
+_assert_neq(label: string, a: string, b: string) {
+    if a == b {
+        println("FAIL: ${label}")
+        println("  unexpected match: '${a}'")
+    } else {
+        println("PASS: ${label}")
+    }
+}
+
+_assert_nonempty(label: string, s: string) {
+    if string.length(s) > 0 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label} (empty)")
+    }
+}
+
+_mktempdir() {
+    raw, _err = os.exec("mktemp -d")
+    return string.trim(raw)
+}
+
+_write(p: string, content: string) {
+    fs.write_atomic(p, content, string.length(content))
+}
+
+_minimal_ctx(root: string) {
+    ctx = map.new()
+    map.put(ctx, "deps", list.new())
+    map.put(ctx, "root", root)
+    return ctx
+}
+
+main() {
+    tdir = _mktempdir()
+
+    // Stage one Kotlin source.
+    src = path.join(tdir, "Hello.kt")
+    _write(src, "class Hello\n")
+
+    argfile = path.join(tdir, "argfile.txt")
+    _write(argfile, string.concat(src, "\n"))
+
+    ctx = _minimal_ctx(tdir)
+    b_map = map.new()
+
+    // --- determinism: same inputs → same key ---
+    k1, e1 = _cache_key_for_kotlinc(ctx, b_map, argfile, "kotlinc -d /target -cp /target ${src}", "")
+    _assert_eq("key: no error on fresh inputs", e1, "")
+    _assert_nonempty("key: non-empty hash", k1)
+
+    k2, _e2 = _cache_key_for_kotlinc(ctx, b_map, argfile, "kotlinc -d /target -cp /target ${src}", "")
+    _assert_eq("determinism: same inputs → same key", k1, k2)
+
+    // --- src content change → different key ---
+    _write(src, "class Hello { fun f() {} }\n")
+    k3, _e3 = _cache_key_for_kotlinc(ctx, b_map, argfile, "kotlinc -d /target -cp /target ${src}", "")
+    _assert_neq("invalidation: src content change → different key", k1, k3)
+
+    // --- restore content → original key ---
+    _write(src, "class Hello\n")
+    k4, _e4 = _cache_key_for_kotlinc(ctx, b_map, argfile, "kotlinc -d /target -cp /target ${src}", "")
+    _assert_eq("content-addressed: same content → same key", k1, k4)
+
+    // --- cmd string change (flag added) → different key ---
+    k_flag, _e5 = _cache_key_for_kotlinc(ctx, b_map, argfile, "kotlinc -d /target -cp /target -Werror ${src}", "")
+    _assert_neq("invalidation: cmd string change → different key", k1, k_flag)
+
+    // --- adding a second source file → different key ---
+    src2 = path.join(tdir, "Other.kt")
+    _write(src2, "class Other\n")
+    argfile2 = path.join(tdir, "argfile2.txt")
+    _write(argfile2, string.concat(string.concat(src, "\n"), string.concat(src2, "\n")))
+    k_two, _e6 = _cache_key_for_kotlinc(ctx, b_map, argfile2, "kotlinc -d /target -cp /target ${src} ${src2}", "")
+    _assert_neq("invalidation: extra .kt added → different key", k1, k_two)
+
+    // --- argfile order doesn't matter (sources sorted internally) ---
+    argfile_rev = path.join(tdir, "argfile_rev.txt")
+    _write(argfile_rev, string.concat(string.concat(src2, "\n"), string.concat(src, "\n")))
+    k_two_rev, _e7 = _cache_key_for_kotlinc(ctx, b_map, argfile_rev, "kotlinc -d /target -cp /target ${src} ${src2}", "")
+    _assert_eq("ordering: argfile listing order doesn't change key", k_two, k_two_rev)
+
+    // --- stdlib jar content change → different key (false-hit hazard guard) ---
+    stdlib = path.join(tdir, "kotlin-stdlib.jar")
+    _write(stdlib, "STDLIB-V1")
+    k_s1, _es1 = _cache_key_for_kotlinc(ctx, b_map, argfile, "kotlinc -d /target -cp /target ${src}", stdlib)
+    _assert_neq("stdlib: keying on stdlib differs from no-stdlib key", k1, k_s1)
+    _write(stdlib, "STDLIB-V2-different-bytes")
+    k_s2, _es2 = _cache_key_for_kotlinc(ctx, b_map, argfile, "kotlinc -d /target -cp /target ${src}", stdlib)
+    _assert_neq("invalidation: stdlib content change → different key", k_s1, k_s2)
+
+    // --- missing src returns error, empty key ---
+    bad_argfile = path.join(tdir, "bad.txt")
+    _write(bad_argfile, string.concat(path.join(tdir, "nonexistent.kt"), "\n"))
+    k_bad, e_bad = _cache_key_for_kotlinc(ctx, b_map, bad_argfile, "kotlinc", "")
+    _assert_eq("error path: missing src returns empty key", k_bad, "")
+    _assert_nonempty("error path: missing src reports error", e_bad)
+
+    os.system("rm -rf '${tdir}'")
+    println("kotlin cache-key tests done")
+}
