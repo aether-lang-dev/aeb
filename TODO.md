@@ -752,35 +752,36 @@ build.javac(b) {
 }
 ```
 
-## Remaining build-veto tiers (Tier B + Tier C)
+## Build-veto tiers — ALL SHIPPED (0/1a/1b/2b/3 + Tier B + Tier C)
 
-The supply-chain veto stack (docs/build-veto-and-sandbox.md) ships layers
-0/1a/1b/2b/3 — `aeb --vet` (AST deny-rules + coordinate allowlist),
-`--vet-tool` (external SAST), `--sandbox` (runtime containment), and the
-agent-side Tier-A rules (secrets, binding.gyp, pre/postinstall, curl|sh,
-tree-size cap). Two tiers from the build-order remain, covering threats the
-shipped layers don't:
+The supply-chain veto stack (docs/build-veto-and-sandbox.md) is complete:
+`aeb --vet` (AST deny-rules + coordinate allowlist), `--vet-tool` (external
+SAST), `--sandbox` (runtime containment), agent-side Tier-A rules (secrets,
+binding.gyp, pre/postinstall, curl|sh, tree-size cap), **Tier B** (SBOM/CVE),
+and **Tier C** (doppelganger intent trace).
 
-| Item             | What                                                                                                             | Effort | Status                          |
-|------------------|------------------------------------------------------------------------------------------------------------------|--------|---------------------------------|
-| 6 — Tier B       | --resolve-only: expose the resolved dependency-coordinate closure for a CVE/banned-dep veto without a full build | Medium | **SHIPPED (maven, 2026-06-10)** |
-| 5 — Tier C spike | --lib doppelganger that records build intent (os.system/dep/link_flag/codegen) instead of executing it           | Medium | aeb-unique, exploratory (OPEN)  |
+| Item             | What                                                                                                             | Status                          |
+|------------------|------------------------------------------------------------------------------------------------------------------|---------------------------------|
+| 6 — Tier B       | --resolve-only: expose the resolved dependency-coordinate closure for a CVE/banned-dep veto without a full build | **SHIPPED (maven, 2026-06-10)** |
+| 5 — Tier C       | --lib doppelganger that records build intent (os.system/exec/run) instead of executing it                       | **SHIPPED (2026-06-10)**        |
 
 - **Tier B — SHIPPED (maven slice).** `aeb --resolve-only [--sbom-json
   <path>]` resolves the coordinate closure (transitive) and emits
   `{"maven":[g:a:v,...]}` JSON *without building*. `tools/aeb-sbom` greps the
-  coordinate `dep()`s statically (no build execution — the veto philosophy) +
-  runs `aeb-resolve.jar --output sbom` (new mode). Verdict delegated to a
-  scanner via `--vet-tool` (`grype sbom:out.json`), the 1b principle. Catches
-  the *which dependency versions* class (known-CVE, banned) the AST veto +
-  sandbox can't see (they inspect build *behaviour*). Verified end-to-end
-  (jackson-databind:2.9.0 -> transitive closure -> scanner vetoes via
-  --vet-tool). **Remaining:** cargo (`.crate.ae`) + npm (`npm:`) slices — same
-  shape, an `--output sbom` for those resolvers.
-- **Tier C** (the one veto tier still fully open) reads the build's *intent*
-  (what it WOULD do) statically by swapping in a recording `--lib` —
-  complementary to 2b's AST/symbol view. No aether change needed; the `--lib`
-  swap is free in aeb.
+  coordinate `dep()`s statically + runs `aeb-resolve.jar --output sbom`.
+  Verdict delegated to a scanner via `--vet-tool` (`grype sbom:out.json`).
+  Catches the *which dependency versions* class. **Remaining:** cargo
+  (`.crate.ae`) + npm (`npm:`) slices — same shape.
+- **Tier C — SHIPPED.** `aeb --trace-intent [--intent-json <path>]` runs the
+  leaf against a doppelganger `std.os` (`lib/veto_trace_os`) that RECORDS
+  os.system/exec/run* instead of executing, emitting `{"system":[...],...}`
+  JSON. The Action!/--lib trick: `std.os` is the universal shell-out
+  chokepoint, so one shadowed lib captures every SDK's intent, no SDK edits.
+  Verified: an evil curl|sh is recorded not run; the JSON drives a --vet-tool
+  veto. Limits (by design): orchestration only, one path, opaque=`<computed>`.
+  **Remaining:** record dep/link_flag/std.net categories too (currently the
+  os.* shell-out surface); whole-tree --trace-intent via orchestrator
+  integration.
 
 ## ~~`aeb --init` documentation~~ (done)
 

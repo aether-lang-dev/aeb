@@ -1,0 +1,211 @@
+// aeb-trace — the --trace-intent doppelganger trace (build-veto Tier C).
+//
+// Compiles + runs a build leaf against a DOPPELGANGER std.os (lib/
+// veto_trace_os) whose os.system / os.exec / os.run* RECORD the command they
+// would run instead of EXECUTING it. Since every SDK shell-out (gcc, javac,
+// cargo, curl, …) routes through std.os, one shadowed lib captures the build's
+// whole *intent* — what it WOULD do — with no SDK changes. The Action!/--lib
+// "interpret the same source into an alternate context" trick; aeb pays no
+// impedance cost because which std.os a build sees is just the --lib path.
+//
+//   Usage: aeb-trace <aeb-home> <target.ae>
+//
+// Output (stdout): JSON { "system":[...], "exec":[...], "run":[...] } — the
+// recorded intent. A scanner / the veto inspects this ("would os.system a
+// curl|sh", "would reach 1.2.3.4") rather than regexing source.
+//
+// HONEST LIMITS (docs/build-veto-and-sandbox.md Tier C): orchestration only
+// (never the compiled app); ONE path (the branch this run takes); opaque
+// computation records `<computed>` (treat opacity itself as a vetoable
+// signal). A strong veto INPUT for build-grammar escapes, not a soundness
+// proof.
+import std.string
+import std.os
+import std.file
+import std.io
+import std.list
+import std.path
+
+extern println(s: string)
+extern aether_args_count() -> int
+extern aether_args_get(i: int) -> string
+extern exit(code: int)
+
+main() {
+    if aether_args_count() < 3 {
+        println("usage: aeb-trace <aeb-home> <target.ae>")
+        exit(2)
+    }
+    aeb_home = aether_args_get(1)
+    target   = aether_args_get(2)
+    if file.exists(target) == 0 {
+        println("aeb-trace: target not found: ${target}")
+        exit(2)
+    }
+
+    aeb = aeb_home   // the install tree: $AEB_HOME/lib, $AEB_HOME/tools, the doppelganger
+    lib = path.join(aeb, "lib")
+    dop = path.join(lib, "veto_trace_os")           // the doppelganger lib root
+    transform = path.join(aeb, "tools/transform-ae")
+
+    // --- stage a temp working dir with the doppelganger std/ ---
+    root = "target/_aeb"
+    os.system("mkdir -p '${root}' 2>/dev/null")
+    work = path.join(root, ".trace")
+    os.system("rm -rf '${work}' 2>/dev/null")
+    os.system("mkdir -p '${work}' 2>/dev/null")
+    // copy the doppelganger std/ into work so `--lib <work>` (cwd-style) shadows
+    // std.os — aetherc only shadows the builtin stdlib from a cwd-local --lib.
+    os.system("cp -R '${dop}/std' '${work}/std' 2>/dev/null")
+
+    // --- transform the aeb(cap)/main() node into a callable node fn ---
+    node_ae = path.join(work, "node.ae")
+    label = _label_of(target)
+    tcmd = "'${transform}' '${target}' traced_node '${label}' '${node_ae}' '${lib}' '${aeb}' 2>/dev/null"
+    _tr = os.system(tcmd)
+    if file.exists(node_ae) == 0 {
+        println("aeb-trace: transform failed for ${target}")
+        exit(3)
+    }
+
+    // --- append a main() harness that starts a session + calls the node ---
+    harness = "\nmain() {\n    _s = build.start()\n    _r = traced_node(_s)\n    return 0\n}\n"
+    combined = path.join(work, "combined.ae")
+    nb, _re = io.read_file(node_ae)
+    _w = io.write_file(combined, string.concat(nb, harness))
+
+    // --- compile combined against the doppelganger (--lib work first) + SDKs ---
+    bin = path.join(work, "traced")
+    // CRITICAL: aetherc only shadows the builtin std.os from a CWD-LOCAL --lib.
+    // So `ae build` must run FROM `work` (where the doppelganger std/ lives)
+    // with `--lib .`. The SDK lib + output use absolute paths so they resolve
+    // from the new cwd. combined.ae is in work, referenced as ./combined.ae.
+    abs_lib = _abs(lib)
+    abs_bin = _abs(bin)
+    bcmd = "cd '${work}' && '${_ae_bin()}' build combined.ae --lib . --lib '${abs_lib}' -o '${abs_bin}' >/dev/null 2>&1"
+    brc = os.system(bcmd)
+    if file.exists(bin) == 0 {
+        println("aeb-trace: trace build failed (target may use a build path the doppelganger can't follow)")
+        exit(3)
+    }
+
+    // --- run it: every effect RECORDS to the trace file instead of firing ---
+    trace = path.join(work, "trace.tsv")
+    abs_trace = _abs(trace)
+    os.system("rm -f '${abs_trace}' 2>/dev/null")
+    // Run from the target's dir so relative paths resolve as the real build
+    // would see them; AEB_TRACE_FILE (absolute) is read by the doppelganger.
+    tgt_dir = _dir_of(target)
+    run_from = tgt_dir
+    if string.length(run_from) == 0 { run_from = "." }
+    rcmd = "cd '${run_from}' && AEB_TRACE_FILE='${abs_trace}' '${abs_bin}' >/dev/null 2>&1"
+    _rr = os.system(rcmd)
+
+    // --- read the trace, emit JSON grouped by category ---
+    println(_emit_json(trace))
+    exit(0)
+}
+
+// _emit_json(trace) — read "cat\tpayload" lines, group into
+// { "system":[...], "exec":[...], "run":[...] }.
+_emit_json(trace: string) {
+    sys = list.new()
+    exe = list.new()
+    run = list.new()
+    if file.exists(trace) == 1 {
+        text, _e = io.read_file(trace)
+        rest = text
+        while string.length(rest) > 0 {
+            nl = string.index_of(rest, "\n")
+            line = ""
+            if nl < 0 { line = rest  rest = "" }
+            else {
+                line = string.substring(rest, 0, nl)
+                rest = string.substring(rest, nl + 1, string.length(rest))
+            }
+            if string.length(line) > 0 {
+                tab = string.index_of(line, "\t")
+                if tab > 0 {
+                    cat = string.substring(line, 0, tab)
+                    pay = string.substring(line, tab + 1, string.length(line))
+                    if string.equals(cat, "system") == 1 { _a = list.add(sys, pay) }
+                    if string.equals(cat, "exec") == 1   { _a = list.add(exe, pay) }
+                    if string.equals(cat, "run") == 1    { _a = list.add(run, pay) }
+                }
+            }
+        }
+    }
+    s = "{\"system\":"
+    s = string.concat(s, _json_arr(sys))
+    s = string.concat(s, ",\"exec\":")
+    s = string.concat(s, _json_arr(exe))
+    s = string.concat(s, ",\"run\":")
+    s = string.concat(s, _json_arr(run))
+    s = string.concat(s, "}")
+    return s
+}
+
+_json_arr(items: ptr) {
+    s = "["
+    n = list.size(items)
+    i = 0
+    while i < n {
+        v, _ = list.get(items, i)
+        if i > 0 { s = string.concat(s, ",") }
+        s = string.concat(s, string.concat("\"", string.concat(_esc(v), "\"")))
+        i = i + 1
+    }
+    return string.concat(s, "]")
+}
+
+_esc(s: string) {
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, "\\") == 1 { out = string.concat(out, "\\\\") }
+        else {
+            if string.equals(ch, "\"") == 1 { out = string.concat(out, "\\\"") }
+            else { out = string.concat(out, ch) }
+        }
+    }
+    return out
+}
+
+// _label_of(target) — the module-dir label (dir of the .ae, or "." at root).
+_label_of(target: string) {
+    d = _dir_of(target)
+    if string.length(d) == 0 { return "." }
+    return d
+}
+
+_dir_of(p: string) {
+    slash = _last_slash(p)
+    if slash < 0 { return "" }
+    return string.substring(p, 0, slash)
+}
+_last_slash(p: string) {
+    idx = -1
+    i = 0
+    n = string.length(p)
+    while i < n {
+        if string.equals(string.substring(p, i, i + 1), "/") == 1 { idx = i }
+        i = i + 1
+    }
+    return idx
+}
+
+// _abs(p) — best-effort absolute path (cwd-join if not already absolute).
+_abs(p: string) {
+    if string.length(p) > 0 {
+        if string.equals(string.substring(p, 0, 1), "/") == 1 { return p }
+    }
+    cwd, _e = os.exec("pwd")
+    return path.join(string.trim(cwd), p)
+}
+
+// _ae_bin() — the `ae` driver; PATH lookup is fine here (not sandboxed).
+_ae_bin() {
+    return "ae"
+}

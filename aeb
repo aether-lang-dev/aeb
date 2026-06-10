@@ -229,6 +229,21 @@ while [[ $i -le $# ]]; do
         fi
         export AEB_SBOM_JSON="${!i}"
         export AEB_RESOLVE_ONLY=1   # naming an output implies --resolve-only
+    elif [[ "$a" == "--trace-intent" ]]; then
+        # Tier C — doppelganger intent trace. Compile+run the target against a
+        # shadowed std.os whose os.system/exec/run* RECORD the command instead
+        # of executing it, then emit the recorded intent. The build's effects
+        # NEVER fire — you see what it WOULD do. (Spike; honest limits in
+        # docs/build-veto-and-sandbox.md.)
+        export AEB_TRACE_INTENT=1
+    elif [[ "$a" == "--intent-json" ]]; then
+        i=$((i + 1))
+        if [[ $i -gt $# ]]; then
+            echo "aeb: --intent-json requires an output path (or - for stdout)" >&2
+            exit 1
+        fi
+        export AEB_INTENT_JSON="${!i}"
+        export AEB_TRACE_INTENT=1   # naming an output implies --trace-intent
     elif [[ "$a" == "--timeout" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then
@@ -383,6 +398,39 @@ if [[ -n "${AEB_RESOLVE_ONLY:-}" ]]; then
         echo "aeb: SBOM written to ${AEB_SBOM_JSON}" >&2
     else
         printf '%s\n' "$_sbom_out"
+    fi
+    exit 0
+fi
+
+# --- --trace-intent gate: doppelganger-trace the build, DON'T run it --------
+# Tier C of the supply-chain veto. Compile+run the target against the
+# doppelganger std.os (records os.system/exec/run* instead of executing), then
+# emit the recorded intent as JSON. The build's effects never fire.
+if [[ -n "${AEB_TRACE_INTENT:-}" ]]; then
+    _trace_targets=()
+    for _a in "$@"; do
+        case "$_a" in *.ae) _trace_targets+=("$_a") ;; esac
+    done
+    if [[ ${#_trace_targets[@]} -eq 0 ]]; then
+        echo "aeb: --trace-intent needs a target (e.g. aeb --trace-intent app/.build.ae)" >&2
+        exit 2
+    fi
+    AEB_TRACE_BIN="$AEB_HOME/tools/aeb-trace"
+    if [[ ! -x "$AEB_TRACE_BIN" ]]; then
+        "$AETHER" build "$AEB_HOME/tools/aeb-trace.ae" --lib "$AEB_HOME/lib" -o "$AEB_TRACE_BIN" 2>/dev/null
+    fi
+    # one target per trace (each build leaf is its own intent trace)
+    _trace_out="$("$AEB_TRACE_BIN" "$AEB_HOME" "${_trace_targets[0]}")"
+    _trace_rc=$?
+    if [[ $_trace_rc -ne 0 ]]; then
+        echo "aeb: --trace-intent failed (rc $_trace_rc): $_trace_out" >&2
+        exit "$_trace_rc"
+    fi
+    if [[ -n "${AEB_INTENT_JSON:-}" && "${AEB_INTENT_JSON}" != "-" ]]; then
+        printf '%s\n' "$_trace_out" > "${AEB_INTENT_JSON}"
+        echo "aeb: intent trace written to ${AEB_INTENT_JSON}" >&2
+    else
+        printf '%s\n' "$_trace_out"
     fi
     exit 0
 fi

