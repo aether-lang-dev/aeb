@@ -158,6 +158,12 @@ builder compile(ctx: ptr) {
     println("${mod_dir}: compiling (clojure)")
 
     src_root = path.join(source_dir, "src")
+    if _builder != null {
+        if map.has(_builder, "source_layout") == 1 {
+            lay, _ = map.get(_builder, "source_layout")
+            if lay == "maven idiomatic" { src_root = path.join(source_dir, "src/main/clojure") }
+        }
+    }
 
     // Write source path artifact for downstream modules (include transitive dep sources)
     all_src = src_root
@@ -168,17 +174,27 @@ builder compile(ctx: ptr) {
     }
     build._write_artifact(ctx, "clojure_src_path", all_src)
 
-    // Build classpath: own src + classes + dep src + maven deps
+    // JVM jar deps from build.dep'd modules (clojure runtime + any cross-language
+    // component like a Java binding the ns :imports). Republished below so a
+    // dependent test node inherits them by depping THIS build node alone.
+    jvm_dep_cp = build._build_dep_classpath(ctx)
+    if string.length(jvm_dep_cp) > 0 {
+        nl_raw, _enl = os.exec("printf '%s' '${jvm_dep_cp}' | tr ':' '\n'")
+        build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", string.trim(nl_raw))
+    }
+
+    // Build classpath: own src + classes + dep src + jvm jars + maven deps
     cp = src_root
     tmp2 = string.concat(cp, ":")
     cp = string.concat(tmp2, classes_dir)
-
-    dep_src = _dep_src_classpath(ctx)
     if string.length(dep_src) > 0 {
         tmp3 = string.concat(cp, ":")
         cp = string.concat(tmp3, dep_src)
     }
-
+    if string.length(jvm_dep_cp) > 0 {
+        tmpj = string.concat(cp, ":")
+        cp = string.concat(tmpj, jvm_dep_cp)
+    }
     maven_cp = maven.classpath(ctx)
     if string.length(maven_cp) > 0 {
         tmp4 = string.concat(cp, ":")
@@ -201,8 +217,19 @@ builder compile(ctx: ptr) {
         }
     }
 
-    // No main_ns — just verify sources load
-    cmd = clj_load_check_cmd(cp)
+    // No main_ns — load-check by REQUIRING every namespace under src_root, so a
+    // compile error in the binding's own code fails the BUILD, not just tests.
+    discover = "find '${src_root}' -name '*.clj' -type f"
+    discover = string.concat(discover, " | sed 's|^${src_root}/||; s|/|.|g; s|_|-|g; s|\\.clj$||'")
+    ns_raw, _ed = os.exec(discover)
+    ns_list = string.trim(ns_raw)
+    if string.length(ns_list) == 0 {
+        _e0 = io.write_file(path.join(target_dir, ".timestamp"), "")
+        return 0
+    }
+    quoted_raw, _eq2 = os.exec("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
+    quoted = string.trim(quoted_raw)
+    cmd = "java -cp '${cp}' clojure.main -e \"(require ${quoted})\""
     exit_code = os.system(cmd)
     if exit_code != 0 {
         println("${mod_dir}: clojure load-check failed")
