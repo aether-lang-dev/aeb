@@ -1,0 +1,134 @@
+// Tests for tools/aebcli's parse_argv — the Aether-native port of the bash
+// trampoline's whole flag loop, as a PURE argv -> directive-list interpreter.
+// Asserts the exact ordered directives across permutations: boolean flags,
+// value flags (incl. the next-arg consume), the implies-relations, the
+// accumulating --vet-tool, synonym targets, coordinate/empty-name/missing-arg/
+// bad-timeout errors (terminal), and a realistic mixed CI invocation.
+//
+// Directives are tab-separated: "env\tNAME\tVALUE", "env-append\tNAME\tVALUE",
+// "arg\tVALUE", "synonym\tRELPATH\tFQN", "error\tCODE\tMESSAGE".
+
+import aebcli (parse_argv, directive_kind, directive_field, env_append_value, stamp_field)
+import std.string
+import std.list
+
+extern println(s: string)
+
+// Build an argv list from up to 5 tokens ("" = omitted).
+_argv(a: string, b: string, c: string, d: string, e: string) {
+    l = list.new()
+    if string.length(a) > 0 { _x = list.add(l, a) }
+    if string.length(b) > 0 { _x = list.add(l, b) }
+    if string.length(c) > 0 { _x = list.add(l, c) }
+    if string.length(d) > 0 { _x = list.add(l, d) }
+    if string.length(e) > 0 { _x = list.add(l, e) }
+    return l
+}
+
+// Assert directive at index `i` of the parse result equals `want`.
+_dir(label: string, res: ptr, i: int, want: string) {
+    got, _g = list.get(res, i)
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+// Assert the result has exactly `want` directives.
+_count(label: string, res: ptr, want: int) {
+    got = list.size(res)
+    if got == want { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (count mismatch)") }
+}
+
+main() {
+    // --- a boolean flag ---
+    r1 = parse_argv(_argv("--coverage", "", "", "", ""))
+    _count("coverage: 1 directive", r1, 1)
+    _dir("coverage: env",          r1, 0, "env\tAEB_COVERAGE\t1")
+
+    // --- a value flag consumes the next token ---
+    r2 = parse_argv(_argv("--scan", ".tests.ae", "", "", ""))
+    _count("scan: 1 directive",    r2, 1)
+    _dir("scan: env+value",        r2, 0, "env\tAEB_SCAN\t.tests.ae")
+
+    // --- a value flag that ALSO implies another env var ---
+    r3 = parse_argv(_argv("--sbom-json", "out.json", "", "", ""))
+    _count("sbom: 2 directives",   r3, 2)
+    _dir("sbom: env value",        r3, 0, "env\tAEB_SBOM_JSON\tout.json")
+    _dir("sbom: implies resolve",  r3, 1, "env\tAEB_RESOLVE_ONLY\t1")
+
+    // --- --vet-tool accumulates (env-append) and implies --vet ---
+    r4 = parse_argv(_argv("--vet-tool", "semgrep --error .", "", "", ""))
+    _count("vet-tool: 2 dirs",     r4, 2)
+    _dir("vet-tool: append",       r4, 0, "env-append\tAEB_VET_TOOLS\tsemgrep --error .")
+    _dir("vet-tool: implies vet",  r4, 1, "env\tAEB_VET\t1")
+
+    // --- a plain target passthrough ---
+    r5 = parse_argv(_argv("app/.build.ae", "", "", "", ""))
+    _dir("plain target arg",       r5, 0, "arg\tapp/.build.ae")
+
+    // --- a synonym target ---
+    r6 = parse_argv(_argv("app:build", "", "", "", ""))
+    _count("synonym: 1 directive", r6, 1)
+    _dir("synonym directive",      r6, 0, "synonym\tapp/.build.ae\tapp/.build.ae")
+    r6b = parse_argv(_argv(":build", "", "", "", ""))
+    _dir("bare synonym directive", r6b, 0, "synonym\t./.build.ae\t.build.ae")
+
+    // --- errors are terminal (nothing emitted after) ---
+    // coordinate (exit 2)
+    r7 = parse_argv(_argv("org.corp:lib:1.0", "ignored", "", "", ""))
+    _count("coordinate: terminal", r7, 1)
+    _dir("coordinate error",       r7, 0, "error\t2\taeb: 'org.corp:lib:1.0' looks like a coordinate, not a target (a target is 'path/to:name' or ':name')")
+
+    // empty synonym name (exit 2)
+    r8 = parse_argv(_argv("app:", "", "", "", ""))
+    _dir("empty-name error",       r8, 0, "error\t2\taeb: empty target name in synonym 'app:' (use 'path/to:name' or ':name')")
+
+    // value flag at end of argv (exit 1)
+    r9 = parse_argv(_argv("--scan", "", "", "", ""))
+    _dir("missing-arg error",      r9, 0, "error\t1\taeb: --scan requires an argument")
+
+    // non-numeric --timeout (exit 1)
+    r10 = parse_argv(_argv("--timeout", "soon", "", "", ""))
+    _dir("bad-timeout error",      r10, 0, "error\t1\taeb: --timeout must be a whole number of seconds, got 'soon'")
+    // numeric --timeout is fine
+    r10b = parse_argv(_argv("--timeout", "600", "", "", ""))
+    _dir("good-timeout env",       r10b, 0, "env\tAEB_TIMEOUT\t600")
+
+    // --- a realistic mixed CI invocation: flags + a synonym target ---
+    //   aeb --coverage --scan .tests.ae app:build
+    r11 = parse_argv(_argv("--coverage", "--scan", ".tests.ae", "app:build", ""))
+    _count("mixed: 3 directives",  r11, 3)
+    _dir("mixed: coverage",        r11, 0, "env\tAEB_COVERAGE\t1")
+    _dir("mixed: scan",            r11, 1, "env\tAEB_SCAN\t.tests.ae")
+    _dir("mixed: target",          r11, 2, "synonym\tapp/.build.ae\tapp/.build.ae")
+
+    // --- an unknown option passes through (bash `else` branch) ---
+    r12 = parse_argv(_argv("--frobnicate", "", "", "", ""))
+    _dir("unknown flag passes",    r12, 0, "arg\t--frobnicate")
+
+    // --- directive accessors (used by the executor) ---
+    _str("kind of env directive",   directive_kind("env\tAEB_SCAN\t.tests.ae"), "env")
+    _str("kind of synonym",         directive_kind("synonym\ta/.b.ae\ta/.b.ae"), "synonym")
+    _str("field 0",                 directive_field("env\tA\t1", 0),  "env")
+    _str("field 1",                 directive_field("env\tA\t1", 1),  "A")
+    _str("field 2",                 directive_field("env\tA\t1", 2),  "1")
+    _str("field 2 with spaces",     directive_field("env-append\tAEB_VET_TOOLS\tsemgrep --error .", 2), "semgrep --error .")
+    _str("field beyond end empty",  directive_field("arg\tx", 2),     "")
+
+    // --- env_append_value: the --vet-tool accumulation rule ---
+    _str("append to empty",         env_append_value("", "a"),        "a")
+    _str("append joins newline",    env_append_value("a", "b"),       "a\nb")
+    _str("append chains",           env_append_value("a\nb", "c"),    "a\nb\nc")
+
+    // --- stamp_field: --version provenance extraction ---
+    _str("stamp src token",         stamp_field("src abc123\ncommit deadbeef\n", "src"), "abc123")
+    _str("stamp commit token",      stamp_field("src abc123\ncommit deadbeef\n", "commit"), "deadbeef")
+    _str("stamp multi-word value",  stamp_field("installed 2026-06-11 by make\n", "installed"), "2026-06-11 by make")
+    _str("stamp missing key empty", stamp_field("src abc\n", "toolchain"), "")
+    _str("stamp last line no nl",   stamp_field("a 1\nb 2", "b"),      "2")
+}
+
+_str(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}

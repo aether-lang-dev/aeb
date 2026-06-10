@@ -1,0 +1,202 @@
+// aeb-cli — the Aether-native aeb entrypoint (replacing the bash trampoline).
+//
+// This is the IMPURE executor that runs the pure directive plan produced by
+// tools/aebcli's parse_argv. The split is deliberate: the whole argv grammar
+// (flag table, synonym resolution, coordinate/timeout/missing-arg errors) is
+// pure and unit-tested in aebcli; this file does only the effects — read
+// argv, set env, resolve synonyms against the filesystem, print, exit. See
+// TODO.md § "Full Aether CLI entrypoint".
+//
+// STATUS: front-end is complete through "resolve the launch"; the final
+// supervised exec of aeb-main (own process group, signal-forward, timeout,
+// group-reap) needs std.os.run_supervised, which is POSIX-only and landed in
+// ae 0.231 (this tree may be on 0.230). Until that's wired, aeb-cli resolves
+// everything and prints the launch plan (a useful dry-run). The Windows arm
+// of the exec degrades per the cut-down (taskkill /F /T, no group-reap).
+
+import aebcli
+import build
+import std.string
+import std.list
+import std.os
+import std.file
+import std.fs
+import std.io
+
+extern println(s: string)
+extern exit(code: int)
+extern aether_args_count() -> int
+extern aether_args_get(i: int) -> string
+
+_err(msg: string) {
+    _w = io.stderr_write(string.concat(msg, "\n"))
+}
+
+// AEB_HOME: the env override, else the directory of argv[0] (this binary).
+// Mirrors the bash `AEB_HOME="$(cd "$(dirname "$0")" && pwd)"`, but uses the
+// native cross-platform _dirname (no `dirname` shell-out).
+_resolve_aeb_home() {
+    h = os.getenv("AEB_HOME")
+    if string.length(h) > 0 {
+        return h
+    }
+    return build._dirname(aether_args_get(0))
+}
+
+// The build root (cwd), as the bash captures with ROOT="$(pwd)".
+_resolve_root() {
+    pwd, _e = os.exec("pwd")
+    return string.trim(pwd)
+}
+
+// `--version`: provenance from $AEB_HOME/AEB_STAMP (parsed with the pure
+// stamp_field), then the underlying ae version. Mirrors the bash.
+_print_version(aeb_home: string) {
+    stamp = string.concat(aeb_home, "/AEB_STAMP")
+    if file.exists(stamp) == 1 {
+        text, _e = fs.read(stamp)
+        src = aebcli.stamp_field(text, "src")
+        commit = aebcli.stamp_field(text, "commit")
+        installed = aebcli.stamp_field(text, "installed")
+        toolchain = aebcli.stamp_field(text, "toolchain")
+        println("aeb 0.0.0-dev+${src}   (git ${commit}, installed ${installed})")
+        println("  AEB_HOME     ${aeb_home}")
+        println("  tools built  ${toolchain}")
+    }
+    else {
+        println("aeb 0.0.0-dev   (no AEB_STAMP — un-installed tree at ${aeb_home})")
+    }
+    aether = os.getenv("AETHER")
+    if string.length(aether) == 0 { aether = "ae" }
+    av, _ae = os.exec("${aether} --version 2>/dev/null | head -1")
+    av_t = string.trim(av)
+    if string.length(av_t) > 0 { println(av_t) }
+}
+
+// Podman socket autodetect for TestContainers — the bash
+// `[[ -z DOCKER_HOST ]] && [[ -S /run/user/<uid>/podman/podman.sock ]]`.
+// POSIX-only (no Windows socket path); a no-op when DOCKER_HOST is set or
+// the socket is absent.
+_maybe_podman() {
+    if string.length(os.getenv("DOCKER_HOST")) > 0 {
+        return 0
+    }
+    if build._is_windows() == 1 {
+        return 0
+    }
+    uid, _u = os.exec("id -u")
+    sock = string.concat(string.concat("/run/user/", string.trim(uid)), "/podman/podman.sock")
+    if file.exists(sock) == 1 {
+        _s = os.setenv("DOCKER_HOST", string.concat("unix://", sock))
+    }
+    return 0
+}
+
+main() {
+    argc = aether_args_count()
+    aeb_home = _resolve_aeb_home()
+    _se = os.setenv("AEB_HOME", aeb_home)
+
+    // --version short-circuit (the bash inspects $1 only).
+    if argc >= 2 {
+        if string.equals(aether_args_get(1), "--version") == 1 {
+            _print_version(aeb_home)
+            exit(0)
+        }
+    }
+
+    _maybe_podman()
+
+    // argv (excluding arg 0) -> the pure directive plan.
+    av = list.new()
+    i = 1
+    while i < argc {
+        _xa = list.add(av, aether_args_get(i))
+        i = i + 1
+    }
+    directives = aebcli.parse_argv(av)
+
+    // Execute the plan: env-set / accumulate, collect targets, resolve
+    // synonyms (file-check + the `aeb synonym match:` echo), fail on error.
+    targets = list.new()
+    env_shown = list.new()
+    n = list.size(directives)
+    j = 0
+    while j < n {
+        d, _gd = list.get(directives, j)
+        kind = aebcli.directive_kind(d)
+        if string.equals(kind, "error") == 1 {
+            code_s = aebcli.directive_field(d, 1)
+            msg = aebcli.directive_field(d, 2)
+            _err(msg)
+            exit(_atoi(code_s))
+        }
+        if string.equals(kind, "env") == 1 {
+            name = aebcli.directive_field(d, 1)
+            val = aebcli.directive_field(d, 2)
+            _e1 = os.setenv(name, val)
+            _ev1 = list.add(env_shown, string.concat(string.concat(name, "="), val))
+        }
+        if string.equals(kind, "env-append") == 1 {
+            name = aebcli.directive_field(d, 1)
+            val = aebcli.directive_field(d, 2)
+            merged = aebcli.env_append_value(os.getenv(name), val)
+            _e2 = os.setenv(name, merged)
+            _ev2 = list.add(env_shown, string.concat(string.concat(name, "="), merged))
+        }
+        if string.equals(kind, "arg") == 1 {
+            _t1 = list.add(targets, aebcli.directive_field(d, 1))
+        }
+        if string.equals(kind, "synonym") == 1 {
+            relpath = aebcli.directive_field(d, 1)
+            fqn = aebcli.directive_field(d, 2)
+            if file.exists(relpath) == 0 {
+                _err("aeb: synonym '${fqn}' → no such build file '${relpath}'")
+                exit(2)
+            }
+            println("aeb synonym match: ${fqn}")
+            _t2 = list.add(targets, fqn)
+        }
+        j = j + 1
+    }
+
+    // Resolve the launch the supervision tail would exec. (The exec itself is
+    // the remaining wiring — see the STATUS note at the top.)
+    aether = os.getenv("AETHER")
+    if string.length(aether) == 0 { aether = "ae" }
+    root = _resolve_root()
+
+    println("aeb-cli (native front-end): launch resolved")
+    println("  aether    ${aether}")
+    println("  AEB_HOME  ${aeb_home}")
+    println("  ROOT      ${root}")
+    _print_list("  target  ", targets)
+    _print_list("  env     ", env_shown)
+    println("  (pending: supervised exec of aeb-main — needs os.run_supervised, ae>=0.231)")
+    exit(0)
+}
+
+// Tiny non-negative atoi for the error exit code (directive codes are "1"/"2").
+_atoi(s: string) {
+    n = string.length(s)
+    v = 0
+    digits = "0123456789"
+    i = 0
+    while i < n {
+        ch = string.substring(s, i, i + 1)
+        idx = string.index_of(digits, ch)
+        if idx >= 0 { v = v * 10 + idx }
+        i = i + 1
+    }
+    return v
+}
+
+_print_list(prefix: string, l: ptr) {
+    n = list.size(l)
+    i = 0
+    while i < n {
+        item, _g = list.get(l, i)
+        println(string.concat(prefix, item))
+        i = i + 1
+    }
+}

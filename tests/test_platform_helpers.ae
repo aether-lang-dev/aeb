@@ -1,0 +1,95 @@
+// Tests for lib/build's host-OS detection helpers — the portable foundation
+// every per-OS feature-gate reads (macOS link flags, the Windows cut-down
+// runner, the JVM classpath separator). Asserts cross-platform INVARIANTS
+// rather than hardcoding "linux", so the suite stays valid on whatever host
+// runs it (Linux dev box, macOS, a future Windows CI) while still catching a
+// broken predicate. See TODO.md § "Windows support (cut-down runner)".
+//
+// NB: the _is_* predicates are compared with the `== 1` idiom throughout (not
+// arithmetic) — their cross-module return type isn't inferred as int, so `+`
+// is rejected but `== 1` typechecks (the same idiom every SDK uses on them).
+
+import build (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _exe_suffix, _default_cc, _has_windows_drive_prefix)
+import std.string
+
+extern println(s: string)
+
+_eq_s(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+_ok(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+main() {
+    os = _host_os()
+
+    // --- The normalised token is one of the known values ---
+    known = 0
+    if string.equals(os, "linux") == 1 { known = 1 }
+    if string.equals(os, "macos") == 1 { known = 1 }
+    if string.equals(os, "windows") == 1 { known = 1 }
+    if string.equals(os, "freebsd") == 1 { known = 1 }
+    _ok("_host_os() returns a known token", known)
+
+    // --- Exactly one _is_* predicate fires, and it matches the token ---
+    n = 0
+    if _is_linux()   == 1 { n = n + 1 }
+    if _is_macos()   == 1 { n = n + 1 }
+    if _is_windows() == 1 { n = n + 1 }
+    if _is_freebsd() == 1 { n = n + 1 }
+    _ok("exactly one _is_* predicate is true", _is_one(n))
+    _ok("_is_linux() agrees with token",   _agree(_is_linux(),   os, "linux"))
+    _ok("_is_macos() agrees with token",   _agree(_is_macos(),   os, "macos"))
+    _ok("_is_windows() agrees with token", _agree(_is_windows(), os, "windows"))
+    _ok("_is_freebsd() agrees with token", _agree(_is_freebsd(), os, "freebsd"))
+
+    // --- _path_sep(): ';' iff Windows, ':' otherwise ---
+    if _is_windows() == 1 { _eq_s("_path_sep() is ';' on Windows", _path_sep(), ";") }
+    else { _eq_s("_path_sep() is ':' off Windows", _path_sep(), ":") }
+
+    // --- _exe_suffix(): '.exe' iff Windows, '' otherwise ---
+    if _is_windows() == 1 { _eq_s("_exe_suffix() is '.exe' on Windows", _exe_suffix(), ".exe") }
+    else { _eq_s("_exe_suffix() is '' off Windows", _exe_suffix(), "") }
+
+    // --- _default_cc(): clang-as-cc on macOS/FreeBSD, gcc elsewhere ---
+    cc = _default_cc()
+    if _is_macos() == 1 { _eq_s("_default_cc() is 'cc' on macOS", cc, "cc") }
+    if _is_freebsd() == 1 { _eq_s("_default_cc() is 'cc' on FreeBSD", cc, "cc") }
+    if _is_linux() == 1 { _eq_s("_default_cc() is 'gcc' on Linux", cc, "gcc") }
+
+    // --- _has_windows_drive_prefix(): the Prefix::Disk rule (host-independent,
+    //     it's pure string analysis — runs the same on every platform) ---
+    _ok("'C:' (bare cwd-relative drive)",      _has_windows_drive_prefix("C:"))
+    _ok("'C:\\src' (backslash)",               _has_windows_drive_prefix("C:\\src"))
+    _ok("'d:/tmp' (lower-case, fwd slash)",    _has_windows_drive_prefix("d:/tmp"))
+    _no("'java/foo:bar' (target synonym)",     _has_windows_drive_prefix("java/foo:bar"))
+    _no("':name' (bare synonym, no path)",     _has_windows_drive_prefix(":name"))
+    _no("'C:name' (letter+colon+non-sep)",     _has_windows_drive_prefix("C:name"))
+    _no("'/abs/posix' (posix absolute)",       _has_windows_drive_prefix("/abs/posix"))
+    _no("'12:34' (digit, not a letter)",       _has_windows_drive_prefix("12:34"))
+    _no("'' (empty)",                          _has_windows_drive_prefix(""))
+}
+
+_no(label: string, cond: int) {
+    if cond == 0 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+_is_one(n: int) {
+    if n == 1 { return 1 }
+    return 0
+}
+
+// 1 if predicate-fired (`pred == 1`) matches "token equals want", else 0.
+// Both sides reduced to 0/1 so the agreement is a plain equality.
+_agree(pred: int, os: string, want: string) {
+    fired = 0
+    if pred == 1 { fired = 1 }
+    expect = 0
+    if string.equals(os, want) == 1 { expect = 1 }
+    if fired == expect { return 1 }
+    return 0
+}

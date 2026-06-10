@@ -1,0 +1,33 @@
+aeb (Aether Build System)
+Copyright (c) 2025 Aether Build System Contributors
+
+This product includes portions derived from the Nushell project
+(https://github.com/nushell/nushell), used under the MIT License:
+
+    Portions copyright The Nushell Project Developers
+
+Specifically, the following cross-platform behaviours were derived from
+Nushell's design (logic/approach ported to Aether, not verbatim source):
+
+  - The Windows drive-letter prefix rule in lib/build/module.ae
+    (`_has_windows_drive_prefix`) — the `Prefix::Disk` shape that
+    nu-path relies on (a single ASCII letter + ':' optionally followed
+    by a path separator).
+  - The dual-separator rule in the native path helpers in
+    lib/build/module.ae (`_path_is_sep`, `_basename`, `_dirname`,
+    `_path_ext`, `_path_join`, `_path_to_slashes`) — on Windows both
+    '/' and '\' are path separators (POSIX treats '\' as a filename
+    char), the behaviour nu-path / Rust std encode.
+  - The drive-prefix rule re-used in tools/aebcli/module.ae
+    (`_has_drive_prefix`, a deliberate copy of lib/build's version) so
+    the CLI's `path/to:name` target grammar does not mis-read a Windows
+    drive path `C:\proj` as a `:name` synonym — same `Prefix::Disk`
+    shape from nu-path.
+  - The cross-platform process-termination mapping documented in
+    docs/windows-cross-platform-notes.md (`taskkill /F /PID` on Windows
+    vs `kill` on POSIX), derived from nu-system's `build_kill_command`.
+  - The "no POSIX process groups on Windows — spawn normally" decision
+    cited in the same doc, from nu-system's `ForegroundChild`.
+
+Nushell is MIT-licensed; aeb is MIT-licensed. The full Nushell license
+text is available at https://github.com/nushell/nushell/blob/main/LICENSE.

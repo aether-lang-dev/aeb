@@ -1,0 +1,105 @@
+// Tests for tools/aebcli — the pure argv/target classification that is the
+// first Aether-native slice of the bash `aeb` trampoline. Confirms the exact
+// behaviour the bash loop encodes (synonym resolution, coordinate rejection,
+// FQN echo) across permutations, PLUS the Windows drive-letter cases the bash
+// `[[ "$a" == *:* ]]` test gets wrong. The trampoline's argv grammar was
+// "effectively untested" (TODO.md); this is the start of changing that.
+
+import aebcli (is_flag, classify_target, synonym_dir, synonym_name, synonym_relpath, synonym_fqn, flag_known, flag_env, flag_takes_value, flag_implies)
+import std.string
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+_ok(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+_no(label: string, cond: int) {
+    if cond == 0 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+main() {
+    // --- is_flag ---
+    _ok("is_flag --scan",         is_flag("--scan"))
+    _ok("is_flag -x",             is_flag("-x"))
+    _no("is_flag plain path",     is_flag("app/.build.ae"))
+    _no("is_flag synonym",        is_flag("app:build"))
+
+    // --- classify_target: the *:* / *:*:* distinction ---
+    _eq("classify plain path",    classify_target("app/.build.ae"),    "plain")
+    _eq("classify bare arg",      classify_target("app"),              "plain")
+    _eq("classify synonym",       classify_target("app:build"),        "synonym")
+    _eq("classify bare synonym",  classify_target(":build"),           "synonym")
+    _eq("classify nested syn",    classify_target("a/b/c:tests"),      "synonym")
+    _eq("classify maven coord",   classify_target("org.corp:lib:1.0"), "coordinate")
+
+    // --- synonym resolution: dir / name / relpath / fqn ---
+    _eq("dir of path/to:name",    synonym_dir("path/to:name"),         "path/to")
+    _eq("dir of bare :name",      synonym_dir(":name"),                "")
+    _eq("name of path/to:name",   synonym_name("path/to:name"),        "name")
+    _eq("name of bare :name",     synonym_name(":name"),               "name")
+    _eq("name empty (trailing :)",synonym_name("app:"),                "")
+
+    _eq("relpath path/to:name",   synonym_relpath("path/to:name"),     "path/to/.name.ae")
+    _eq("relpath bare :build",    synonym_relpath(":build"),           "./.build.ae")
+    _eq("relpath nested",         synonym_relpath("a/b:tests"),        "a/b/.tests.ae")
+
+    _eq("fqn strips ./",          synonym_fqn("./.build.ae"),          ".build.ae")
+    _eq("fqn keeps path",         synonym_fqn("app/.build.ae"),        "app/.build.ae")
+
+    // --- end-to-end: a bare synonym in the cwd, FQN as the bash echoes it ---
+    _eq("bare :build → FQN",
+        synonym_fqn(synonym_relpath(":build")),
+        ".build.ae")
+    _eq("app:build → FQN",
+        synonym_fqn(synonym_relpath("app:build")),
+        "app/.build.ae")
+
+    // --- Windows drive-letter correctness (the bash `*:*` bug) ---
+    // The bash trampoline's `[[ "$a" == *:* ]]` would mis-read these as a
+    // synonym (and a coordinate for two-colon drive paths). aebcli strips the
+    // drive prefix first, so a drive path classifies as a PLAIN target. Drive
+    // detection is purely syntactic, so these hold on every host (there are no
+    // drives on POSIX, but a drive-shaped token is never a valid synonym).
+    _eq("drive path is plain",        classify_target("C:\\proj\\app"),  "plain")
+    _eq("bare drive is plain",        classify_target("C:"),             "plain")
+    _eq("fwd-slash drive is plain",   classify_target("D:/build"),       "plain")
+    // A drive-qualified synonym: strip "C:" and one colon remains.
+    _eq("drive+synonym classify",     classify_target("C:\\a\\b:build"), "synonym")
+    _eq("drive+synonym relpath",      synonym_relpath("C:\\a\\b:build"), "C:\\a\\b/.build.ae")
+    // A two-colon drive path is NOT a coordinate (the bash `*:*:*` bug):
+    // "C:\a:b" → strip "C:" → "\a:b" → one colon → synonym, not coordinate.
+    _eq("drive path not coordinate",  classify_target("C:\\a:b"),        "synonym")
+
+    // --- flag table: env var, value-vs-bool, implications ---
+    _ok("flag_known --coverage",       flag_known("--coverage"))
+    _ok("flag_known --scan",           flag_known("--scan"))
+    _no("flag_known unknown",          flag_known("--nope"))
+    _no("flag_known a path",           flag_known("app/.build.ae"))
+
+    _eq("env of --coverage",           flag_env("--coverage"),       "AEB_COVERAGE")
+    _eq("env of --scan",               flag_env("--scan"),           "AEB_SCAN")
+    _eq("env of --sbom-json",          flag_env("--sbom-json"),      "AEB_SBOM_JSON")
+    _eq("env of --vet-tool",           flag_env("--vet-tool"),       "AEB_VET_TOOLS")
+    _eq("env of unknown is empty",     flag_env("--nope"),           "")
+
+    _no("--coverage is boolean",       flag_takes_value("--coverage"))
+    _no("--vet is boolean",            flag_takes_value("--vet"))
+    _ok("--scan takes value",          flag_takes_value("--scan"))
+    _ok("--timeout takes value",       flag_takes_value("--timeout"))
+    _ok("--sandbox-profile takes value", flag_takes_value("--sandbox-profile"))
+    _no("unknown takes no value",      flag_takes_value("--nope"))
+
+    _eq("--coverage implies nothing",  flag_implies("--coverage"),   "")
+    _eq("--scan implies nothing",      flag_implies("--scan"),       "")
+    _eq("--sbom-json implies resolve", flag_implies("--sbom-json"),  "AEB_RESOLVE_ONLY")
+    _eq("--intent-json implies trace", flag_implies("--intent-json"),"AEB_TRACE_INTENT")
+    _eq("--veto-policy implies vet",   flag_implies("--veto-policy"),"AEB_VET")
+    _eq("--vet-tool implies vet",      flag_implies("--vet-tool"),   "AEB_VET")
+    _eq("--sandbox-profile implies sb",flag_implies("--sandbox-profile"),"AEB_SANDBOX")
+}

@@ -124,26 +124,82 @@ macOS, WSL, Git-Bash), with no native Windows/PowerShell story.
 entrypoint that does everything the trampoline does today, so bash is no
 longer on the critical path.
 
-**Decision (2026-06-10): hedge — keep the bash trampoline for now.** The
-flag-parsing / env-setup / lazy-build-dispatch bulk ports cleanly, but the
-*build-supervision tail* (own process group via `set -m`, forward INT/TERM
-to the group, timeout watchdog TERM→KILL, group-reap leaked daemons) is the
-one piece bash does well precisely because POSIX job control is free there.
-`std.os` has the building blocks (`os_run_pipe`→pid, `os_wait_pid`,
-`os_execv`, `os_getpid`) but exposes **no** `kill`/`killpg`, signal-handler
-registration, process-group placement, or wait-with-timeout — so a native
-port today means hand-rolled FFI on the highest-blast-radius code, for zero
-new capability. Filed the gap upstream:
-`../aether/aeb-process-supervision-primitives.md` (asks for an
-`os.run_supervised(...)` high-level primitive, or the four low-level pieces).
-Revisit a native entrypoint once those land. (NB: the trampoline is ~635
-lines now, not the "~50-line thin trampoline" older notes claim.)
+**Decision (2026-06-10): hedge — keep the bash trampoline for now**, but the
+upstream blocker has since cleared. The flag-parsing / env-setup /
+lazy-build-dispatch bulk ports cleanly; the one piece bash did well for free
+was the *build-supervision tail* (own process group via `set -m`, forward
+INT/TERM to the group, timeout watchdog TERM→KILL, group-reap leaked
+daemons). That gap is now **closed upstream**: `std.os` gained
+`os.run_supervised(prog, argv, env, new_process_group, forward_signals,
+timeout_secs, reap_group) -> (exit_code, outcome)` — exactly the bash pattern
+— plus `os.kill` (negative-pid groups, `sig 0` probe), `os.wait_pid_timeout`,
+and `std.signal` constants. Landed on `feat/os-process-supervision`, merged to
+aether main as of 0.231.0 (this box runs 0.230.0; bump to ≥0.231 before the
+port). See `../aether/aeb-process-supervision-primitives.md` (STATUS: LANDED).
+**So the native entrypoint is no longer blocked — it's now scheduling, not a
+missing primitive.** Caveat for the Windows angle below: `run_supervised` is
+POSIX-only (Windows stubs report "unsupported on Windows"), so the native
+entrypoint's supervision tail must degrade on Windows (see the Windows
+cut-down section). (NB: the trampoline is ~635 lines now, not the "~50-line
+thin trampoline" older notes claim.)
+
+**Progress — the entire argv grammar is now ported, pure + tested, in
+`tools/aebcli/module.ae`** (75 assertions across
+`tests/test_aebcli_synonym.ae` + `tests/test_aebcli_parse.ae`). The bash
+loop's hardest-to-test bulk is now pure Aether:
+- `classify_target` / `synonym_dir|name|relpath|fqn` — the `*:*` / `*:*:*`
+  classification (plain / synonym / coordinate) + `.name.ae` resolution + the
+  `aeb synonym match:` FQN echo. **Windows-correct:** a leading drive prefix
+  is stripped before the synonym colon is counted, so `C:\proj` classifies as
+  a plain target (the bash `[[ "$a" == *:* ]]` mis-reads it as a synonym) —
+  this is the drive-letter disambiguation item 4 below needs.
+- `flag_spec` / `flag_known` / `flag_env` / `flag_takes_value` /
+  `flag_implies` — the full 22-flag table (10 boolean + 12 value, with the
+  `--sbom-json`→resolve-only / `--veto-policy`→vet / `--sandbox-profile`→
+  sandbox implications) as pure data.
+- **`parse_argv(argv) -> directive list`** — the whole flag loop as a pure
+  interpreter. Consumes raw argv, emits ordered tab-separated directives the
+  entrypoint executes: `env\tNAME\tVALUE`, `env-append\tNAME\tVALUE` (the
+  accumulating `--vet-tool`), `arg\tVALUE`, `synonym\tRELPATH\tFQN`,
+  `error\tCODE\tMESSAGE` (terminal — the bash exits on first error). Covers
+  the value-flag next-arg consume, the implies-relations, `--timeout` numeric
+  validation, coordinate/empty-name/missing-arg errors, and unknown-flag
+  passthrough.
+
+**The compiled entrypoint exists and runs — `tools/aeb-cli.ae`.** The impure
+executor that interprets parse_argv's directives is written and verified
+end-to-end (compiles clean; exercised across flags, the implies-relations, the
+accumulating `--vet-tool`, plain + synonym targets with the file-check + `aeb
+synonym match:` echo, and the coordinate/timeout/missing-arg/missing-synonym
+errors with correct exit codes). It also does `--version` (AEB_STAMP parsed via
+the pure `stamp_field`, incl. multi-word values), `AEB_HOME` resolution (env
+override else `_dirname(argv[0])` — native, no `dirname` shell-out), and the
+podman `DOCKER_HOST` autodetect (POSIX-gated). Today it resolves the full
+launch and prints the plan (a useful dry-run); the FINAL wiring is the
+supervised exec of aeb-main.
+
+**What remains for the entrypoint:**
+- **The supervision tail** — exec aeb-main as `aether aeb_home root targets…`
+  under `os.run_supervised` (own process group, INT/TERM forward, `--timeout`
+  TERM→KILL watchdog → exit 124, group-reap). POSIX-only; landed in ae 0.231
+  (this tree is on 0.230 — bump first). The Windows arm degrades: plain spawn +
+  `taskkill /F /T` on timeout, no group-reap (the cut-down).
+- **Abs-path + file-existence** for the `--agents` / `--veto-policy` /
+  `--sandbox-profile` values (parse_argv leaves these as plain `env`
+  directives; the bash also `cd`s to resolve them absolute and checks the file
+  exists — move that into the executor, using native `_dirname`/`_path_join`).
+- **The exec handoffs** — `--init` / `gcheckout` / `--watch` /
+  `--resolve-only` / `--trace-intent` / `--use-remote-agents` each lazy-build
+  their helper tool and exec it; and the lazy-build-of-helper-tools dispatch
+  generally (first-run compile of aeb-main, aeb-link, etc.).
+- **Cutover** — once the above land, replace the bash `aeb` with a thin shim
+  that just execs the compiled `aeb-cli` (or a per-OS launcher).
 
 Why it's worth doing:
 - **Portability.** A compiled entrypoint runs anywhere Aether targets,
   including native Windows — at which point the `:`-in-target /
   drive-letter (`C:`) disambiguation becomes a real (small) concern to
-  handle in the resolver, not a moot one.
+  handle in the resolver, not a moot one. (Now handled in `aebcli`.)
 - **Single language.** The CLI's arg grammar (flags, `path/to:name`
   synonym resolution + the `aeb synonym match:` FQN echo, `--scan
   '<glob>'` requiring a glob, `--vet`/`--veto-policy`, `--since`/`--scan`/
@@ -166,6 +222,152 @@ Open question: a thin bash shim may still be wanted purely as the
 `#!`-launchable file on Unix (it would just `exec` the compiled aeb),
 while the real logic moves into Aether. Decide whether the shim stays or
 a platform-native launcher replaces it per-OS.
+
+### Windows support (cut-down runner)
+
+**Goal:** `aeb` runs natively on Windows in a *reduced* mode — enough to
+build/test the languages whose toolchains are first-class on Windows (the
+JVM family, .NET, Go, Rust, Node, Python), with the POSIX-only features
+(`--sandbox`, `--watch`, container/podman lifecycle, group-reap) explicitly
+gated off rather than silently broken. Not "full parity" — a *cut-down* that
+is honest about what it can't do on Windows.
+
+**Why it's plausible now, not aspirational:**
+- Aether itself has a Windows backend (the POSIX-only stdlib pieces ship as
+  stubs that report "unsupported on Windows" — e.g. `os.run_supervised`).
+- aeb *already* branches by OS at its lowest layer: `aeb-link` has an
+  inlined `_is_macos_link()` for the GNU-ld-only `--allow-multiple-definition`
+  flag, and `lib/build` already carries `_host_os()` returning `"windows"`
+  for MinGW/MSYS/Cygwin `uname -s` prefixes. So the conditional-by-OS shape
+  exists; Windows is a third arm, not a new mechanism.
+
+**Foundation laid (this session, Linux-safe — all return 0 off-Windows):**
+- `lib/build`: `_is_windows()` / `_is_linux()` (alongside existing
+  `_is_macos()` / `_is_freebsd()`), `_host_os()` (normalised token),
+  `_exe_suffix()` (`.exe` on Windows), `_default_cc()` (gcc/cc/MinGW), and
+  **`_path_sep()`** (`;` on Windows, `:` elsewhere) — the classpath-join
+  separator every JVM SDK needs — and **`_has_windows_drive_prefix()`** (the
+  `Prefix::Disk` rule for item 4, ported from Nushell's nu-path). Locked by
+  `tests/test_platform_helpers.ae` (cross-platform invariants: exactly one
+  `_is_*` fires and agrees with the token; `_path_sep`/`_exe_suffix`/
+  `_default_cc` track the host; drive-prefix accept/reject cases).
+- `lib/build`: **native path helpers** `_path_is_sep` / `_basename` /
+  `_dirname` / `_path_ext` / `_path_join` / `_path_to_slashes` — Windows-
+  correct (on Windows both `/` and `\` are separators; dual-separator rule
+  ported from Nushell's nu-path) and trailing-sep-stripping like coreutils.
+  These are the canonical path ops SDKs should use instead of shelling out to
+  `dirname`/`basename` or rolling a `/`-only `dirname_pure`. Locked by
+  `tests/test_path_helpers.ae` (29 assertions). First conversion done:
+  `_resolve_aether_dir` dropped its `dirname $(command -v …)` shell-out for a
+  native `_dirname` (verified byte-identical to the old pipeline).
+- Linux-green against `./tests/run.sh` (89/89).
+
+**Reference: Nushell** (`../nushell`, MIT, shallow clone). A mature
+Windows-first shell in Rust — high-value comparison for these exact seams.
+Findings written up in `docs/windows-cross-platform-notes.md` (attribution in
+`NOTICE`). Three takeaways are folded into the items below: (a) Nushell does
+*not* do POSIX process groups on Windows — it just `spawn`s — validating the
+cut-down (item 1); (b) it terminates via `taskkill /F /PID` on Windows vs
+`kill` on POSIX (item 1); (c) its drive-letter handling = Rust std's
+`Prefix::Disk`, now ported as `_has_windows_drive_prefix` (item 4).
+
+**Work items (in rough dependency order):**
+
+1. **Native entrypoint is the gate.** Windows has no bash, so the cut-down
+   runner *requires* the native Aether entrypoint above (no longer blocked
+   upstream — see the supervision note). The Windows arm of that entrypoint
+   skips `set -m` / signal-forward / group-reap entirely (POSIX-only;
+   `run_supervised` stubs out on Windows) and just spawns + waits the build,
+   accepting that a leaked daemon won't be group-reaped. Document that as the
+   known cut-down gap. **Nushell confirms this is the right call** — it gates
+   all process-group machinery behind `#[cfg(unix)]` and just `spawn`s on
+   Windows (nu-system/foreground.rs). For the *timeout* path, where bash does
+   `kill -TERM -<pgid>`, the Windows arm uses `taskkill /F /PID <id>` (force-
+   kill the build PID) or `taskkill /F /T /PID <id>` (`/T` = kill the process
+   tree — the closest cut-down substitute for group-reap). Mapping from
+   nu-system/util.rs; see docs/windows-cross-platform-notes.md.
+
+2. **Classpath separator — convert JVM SDK call sites to `_path_sep()`.**
+   `lib/{java,kotlin,scala,groovy,clojure}` hardcode `:` when joining jar
+   paths into `-cp` / `CLASSPATH`. CAREFUL: not every `:` is a path
+   separator — `string.split(coord, ":")` parses a maven `g:a:v` coordinate
+   and must stay `:` on all platforms. Only the *path-list* joins/splits move
+   to `_path_sep()`. This is a per-call-site audit, not a blind sed. (The
+   `_path_sep()` helper is in place; the call-site conversion is the work.)
+
+3. **`.exe` suffix on built binaries.** Native-binary outputs (aether
+   `program`, go, rust, C) need `_exe_suffix()` appended on Windows so the
+   artifact is runnable. Audit the output-name assembly in `lib/{aether,c,go,
+   rust}` + `tools/aeb-link`.
+
+4. **Path / drive-letter handling in the resolver.** The `path/to:name`
+   target-synonym grammar collides with Windows `C:\...` drive letters. The
+   native entrypoint's arg parser must disambiguate (a lone drive letter is
+   not a `:name` suffix). **Helper now in place:**
+   `build._has_windows_drive_prefix(s)` (lib/build) implements the
+   `Prefix::Disk` rule (single letter + `:` + sep-or-end), ported from
+   Nushell's nu-path — call it *before* splitting a `:name` synonym. **Now
+   wired:** `tools/aebcli`'s `classify_target` / `synonym_*` strip the drive
+   prefix before counting the synonym colon, so `C:\proj` classifies as a
+   plain target and `C:\a\b:build` still resolves as a synonym (tested). What
+   remains: route the entrypoint's actual synonym-split through `aebcli`
+   (replacing the bash loop), and the `/`-vs-`\` path-join normalisation
+   (`build._path_to_slashes` exists; apply it on input). Known limitation: the
+   rare drive-*relative* `C:name` form (no separator) is treated as not-a-drive.
+   (NB: `aebcli` keeps its own copy of the drive rule, not `import build`, to
+   dodge the two-level transitive qualified-symbol compiler bug — consolidate
+   when that's fixed upstream.)
+
+5. **Feature-gate the POSIX-only capabilities with a clear message.** On
+   Windows, `--sandbox` (LD_PRELOAD seccomp-shaped), `--watch` (inotify/
+   fswatch), the container/podman lifecycle steps, and group-reap should each
+   fail-fast with "unsupported on Windows (cut-down runner)" rather than a
+   cryptic missing-tool error. One gate helper reading `build._is_windows()`.
+
+6. **The 47-file coreutils dependency is the deep blocker.** ~47 SDK/tool
+   files shell out to POSIX coreutils (`find`, `sed`, `awk`, `tr`, `cut`,
+   `sha256sum`, `dirname`, `mktemp`). A native Windows shell has none of
+   these. Two strategies, not mutually exclusive:
+   - **(A, pragmatic) Bundle a busybox/POSIX layer.** Ship/require a busybox
+     or Git-for-Windows `usr/bin` on PATH so the shell-outs resolve. Fastest
+     to a working cut-down; keeps aeb dependent on a POSIX shim.
+   - **(B, going-forward) Rewrite shell-outs in native `std.string`.** Each
+     `sed`/`tr`/`cut`/`dirname` shell-out replaced with `std.string` /
+     `std.fs` is one fewer Windows dependency and one less fork on *every*
+     platform. This is the **going-forward rule** (see below) — new SDK code
+     prefers native ops; the existing 47 get converted opportunistically.
+     A module is "Windows-native" once it has zero coreutils shell-outs.
+     **Existence proof: Nushell's `nu-command`** reimplements `ls`/`str`/
+     `path`/etc. as native Rust rather than shelling out — a Windows shell
+     replaces coreutils with library calls, exactly strategy (B) at scale.
+     **Started:** `lib/build` now ships native `_basename`/`_dirname`/
+     `_path_ext`/`_path_join` (the path-manipulation slice of the coreutils
+     surface). Remaining `dirname`/`basename` shell-out sites to convert onto
+     them: `lib/bash` (4×), `lib/dotnet` (2×), `lib/go`, `lib/ts`,
+     `lib/container`, `lib/angular`. Also the drifting `_dirname` copies in
+     `tools/{aeb-query,affected-targets,gcheckout}` + `tools/aeblabel`'s
+     `dirname_pure` (all `/`-only) should consolidate onto these once a
+     tools→lib import path exists (today tools import `aeblabel`, not `build`).
+
+7. **Symlink fallback already works.** `aeb --init` materialises
+   `.aeb/lib/<name>`; on platforms without symlink privilege it already
+   falls back to copying. Windows (without Developer Mode) is the same case —
+   no new work, just verify.
+
+**Going-forward rule (applies to ALL new SDK code, not just Windows work):**
+Prefer native `std.string` / `std.fs` over POSIX-coreutils shell-outs. A new
+builder that needs to split a string, trim, replace, or compute a dirname
+should use the stdlib, NOT `os.exec("sed ...")` / `tr` / `cut` / `dirname`.
+Rationale: every coreutils shell-out is (a) a Windows portability blocker,
+(b) a per-call fork cost on every platform, and (c) a quoting/injection
+surface. The existing 47 shell-out sites are grandfathered and converted
+opportunistically (item 6B); new code starts native.
+
+**Honest status:** unstarted beyond the platform-detection foundation +
+this plan. Cannot be tested from the Linux dev box — every change must stay
+Linux-green (the new predicates return 0 off-Windows; `./tests/run.sh` is the
+guard). Real verification needs a Windows box with the JVM/.NET/Go toolchains
+installed. Lower priority than the native entrypoint it depends on.
 
 ### Target filtering (done)
 

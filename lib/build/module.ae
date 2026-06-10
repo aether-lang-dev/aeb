@@ -531,6 +531,223 @@ _is_windows() {
     return _host_os() == "windows"
 }
 
+// Linux is the default/fallback host (anything not Darwin, FreeBSD, or a
+// MinGW/MSYS/Cygwin Windows shell). Provided for symmetry with the other
+// _is_* predicates so feature-gates can read naturally; returns 0 on
+// macOS/FreeBSD/Windows.
+_is_linux() {
+    return _host_os() == "linux"
+}
+
+// Path-list separator for the host OS: ';' on Windows, ':' everywhere
+// else. JVM SDKs (java/kotlin/scala/groovy/clojure) build classpaths by
+// joining jar paths with this — hardcoding ':' breaks on a native
+// Windows JVM. Use build._path_sep() when assembling -cp / CLASSPATH.
+_path_sep() {
+    if _is_windows() == 1 {
+        return ";"
+    }
+    return ":"
+}
+
+// True (1) if `s` begins with a Windows drive-letter prefix — a single
+// ASCII letter followed by ':' (e.g. "C:", "C:\\src", "d:/tmp"). This is
+// the disambiguation the target-synonym grammar needs: aeb's `path:name`
+// suffix uses ':' too, so on Windows a bare "C:\proj" must NOT be parsed
+// as path "C" + synonym ":\proj". The rule mirrors Rust std's
+// `std::path::Prefix::Disk` (what Nushell's nu-path relies on for the
+// same job): the colon is at index 1, a letter precedes it, and what
+// follows is either nothing (the cwd-relative drive form "C:") or a path
+// separator. A synonym like "java/foo:bar" never matches (multi-char
+// path before the colon; a non-separator after it).
+// Portions copyright The Nushell Project Developers (rule from nu-path,
+// MIT). See NOTICE.
+_has_windows_drive_prefix(s: string) {
+    if string.length(s) < 2 { return 0 }
+    if string.equals(string.substring(s, 1, 2), ":") == 0 { return 0 }
+    c0 = string.substring(s, 0, 1)
+    letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if string.contains(letters, c0) == 0 { return 0 }
+    if string.length(s) == 2 { return 1 }
+    c2 = string.substring(s, 2, 3)
+    if string.equals(c2, "/") == 1 { return 1 }
+    if string.equals(c2, "\\") == 1 { return 1 }
+    return 0
+}
+
+// --- Native cross-platform path helpers ------------------------------
+//
+// Pure string analysis — NO `dirname`/`basename` shell-out (the
+// going-forward rule, TODO.md § Windows). The Windows-correctness bit is
+// ported from Nushell's nu-path / Rust std: on Windows BOTH '/' and '\'
+// are path separators, so these accept either; on POSIX only '/' is a
+// separator ('\' is a legal filename char there). Trailing separators are
+// stripped before the final component is taken, matching coreutils
+// `basename`/`dirname` and Rust's `Path::file_name`/`parent`. These are
+// the canonical path ops SDKs should use instead of shelling out or
+// rolling a '/'-only `dirname_pure`.
+// Portions copyright The Nushell Project Developers (dual-separator rule
+// from nu-path, MIT). See NOTICE.
+
+// 1 if `ch` (a one-char string) is a path separator on the host OS.
+_path_is_sep(ch: string) {
+    if string.equals(ch, "/") == 1 { return 1 }
+    if _is_windows() == 1 {
+        if string.equals(ch, "\\") == 1 { return 1 }
+    }
+    return 0
+}
+
+// Drop trailing separators, keeping a lone root char (so "/" stays "/").
+// Internal helper for _basename / _dirname.
+_path_rstrip_seps(path: string) {
+    n = string.length(path)
+    going = 1
+    while going == 1 {
+        if n <= 1 {
+            going = 0
+        }
+        else {
+            ch = string.substring(path, n - 1, n)
+            if _path_is_sep(ch) == 1 {
+                n = n - 1
+            }
+            else {
+                going = 0
+            }
+        }
+    }
+    return string.substring(path, 0, n)
+}
+
+// Index of the last host-aware separator in `path`, or -1 if none.
+_path_last_sep(path: string) {
+    n = string.length(path)
+    last = 0 - 1
+    i = 0
+    while i < n {
+        ch = string.substring(path, i, i + 1)
+        if _path_is_sep(ch) == 1 {
+            last = i
+        }
+        i = i + 1
+    }
+    return last
+}
+
+// Final path component, trailing separators ignored.
+//   "foo/bar" -> "bar"   "foo/bar/" -> "bar"   "bar" -> "bar"   "/" -> "/"
+_basename(path: string) {
+    p = _path_rstrip_seps(path)
+    last = _path_last_sep(p)
+    if last < 0 {
+        return p
+    }
+    n = string.length(p)
+    if last == n - 1 {
+        // all separators (a bare root like "/" or "\\")
+        return p
+    }
+    return string.substring(p, last + 1, n)
+}
+
+// Parent directory, trailing separators ignored.
+//   "foo/bar" -> "foo"   "foo/bar/" -> "foo"   "bar" -> "."
+//   "/foo" -> "/"        "C:\\foo" -> "C:"
+_dirname(path: string) {
+    p = _path_rstrip_seps(path)
+    last = _path_last_sep(p)
+    if last < 0 {
+        return string.concat(".", "")
+    }
+    if last == 0 {
+        // root component: return the root separator as-is ("/" or "\\")
+        return string.substring(p, 0, 1)
+    }
+    // collapse a run of separators at the seam ("foo//bar" -> "foo")
+    end = last
+    going = 1
+    while going == 1 {
+        if end <= 1 {
+            going = 0
+        }
+        else {
+            ch = string.substring(p, end - 1, end)
+            if _path_is_sep(ch) == 1 {
+                end = end - 1
+            }
+            else {
+                going = 0
+            }
+        }
+    }
+    return string.substring(p, 0, end)
+}
+
+// File extension WITHOUT the leading dot, or "" if none. Matches Rust
+// Path::extension: a leading-dot name (".gitignore") has NO extension;
+// "a.tar.gz" -> "gz"; "noext" -> "".
+_path_ext(path: string) {
+    base = _basename(path)
+    n = string.length(base)
+    dot = 0 - 1
+    i = 0
+    while i < n {
+        ch = string.substring(base, i, i + 1)
+        if string.equals(ch, ".") == 1 {
+            dot = i
+        }
+        i = i + 1
+    }
+    if dot <= 0 {
+        // no dot, or a leading-dot hidden file (".gitignore")
+        return string.concat("", "")
+    }
+    return string.substring(base, dot + 1, n)
+}
+
+// Join two segments with a forward slash, collapsing the seam divider and
+// honouring an absolute `b`. Always uses '/' (Windows accepts it in nearly
+// every API; uniform internal paths — TODO.md § Windows item 4).
+_path_join(a: string, b: string) {
+    if string.length(a) == 0 {
+        return b
+    }
+    if string.length(b) == 0 {
+        return a
+    }
+    bfirst = string.substring(b, 0, 1)
+    if _path_is_sep(bfirst) == 1 {
+        return b
+    }
+    if _has_windows_drive_prefix(b) == 1 {
+        return b
+    }
+    abase = _path_rstrip_seps(a)
+    return string.concat(string.concat(abase, "/"), b)
+}
+
+// Normalise backslashes to forward slashes. Windows accepts '/' in nearly
+// every API, so converting on input yields uniform internal paths. No-op
+// on strings without backslashes (stdlib has no string.replace, so this
+// is a char-rebuild loop).
+_path_to_slashes(path: string) {
+    n = string.length(path)
+    out = ""
+    i = 0
+    while i < n {
+        ch = string.substring(path, i, i + 1)
+        if string.equals(ch, "\\") == 1 {
+            out = string.concat(out, "/")
+        }
+        else {
+            out = string.concat(out, ch)
+        }
+        i = i + 1
+    }
+    return out
+}
+
 // Default C compiler for the host OS. FreeBSD's base system ships
 // clang as `cc` (no gcc by default); Linux distros ship gcc as both
 // `cc` and `gcc`; MinGW provides `gcc`. Always overridable by the
@@ -592,8 +809,10 @@ _resolve_aether_dir() {
     if string.length(ae) == 0 {
         ae = "ae"
     }
-    raw, _eerr = os.exec("dirname $(command -v ${ae})")
-    return string.trim(raw)
+    // `command -v` is an unavoidable PATH lookup, but the dirname is now
+    // native (no `dirname` coreutils shell-out — going-forward rule).
+    raw, _eerr = os.exec("command -v ${ae}")
+    return _dirname(string.trim(raw))
 }
 
 // build/ dir of a validated dev tree — where its aetherc and

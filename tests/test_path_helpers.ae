@@ -1,0 +1,71 @@
+// Tests for lib/build's native cross-platform path helpers — _basename,
+// _dirname, _path_ext, _path_join, _path_to_slashes (and the _path_is_sep
+// foundation). These replace `dirname`/`basename` coreutils shell-outs (the
+// going-forward rule) and are Windows-correct: on Windows both '/' and '\'
+// are separators. The dual-separator rule is ported from Nushell's nu-path
+// (MIT) — see NOTICE. Most cases use '/' (a separator on every host) so the
+// assertions hold regardless of which OS runs the suite; backslash cases are
+// gated on _is_windows() since '\' is a plain filename char on POSIX.
+//
+// See TODO.md § "Windows support (cut-down runner)".
+
+import build (_basename, _dirname, _path_ext, _path_join, _path_to_slashes, _is_windows)
+import std.string
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // --- _basename: final component, trailing separators ignored ---
+    _eq("basename foo/bar",        _basename("foo/bar"),        "bar")
+    _eq("basename foo/bar/",       _basename("foo/bar/"),       "bar")
+    _eq("basename bare",           _basename("bar"),            "bar")
+    _eq("basename /",              _basename("/"),              "/")
+    _eq("basename /abs/file.txt",  _basename("/abs/file.txt"),  "file.txt")
+    _eq("basename deep///run",     _basename("a/b///run"),      "run")
+    _eq("basename trailing run//", _basename("a/b/run//"),      "run")
+
+    // --- _dirname: parent, trailing separators ignored ---
+    _eq("dirname foo/bar",         _dirname("foo/bar"),         "foo")
+    _eq("dirname foo/bar/",        _dirname("foo/bar/"),        "foo")
+    _eq("dirname bare",            _dirname("bar"),             ".")
+    _eq("dirname /foo",            _dirname("/foo"),            "/")
+    _eq("dirname /a/b/c",          _dirname("/a/b/c"),          "/a/b")
+    _eq("dirname collapse foo//b", _dirname("foo//bar"),        "foo")
+
+    // --- _path_ext: extension without the dot, Rust Path::extension semantics ---
+    _eq("ext a.tar.gz",            _path_ext("a.tar.gz"),       "gz")
+    _eq("ext dir/file.ae",         _path_ext("dir/file.ae"),    "ae")
+    _eq("ext noext",               _path_ext("noext"),          "")
+    _eq("ext hidden .gitignore",   _path_ext(".gitignore"),     "")
+    _eq("ext dotdir/.x has none",  _path_ext("dotdir/.x"),      "")
+    _eq("ext trailing dot",        _path_ext("foo."),           "")
+    _eq("ext dot-in-parent only",  _path_ext("a.b/file"),       "")
+
+    // --- _path_join: collapse the seam, honour absolute b ---
+    _eq("join simple",             _path_join("a/b", "c"),      "a/b/c")
+    _eq("join strips a trailing",  _path_join("a/b/", "c"),     "a/b/c")
+    _eq("join empty a",            _path_join("", "c"),         "c")
+    _eq("join empty b",            _path_join("a", ""),         "a")
+    _eq("join absolute b wins",    _path_join("a/b", "/abs"),   "/abs")
+
+    // --- _path_to_slashes: backslash normalisation ---
+    _eq("to_slashes plain",        _path_to_slashes("a/b/c"),   "a/b/c")
+    _eq("to_slashes backslashes",  _path_to_slashes("a\\b\\c"), "a/b/c")
+    _eq("to_slashes drive",        _path_to_slashes("C:\\src"), "C:/src")
+
+    // --- Windows-only: '\' is a separator there, a filename char on POSIX ---
+    if _is_windows() == 1 {
+        _eq("win basename a\\b",   _basename("a\\b"),           "b")
+        _eq("win dirname a\\b",    _dirname("a\\b"),            "a")
+        _eq("win basename C:\\x",  _basename("C:\\x"),          "x")
+    }
+    else {
+        // On POSIX, a backslash is just part of the name (no separator).
+        _eq("posix basename a\\b", _basename("a\\b"),           "a\\b")
+    }
+}
