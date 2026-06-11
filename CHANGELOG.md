@@ -4,6 +4,21 @@
 
 ### Added
 
+- **Remote build cache — shared filesystem backend.** `lib/cache` now
+  consults a shared remote *behind* the local store, transparently (no
+  SDK changes — every SDK already calls `cache.get`/`put`). On a local
+  miss it pulls the blob from the remote into the local store and serves
+  it; on a build it writes local and pushes the blob to the remote. Local
+  and remote hold the same zlib-compressed, sha256-sharded blobs, so they
+  are interchangeable CAS. Configure with `AEB_REMOTE_CACHE_URL`
+  (`file:///abs/path` or a plain path — an NFS mount, a shared CI volume,
+  a bind-mount; the equivalent of Bazel `--disk_cache` / Buck2 disk
+  cache) and `AEB_REMOTE_CACHE_MODE` (`off`|`read`|`write`|`readwrite`,
+  default `readwrite` when a URL is set — CI runners `write`, dev
+  machines `read`). Every remote op is best-effort and never fails the
+  build. `http(s)://` URLs are recognised but not yet wired (HTTP/S3
+  backend is next). Covered by `tests/test_remote_cache.ae` and the
+  two-machine end-to-end `tests/test_remote_cache_roundtrip.ae`.
 - **Content-addressed cache wired into every artifact-producing SDK.**
   Previously only `lib/aether`, `lib/java`, and `lib/maven` participated
   in the `lib/cache` (sha256+zlib) store; now `lib/kotlin`, `lib/scala`,
