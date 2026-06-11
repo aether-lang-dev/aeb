@@ -353,10 +353,22 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
      toolchain target — correct for native-Win+Win-JDK and Linux/WSL2+Linux-JDK,
      wrong only for the WSL2→Windows-`java.exe` boundary (out of scope).
 
-3. **`.exe` suffix on built binaries.** Native-binary outputs (aether
-   `program`, go, rust, C) need `_exe_suffix()` appended on Windows so the
-   artifact is runnable. Audit the output-name assembly in `lib/{aether,c,go,
-   rust}` + `tools/aeb-link`.
+3. **`.exe` suffix on built binaries. DONE.** Native-binary outputs append
+   `build._exe_suffix()` (".exe" on Windows, "" else) so the recorded/executed
+   path matches what MinGW gcc / `go build` / cargo actually emit:
+   - `lib/c` already did it (`c.program`).
+   - `lib/aether`: `program` / `program_test` / `driver_test` binaries (the
+     `.c` intermediate stays unsuffixed).
+   - `lib/rust`: the `cargo_binary` artifact (crate name → always suffixable).
+   - `lib/go`: `go_build` output, but ONLY when the name has no extension (a
+     bare exe) — a shared-lib output (`libfoo.so`/`.dll`) keeps its extension;
+     the `.so`↔`.dll` cross-platform naming is a separate concern.
+   - `tools/aeb-link`: the composite `_ae_build_all` binary (suffixed once so
+     the `-o`, the per-node exec, and the aeb-driver call agree).
+   Byte-identical on Linux (suffix == ""); suite 104/104.
+   Not covered (separate concern): cross-platform **shared-library** extension
+   (`.so`/`.dylib`/`.dll`) for the FFI handoff SDKs (go c-shared, rust cdylib,
+   the JNI `.so`s) — that's its own item, not the `.exe` one.
 
 4. **Path / drive-letter handling in the resolver.** The `path/to:name`
    target-synonym grammar collides with Windows `C:\...` drive letters. The

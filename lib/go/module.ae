@@ -284,6 +284,13 @@ builder go_build(ctx: ptr) {
         println("${mod_dir}: output_file() is required for go_build")
         return 1
     }
+    // A bare executable name (no extension) gets the host exe suffix on
+    // Windows so the recorded path matches what `go build` produces; a
+    // shared-lib output (libfoo.so / .dll) already carries its extension and
+    // is left untouched (the .so↔.dll cross-platform story is separate).
+    if string.index_of(out_name, ".") < 0 {
+        out_name = string.concat(out_name, build._exe_suffix())
+    }
     out_path = path.join(lib_dir, out_name)
     bld_cmd = go_build_cmd(source_dir, out_path, _builder)
 

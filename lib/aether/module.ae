@@ -2033,7 +2033,7 @@ builder program(ctx: ptr) {
             out_name, _ = map.get(_builder, "output")
         }
     }
-    bin_path = path.join(bin_dir, out_name)
+    bin_path = path.join(bin_dir, string.concat(out_name, build._exe_suffix()))
     c_path = path.join(target_dir, string.concat(out_name, ".c"))
 
     // Compile phase — skipped under --execute-only (the binary was already
@@ -2072,7 +2072,7 @@ builder program_test(ctx: ptr) {
         }
     }
     src_path = path.join(source_dir, src_name)
-    bin_path = path.join(bin_dir, "test_program")
+    bin_path = path.join(bin_dir, string.concat("test_program", build._exe_suffix()))
     c_path = path.join(target_dir, "test_program.c")
 
     // COMPILE phase — skipped under --execute-only (built in the container
@@ -2183,7 +2183,7 @@ builder driver_test(ctx: ptr) {
             out_name, _ = map.get(_builder, "output")
         }
     }
-    bin_path = path.join(bin_dir, out_name)
+    bin_path = path.join(bin_dir, string.concat(out_name, build._exe_suffix()))
     c_path = path.join(target_dir, string.concat(out_name, ".c"))
 
     println("${mod_dir}: compiling Aether driver")

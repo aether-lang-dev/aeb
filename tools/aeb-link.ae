@@ -261,6 +261,13 @@ main() {
     out_bin    = aether_args_get(6)
     root       = aether_args_get(7)
 
+    // On Windows, MinGW gcc emits <out_bin>.exe; suffix once here so the `-o`
+    // target, the per-node `out_bin <root> <label>` exec, and the aeb-driver
+    // invocation all name the file that actually exists. No-op off Windows.
+    if os.platform() == "windows" {
+        out_bin = string.concat(out_bin, ".exe")
+    }
+
     aebhome = os.getenv("AEB_HOME")
     if string.length(aebhome) == 0 {
         // Fall back; aeb always exports AEB_HOME so this is just a guard.

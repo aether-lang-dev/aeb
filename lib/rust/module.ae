@@ -1290,7 +1290,9 @@ builder cargo_project_existing(ctx: ptr) {
         if map.has(_builder, "binary_name") == 1 {
             bn, _ = map.get(_builder, "binary_name")
             release_dir = path.join(lib_dir, "release")
-            full_bin = path.join(release_dir, bn)
+            // cargo appends .exe on Windows; match it so the recorded path is
+            // the file that actually exists (a crate name has no extension).
+            full_bin = path.join(release_dir, string.concat(bn, build._exe_suffix()))
             build._write_artifact(ctx, "cargo_binary", full_bin)
         }
     }
