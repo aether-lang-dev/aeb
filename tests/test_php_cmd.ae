@@ -1,0 +1,31 @@
+// Tests for lib/php's pure command-string builders.
+import php (phpunit_cmd, phar_runner, config_part, phar_fetch_cmd)
+import std.string
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // Bare phpunit, no config.
+    _eq("bare phpunit",
+        phpunit_cmd("/proj", "phpunit", config_part("")),
+        "cd '/proj' && phpunit")
+
+    // phar runner + config — the servirtium shape (post-fetch).
+    _eq("phar runner string", phar_runner("phpunit.phar"), "php 'phpunit.phar'")
+    _eq("config part", config_part("phpunit.xml"), " --configuration 'phpunit.xml'")
+    _eq("php phar with config",
+        phpunit_cmd("/proj", phar_runner("phpunit.phar"), config_part("phpunit.xml")),
+        "cd '/proj' && php 'phpunit.phar' --configuration 'phpunit.xml'")
+
+    // Fetch command (curl) — runs only when Aether finds the phar missing.
+    _eq("phar fetch",
+        phar_fetch_cmd("/proj", "https://phar.phpunit.de/phpunit-11.phar", "phpunit.phar"),
+        "cd '/proj' && curl -fsSL 'https://phar.phpunit.de/phpunit-11.phar' -o 'phpunit.phar'")
+
+    println("php command-string tests done")
+}

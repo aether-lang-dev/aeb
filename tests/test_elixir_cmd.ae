@@ -1,0 +1,36 @@
+// Tests for lib/elixir's pure command-string builders.
+import elixir (mix_deps_get_cmd, mix_test_cmd, _flag_part)
+import std.string
+import std.list
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    _eq("deps.get runs from source_dir",
+        mix_deps_get_cmd("/proj"),
+        "cd '/proj' && mix deps.get")
+
+    _eq("mix test no flags",
+        mix_test_cmd("/proj", ""),
+        "cd '/proj' && mix test")
+
+    // _flag_part renders the suffix with a leading space per flag.
+    _eq("flag part empty (null)", _flag_part(null), "")
+    fl = list.new()
+    _a1 = list.add(fl, "--trace")
+    _eq("mix test one flag",
+        mix_test_cmd("/proj", _flag_part(fl)),
+        "cd '/proj' && mix test --trace")
+    _a2 = list.add(fl, "--seed")
+    _a3 = list.add(fl, "0")
+    _eq("mix test multiple flags",
+        mix_test_cmd("/proj", _flag_part(fl)),
+        "cd '/proj' && mix test --trace --seed 0")
+
+    println("elixir command-string tests done")
+}

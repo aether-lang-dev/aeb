@@ -1,27 +1,77 @@
 // elixir — Elixir SDK for aeb.
 //
-// Drives an existing Mix project as-is (the upstream owns mix.exs);
-// aeb runs `mix` in the project dir and classifies the exit code.
-// Env injection (for a NIF path, an ERL_LIBS root, etc.) rides the
-// shared `env(...)` setter from lib/build.
+// Drives an existing Mix project as-is (the upstream owns mix.exs); aeb
+// runs `mix` in the project dir and classifies the exit code. Env injection
+// (a NIF path, an ERL_LIBS root, …) rides the shared `env(...)` setter.
 //
 //   import build
 //   import elixir
 //   import build (env)
-//   aeb(cap) {
-//       b = build.start()
-//       build.dep(b, "erlang/.build.ae")
-//       ebin = build.dep_artifact(b, "erlang/.build.ae", "nif_ebin")
-//       elixir.test(b) { env("SERVIRTIUM_NIF_EBIN", ebin) }
+//   import elixir (deps_get_first)
+//   elixir.test(b) {
+//       env("SERVIRTIUM_NIF_EBIN", ebin)
+//       deps_get_first("1")   // `mix deps.get` before `mix test`
 //   }
 //
-// Setters available in the block (all from lib/build, bare-imported):
-//   env(K, V)        inject an env var (repeatable)
-//   step("…")        override/extend the command(s) (repeatable)
-//   workdir("dir")   run elsewhere than the module's own dir
+// Setters: env(K,V) [lib/build], deps_get_first("1"), mix_test_flag("…").
+// A binding that declares its own step("…") still gets the generic
+// _run_project path (back-compat); the DSL path is taken only when no
+// step() was set.
 import build
 import std.string
 import std.os
+import std.list
+import std.io
+import std.path
+import std.map
+
+// --- DSL setters ---
+
+// deps_get_first("1") — run `mix deps.get` before `mix test` (any non-empty
+// value enables). Replaces a step("mix deps.get") + step("mix test") pair.
+deps_get_first(_ctx: ptr, v: string) {
+    _e = map.put(_ctx, "elixir_deps_get", v)
+}
+
+// mix_test_flag("--max-cases") — one verbatim flag for `mix test`
+// (--max-cases, --seed, --trace, --only, …). Repeatable; greppable literal.
+mix_test_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "mix_test_flags") == 0 {
+        _e1 = map.put(_ctx, "mix_test_flags", list.new())
+    }
+    l, _ = map.get(_ctx, "mix_test_flags")
+    _a = list.add(l, flag)
+}
+
+// --- Pure command builders (tested in tests/test_elixir_cmd.ae) ---
+
+// mix_deps_get_cmd(source_dir) — `cd '<dir>' && mix deps.get`.
+mix_deps_get_cmd(source_dir: string) {
+    return "cd '${source_dir}' && mix deps.get"
+}
+
+// mix_test_cmd(source_dir, flags_part) — `cd '<dir>' && mix test<flags_part>`.
+// flags_part is " --trace --seed 0" (leading space) or "".
+mix_test_cmd(source_dir: string, flags_part: string) {
+    return "cd '${source_dir}' && mix test${flags_part}"
+}
+
+// _flag_part(l) — render a list of flags as " a b c" (leading space), "" when
+// empty/null. Pure.
+_flag_part(l: ptr) {
+    if l == null { return "" }
+    out = ""
+    n = list.size(l)
+    i = 0
+    while i < n {
+        f, _ = list.get(l, i)
+        out = string.concat(out, string.concat(" ", f))
+        i = i + 1
+    }
+    return out
+}
+
+// --- Builders ---
 
 // elixir.compile(b) — `mix compile`. Build-phase verb.
 builder compile(ctx: ptr) {
@@ -30,9 +80,54 @@ builder compile(ctx: ptr) {
     return build._run_project(ctx, _builder, "mix compile", 0)
 }
 
-// elixir.test(b) — `mix test`. Reports pass/fail telemetry.
+// elixir.test(b) — `mix test` (optionally `mix deps.get` first), pass/fail
+// telemetry. Honors explicit step()s for back-compat; otherwise DSL-driven.
 builder test(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
+
+    // Back-compat: a binding that wrote step("…") keeps the generic path.
+    if _builder != null {
+        if map.has(_builder, "proc_steps") == 1 {
+            println("${mod_dir}: running tests (mix test)")
+            return build._run_project(ctx, _builder, "mix test", 1)
+        }
+    }
+
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+    env_prefix = build._env_export_prefix(_builder)
+
+    // Optional `mix deps.get` first.
+    if _builder != null {
+        if map.has(_builder, "elixir_deps_get") == 1 {
+            dv, _ = map.get(_builder, "elixir_deps_get")
+            if string.length(dv) > 0 {
+                println("${mod_dir}: resolving deps (mix deps.get)")
+                dg_rc = os.system(string.concat(env_prefix, mix_deps_get_cmd(source_dir)))
+                if dg_rc != 0 {
+                    println("${mod_dir}: deps.get FAILED")
+                    build.fail(ctx, "deps.get FAILED")
+                    return dg_rc
+                }
+            }
+        }
+    }
+
+    flags = null
+    if _builder != null {
+        if map.has(_builder, "mix_test_flags") == 1 { flags, _ = map.get(_builder, "mix_test_flags") }
+    }
     println("${mod_dir}: running tests (mix test)")
-    return build._run_project(ctx, _builder, "mix test", 1)
+    rc = os.system(string.concat(env_prefix, mix_test_cmd(source_dir, _flag_part(flags))))
+    if rc != 0 {
+        build._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
+        return rc
+    }
+    build._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }

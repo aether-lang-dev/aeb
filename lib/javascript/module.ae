@@ -1,22 +1,73 @@
 // javascript — JavaScript/Node SDK for aeb.
 //
 // Drives an existing Node project as-is. `javascript.test` defaults to
-// `npm test`; projects that install deps first or invoke a runner
-// directly override/extend with step(...). Env injection (e.g. a shared
-// `.so` path read by an FFI binding) rides the shared env(...) setter.
+// `npm test`; declare npm_install(...) to resolve deps first and/or
+// jest(...) to run via `npx jest` instead of `npm test`. Env injection
+// (a shared `.so` path read by an FFI binding) rides the shared env(...).
 //
 //   import build
 //   import javascript
-//   import build (env, step)
+//   import build (env)
+//   import javascript (npm_install, jest)
 //   javascript.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
-//       step("npm install --silent --no-audit --no-fund")
-//       step("npx jest --runInBand")
+//       npm_install("--silent --no-audit --no-fund")
+//       jest("--runInBand")
 //   }
 //
-// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+// Setters: env(K,V) [lib/build], npm_install("flags"), jest("flags"),
+// npm_test_flag("…"). A binding that declares its own step("…") still gets
+// the generic _run_project path (back-compat).
 import build
 import std.string
+import std.os
+import std.list
+import std.io
+import std.path
+import std.map
+
+// --- DSL setters ---
+
+// npm_install("--silent --no-audit --no-fund") — run `npm install <flags>`
+// before the test. Scalar (the flag bundle); presence enables. Empty string
+// runs a bare `npm install`.
+npm_install(_ctx: ptr, flags: string) {
+    _e = map.put(_ctx, "npm_install_flags", flags)
+    _e2 = map.put(_ctx, "npm_install_on", "1")
+}
+
+// jest("--runInBand") — run the suite via `npx jest <flags>` instead of the
+// default `npm test`. Scalar. Empty string runs a bare `npx jest`.
+jest(_ctx: ptr, flags: string) {
+    _e = map.put(_ctx, "jest_flags", flags)
+    _e2 = map.put(_ctx, "jest_on", "1")
+}
+
+// --- Pure command builders (tested in tests/test_javascript_cmd.ae) ---
+
+// npm_install_cmd(source_dir, flags) — `cd '<dir>' && npm install <flags>`.
+// flags appended (with a separating space) only when non-empty.
+npm_install_cmd(source_dir: string, flags: string) {
+    if string.length(flags) > 0 {
+        return "cd '${source_dir}' && npm install ${flags}"
+    }
+    return "cd '${source_dir}' && npm install"
+}
+
+// npx_jest_cmd(source_dir, flags) — `cd '<dir>' && npx jest <flags>`.
+npx_jest_cmd(source_dir: string, flags: string) {
+    if string.length(flags) > 0 {
+        return "cd '${source_dir}' && npx jest ${flags}"
+    }
+    return "cd '${source_dir}' && npx jest"
+}
+
+// npm_test_cmd(source_dir) — `cd '<dir>' && npm test` (the default runner).
+npm_test_cmd(source_dir: string) {
+    return "cd '${source_dir}' && npm test"
+}
+
+// --- Builders ---
 
 // javascript.build(b) — `npm install`.
 builder build(ctx: ptr) {
@@ -25,9 +76,60 @@ builder build(ctx: ptr) {
     return build._run_project(ctx, _builder, "npm install", 0)
 }
 
-// javascript.test(b) — `npm test` by default. Reports pass/fail telemetry.
+// javascript.test(b) — `npm test` by default; `npx jest` when jest(...) is
+// declared, optionally `npm install` first. Pass/fail telemetry. Honors
+// explicit step()s for back-compat.
 builder test(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
-    println("${mod_dir}: running tests (npm test)")
-    return build._run_project(ctx, _builder, "npm test", 1)
+
+    // Back-compat: a binding that wrote step("…") keeps the generic path.
+    if _builder != null {
+        if map.has(_builder, "proc_steps") == 1 {
+            println("${mod_dir}: running tests (npm test)")
+            return build._run_project(ctx, _builder, "npm test", 1)
+        }
+    }
+
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+    env_prefix = build._env_export_prefix(_builder)
+
+    // Optional `npm install` first.
+    if _builder != null {
+        if map.has(_builder, "npm_install_on") == 1 {
+            iflags = ""
+            if map.has(_builder, "npm_install_flags") == 1 { iflags, _ = map.get(_builder, "npm_install_flags") }
+            println("${mod_dir}: installing deps (npm install)")
+            in_rc = os.system(string.concat(env_prefix, npm_install_cmd(source_dir, iflags)))
+            if in_rc != 0 {
+                println("${mod_dir}: npm install FAILED")
+                build.fail(ctx, "npm install FAILED")
+                return in_rc
+            }
+        }
+    }
+
+    // Pick the runner: npx jest (if declared) else npm test.
+    test_command = npm_test_cmd(source_dir)
+    if _builder != null {
+        if map.has(_builder, "jest_on") == 1 {
+            jflags = ""
+            if map.has(_builder, "jest_flags") == 1 { jflags, _ = map.get(_builder, "jest_flags") }
+            test_command = npx_jest_cmd(source_dir, jflags)
+        }
+    }
+
+    println("${mod_dir}: running tests (node)")
+    rc = os.system(string.concat(env_prefix, test_command))
+    if rc != 0 {
+        build._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
+        return rc
+    }
+    build._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }

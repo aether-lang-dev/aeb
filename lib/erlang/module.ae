@@ -1,33 +1,94 @@
 // erlang — Erlang/OTP SDK for aeb.
 //
 // Drives an existing Erlang build as-is. NIF/OTP builds are bespoke
-// (compile a C NIF, erlc the modules, stage an .app), so `erlang.compile`
-// has no single default command — declare the steps explicitly. Env
-// injection rides the shared env(...) setter. (Named `compile`, not
+// (compile a C NIF, erlc the modules, stage an .app) — `erlang.compile`
+// has no single default command, so declare those build steps explicitly
+// with step(...) (a genuine native-build script, the legitimate step()
+// case). Tests run via `rebar3 eunit`, or an escript with escript("…").
+// Env injection rides the shared env(...) setter. (Named `compile`, not
 // `build`, so it does not shadow the imported `build` module here.)
 //
 //   import build
 //   import erlang
-//   import build (step)
-//   erlang.compile(b) {
-//       step("cc ... -o priv/foo_nif.so")
-//       step("erlc -o ebin src/foo.erl")
+//   import build (env)
+//   import erlang (escript)
+//   erlang.eunit(b) {
+//       env("ERL_LIBS", libs)
+//       escript("test/playback.escript")   // run this escript, not rebar3
 //   }
 //
-// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+// Setters: env(K,V) [lib/build], step("…") [bespoke compile], escript("…").
 import build
 import std.string
+import std.os
+import std.io
+import std.path
+import std.map
 
-// erlang.compile(b) — run the declared build steps; success/fail telemetry.
+// --- DSL setters ---
+
+// escript("test/playback.escript") — run the suite as `escript <path>`
+// instead of the default `rebar3 eunit`. Scalar; last wins. Path is relative
+// to source_dir (escript runs from there).
+escript(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "escript_path", path)
+}
+
+// --- Pure command builders (tested in tests/test_erlang_cmd.ae) ---
+
+// escript_cmd(source_dir, script) — `cd '<dir>' && escript '<script>'`.
+escript_cmd(source_dir: string, script: string) {
+    return "cd '${source_dir}' && escript '${script}'"
+}
+
+// --- Builders ---
+
+// erlang.compile(b) — run the declared build steps (bespoke NIF/erlc/stage);
+// success/fail telemetry. Default `rebar3 compile` when no step()s declared.
 builder compile(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: building (erlang)")
     return build._run_project(ctx, _builder, "rebar3 compile", 0)
 }
 
-// erlang.eunit(b) — `rebar3 eunit` by default. Reports pass/fail telemetry.
+// erlang.eunit(b) — `rebar3 eunit` by default, or `escript <path>` when
+// escript("…") is declared. Pass/fail telemetry. Honors explicit step()s.
 builder eunit(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
+
+    // Back-compat: a binding that wrote step("…") keeps the generic path.
+    if _builder != null {
+        if map.has(_builder, "proc_steps") == 1 {
+            println("${mod_dir}: running tests (eunit)")
+            return build._run_project(ctx, _builder, "rebar3 eunit", 1)
+        }
+    }
+
+    // escript("…") path → run the escript directly with env + telemetry.
+    if _builder != null {
+        if map.has(_builder, "escript_path") == 1 {
+            sp, _ = map.get(_builder, "escript_path")
+            if string.length(sp) > 0 {
+                source_dir = build._get(ctx, "source_dir")
+                target_dir = build._get(ctx, "target_dir")
+                build._mkdirs(target_dir)
+                println("${mod_dir}: running tests (escript ${sp})")
+                rc = os.system(string.concat(build._env_export_prefix(_builder), escript_cmd(source_dir, sp)))
+                if rc != 0 {
+                    build._record_test_result(ctx, 0, 1)
+                    println("${mod_dir}: tests FAILED")
+                    build.fail(ctx, "tests FAILED")
+                    return rc
+                }
+                build._record_test_result(ctx, 1, 0)
+                println("${mod_dir}: tests PASSED")
+                _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+                return 0
+            }
+        }
+    }
+
+    // Default: rebar3 eunit through the generic path.
     println("${mod_dir}: running tests (eunit)")
     return build._run_project(ctx, _builder, "rebar3 eunit", 1)
 }

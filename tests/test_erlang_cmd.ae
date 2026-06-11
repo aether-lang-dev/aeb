@@ -1,0 +1,17 @@
+// Tests for lib/erlang's pure command-string builders.
+import erlang (escript_cmd)
+import std.string
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    _eq("escript runs from source_dir, path quoted",
+        escript_cmd("/proj", "test/playback.escript"),
+        "cd '/proj' && escript 'test/playback.escript'")
+    println("erlang command-string tests done")
+}

@@ -1,26 +1,148 @@
 // php — PHP SDK for aeb.
 //
-// Drives an existing PHP project as-is. `php.test` defaults to
-// `phpunit`; projects that bootstrap a phar or pass a config file
-// override/extend with step(...). Env injection (e.g. a shared `.so`
-// path read by an FFI binding) rides the shared env(...) setter.
+// Drives an existing PHP project as-is. `php.test` defaults to `phpunit`;
+// declare phpunit_phar(...) to run via `php <phar>` and phpunit_phar_url(...)
+// to download that phar once (if absent) — the SDK does the "fetch if
+// missing" check in Aether, so a binding never writes the shell conditional
+// `[ -f phar ] || curl …`. config("…") adds --configuration. Env injection
+// (a shared `.so` path read by an FFI binding) rides the shared env(...).
 //
 //   import build
 //   import php
-//   import build (env, step)
+//   import build (env)
+//   import php (phpunit_phar, phpunit_phar_url, config)
 //   php.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
-//       step("[ -f phpunit.phar ] || curl -fsSL https://phar.phpunit.de/phpunit-11.phar -o phpunit.phar")
-//       step("php phpunit.phar --configuration phpunit.xml")
+//       phpunit_phar("phpunit.phar")
+//       phpunit_phar_url("https://phar.phpunit.de/phpunit-11.phar")
+//       config("phpunit.xml")
 //   }
 //
-// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+// Setters: env(K,V) [lib/build], phpunit_phar("…"), phpunit_phar_url("…"),
+// config("…"). A binding that declares its own step("…") still gets the
+// generic _run_project path (back-compat).
 import build
 import std.string
+import std.os
+import std.io
+import std.file
+import std.path
+import std.map
 
-// php.test(b) — `phpunit` by default. Reports pass/fail telemetry.
+// --- DSL setters ---
+
+// phpunit_phar("phpunit.phar") — run the suite as `php <phar>` instead of a
+// bare `phpunit` on PATH. Path relative to source_dir. Scalar; last wins.
+phpunit_phar(_ctx: ptr, phar: string) {
+    _e = map.put(_ctx, "phpunit_phar", phar)
+}
+
+// phpunit_phar_url("https://…/phpunit-11.phar") — download the phar to the
+// phpunit_phar path if it is absent (the SDK checks file existence in Aether
+// and only fetches when missing; no shell `[ -f ] ||`). No-op if the phar is
+// already present. Scalar; last wins.
+phpunit_phar_url(_ctx: ptr, url: string) {
+    _e = map.put(_ctx, "phpunit_phar_url", url)
+}
+
+// config("phpunit.xml") — `--configuration <file>`. Scalar; last wins.
+config(_ctx: ptr, cfg: string) {
+    _e = map.put(_ctx, "phpunit_config", cfg)
+}
+
+// --- Pure command builders (tested in tests/test_php_cmd.ae) ---
+
+// phpunit_cmd(source_dir, runner, config_part) — `cd '<dir>' && <runner>
+// <config_part>`. runner is "phpunit" or "php 'phpunit.phar'"; config_part is
+// " --configuration 'phpunit.xml'" or "".
+phpunit_cmd(source_dir: string, runner: string, config_part: string) {
+    return "cd '${source_dir}' && ${runner}${config_part}"
+}
+
+// phar_runner(phar) — "php '<phar>'", the runner string for a phar.
+phar_runner(phar: string) {
+    return "php '${phar}'";
+}
+
+// config_part(cfg) — " --configuration '<cfg>'" or "" when empty.
+config_part(cfg: string) {
+    if string.length(cfg) > 0 {
+        return " --configuration '${cfg}'"
+    }
+    return ""
+}
+
+// phar_fetch_cmd(source_dir, url, phar) — `cd '<dir>' && curl -fsSL '<url>'
+// -o '<phar>'`. Pure. (curl is still a shell-out, but the *conditional* —
+// fetch only when missing — is decided in Aether, not by a shell `||`.)
+phar_fetch_cmd(source_dir: string, url: string, phar: string) {
+    return "cd '${source_dir}' && curl -fsSL '${url}' -o '${phar}'"
+}
+
+// --- Builders ---
+
+// php.test(b) — `phpunit` by default; `php <phar> --configuration <cfg>` when
+// a phar/config is declared, fetching the phar once if absent. Pass/fail
+// telemetry. Honors explicit step()s for back-compat.
 builder test(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
+
+    // Back-compat: a binding that wrote step("…") keeps the generic path.
+    if _builder != null {
+        if map.has(_builder, "proc_steps") == 1 {
+            println("${mod_dir}: running tests (php)")
+            return build._run_project(ctx, _builder, "phpunit", 1)
+        }
+    }
+
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+    env_prefix = build._env_export_prefix(_builder)
+
+    // Resolve the runner: a phar (fetched if missing) or bare phpunit.
+    runner = "phpunit"
+    if _builder != null {
+        if map.has(_builder, "phpunit_phar") == 1 {
+            phar, _ = map.get(_builder, "phpunit_phar")
+            if string.length(phar) > 0 {
+                // Fetch-if-missing — the conditional is HERE, in Aether.
+                phar_abs = path.join(source_dir, phar)
+                if file.exists(phar_abs) == 0 {
+                    if map.has(_builder, "phpunit_phar_url") == 1 {
+                        url, _ = map.get(_builder, "phpunit_phar_url")
+                        if string.length(url) > 0 {
+                            println("${mod_dir}: fetching ${phar}")
+                            fr = os.system(phar_fetch_cmd(source_dir, url, phar))
+                            if fr != 0 {
+                                println("${mod_dir}: phar download FAILED")
+                                build.fail(ctx, "phar download FAILED")
+                                return fr
+                            }
+                        }
+                    }
+                }
+                runner = phar_runner(phar)
+            }
+        }
+    }
+
+    cfg = ""
+    if _builder != null {
+        if map.has(_builder, "phpunit_config") == 1 { cfg, _ = map.get(_builder, "phpunit_config") }
+    }
+
     println("${mod_dir}: running tests (php)")
-    return build._run_project(ctx, _builder, "phpunit", 1)
+    cmd = phpunit_cmd(source_dir, runner, config_part(cfg))
+    rc = os.system(string.concat(env_prefix, cmd))
+    if rc != 0 {
+        build._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        build.fail(ctx, "tests FAILED")
+        return rc
+    }
+    build._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }

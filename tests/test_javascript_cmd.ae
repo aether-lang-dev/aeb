@@ -1,0 +1,32 @@
+// Tests for lib/javascript's pure command-string builders.
+import javascript (npm_install_cmd, npx_jest_cmd, npm_test_cmd)
+import std.string
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    _eq("npm install bare",
+        npm_install_cmd("/proj", ""),
+        "cd '/proj' && npm install")
+    _eq("npm install with flags",
+        npm_install_cmd("/proj", "--silent --no-audit --no-fund"),
+        "cd '/proj' && npm install --silent --no-audit --no-fund")
+
+    _eq("npx jest bare",
+        npx_jest_cmd("/proj", ""),
+        "cd '/proj' && npx jest")
+    _eq("npx jest --runInBand",
+        npx_jest_cmd("/proj", "--runInBand"),
+        "cd '/proj' && npx jest --runInBand")
+
+    _eq("npm test default runner",
+        npm_test_cmd("/proj"),
+        "cd '/proj' && npm test")
+
+    println("javascript command-string tests done")
+}
