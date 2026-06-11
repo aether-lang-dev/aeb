@@ -1,32 +1,155 @@
 // nim — Nim SDK for aeb.
 //
-// Drives an existing Nim project as-is. Default verbs run `nimble`;
-// projects that compile/run explicit test files (the common shape for
-// an FFI binding) override with step(...). Env injection (e.g. a shared
-// `.so` path read at runtime) rides the shared env(...) setter.
+// Two shapes:
+//   * nim.build / nim.test with an empty block → `nimble build` / `nimble test`.
+//   * An FFI binding that compiles-and-runs explicit test files declares each
+//     with test_file(...) — one literal per file, greppable like build.dep —
+//     plus nim_flag(...) for compiler flags. nim.test then loops *in Aether*,
+//     running `nim c -r <flags> "<file>"` per file and reporting per-file
+//     pass/fail telemetry. No shell `for`-loop, no step("…") escape hatch:
+//     the iteration is aeb's (portable, no /bin/sh control-flow) and every
+//     input stays a literal a `grep` can see.
 //
 //   import build
 //   import nim
-//   import build (env, step)
+//   import build (env)
+//   import nim (test_file, nim_flag)
 //   nim.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
-//       step("for t in tests/*.nim; do nim c -r --path:src \"$t\" || exit 1; done")
+//       nim_flag("--hints:off")
+//       nim_flag("--threads:on")
+//       nim_flag("--path:src")
+//       nim_flag("--path:tests")
+//       test_file("tests/playback.nim")
+//       test_file("tests/playback_test.nim")
+//       test_file("tests/record_test.nim")
+//       test_file("tests/mutation_test.nim")
 //   }
 //
-// Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+// Setters: env(K,V) [from lib/build], test_file("…"), nim_flag("…").
 import build
 import std.string
+import std.list
+import std.map
+import std.os
+import std.io
+import std.path
 
-// nim.build(b) — `nimble build` (override with step for `nim c …`).
+// --- Setters (fixed-arity, one literal per call) ---
+
+// test_file(path) — one Nim test file to `nim c -r`. Repeat per file; each
+// stays a literal string in the build file (greppable, like build.dep), so a
+// reviewer enumerates the suite with grep, not by running the build.
+test_file(_ctx: ptr, f: string) {
+    if map.has(_ctx, "nim_test_files") == 0 {
+        _e = map.put(_ctx, "nim_test_files", list.new())
+    }
+    l, _ = map.get(_ctx, "nim_test_files")
+    _a = list.add(l, f)
+}
+
+// nim_flag(flag) — one compiler flag applied to every `nim c -r` (e.g.
+// "--threads:on", "--path:src"). Repeat per flag. A pass-through, but each
+// flag is a greppable literal — structured, not a smuggled flag string.
+nim_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "nim_flags") == 0 {
+        _e = map.put(_ctx, "nim_flags", list.new())
+    }
+    l, _ = map.get(_ctx, "nim_flags")
+    _a = list.add(l, flag)
+}
+
+// --- Pure command builder (unit-tested in tests/test_nim_cmd.ae) ---
+
+// nim_c_run_cmd(file, flags) — `nim c -r <flags> "<file>"`. `flags` is the
+// space-joined flag string ("" for none). The file is quoted; flags are not
+// (they're literal compiler tokens).
+nim_c_run_cmd(file: string, flags: string) {
+    if string.length(flags) > 0 {
+        return string.concat("nim c -r ", string.concat(flags, string.concat(" \"", string.concat(file, "\""))))
+    }
+    return string.concat("nim c -r \"", string.concat(file, "\""))
+}
+
+// _join_flags(l) — space-join a flag list. Pure.
+_join_flags(l: ptr) {
+    out = ""
+    n = list.size(l)
+    i = 0
+    while i < n {
+        f, _ = list.get(l, i)
+        if i > 0 { out = string.concat(out, " ") }
+        out = string.concat(out, f)
+        i = i + 1
+    }
+    return out
+}
+
+// --- Builders ---
+
+// nim.build(b) — `nimble build` (override with test_file/nim_flag for the
+// explicit `nim c …` shape, same as test).
 builder build(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: compiling (nim)")
     return build._run_project(ctx, _builder, "nimble build", 0)
 }
 
-// nim.test(b) — `nimble test`. Reports pass/fail telemetry.
+// nim.test(b) — if test_file(...) was declared, compile-and-run each file in
+// an Aether loop with per-file pass/fail telemetry; otherwise `nimble test`.
 builder test(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
-    println("${mod_dir}: running tests (nim)")
-    return build._run_project(ctx, _builder, "nimble test", 1)
+
+    // No explicit files → preserve the `nimble test` default (back-compat).
+    has_files = 0
+    if _builder != null {
+        if map.has(_builder, "nim_test_files") == 1 { has_files = 1 }
+    }
+    if has_files == 0 {
+        println("${mod_dir}: running tests (nim)")
+        return build._run_project(ctx, _builder, "nimble test", 1)
+    }
+
+    files, _ = map.get(_builder, "nim_test_files")
+    flags = ""
+    if map.has(_builder, "nim_flags") == 1 {
+        fl, _ = map.get(_builder, "nim_flags")
+        flags = _join_flags(fl)
+    }
+
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+    env_prefix = build._env_export_prefix(_builder)
+
+    n = list.size(files)
+    println("${mod_dir}: running tests (nim, ${n} file(s))")
+
+    passed = 0
+    failed = 0
+    i = 0
+    while i < n {
+        f, _ = list.get(files, i)
+        run = nim_c_run_cmd(f, flags)
+        full = string.concat("cd \"", string.concat(source_dir, string.concat("\" && ", string.concat(env_prefix, run))))
+        rc = os.system(full)
+        if rc == 0 {
+            passed = passed + 1
+            println("  PASS ${f}")
+        } else {
+            failed = failed + 1
+            println("  FAIL ${f}")
+        }
+        i = i + 1
+    }
+
+    build._record_test_result(ctx, passed, failed)
+    if failed > 0 {
+        println("${mod_dir}: tests FAILED (${passed}/${n} passed)")
+        build.fail(ctx, "tests FAILED")
+        return 1
+    }
+    println("${mod_dir}: tests PASSED (${n}/${n})")
+    _e = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }
