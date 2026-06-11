@@ -1,0 +1,135 @@
+// Integration test for the directory-tree cache round-trip that the
+// SDK wirings (kotlin/scala/ts/dotnet/clojure) rely on:
+//
+//   build._tar_dir(src) -> cache.put(key, tar)
+//   cache.get(key, tar2) -> build._untar_into(tar2, restore)
+//   => restore is byte-identical to src
+//
+// Unlike test_*_cache.ae (which only check key DERIVATION) and
+// test_cache.ae (single-file put/get), this exercises the actual
+// artifact-restore machinery end to end on real bytes, plus the
+// _dir_nonempty guard and the _record_cache/_read_cache_outcome marker.
+//
+// Skips cleanly when cache.available() == 0 (no OpenSSL/zlib).
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+import build
+import cache
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+_eq0(v: int) { if v == 0 { return 1 } return 0 }
+_eq_str(a: string, b: string) { if a == b { return 1 } return 0 }
+
+_mktempdir() {
+    raw, _err = os.exec("mktemp -d")
+    return string.trim(raw)
+}
+
+// Stage a classes/-shaped tree: nested package dirs, files with
+// distinct bytes, an EMPTY subdir (the .timestamp-parent shape the
+// kotlin/java path depends on surviving the tar round-trip), and a
+// binary file containing a NUL + a high byte (0xff) created via shell
+// so the test exercises binary-safe tar/zlib, not aether string escapes.
+_stage_tree(root: string) {
+    os.system("mkdir -p '${root}/com/example/sub' '${root}/mod_name'")
+    fs.write_atomic("${root}/com/example/A.class", "AAAA-bytes\n", 11)
+    fs.write_atomic("${root}/top.txt", "top\n", 4)
+    // 64 arbitrary bytes (NULs + high bytes likely) — proves the
+    // tar+zlib round-trip is binary-safe, not just text-safe.
+    os.system("head -c 64 /dev/urandom > '${root}/com/example/sub/B.class'")
+    return 0
+}
+
+main() {
+    if cache.available() == 0 {
+        println("SKIP: cache.available() == 0 (no OpenSSL or zlib)")
+        return 0
+    }
+
+    tmp = _mktempdir()
+    src = path.join(tmp, "classes")
+    _stage_tree(src)
+
+    // --- _dir_nonempty guard ---
+    _assert("_dir_nonempty: populated tree -> 1", build._dir_nonempty(src))
+    empty = path.join(tmp, "empty")
+    fs.mkdir_p(empty)
+    _assert("_dir_nonempty: empty dir -> 0", _eq0(build._dir_nonempty(empty)))
+    _assert("_dir_nonempty: missing dir -> 0", _eq0(build._dir_nonempty(path.join(tmp, "nope"))))
+
+    // --- tar -> put -> get -> untar round-trip ---
+    parts = list.new()
+    list.add(parts, "roundtrip-test")
+    list.add(parts, src)
+    key, kerr = cache.hash_inputs(parts)
+    _assert("hash_inputs ok", _eq_str(kerr, ""))
+
+    _assert("has: miss before put", _eq0(cache.has(key)))
+
+    tar1, terr = build._tar_dir(src)
+    _assert("_tar_dir ok", _eq_str(terr, ""))
+    perr = cache.put(key, tar1)
+    os.system("rm -f '${tar1}'")
+    _assert("cache.put ok", _eq_str(perr, ""))
+    _assert("has: hit after put", cache.has(key))
+
+    // Fetch into a fresh tar, untar into a clean restore dir.
+    tar2_raw, _e = os.exec("mktemp")
+    tar2 = string.trim(tar2_raw)
+    gerr = cache.get(key, tar2)
+    _assert("cache.get ok (hit)", _eq_str(gerr, ""))
+
+    restore = path.join(tmp, "restore")
+    uerr = build._untar_into(tar2, restore)
+    os.system("rm -f '${tar2}'")
+    _assert("_untar_into ok", _eq_str(uerr, ""))
+
+    // The restored tree must be byte-identical to the source (diff -r
+    // exit 0). This is the real end-to-end assertion: the bytes that
+    // went into the cache come back out unchanged through tar+zlib.
+    diff_rc = os.system("diff -r '${src}' '${restore}' >/dev/null 2>&1")
+    _assert("restored tree byte-identical to source (diff -r)", _eq0(diff_rc))
+
+    // Spot-check the binary file with the embedded NUL survived intact.
+    b_ok = os.system("cmp -s '${src}/com/example/sub/B.class' '${restore}/com/example/sub/B.class'")
+    _assert("binary file with embedded NUL round-trips", _eq0(b_ok))
+
+    // get for a missing key reports "miss" (not a silent empty success).
+    miss_dest_raw, _e2 = os.exec("mktemp")
+    miss_dest = string.trim(miss_dest_raw)
+    miss = cache.get("0000000000000000000000000000000000000000000000000000000000000000", miss_dest)
+    os.system("rm -f '${miss_dest}'")
+    _assert("cache.get missing key -> 'miss'", _eq_str(miss, "miss"))
+
+    // --- _record_cache / _read_cache_outcome marker round-trip ---
+    ctx = map.new()
+    td = path.join(tmp, "target_mod")
+    map.put(ctx, "target_dir", td)
+    build._record_cache(ctx, "hit")
+    _assert("_record_cache/_read_cache_outcome -> hit",
+        _eq_str(build._read_cache_outcome(td), "hit"))
+    build._record_cache(ctx, "miss")
+    _assert("_record_cache overwrite -> miss",
+        _eq_str(build._read_cache_outcome(td), "miss"))
+    _assert("_read_cache_outcome absent -> n/a",
+        _eq_str(build._read_cache_outcome(path.join(tmp, "no_marker")), "n/a"))
+
+    os.system("rm -rf '${tmp}'")
+    println("cache tree round-trip done")
+    return 0
+}

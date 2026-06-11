@@ -1035,6 +1035,87 @@ _read_cache_outcome(target_dir: string) {
     return out
 }
 
+// _read_argfile_lines(path) — read an argfile (one source path per
+// line) into a sorted list. Sorted because `find`'s order isn't
+// deterministic across filesystems and we want stable cache keys.
+// Shared by every SDK that hashes a source set for a cache key
+// (java, kotlin, scala, ...). Empty/unreadable argfile → empty list.
+_read_argfile_lines(argfile_path: string) {
+    raw, _err = io.read_file(argfile_path)
+    content = string.trim(raw)
+    out = list.new()
+    if string.length(content) == 0 { return out }
+    // Sort via shell — std.list lacks a sort primitive, and shelling
+    // to sort is cheap (typical N is dozens to hundreds).
+    cmd = "printf '%s\\n' '${content}' | sort"
+    sorted_raw, _err2 = os.exec(cmd)
+    sorted_content = string.trim(sorted_raw)
+    rest = sorted_content
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            list.add(out, line)
+        }
+    }
+    return out
+}
+
+// _tar_dir(src_dir) — tar a directory tree to a temp file, return
+// (tar_path, "") or ("", err). Used to bundle a target/<module>/
+// output tree (classes/, out-dir, bin/) for cache.put. Uncompressed —
+// cache.put zlibs it on the way in. Shared by every dir-tree-caching
+// SDK (java, kotlin, scala, ts, dotnet, clojure).
+_tar_dir(src_dir: string) {
+    tmp_raw, _err = os.exec("mktemp")
+    tmp = string.trim(tmp_raw)
+    if string.length(tmp) == 0 {
+        return "", "mktemp failed"
+    }
+    cmd = "tar -cf '${tmp}' -C '${src_dir}' . 2>&1"
+    out, eerr = os.exec(cmd)
+    if string.length(eerr) > 0 {
+        return "", string.concat("tar failed: ", eerr)
+    }
+    return tmp, ""
+}
+
+// _untar_into(tar_path, dest_dir) — untar a tarball into a directory.
+// Wipes dest_dir first so the untar starts from a clean state (avoids
+// stale files mixing with the cached set). Returns "" on success or
+// err string. Shared partner of _tar_dir.
+_untar_into(tar_path: string, dest_dir: string) {
+    os.system("rm -rf '${dest_dir}'")
+    merr = fs.mkdir_p(dest_dir)
+    if string.length(merr) > 0 { return merr }
+    cmd = "tar -xf '${tar_path}' -C '${dest_dir}' 2>&1"
+    out, _eerr = os.exec(cmd)
+    if string.length(out) > 0 {
+        // tar prints to stdout via 2>&1 only on error; success is silent.
+        return string.concat("untar failed: ", out)
+    }
+    return ""
+}
+
+// _dir_nonempty(d) — 1 if d exists and contains at least one regular
+// file (recursively), else 0. Cache wirings gate cache.put on this so
+// an empty/wrong output dir is never cached (no false hits when the
+// real output landed elsewhere). Shared by ts, dotnet, clojure.
+_dir_nonempty(d: string) {
+    if dir.exists(d) == 0 { return 0 }
+    raw, _err = os.exec("find '${d}' -type f 2>/dev/null | head -1")
+    if string.length(string.trim(raw)) > 0 { return 1 }
+    return 0
+}
+
 // _record_test_result(ctx, passed, failed) — SDK test builders
 // call this at the end of a test run so the orchestrator can read
 // pass/fail counts post-build for telemetry. Marker format is

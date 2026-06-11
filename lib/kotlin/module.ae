@@ -1,5 +1,6 @@
 // kotlin — Kotlin SDK for aether.build
 import build
+import cache
 import maven
 import std.string
 import std.io
@@ -126,6 +127,124 @@ _kotlinc_bin(kotlin_home: string) {
     return "kotlinc"
 }
 
+// _kotlinc_version(kotlinc_bin) — `kotlinc -version` first line, the
+// toolchain-bump invalidator for the cache key. Memoised per build via
+// an env-var cache (the probe forks a JVM — not free). Returns "" when
+// kotlinc is absent; the key is still deterministic within a run.
+_kotlinc_version(kotlinc_bin: string) {
+    cached = os.getenv("_AEB_KOTLINC_VERSION_CACHE")
+    if string.length(cached) > 0 { return cached }
+    raw, _err = os.exec("'${kotlinc_bin}' -version 2>&1 | head -1")
+    return string.trim(raw)
+}
+
+// _cache_key_for_kotlinc — cache key for a kotlinc compile action.
+// Mirrors java's _cache_key_for_javac. Inputs (length-prefixed, sorted
+// via cache.hash_inputs):
+//   - kotlinc version (`kotlinc -version`) — toolchain-bump invalidator
+//   - kotlin-stdlib.jar CONTENT hash — the FALSE-HIT HAZARD here is the
+//     snap-vs-apt stdlib: same version string, different bytes. Hashing
+//     the jar content (like aether hashes libaether.a) distinguishes
+//     them so a stdlib swap busts the key.
+//   - canonical kotlinc command string — captures flags + classpath
+//   - each .kt source's path + content hash, sorted by path
+//   - each dep target's jvm_classpath_deps_including_transitive content
+//     — captures upstream rebuilds
+//   - any -Xplugin jar's content hash — a plugin upgrade at the same
+//     path changes output bytes but not the version string
+//
+// FALSE-HIT HAZARD (same as javac): a sibling dep's local classes/ tree
+// can change content while its classpath string stays the same; the dep
+// artifact content hash catches most real changes because aeb rewrites
+// that artifact every rebuild. Full correctness would walk each
+// upstream classes tree; punted for v1 (Nx-class hermeticity, livable).
+//
+// Returns ("", err) on any source read failure — caller falls through
+// to the live kotlinc build.
+_cache_key_for_kotlinc(ctx: ptr, builder_map: ptr, argfile_path: string, kotlinc_cmd_str: string, stdlib_jar: string) {
+    parts = list.new()
+
+    kc_bin = "kotlinc"
+    if builder_map != null {
+        if map.has(builder_map, "_kotlinc_bin") == 1 {
+            kb, _ = map.get(builder_map, "_kotlinc_bin")
+            if string.length(kb) > 0 { kc_bin = kb }
+        }
+    }
+    list.add(parts, string.concat("kotlinc:", _kotlinc_version(kc_bin)))
+
+    if string.length(stdlib_jar) > 0 {
+        if file.exists(stdlib_jar) == 1 {
+            sjh, sjerr = cache.hash_file(stdlib_jar)
+            if string.length(sjerr) == 0 {
+                list.add(parts, string.concat("stdlib:", sjh))
+            }
+        }
+    }
+
+    list.add(parts, string.concat("cmd:", kotlinc_cmd_str))
+
+    sources = build._read_argfile_lines(argfile_path)
+    nsrc = list.size(sources)
+    si = 0
+    while si < nsrc {
+        src, _ = list.get(sources, si)
+        sh, serr = cache.hash_file(src)
+        if string.length(serr) > 0 {
+            return "", serr
+        }
+        list.add(parts, string.concat("src:", src))
+        list.add(parts, string.concat("src-hash:", sh))
+        si = si + 1
+    }
+
+    deps, _ = map.get(ctx, "deps")
+    dn = list.size(deps)
+    di = 0
+    while di < dn {
+        dp, _ = list.get(deps, di)
+        dm = build._strip_lang(dp)
+        dep_cp = build._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
+        if string.length(dep_cp) > 0 {
+            list.add(parts, string.concat("dep:", dm))
+            list.add(parts, string.concat("dep-cp:", dep_cp))
+        }
+        di = di + 1
+    }
+
+    if builder_map != null {
+        if map.has(builder_map, "compiler_plugin") == 1 {
+            plugins, _ = map.get(builder_map, "compiler_plugin")
+            // comma-separated list of plugin jar paths; hash each present file
+            rest = plugins
+            while string.length(rest) > 0 {
+                comma = string.index_of(rest, ",")
+                pp = ""
+                if comma < 0 {
+                    pp = rest
+                    rest = ""
+                } else {
+                    pp = string.substring(rest, 0, comma)
+                    rest = string.substring(rest, comma + 1, string.length(rest))
+                }
+                pp = string.trim(pp)
+                if string.length(pp) > 0 {
+                    if file.exists(pp) == 1 {
+                        ph, pherr = cache.hash_file(pp)
+                        if string.length(pherr) == 0 {
+                            list.add(parts, string.concat("plugin:", pp))
+                            list.add(parts, string.concat("plugin-hash:", ph))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    digest, derr = cache.hash_inputs(parts)
+    return digest, derr
+}
+
 // --- SDK functions ---
 
 builder kotlinc(ctx: ptr) {
@@ -141,16 +260,14 @@ builder kotlinc(ctx: ptr) {
     build._mkdirs(ts_dir)
     ts_file = path.join(ts_dir, ".timestamp")
 
-    if build._needs_rebuild(source_dir, ts_file) == 0 {
-        println("${mod_dir}: skipping compilation of prod code (not changed)")
-        return 0
-    }
-
     println("${mod_dir}: compiling prod code")
 
     kotlin_home = _kotlin_home()
     stdlib_jar = path.join(kotlin_home, "lib/kotlin-stdlib.jar")
     kotlinc_bin = _kotlinc_bin(kotlin_home)
+    // Stash the resolved compiler binary so the cache key probes THAT
+    // kotlinc's version (not bare PATH kotlinc).
+    _ekb = map.put(_builder, "_kotlinc_bin", kotlinc_bin)
 
     dep_cp = build._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
@@ -184,11 +301,63 @@ builder kotlinc(ctx: ptr) {
     file_ref = string.concat("@", argfile)
 
     kc_cmd = kotlinc_cmd(kotlinc_bin, classes_dir, classpath, file_ref, _builder)
-    exit_code = os.system(kc_cmd)
-    if exit_code != 0 {
-        println("${mod_dir}: kotlinc failed")
-        build.fail(ctx, "kotlinc failed")
-        return exit_code
+
+    // Cache check: hash sources + stdlib + classpath + flags + kotlinc
+    // version, restore the classes/ tarball on hit and skip kotlinc.
+    // Best-effort — any key-computation error falls through to live
+    // kotlinc. exit_code is the "what next" sentinel: 0 = cache supplied
+    // the tree, -1 = run kotlinc below.
+    cache_key = ""
+    exit_code = -1
+    if cache.available() == 1 {
+        ck, kerr = _cache_key_for_kotlinc(ctx, _builder, argfile, kc_cmd, stdlib_jar)
+        if string.length(kerr) == 0 {
+            cache_key = ck
+            tmp_raw, _terr = os.exec("mktemp")
+            tmp_tar = string.trim(tmp_raw)
+            if string.length(tmp_tar) > 0 {
+                grc = cache.get(cache_key, tmp_tar)
+                if string.length(grc) == 0 {
+                    uerr = build._untar_into(tmp_tar, classes_dir)
+                    os.system("rm -f '${tmp_tar}'")
+                    if string.length(uerr) == 0 {
+                        println("${mod_dir}: kotlinc cache hit ${cache_key}")
+                        build._record_cache(ctx, "hit")
+                        exit_code = 0
+                    } else {
+                        os.system("rm -rf '${classes_dir}'")
+                        build._mkdirs(classes_dir)
+                        build._mkdirs(ts_dir)
+                    }
+                } else {
+                    os.system("rm -f '${tmp_tar}'")
+                }
+            }
+        }
+    }
+
+    if exit_code == -1 {
+        if cache.available() == 0 {
+            build._record_cache(ctx, "unavailable")
+        } else {
+            build._record_cache(ctx, "miss")
+        }
+        exit_code = os.system(kc_cmd)
+        if exit_code != 0 {
+            println("${mod_dir}: kotlinc failed")
+            build.fail(ctx, "kotlinc failed")
+            return exit_code
+        }
+        if string.length(cache_key) > 0 {
+            tar_path, terr = build._tar_dir(classes_dir)
+            if string.length(terr) == 0 {
+                perr = cache.put(cache_key, tar_path)
+                os.system("rm -f '${tar_path}'")
+                if string.length(perr) > 0 {
+                    println("${mod_dir}: kotlinc cache write failed: ${perr}")
+                }
+            }
+        }
     }
 
     cp_out = string.concat(classes_dir, "\n")
@@ -234,16 +403,12 @@ builder kotlinc_test(ctx: ptr) {
     build._mkdirs(ts_dir)
     ts_file = path.join(ts_dir, ".timestamp")
 
-    if build._needs_rebuild(source_dir, ts_file) == 0 {
-        println("${mod_dir}: skipping compilation of test code (not changed)")
-        return 0
-    }
-
     println("${mod_dir}: compiling test code")
 
     kotlin_home = _kotlin_home()
     stdlib_jar = path.join(kotlin_home, "lib/kotlin-stdlib.jar")
     kotlinc_bin = _kotlinc_bin(kotlin_home)
+    _ekb = map.put(_builder, "_kotlinc_bin", kotlinc_bin)
 
     dep_cp = build._build_dep_classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
@@ -278,11 +443,78 @@ builder kotlinc_test(ctx: ptr) {
     }
 
     kc_cmd = kotlinc_cmd(kotlinc_bin, test_classes, classpath, file_list, _builder)
-    exit_code = os.system(kc_cmd)
-    if exit_code != 0 {
-        println("${mod_dir}: kotlinc (test) failed")
-        build.fail(ctx, "kotlinc (test) failed")
-        return exit_code
+
+    // Write the space-separated source list as a newline argfile so the
+    // cache-key helper can hash each source (shared with the prod path).
+    test_argfile = path.join(target_dir, "kotlinc_test_sources.txt")
+    _paths = string.split(file_list, " ")
+    _af = ""
+    _ai = 0
+    _an = list.size(_paths)
+    while _ai < _an {
+        _p, _ = list.get(_paths, _ai)
+        _p = string.trim(_p)
+        if string.length(_p) > 0 {
+            if string.length(_af) > 0 { _af = string.concat(_af, "\n") }
+            _af = string.concat(_af, _p)
+        }
+        _ai = _ai + 1
+    }
+    _ewa = io.write_file(test_argfile, _af)
+
+    // Cache check: same shape as the prod path; caches the test-classes/
+    // tree. exit_code sentinel: 0 = cache hit, -1 = run kotlinc.
+    cache_key = ""
+    exit_code = -1
+    if cache.available() == 1 {
+        ck, kerr = _cache_key_for_kotlinc(ctx, _builder, test_argfile, kc_cmd, stdlib_jar)
+        if string.length(kerr) == 0 {
+            cache_key = ck
+            tmp_raw, _terr = os.exec("mktemp")
+            tmp_tar = string.trim(tmp_raw)
+            if string.length(tmp_tar) > 0 {
+                grc = cache.get(cache_key, tmp_tar)
+                if string.length(grc) == 0 {
+                    uerr = build._untar_into(tmp_tar, test_classes)
+                    os.system("rm -f '${tmp_tar}'")
+                    if string.length(uerr) == 0 {
+                        println("${mod_dir}: kotlinc (test) cache hit ${cache_key}")
+                        build._record_cache(ctx, "hit")
+                        exit_code = 0
+                    } else {
+                        os.system("rm -rf '${test_classes}'")
+                        build._mkdirs(test_classes)
+                        build._mkdirs(ts_dir)
+                    }
+                } else {
+                    os.system("rm -f '${tmp_tar}'")
+                }
+            }
+        }
+    }
+
+    if exit_code == -1 {
+        if cache.available() == 0 {
+            build._record_cache(ctx, "unavailable")
+        } else {
+            build._record_cache(ctx, "miss")
+        }
+        exit_code = os.system(kc_cmd)
+        if exit_code != 0 {
+            println("${mod_dir}: kotlinc (test) failed")
+            build.fail(ctx, "kotlinc (test) failed")
+            return exit_code
+        }
+        if string.length(cache_key) > 0 {
+            tar_path, terr = build._tar_dir(test_classes)
+            if string.length(terr) == 0 {
+                perr = cache.put(cache_key, tar_path)
+                os.system("rm -f '${tar_path}'")
+                if string.length(perr) > 0 {
+                    println("${mod_dir}: kotlinc (test) cache write failed: ${perr}")
+                }
+            }
+        }
     }
 
     _ew = io.write_file(ts_file, "")

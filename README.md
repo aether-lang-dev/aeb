@@ -628,11 +628,17 @@ Storage:
 - Content-addressed via sha256; entries are zlib-compressed.
 - No size cap or eviction yet; users prune manually if needed.
 
-Currently wired (other SDKs report `[n/a]` and skip the cache):
+Wired into every artifact-producing SDK (`lib/python` reports `[n/a]`
+by design — a venv isn't portably cacheable):
 
 - **`lib/aether`** — manual-path link binary
-- **`lib/java`** — `javac` and `javac_test` classes trees (tar+zlib)
+- **`lib/java`** / **`lib/kotlin`** / **`lib/scala`** — `classes/` and
+  `test-classes/` trees (tar+zlib)
 - **`lib/maven`** — resolved classpath (separate cache from per-target)
+- **`lib/ts`** — tsc out-dir tree (excludes `*.tsbuildinfo`)
+- **`lib/dotnet`** — `bin/<config>` (never `obj/`; test projects not cached)
+- **`lib/go`** / **`lib/rust`** — the output binary/.so (single-file)
+- **`lib/clojure`** — AOT `classes/` tree
 
 When you run `aeb` twice in a row with no source changes, the
 second run is mostly `[hit]` lines. When you change a single

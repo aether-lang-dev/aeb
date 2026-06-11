@@ -20,6 +20,26 @@ aeb --init
 AETHER=/path/to/ae aeb
 ```
 
+## Cache smoke test
+
+`cache-smoke.sh` is the end-to-end check that the content-addressed cache
+actually skips work on a warm rebuild and re-runs when a source changes —
+the level the unit suite (`tests/run.sh`) can't reach because it never
+drives a real build. For each cache-wired SDK with a green itest
+(scala/go/dotnet/ts) it runs three `aeb --telemetry-json` builds against a
+fresh `$AEB_CACHE_DIR` and asserts: cold → 0 cache hits, warm → >0 hits,
+touch-a-source → fewer hits than warm. Projects whose toolchain or
+upstream sources are absent are skipped (so partial environments still get
+coverage). Needs a working `ae` that can link a full multi-module `./aeb`
+(Linux today — macOS ld64 can't; see ../TODO.md).
+
+```bash
+cd itests
+./fetch-upstream.sh
+AETHER=/path/to/ae ./cache-smoke.sh                       # all green-itest SDKs
+AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne   # one project
+```
+
 ## Projects
 
 | Directory | Language | Upstream | What aeb replaces |
