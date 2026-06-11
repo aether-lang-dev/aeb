@@ -53,6 +53,47 @@ test_path(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "test_path", path)
 }
 
+// concurrency(N) — `dart test -j N`: cap the number of concurrently-running
+// test suites. concurrency(1) serialises (the right call when tests share
+// process-global state — e.g. a native VCR server bound to one port). Scalar;
+// last wins. Default: dart's own concurrency (≈ #cores).
+concurrency(_ctx: ptr, n: int) {
+    _e = map.put(_ctx, "test_concurrency", string.from_int(n))
+}
+
+// test_name("substring") — `--name <substring>`: run only tests whose
+// description matches. Repeatable; each adds another `--name` (dart ANDs
+// them). The value is single-quoted, so spaces / regex are safe.
+test_name(_ctx: ptr, name: string) {
+    if map.has(_ctx, "test_names") == 0 {
+        _e1 = map.put(_ctx, "test_names", list.new())
+    }
+    l, _ = map.get(_ctx, "test_names")
+    _a = list.add(l, name)
+}
+
+// test_flag("--reporter=expanded") — one verbatim flag passed to `dart test`
+// (`--reporter`, `--platform`, `--tags`, `--exclude-tags`, `--timeout`, …).
+// Repeatable. The escape for the permutations not given a named setter —
+// still a greppable literal in the build file, no shell, no flag-string
+// smuggling. Pass `--flag value` as one token ("--timeout 30s") or two calls.
+test_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "test_flags") == 0 {
+        _e1 = map.put(_ctx, "test_flags", list.new())
+    }
+    l, _ = map.get(_ctx, "test_flags")
+    _a = list.add(l, flag)
+}
+
+// pub_get_first("1") — run `dart pub get` before `dart test`, so a binding
+// whose tests need deps resolved doesn't have to dep a separate pub_get node.
+// Any non-empty value enables (mirrors offline()'s value-enables shape);
+// honours offline() too. Replaces the step("dart pub get") + step("dart test")
+// shell pair.
+pub_get_first(_ctx: ptr, v: string) {
+    _e = map.put(_ctx, "pub_get_first", v)
+}
+
 // --- DSL setters: compile ---
 //
 // `dart compile <format> <entrypoint> -o <output>`. format is one of
@@ -185,10 +226,46 @@ analyze_cmd(dart: string, source_dir: string) {
     return "cd '${source_dir}' && '${dart}' analyze"
 }
 
-// test_cmd — `dart test` invocation. Pure. path_part is " <path>" or
-// "" (dart's own test/ discovery).
-test_cmd(dart: string, source_dir: string, path_part: string) {
-    return "cd '${source_dir}' && '${dart}' test${path_part}"
+// test_cmd — `dart test` invocation. Pure. args_part is the suffix after
+// `test` (" -j 1 --name 'x' test/unit", as rendered by test_args_part) or
+// "" for dart's own discovery with default concurrency.
+test_cmd(dart: string, source_dir: string, args_part: string) {
+    return "cd '${source_dir}' && '${dart}' test${args_part}"
+}
+
+// test_args_part(concurrency, names, flags, path) — render the suffix after
+// `dart test`, in dart's expected order: ` -j N`, then each ` --name '<x>'`,
+// then each verbatim flag, then the positional path last. Every piece is
+// omitted when empty/null. Pure (I/O-free); tested in tests/test_dart_cmd.ae.
+// `names`/`flags` are string lists (or null); `concurrency`/`path` are the
+// raw values (no leading space — this adds it).
+test_args_part(concurrency: string, names: ptr, flags: ptr, path: string) {
+    out = ""
+    if string.length(concurrency) > 0 {
+        out = string.concat(out, string.concat(" -j ", concurrency))
+    }
+    if names != null {
+        n = list.size(names)
+        i = 0
+        while i < n {
+            nm, _ = list.get(names, i)
+            out = string.concat(out, string.concat(" --name '", string.concat(nm, "'")))
+            i = i + 1
+        }
+    }
+    if flags != null {
+        m = list.size(flags)
+        j = 0
+        while j < m {
+            fl, _ = list.get(flags, j)
+            out = string.concat(out, string.concat(" ", fl))
+            j = j + 1
+        }
+    }
+    if string.length(path) > 0 {
+        out = string.concat(out, string.concat(" ", path))
+    }
+    return out
 }
 
 // compile_cmd — `dart compile <format> <entry> -o <out>` invocation.
@@ -305,20 +382,48 @@ builder test(ctx: ptr) {
     mod_dir = build._get(ctx, "module_dir")
 
     build._mkdirs(target_dir)
-    println("${mod_dir}: running tests (dart test)")
 
     dart = _dart_of(_builder)
-    path_part = ""
+
+    // Optional `dart pub get` first (deps resolved before the run), so a
+    // binding can drop the step("dart pub get") + step("dart test") shell pair.
     if _builder != null {
-        if map.has(_builder, "test_path") == 1 {
-            tp, _ = map.get(_builder, "test_path")
-            if string.length(tp) > 0 {
-                path_part = string.concat(" ", tp)
+        if map.has(_builder, "pub_get_first") == 1 {
+            pv, _ = map.get(_builder, "pub_get_first")
+            if string.length(pv) > 0 {
+                pg_offline = ""
+                if map.has(_builder, "offline") == 1 {
+                    ov, _ = map.get(_builder, "offline")
+                    if string.length(ov) > 0 { pg_offline = " --offline" }
+                }
+                println("${mod_dir}: resolving deps (dart pub get)")
+                pg_rc = os.system(pub_get_cmd(dart, source_dir, pg_offline))
+                if pg_rc != 0 {
+                    println("${mod_dir}: pub get FAILED")
+                    build.fail(ctx, "pub get FAILED")
+                    return pg_rc
+                }
             }
         }
     }
 
-    cmd = string.concat(build._env_export_prefix(_builder), test_cmd(dart, source_dir, path_part))
+    println("${mod_dir}: running tests (dart test)")
+
+    // Assemble the `dart test` arg suffix from the DSL: -j N, --name, verbatim
+    // flags, then the positional path.
+    conc = ""
+    names = null
+    flags = null
+    tpath = ""
+    if _builder != null {
+        if map.has(_builder, "test_concurrency") == 1 { conc, _ = map.get(_builder, "test_concurrency") }
+        if map.has(_builder, "test_names") == 1 { names, _ = map.get(_builder, "test_names") }
+        if map.has(_builder, "test_flags") == 1 { flags, _ = map.get(_builder, "test_flags") }
+        if map.has(_builder, "test_path") == 1 { tpath, _ = map.get(_builder, "test_path") }
+    }
+    args_part = test_args_part(conc, names, flags, tpath)
+
+    cmd = string.concat(build._env_export_prefix(_builder), test_cmd(dart, source_dir, args_part))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
     exit_code = os.system(full_cmd)

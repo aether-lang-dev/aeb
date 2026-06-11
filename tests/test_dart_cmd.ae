@@ -6,7 +6,7 @@
 // exact string that would be passed to os.system, or the (pass,fail)
 // tuple parsed from captured `dart test` output.
 
-import dart (pub_get_cmd, analyze_cmd, test_cmd, compile_cmd,
+import dart (pub_get_cmd, analyze_cmd, test_cmd, test_args_part, compile_cmd,
             _parse_dart_test_counts, _strip_dart_ext)
 import std.string
 import std.list
@@ -40,13 +40,42 @@ main() {
         analyze_cmd("dart", "/proj"),
         "cd '/proj' && 'dart' analyze")
 
-    // --- test_cmd: path part appended only when non-empty.
-    _eq("test no path → dart's own discovery",
+    // --- test_cmd: arg suffix appended only when non-empty.
+    _eq("test no args → dart's own discovery",
         test_cmd("dart", "/proj", ""),
         "cd '/proj' && 'dart' test")
     _eq("test with path",
         test_cmd("dart", "/proj", " test/unit"),
         "cd '/proj' && 'dart' test test/unit")
+
+    // --- test_args_part: the DSL → `dart test` flag suffix.
+    _eq("args: nothing set", test_args_part("", null, null, ""), "")
+    // The headline: dart.test { concurrency(1) } → `dart test -j 1`.
+    _eq("args: -j 1", test_args_part("1", null, null, ""), " -j 1")
+    nm = list.new()
+    _n1 = list.add(nm, "smoke")
+    _eq("args: -j 2 + --name", test_args_part("2", nm, null, ""),
+        " -j 2 --name 'smoke'")
+    nm2 = list.new()
+    _n2 = list.add(nm2, "a b")
+    _n3 = list.add(nm2, "c")
+    _eq("args: two --name, value quoted", test_args_part("", nm2, null, ""),
+        " --name 'a b' --name 'c'")
+    fl = list.new()
+    _f1 = list.add(fl, "--reporter=expanded")
+    _eq("args: verbatim flag + path", test_args_part("", null, fl, "test/unit"),
+        " --reporter=expanded test/unit")
+    // Order: -j, then names, then flags, then positional path last.
+    nm3 = list.new()
+    _n4 = list.add(nm3, "x")
+    fl3 = list.new()
+    _f3 = list.add(fl3, "--tags=ffi")
+    _eq("args: full order", test_args_part("1", nm3, fl3, "test/ffi"),
+        " -j 1 --name 'x' --tags=ffi test/ffi")
+    // End-to-end through test_cmd — the exact string servirtium's binding runs.
+    _eq("test -j 1 end to end",
+        test_cmd("dart", "/proj", test_args_part("1", null, null, "")),
+        "cd '/proj' && 'dart' test -j 1")
 
     // --- compile_cmd: format + entry + -o output, all single-quoted
     //     where they could carry spaces.
