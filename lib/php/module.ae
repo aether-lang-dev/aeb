@@ -31,16 +31,21 @@ import std.map
 
 // --- DSL setters ---
 
-// phpunit_phar("phpunit.phar") — run the suite as `php <phar>` instead of a
-// bare `phpunit` on PATH. Path relative to source_dir. Scalar; last wins.
+// phpunit_phar("vendor/phpunit.phar") — OPTIONAL override of the local phar
+// filename (relative to source_dir). You rarely need it: declaring
+// phpunit_phar_url(...) alone already runs via a phar and defaults the local
+// name to "phpunit.phar" (the conventional `curl -o phpunit.phar` target).
+// Use this only for a vendored phar with no URL, or a non-default name.
+// Scalar; last wins.
 phpunit_phar(_ctx: ptr, phar: string) {
     _e = map.put(_ctx, "phpunit_phar", phar)
 }
 
-// phpunit_phar_url("https://…/phpunit-11.phar") — download the phar to the
-// phpunit_phar path if it is absent (the SDK checks file existence in Aether
-// and only fetches when missing; no shell `[ -f ] ||`). No-op if the phar is
-// already present. Scalar; last wins.
+// phpunit_phar_url("https://…/phpunit-11.phar") — run the suite via a phar
+// (rather than a bare `phpunit` on PATH) and download it to the local phar
+// path (default "phpunit.phar") if absent. The "fetch only when missing"
+// check runs in Aether (file.exists), so no shell `[ -f ] ||`. No-op when the
+// phar is already present. Scalar; last wins.
 phpunit_phar_url(_ctx: ptr, url: string) {
     _e = map.put(_ctx, "phpunit_phar_url", url)
 }
@@ -100,31 +105,34 @@ builder test(ctx: ptr) {
     build._mkdirs(target_dir)
     env_prefix = build._env_export_prefix(_builder)
 
-    // Resolve the runner: a phar (fetched if missing) or bare phpunit.
+    // Resolve the runner: a phar (fetched if missing) or bare phpunit. Phar
+    // mode is enabled by EITHER an explicit phpunit_phar(...) path OR a
+    // phpunit_phar_url(...) — the local filename defaults to "phpunit.phar".
     runner = "phpunit"
+    phar = ""
+    url = ""
     if _builder != null {
-        if map.has(_builder, "phpunit_phar") == 1 {
-            phar, _ = map.get(_builder, "phpunit_phar")
-            if string.length(phar) > 0 {
-                // Fetch-if-missing — the conditional is HERE, in Aether.
-                phar_abs = path.join(source_dir, phar)
-                if file.exists(phar_abs) == 0 {
-                    if map.has(_builder, "phpunit_phar_url") == 1 {
-                        url, _ = map.get(_builder, "phpunit_phar_url")
-                        if string.length(url) > 0 {
-                            println("${mod_dir}: fetching ${phar}")
-                            fr = os.system(phar_fetch_cmd(source_dir, url, phar))
-                            if fr != 0 {
-                                println("${mod_dir}: phar download FAILED")
-                                build.fail(ctx, "phar download FAILED")
-                                return fr
-                            }
-                        }
-                    }
+        if map.has(_builder, "phpunit_phar") == 1 { phar, _ = map.get(_builder, "phpunit_phar") }
+        if map.has(_builder, "phpunit_phar_url") == 1 { url, _ = map.get(_builder, "phpunit_phar_url") }
+    }
+    if string.length(phar) == 0 {
+        if string.length(url) > 0 { phar = "phpunit.phar" }
+    }
+    if string.length(phar) > 0 {
+        // Fetch-if-missing — the conditional is HERE, in Aether, not a shell ||.
+        if string.length(url) > 0 {
+            phar_abs = path.join(source_dir, phar)
+            if file.exists(phar_abs) == 0 {
+                println("${mod_dir}: fetching ${phar}")
+                fr = os.system(phar_fetch_cmd(source_dir, url, phar))
+                if fr != 0 {
+                    println("${mod_dir}: phar download FAILED")
+                    build.fail(ctx, "phar download FAILED")
+                    return fr
                 }
-                runner = phar_runner(phar)
             }
         }
+        runner = phar_runner(phar)
     }
 
     cfg = ""
