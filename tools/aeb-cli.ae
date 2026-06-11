@@ -7,20 +7,15 @@
 // argv, set env, resolve synonyms against the filesystem, print, exit. See
 // TODO.md § "Full Aether CLI entrypoint".
 //
-// STATUS: front-end complete AND the supervised exec is WIRED (the
-// os.run_supervised call below) — own process group, signal-forward, timeout,
-// group-reap, one cross-platform call (POSIX process groups / Windows Job
-// Objects). Reference shape: examples/applications/build-supervisor.ae.
-//
-// BLOCKED on an upstream Aether runtime bug (ae 0.237.0, branch
-// fix/critical-windows-interp-and-namespace): os.run / run_capture /
-// run_supervised corrupt any argv entry that is a HEAP string (a
-// string.concat / substring result) — literals and aether_args_get strings
-// survive, but the argv builder in std/os/aether_os.c blind-casts each
-// list_get_raw item to char*, which only lines up for literals. A launcher's
-// argv is inherently computed (os.getcwd + concat'd paths), so they all arrive
-// corrupted at aeb-main. The wiring here is CORRECT; it works the moment the
-// runtime is fixed. Report: ../aether/run-argv-heap-string-corruption.md.
+// STATUS: DONE for the base case. Front-end complete AND the supervised exec
+// is WIRED (the os.run_supervised call below) — own process group,
+// signal-forward, timeout, group-reap, one cross-platform call (POSIX process
+// groups / Windows Job Objects). The upstream argv-corruption blocker
+// (aether #688 — os.run* mangled heap-allocated argv strings) is FIXED in ae
+// 0.239.0, and a Phase-1 A/B against ../google-monorepo-sim now passes:
+// aeb-cli builds a target with IDENTICAL output + artifacts + exit code to the
+// bash trampoline. Remaining: the --sandbox prefix arm (prepend aeb-sandbox)
+// and the full-repo A/B harness (ab.sh). See mingw_a_b_plan.md.
 
 import aebcli
 import build

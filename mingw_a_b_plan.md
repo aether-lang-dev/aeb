@@ -178,22 +178,23 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
 ## Ordered next steps
 
 1. ~~**Wire `aeb-cli`'s `os.run_supervised` exec** of `aeb-main` (Axis 1).~~
-   **WIRED (2026-06-11) but BLOCKED on an upstream runtime bug.** The exec is
-   in (`tools/aeb-cli.ae` — `os.run_supervised(main_bin, argv, null, 1,1,
-   timeout, 1)`), and the `AEB_HOME`-from-`tools/` walk-up is handled. But
-   `os.run`/`run_capture`/`run_supervised` **corrupt heap-allocated argv
-   strings** (any `string.concat`/`substring`/`os.getcwd` result) — only
-   literals and `aether_args_get` strings survive. A launcher's argv is
-   inherently computed, so `aeb-main` receives garbage args (observed:
-   `["aeb-main","ae","<home>","\336\300W\256\1","\336\300W\256\1"]`). The
-   wiring is correct; it works the moment the runtime is fixed.
-   **Upstream report: `../aether/run-argv-heap-string-corruption.md`** (ae
-   0.237.0, branch `fix/critical-windows-interp-and-namespace`). Root cause:
-   `std/os/aether_os.c` argv builder blind-casts each `list_get_raw` item to
-   `char*`, which only lines up for literals. **Phase-1 A/B is gated on this
-   fix.**
-2. **Phase-1 A/B on Linux** against `../google-monorepo-sim`, leaf → app →
-   full. Land `ab.sh` that runs both and diffs.
+   **DONE (2026-06-11).** The exec is wired (`tools/aeb-cli.ae` —
+   `os.run_supervised(main_bin, argv, null, 1,1, timeout, 1)`), the
+   `AEB_HOME`-from-`tools/` walk-up is handled, and the upstream blocker is
+   gone: `os.run*` argv corruption for heap strings (**aether #688**) was
+   FIXED in **ae 0.239.0** (the argv/env builders now route every
+   `list_get_raw` result through `aether_string_data()` instead of a blind
+   `(char*)` cast — same class as the glob-match mixed-repr fix). Verified
+   end-to-end: a clean-Aether target builds with **IDENTICAL output +
+   artifact set + exit code** under `aeb-cli` and the bash trampoline (only
+   the wall-clock timing differs). The pure-Aether entrypoint is proven
+   faithful for the base case.
+2. ~~**Phase-1 A/B on Linux**~~ **STARTED.** Single-leaf A/B (C + Aether
+   targets) passes identical. Remaining: scale to a cross-module node → a
+   whole-app build → the full `../google-monorepo-sim`, and land `ab.sh`
+   (run both, diff exit/nodes/artifacts/telemetry). Also: the `--sandbox`
+   prefix arm in aeb-cli (prepend the `aeb-sandbox` wrapper, mirroring the
+   bash `AEB_LAUNCH`).
 3. **Classpath plumbing** (Axis-2 #1) — then re-run Phase-1 (still `:` on Linux,
    so must stay identical) as a regression gate.
 4. **Phase-2 A/B on MINGW** — iterate path translation (#2) + per-SDK (#3).
