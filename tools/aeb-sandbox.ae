@@ -50,11 +50,13 @@ main() {
     main_bin   = aether_args_get(4)
 
     // --- platform check: spawn_sandboxed is Linux-only ---
-    uname, _u = os.exec("uname -s")
-    is_linux = string.starts_with(string.trim(uname), "Linux")
+    // Compile-time os.platform() (ae 0.202+) — no `uname` shell-out, and
+    // correct on a native Windows host where `uname` is absent.
+    plat = os.platform()
+    is_linux = string.equals(plat, "linux")
     if is_linux == 0 {
         if string.length(os.getenv("AEB_SANDBOX_LEGACY")) == 0 {
-            println("aeb --sandbox: runtime containment is Linux-only (uname: ${string.trim(uname)})")
+            println("aeb --sandbox: runtime containment is Linux-only (platform: ${plat})")
             println("  use the container/VM layer there, or AEB_SANDBOX_LEGACY=1 to run UNCONTAINED.")
             exit(3)
         }

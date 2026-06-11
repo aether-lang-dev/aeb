@@ -133,15 +133,22 @@ daemons). That gap is now **closed upstream**: `std.os` gained
 `os.run_supervised(prog, argv, env, new_process_group, forward_signals,
 timeout_secs, reap_group) -> (exit_code, outcome)` — exactly the bash pattern
 — plus `os.kill` (negative-pid groups, `sig 0` probe), `os.wait_pid_timeout`,
-and `std.signal` constants. Landed on `feat/os-process-supervision`, merged to
-aether main as of 0.231.0 (this box runs 0.230.0; bump to ≥0.231 before the
-port). See `../aether/aeb-process-supervision-primitives.md` (STATUS: LANDED).
-**So the native entrypoint is no longer blocked — it's now scheduling, not a
-missing primitive.** Caveat for the Windows angle below: `run_supervised` is
-POSIX-only (Windows stubs report "unsupported on Windows"), so the native
-entrypoint's supervision tail must degrade on Windows (see the Windows
-cut-down section). (NB: the trampoline is ~635 lines now, not the "~50-line
-thin trampoline" older notes claim.)
+and `std.signal` constants. Landed in ae 0.231.0; the installed toolchain is
+now 0.235.0 (it was 0.230 mid-session — already bumped). See
+`../aether/aeb-process-supervision-primitives.md` and the worked reference
+`../aether/examples/applications/build-supervisor.ae` (the bash trampoline
+tail as one `run_supervised` call). **So the native entrypoint is no longer
+blocked — it's now scheduling, not a missing primitive.** **`run_supervised`
+is CROSS-PLATFORM** (CHANGELOG 0.231): the same call uses POSIX process groups
+*and* Windows Job Objects (`TerminateJobObject` for timeout/signal,
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` for the leaked-daemon reap), so the
+Windows arm has FULL parity — no degrade, no hand-rolled taskkill. (Earlier
+notes here said "POSIX-only, Windows degrades" — that was the stale state in
+the ask doc's status line; the shipped 0.231 went further. Corrected.) Also
+landed and useful: `os.getcwd`/`os.chdir` (now used by `aeb-cli` instead of a
+`pwd` shell-out), `os.run_full` (separate stdout/stderr + stdin feed),
+`ae run <file> -- <args>` arg forwarding. (NB: the trampoline is ~635 lines
+now, not the "~50-line thin trampoline" older notes claim.)
 
 **Progress — the entire argv grammar is now ported, pure + tested, in
 `tools/aebcli/module.ae`** (75 assertions across
@@ -180,10 +187,14 @@ supervised exec of aeb-main.
 
 **What remains for the entrypoint:**
 - **The supervision tail** — exec aeb-main as `aether aeb_home root targets…`
-  under `os.run_supervised` (own process group, INT/TERM forward, `--timeout`
-  TERM→KILL watchdog → exit 124, group-reap). POSIX-only; landed in ae 0.231
-  (this tree is on 0.230 — bump first). The Windows arm degrades: plain spawn +
-  `taskkill /F /T` on timeout, no group-reap (the cut-down).
+  under `os.run_supervised(prog, argv, env, 1, 1, timeout, 1)` (own process
+  group, INT/TERM forward, `--timeout` TERM→KILL → exit 124, group-reap) — one
+  call, the whole tail. CROSS-PLATFORM (POSIX groups / Windows Job Objects), so
+  the Windows arm has full parity (no taskkill degrade). Toolchain is on 0.235
+  (have the primitive). Reference: `../aether/examples/applications/
+  build-supervisor.ae`. The launch shape is `aeb-main <aether> <home> <root>
+  <targets…>` (plus an `aeb-sandbox <aether> <home> <root> <main-bin>` prefix
+  under `--sandbox`), built from the directive plan aeb-cli already resolves.
 - **Abs-path + file-existence** for the `--agents` / `--veto-policy` /
   `--sandbox-profile` values (parse_argv leaves these as plain `env`
   directives; the bash also `cd`s to resolve them absolute and checks the file
@@ -233,13 +244,28 @@ gated off rather than silently broken. Not "full parity" — a *cut-down* that
 is honest about what it can't do on Windows.
 
 **Why it's plausible now, not aspirational:**
-- Aether itself has a Windows backend (the POSIX-only stdlib pieces ship as
-  stubs that report "unsupported on Windows" — e.g. `os.run_supervised`).
+- Aether itself has a Windows backend, and key pieces are genuinely
+  cross-platform, not stubs — e.g. `os.run_supervised` (Windows Job Objects),
+  `os.getcwd`/`os.chdir` (`GetCurrentDirectory`/`SetCurrentDirectory`), and
+  `os.platform()` (compile-time OS string; see host-detection note below).
+  Some surfaces remain POSIX-only (e.g. the `--sandbox` LD_PRELOAD path) and
+  those are the ones to feature-gate (item 5).
+- **`${...}` interpolation now works on native Windows** (CHANGELOG
+  `[current]`, #681): MinGW64's MSVCRT printf made the two-pass
+  `_aether_interp` sizing collapse to an empty buffer, so every interpolated
+  `println` in `tools/aeb-cli.ae` (`${aether}`, the launch plan, error
+  messages) printed *empty* on Windows. Fixed upstream by binding the printf
+  family to the C99 `__mingw_*` impls. No aeb change — but it means the native
+  entrypoint's output is actually usable on Windows now.
 - aeb *already* branches by OS at its lowest layer: `aeb-link` has an
   inlined `_is_macos_link()` for the GNU-ld-only `--allow-multiple-definition`
-  flag, and `lib/build` already carries `_host_os()` returning `"windows"`
-  for MinGW/MSYS/Cygwin `uname -s` prefixes. So the conditional-by-OS shape
-  exists; Windows is a third arm, not a new mechanism.
+  flag, and `lib/build` carries `_host_os()` returning `"windows"`. Both now
+  read the compile-time **`os.platform()`** (ae 0.202+) instead of shelling out
+  to `uname -s` — which matters because `uname` does not exist on a *native*
+  Windows host (the old shell-out only worked under MSYS/MinGW and silently
+  fell back to "linux" on real Windows, mis-driving every OS gate). So the
+  conditional-by-OS shape exists and is now native-Windows-correct; Windows is
+  a third arm, not a new mechanism.
 
 **Foundation laid (this session, Linux-safe — all return 0 off-Windows):**
 - `lib/build`: `_is_windows()` / `_is_linux()` (alongside existing
@@ -260,32 +286,40 @@ is honest about what it can't do on Windows.
   `tests/test_path_helpers.ae` (29 assertions). First conversion done:
   `_resolve_aether_dir` dropped its `dirname $(command -v …)` shell-out for a
   native `_dirname` (verified byte-identical to the old pipeline).
-- Linux-green against `./tests/run.sh` (89/89).
+- **Host detection moved off `uname -s` to `os.platform()`** (ae 0.202+) in
+  all three sites: `lib/build._host_os()` (+ `_is_macos()` folded onto it),
+  `tools/aeb-link._is_macos_link()`, and `tools/aeb-sandbox`'s Linux-only
+  containment gate. Compile-time, never-fails, and correct on a native Windows
+  host where `uname` is absent (the old shell-out fell back to "linux" there).
+  Also removes three coreutils shell-outs per the native-over-coreutils rule.
+  `_host_os()` still returns this module's historical `"macos"` token (maps
+  `os.platform()`'s Go-spelling `"darwin"`). Locked by the existing
+  `tests/test_platform_helpers.ae` token-agreement assertions.
+- Linux-green against `./tests/run.sh` (99/99).
 
 **Reference: Nushell** (`../nushell`, MIT, shallow clone). A mature
 Windows-first shell in Rust — high-value comparison for these exact seams.
 Findings written up in `docs/windows-cross-platform-notes.md` (attribution in
-`NOTICE`). Three takeaways are folded into the items below: (a) Nushell does
-*not* do POSIX process groups on Windows — it just `spawn`s — validating the
-cut-down (item 1); (b) it terminates via `taskkill /F /PID` on Windows vs
-`kill` on POSIX (item 1); (c) its drive-letter handling = Rust std's
-`Prefix::Disk`, now ported as `_has_windows_drive_prefix` (item 4).
+`NOTICE`). Takeaways: (a) its drive-letter handling = Rust std's
+`Prefix::Disk`, now ported as `_has_windows_drive_prefix` (item 4); (b) the
+dual-separator path rule, ported into the lib/build path helpers above.
+(Its process-supervision approach — skip groups on Windows, shell out to
+`taskkill` — is NOT aeb's path: Aether's `os.run_supervised` gives
+cross-platform group-reap via Job Objects. Kept as context in the doc.)
 
 **Work items (in rough dependency order):**
 
 1. **Native entrypoint is the gate.** Windows has no bash, so the cut-down
-   runner *requires* the native Aether entrypoint above (no longer blocked
-   upstream — see the supervision note). The Windows arm of that entrypoint
-   skips `set -m` / signal-forward / group-reap entirely (POSIX-only;
-   `run_supervised` stubs out on Windows) and just spawns + waits the build,
-   accepting that a leaked daemon won't be group-reaped. Document that as the
-   known cut-down gap. **Nushell confirms this is the right call** — it gates
-   all process-group machinery behind `#[cfg(unix)]` and just `spawn`s on
-   Windows (nu-system/foreground.rs). For the *timeout* path, where bash does
-   `kill -TERM -<pgid>`, the Windows arm uses `taskkill /F /PID <id>` (force-
-   kill the build PID) or `taskkill /F /T /PID <id>` (`/T` = kill the process
-   tree — the closest cut-down substitute for group-reap). Mapping from
-   nu-system/util.rs; see docs/windows-cross-platform-notes.md.
+   runner *requires* the native Aether entrypoint above (no longer blocked —
+   see the supervision note). The supervision tail is one cross-platform
+   `os.run_supervised` call: on Windows it runs the build in a Job Object with
+   group-reap, so the Windows arm has FULL parity (not the spawn-and-skip-reap
+   degrade earlier notes assumed). `tools/aeb-cli.ae` already resolves the
+   launch; the remaining work is the single `os.run_supervised` call to exec
+   aeb-main. (Historical note: Nushell skips groups on Windows and shells out
+   to `taskkill /F /T` precisely because Rust std hands it no group primitive;
+   aeb has `os.run_supervised`, so it doesn't take that path — see
+   docs/windows-cross-platform-notes.md §1–2 for the comparison.)
 
 2. **Classpath separator — convert JVM SDK call sites to `_path_sep()`.**
    `lib/{java,kotlin,scala,groovy,clojure}` hardcode `:` when joining jar

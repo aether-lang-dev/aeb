@@ -419,18 +419,12 @@ scan(ctx: ptr, pattern: string) {
 
 // --- Internal helpers (used by language modules via build._helper()) ---
 
-// Platform detection. Result is one of "Darwin", "Linux", or whatever
-// else `uname -s` returns (treated as Linux-ish for flag purposes).
-// Called a handful of times per build — fork cost is negligible so we
-// don't bother caching. Language SDKs use this to pick OS-specific
-// linker flags or runtime env vars.
-_uname_s() {
-    out, _eerr = os.exec("uname -s")
-    return string.trim(out)
-}
-
+// Platform detection. Language SDKs use this to pick OS-specific linker
+// flags, runtime env vars, compilers, and suffixes — see _host_os() below
+// for the normalised token and why it now reads os.platform() instead of
+// shelling out to `uname -s`.
 _is_macos() {
-    return _uname_s() == "Darwin"
+    return _host_os() == "macos"
 }
 
 // Linker flag that forces GNU ld to tolerate duplicate symbol
@@ -488,36 +482,36 @@ _execute_enabled() {
     return 1
 }
 
-// Normalised host-OS token, derived from `uname -s`. One of:
+// Normalised host-OS token. One of:
 //   "linux"   — Linux
-//   "macos"   — Darwin
+//   "macos"   — Darwin / macOS
 //   "freebsd" — FreeBSD
-//   "windows" — MinGW / MSYS / Cygwin (uname -s starts with one of
-//               MINGW / MSYS / CYGWIN), or anything else as a last
-//               resort if it looks Windows-ish
+//   "windows" — Windows (native, OR a MinGW/MSYS/Cygwin shell)
 //   "linux"   — fallback for anything unrecognised (Linux-ish flags
 //               are the safest default for an unknown POSIX system)
-// Language SDKs use this to pick compilers, flags, and suffixes.
+//
+// Reads the compile-time os.platform() (ae 0.202+) rather than shelling
+// out to `uname -s`. Two wins: (1) it is correct on a NATIVE Windows
+// build, where `uname` does not exist — the old shell-out only worked
+// under MSYS/MinGW and silently fell back to "linux" on a real Windows
+// host, mis-driving every OS gate; (2) it drops a coreutils shell-out per
+// the native-over-coreutils rule. os.platform() is picked from predefined
+// C macros at compile time and never fails. It returns Go's GOOS spelling
+// ("darwin"); we map that to this module's historical "macos" token, and
+// fold the rarer BSDs / solaris / wasm / unknown into the Linux-ish
+// default, exactly as the old uname mapping did.
 _host_os() {
-    s = _uname_s()
-    if s == "Darwin" {
+    p = os.platform()
+    if p == "darwin" {
         return "macos"
     }
-    if s == "Linux" {
+    if p == "linux" {
         return "linux"
     }
-    if s == "FreeBSD" {
+    if p == "freebsd" {
         return "freebsd"
     }
-    // MinGW/MSYS/Cygwin report e.g. "MINGW64_NT-10.0", "MSYS_NT-10.0",
-    // "CYGWIN_NT-10.0" — match on the prefix.
-    if string.starts_with(s, "MINGW") == 1 {
-        return "windows"
-    }
-    if string.starts_with(s, "MSYS") == 1 {
-        return "windows"
-    }
-    if string.starts_with(s, "CYGWIN") == 1 {
+    if p == "windows" {
         return "windows"
     }
     return "linux"

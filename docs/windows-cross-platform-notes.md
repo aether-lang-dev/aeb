@@ -30,17 +30,29 @@ and on non-Unix, `spawn` is literally just `std::process::Command::spawn`
 — no group, no foreground-tty dance, no reaping. A mature Windows shell
 ships without replicating POSIX job control.
 
-**Implication for aeb:** the cut-down decision is correct. The native
-entrypoint's Windows arm should spawn + wait the build directly and skip
-group-reap, accepting that a leaked daemon won't be swept. This matches
-that `os.run_supervised` is POSIX-only upstream (its Windows stub reports
-"unsupported"). Document the missing group-reap as a known Windows gap,
-don't try to hand-roll Job Objects for parity.
+**Implication for aeb — UPDATED (ae 0.231+).** This section's original
+conclusion ("the Windows arm skips group-reap; a leaked daemon won't be
+swept") is now **superseded**. Aether's `std.os.run_supervised` is
+**cross-platform**: the *same* call that uses POSIX process groups maps onto
+**Windows Job Objects** under the hood (`AssignProcessToJobObject` for the
+group, `TerminateJobObject` for timeout/signal, and
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` for the leaked-daemon group-reap). So aeb
+gets **full Windows group-reap parity for free** — it does NOT hand-roll Job
+Objects and does NOT degrade. Nushell skips group control on Windows because
+Rust std hands it no equivalent primitive; aeb has one, so the Nushell finding
+here is interesting context, not the path aeb takes. (The drive-letter and
+path-separator findings below remain fully in force — those are real ports.)
 
-## 2. Process termination: `taskkill /F /PID` vs `kill` (a copyable mapping)
+## 2. Process termination: `taskkill /F /PID` vs `kill` (context, not aeb's path)
 
-When aeb's native entrypoint needs to enforce a timeout (TERM→KILL the
-build), it can't `kill -TERM -<pgid>` on Windows. Nushell's
+> **Superseded for aeb's own use (ae 0.231+):** aeb does not build kill
+> commands at all — `os.run_supervised` enforces the timeout (POSIX
+> TERM→grace→KILL; Windows `TerminateJobObject` reporting exit 124) and the
+> group-reap internally, cross-platform. The mapping below is retained as
+> Nushell reference for *why* a shell without that primitive shells out.
+
+When a supervisor lacks a group-aware primitive and must enforce a timeout
+(TERM→KILL the build), it can't `kill -TERM -<pgid>` on Windows. Nushell's
 `nu-system/src/util.rs` (`build_kill_command`) shows the portable shape it
 actually ships — and notably, it *also* just shells out rather than using
 Win32 APIs:
@@ -50,13 +62,11 @@ Win32 APIs:
 | Windows  | `taskkill /F /PID <id>` (one `/PID <id>` per target; without `/PID` taskkill behaves like `killall`) |
 | POSIX    | `kill -<signal> -- <id>...` (or `kill -9 -- <id>...` to force) |
 
-So the aeb Windows entrypoint, lacking group semantics, can at minimum
-force-kill the top-level build PID on timeout via `taskkill /F /PID`. For
-a process *tree* (the children the build spawned), `taskkill /F /T /PID
-<id>` terminates the PID and its descendants — the closest Windows analog
-to group-reap, and a reasonable cut-down substitute worth using on the
-timeout path. (`/T` is the tree flag; Nushell's user-facing `kill` doesn't
-use it, but the timeout-reap case wants it.)
+`taskkill /F /T /PID <id>` (`/T` = kill the process tree) is the closest
+shell-level analog to group-reap — what you'd reach for *without* a
+group-aware primitive. aeb doesn't need it: `os.run_supervised`'s Job Object
+already terminates the whole tree. Kept here only to record what the
+primitive replaces.
 
 ## 3. Drive-letter disambiguation: the `Prefix::Disk` rule (ported helper)
 

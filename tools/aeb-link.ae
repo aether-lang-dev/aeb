@@ -132,11 +132,11 @@ _discover_repo_root(start: string) {
 
 // Platform detection for OS-specific linker flags. See
 // lib/build/module.ae for the shared version; aeb-link is a standalone
-// tool so the helper is inlined here. Called once per link step.
+// tool so the helper is inlined here. Called once per link step. Reads
+// the compile-time os.platform() (ae 0.202+) — correct on native Windows
+// (no `uname`) and no coreutils shell-out.
 _is_macos_link() {
-    out, eerr = os.exec("uname -s")
-    if eerr != "" { return 0 }
-    if string.trim(out) == "Darwin" { return 1 }
+    if os.platform() == "darwin" { return 1 }
     return 0
 }
 

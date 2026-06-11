@@ -9,10 +9,14 @@
 //
 // STATUS: front-end is complete through "resolve the launch"; the final
 // supervised exec of aeb-main (own process group, signal-forward, timeout,
-// group-reap) needs std.os.run_supervised, which is POSIX-only and landed in
-// ae 0.231 (this tree may be on 0.230). Until that's wired, aeb-cli resolves
-// everything and prints the launch plan (a useful dry-run). The Windows arm
-// of the exec degrades per the cut-down (taskkill /F /T, no group-reap).
+// group-reap) is a single std.os.run_supervised(prog, argv, env, 1, 1,
+// timeout, 1) call — see examples/applications/build-supervisor.ae in the
+// aether tree for the exact shape. That primitive is CROSS-PLATFORM (POSIX
+// process groups; Windows Job Objects with TerminateJobObject +
+// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE for the group-reap), so the Windows arm
+// has full parity — NOT a taskkill degrade. Available in ae 0.231+ (this tree
+// is on 0.235). Until wired, aeb-cli resolves everything and prints the launch
+// plan (a useful dry-run).
 
 import aebcli
 import build
@@ -43,10 +47,10 @@ _resolve_aeb_home() {
     return build._dirname(aether_args_get(0))
 }
 
-// The build root (cwd), as the bash captures with ROOT="$(pwd)".
+// The build root (cwd), as the bash captures with ROOT="$(pwd)". Uses the
+// native cross-platform os.getcwd() (ae 0.231+) — no `pwd` shell-out.
 _resolve_root() {
-    pwd, _e = os.exec("pwd")
-    return string.trim(pwd)
+    return os.getcwd()
 }
 
 // `--version`: provenance from $AEB_HOME/AEB_STAMP (parsed with the pure
