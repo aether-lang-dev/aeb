@@ -651,7 +651,37 @@ asked for a clean build, or vice versa).
 The cache works orthogonally to incremental-build mtimes (which
 SDKs check independently). Incremental skips work that's
 clearly redundant on this machine; the cache shares work across
-machines (when remote storage backends ship — see TODO.md).
+machines via the remote cache below.
+
+#### Remote cache (shared, cross-machine)
+
+Point `$AEB_REMOTE_CACHE_URL` at a shared store and `aeb` consults it
+*behind* the local cache — transparently, with no SDK changes. On a
+local miss it pulls the blob from the remote into the local store and
+serves it (so the compiler never runs); on a build it writes local and
+pushes the blob to the remote. The remote holds the same
+zlib-compressed, sha256-sharded blobs as local, so the two are
+interchangeable.
+
+```bash
+# CI runner — populate the shared cache:
+AEB_REMOTE_CACHE_URL=file:///mnt/ci-cache AEB_REMOTE_CACHE_MODE=write aeb ...
+
+# Developer — reuse CI's artifacts, read-only:
+AEB_REMOTE_CACHE_URL=file:///mnt/ci-cache AEB_REMOTE_CACHE_MODE=read aeb ...
+```
+
+- **Backend (today):** a shared **filesystem** root — `file:///abs/path`
+  or a plain `/abs/path` (an NFS mount, a shared CI volume, a container
+  bind-mount). The equivalent of Bazel's `--disk_cache` / Buck2's disk
+  cache. `http(s)://` URLs are recognised but not yet wired (HTTP/S3
+  backend is next — see TODO.md).
+- **Mode:** `AEB_REMOTE_CACHE_MODE` = `off` | `read` | `write` |
+  `readwrite` (default `readwrite` when a URL is set). CI runners
+  typically `write`; developer machines `read`.
+- **Safety:** every remote operation is best-effort — a slow or
+  unreachable remote degrades to a local miss / a skipped upload and
+  **never fails the build**.
 
 ### Coverage (`aeb --coverage`)
 
