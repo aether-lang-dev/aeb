@@ -552,10 +552,7 @@ _read_classpath_files(builder_map: ptr, source_dir: string) {
         if file.exists(p) == 1 {
             raw, _e = io.read_file(p)
             piece = string.trim(raw)
-            if string.length(piece) > 0 {
-                if string.length(out) > 0 { out = string.concat(out, ":") }
-                out = string.concat(out, piece)
-            }
+            out = build._cp_append(out, piece)
         }
         i = i + 1
     }
@@ -745,18 +742,9 @@ builder javac(ctx: ptr) {
     maven_cp = maven.classpath(ctx)
     file_cp = _read_classpath_files(_builder, source_dir)
     classpath = classes_dir
-    if string.length(dep_cp) > 0 {
-        tmp = string.concat(classpath, ":")
-        classpath = string.concat(tmp, dep_cp)
-    }
-    if string.length(maven_cp) > 0 {
-        tmp_m = string.concat(classpath, ":")
-        classpath = string.concat(tmp_m, maven_cp)
-    }
-    if string.length(file_cp) > 0 {
-        tmp_f = string.concat(classpath, ":")
-        classpath = string.concat(tmp_f, file_cp)
-    }
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, maven_cp)
+    classpath = build._cp_append(classpath, file_cp)
 
     // Create generated sources dir if requested (for annotation processors like QueryDSL)
     if map.has(_builder, "generated_sources") == 1 {
@@ -941,18 +929,9 @@ builder javac_test(ctx: ptr) {
     lib_cp = build._build_lib_classpath(ctx)
     maven_cp = maven.classpath(ctx)
     classpath = test_classes
-    if string.length(dep_cp) > 0 {
-        tmp = string.concat(classpath, ":")
-        classpath = string.concat(tmp, dep_cp)
-    }
-    if string.length(lib_cp) > 0 {
-        tmp2 = string.concat(classpath, ":")
-        classpath = string.concat(tmp2, lib_cp)
-    }
-    if string.length(maven_cp) > 0 {
-        tmp3 = string.concat(classpath, ":")
-        classpath = string.concat(tmp3, maven_cp)
-    }
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, lib_cp)
+    classpath = build._cp_append(classpath, maven_cp)
 
     // Write source file list to an argfile (avoids command-line length limits)
     argfile = path.join(target_dir, "javac_test_sources.txt")
@@ -1052,14 +1031,8 @@ builder junit(ctx: ptr) {
     dep_cp = build._build_dep_classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
     classpath = test_classes
-    if string.length(dep_cp) > 0 {
-        tmp = string.concat(classpath, ":")
-        classpath = string.concat(tmp, dep_cp)
-    }
-    if string.length(lib_cp) > 0 {
-        tmp2 = string.concat(classpath, ":")
-        classpath = string.concat(tmp2, lib_cp)
-    }
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, lib_cp)
 
     tc_pat = path.join(test_classes, "**/*Test.class")
     test_files, _egl1 = fs.glob(tc_pat)
@@ -1279,18 +1252,9 @@ builder junit5(ctx: ptr) {
     lib_cp = build._build_lib_classpath(ctx)
     maven_cp = maven.classpath(ctx)
     classpath = test_classes
-    if string.length(dep_cp) > 0 {
-        tmp = string.concat(classpath, ":")
-        classpath = string.concat(tmp, dep_cp)
-    }
-    if string.length(lib_cp) > 0 {
-        tmp2 = string.concat(classpath, ":")
-        classpath = string.concat(tmp2, lib_cp)
-    }
-    if string.length(maven_cp) > 0 {
-        tmp3 = string.concat(classpath, ":")
-        classpath = string.concat(tmp3, maven_cp)
-    }
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, lib_cp)
+    classpath = build._cp_append(classpath, maven_cp)
 
     // Build LD_LIBRARY_PATH from deps' ldlibdeps
     deps, _ = map.get(ctx, "deps")

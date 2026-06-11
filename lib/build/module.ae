@@ -537,11 +537,32 @@ _is_linux() {
 // else. JVM SDKs (java/kotlin/scala/groovy/clojure) build classpaths by
 // joining jar paths with this — hardcoding ':' breaks on a native
 // Windows JVM. Use build._path_sep() when assembling -cp / CLASSPATH.
+//
+// NB: this is keyed on the HOST OS as a proxy for the TOOLCHAIN target —
+// correct whenever they match (native Windows aeb + Windows JDK → ';';
+// Linux/WSL2 aeb + Linux JDK → ':'). The one config it gets wrong is the
+// WSL2 boundary: aeb (a Linux binary) shelling out to a *Windows* java.exe,
+// which wants ';' and C:\ paths while os.platform() still reports "linux".
+// That mixed case is deliberately out of scope for the cut-down (use a Linux
+// JDK inside WSL2). TODO: real toolchain-target detection (sniff java → .exe
+// / /mnt/c, translate entries via `wslpath -w`) if the boundary is ever needed.
 _path_sep() {
     if _is_windows() == 1 {
         return ";"
     }
     return ":"
+}
+
+// _cp_append(cp, part) — append one classpath entry (or a whole sub-classpath
+// string) to `cp`, separated by the host path separator. The conditional-join
+// idiom every JVM SDK repeats: a no-op when `part` is empty, and no leading
+// separator when `cp` is empty. Use this instead of string.concat(cp, ":") so
+// the separator is Windows-correct (';'). Pure; tested in
+// tests/test_platform_helpers.ae.
+_cp_append(cp: string, part: string) {
+    if string.length(part) == 0 { return cp }
+    if string.length(cp) == 0 { return part }
+    return string.concat(string.concat(cp, _path_sep()), part)
 }
 
 // True (1) if `s` begins with a Windows drive-letter prefix — a single

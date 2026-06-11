@@ -271,14 +271,9 @@ builder kotlinc(ctx: ptr) {
 
     dep_cp = build._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
-    classpath = string.concat(classes_dir, ":")
-    classpath = string.concat(classpath, stdlib_jar)
-    if string.length(dep_cp) > 0 {
-        classpath = string.concat(string.concat(classpath, ":"), dep_cp)
-    }
-    if string.length(maven_cp) > 0 {
-        classpath = string.concat(string.concat(classpath, ":"), maven_cp)
-    }
+    classpath = build._cp_append(classes_dir, stdlib_jar)
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, maven_cp)
 
     // Write source file list to argfile
     argfile = path.join(target_dir, "kotlinc_sources.txt")
@@ -412,14 +407,9 @@ builder kotlinc_test(ctx: ptr) {
 
     dep_cp = build._build_dep_classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
-    classpath = string.concat(test_classes, ":")
-    classpath = string.concat(classpath, stdlib_jar)
-    if string.length(dep_cp) > 0 {
-        classpath = string.concat(string.concat(classpath, ":"), dep_cp)
-    }
-    if string.length(lib_cp) > 0 {
-        classpath = string.concat(string.concat(classpath, ":"), lib_cp)
-    }
+    classpath = build._cp_append(test_classes, stdlib_jar)
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, lib_cp)
 
     // Honor source_layout("maven idiomatic") like kotlinc does: tests live
     // under src/test/kotlin (recursively), not flat in source_dir.
@@ -534,14 +524,9 @@ builder kotlin_test(ctx: ptr, test_class: string) {
     kotlin_home = _kotlin_home()
     stdlib_jar = path.join(kotlin_home, "lib/kotlin-stdlib.jar")
 
-    classpath = string.concat(test_classes, ":")
-    classpath = string.concat(classpath, stdlib_jar)
-    if string.length(dep_cp) > 0 {
-        classpath = string.concat(string.concat(classpath, ":"), dep_cp)
-    }
-    if string.length(lib_cp) > 0 {
-        classpath = string.concat(string.concat(classpath, ":"), lib_cp)
-    }
+    classpath = build._cp_append(test_classes, stdlib_jar)
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, lib_cp)
 
     println("${mod_dir}: running tests")
     run_cmd = "java -ea"

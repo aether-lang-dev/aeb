@@ -321,13 +321,37 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
    aeb has `os.run_supervised`, so it doesn't take that path — see
    docs/windows-cross-platform-notes.md §1–2 for the comparison.)
 
-2. **Classpath separator — convert JVM SDK call sites to `_path_sep()`.**
-   `lib/{java,kotlin,scala,groovy,clojure}` hardcode `:` when joining jar
-   paths into `-cp` / `CLASSPATH`. CAREFUL: not every `:` is a path
-   separator — `string.split(coord, ":")` parses a maven `g:a:v` coordinate
-   and must stay `:` on all platforms. Only the *path-list* joins/splits move
-   to `_path_sep()`. This is a per-call-site audit, not a blind sed. (The
-   `_path_sep()` helper is in place; the call-site conversion is the work.)
+2. **Classpath separator → `_path_sep()`.**
+   **Leaf joins DONE.** All five JVM SDKs' runtime `-cp` assembly now routes
+   through the shared **`build._cp_append(cp, part)`** helper (conditional join
+   on `_path_sep()`, tested in `tests/test_platform_helpers.ae`) instead of
+   `string.concat(cp, ":")` — `lib/{java,kotlin,scala,groovy,clojure}`. Byte-
+   identical on Linux (suite 104/104); Windows-correct shape. The maven-
+   coordinate split `string.split(coord, ":")` (java) was correctly left as
+   `:` (it's a `g:a:v` coordinate, not a path list).
+
+   **NOT yet functional on Windows** — the leaf joins are necessary but not
+   sufficient, because the cross-module classpath *plumbing* still hardcodes
+   `:` and shells out to coreutils. Remaining (the chunk that makes Windows
+   classpaths actually work; also overlaps item 6's coreutils removal):
+   - `build._build_dep_classpath` reads the `jvm_classpath_deps_including_
+     transitive` artifact via shell `echo | tr '\n' ':' | sed` and joins with
+     hardcoded `:`. → native newline-split + `_cp_append`.
+   - **Artifact format is inconsistent**: java/clojure/groovy write that
+     artifact newline-separated (via `tr ':' '\n'`); scala writes it
+     `:`-joined directly. Unify to a canonical newline-separated on-disk form
+     read natively (newlines are platform-neutral; convert to `_path_sep()`
+     only at the `-cp` boundary).
+   - `maven.classpath(ctx)` returns a `:`-joined classpath → `_path_sep()`.
+   - groovy `_nl_to_colon` / `_colon_to_nl` (shell `tr`) → native + `_path_sep()`.
+   - classpath SPLITs once producers emit `_path_sep()`: scala
+     `string.split(full_cp, ":")`, clojure `string.split(maven_cp, ":")`.
+   - `ld_path` joins in lib/java (the `LD_LIBRARY_PATH` native-lib search path,
+     2×) — POSIX-specific; on Windows native libs resolve via `PATH` (`;`).
+     Separate from classpath; handle with the native-lib-path story.
+   - Reminder (item A / WSL2): `_path_sep()` is host-based as a proxy for the
+     toolchain target — correct for native-Win+Win-JDK and Linux/WSL2+Linux-JDK,
+     wrong only for the WSL2→Windows-`java.exe` boundary (out of scope).
 
 3. **`.exe` suffix on built binaries.** Native-binary outputs (aether
    `program`, go, rust, C) need `_exe_suffix()` appended on Windows so the

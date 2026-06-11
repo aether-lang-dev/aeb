@@ -9,7 +9,7 @@
 // arithmetic) — their cross-module return type isn't inferred as int, so `+`
 // is rejected but `== 1` typechecks (the same idiom every SDK uses on them).
 
-import build (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _exe_suffix, _default_cc, _has_windows_drive_prefix)
+import build (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix)
 import std.string
 
 extern println(s: string)
@@ -71,6 +71,17 @@ main() {
     _no("'/abs/posix' (posix absolute)",       _has_windows_drive_prefix("/abs/posix"))
     _no("'12:34' (digit, not a letter)",       _has_windows_drive_prefix("12:34"))
     _no("'' (empty)",                          _has_windows_drive_prefix(""))
+
+    // --- _cp_append(): conditional classpath join with the host separator.
+    //     Expectations built from _path_sep() so the test holds on every host.
+    sep = _path_sep()
+    _eq_s("_cp_append into empty cp = part",   _cp_append("", "a.jar"), "a.jar")
+    _eq_s("_cp_append empty part = cp",         _cp_append("out", ""), "out")
+    _eq_s("_cp_append empty + empty = empty",   _cp_append("", ""), "")
+    _eq_s("_cp_append joins with host sep",     _cp_append("out", "a.jar"),
+        string.concat("out", string.concat(sep, "a.jar")))
+    _eq_s("_cp_append chains (sep between each)", _cp_append(_cp_append("out", "a.jar"), "b.jar"),
+        string.concat("out", string.concat(sep, string.concat("a.jar", string.concat(sep, "b.jar")))))
 }
 
 _no(label: string, cond: int) {

@@ -130,14 +130,7 @@ _dep_src_classpath(ctx: ptr) {
         dp, _ = list.get(deps, i)
         dm = build._strip_lang(dp)
         dep_src = build._read_dep_artifact(ctx, dm, "clojure_src_path")
-        if string.length(dep_src) > 0 {
-            if string.length(cp) > 0 {
-                tmp = string.concat(cp, ":")
-                cp = string.concat(tmp, dep_src)
-            } else {
-                cp = dep_src
-            }
-        }
+        cp = build._cp_append(cp, dep_src)
         i = i + 1
     }
     return cp
@@ -248,21 +241,11 @@ builder compile(ctx: ptr) {
 
     // Build classpath: own src + classes + dep src + jvm jars + maven deps
     cp = src_root
-    tmp2 = string.concat(cp, ":")
-    cp = string.concat(tmp2, classes_dir)
-    if string.length(dep_src) > 0 {
-        tmp3 = string.concat(cp, ":")
-        cp = string.concat(tmp3, dep_src)
-    }
-    if string.length(jvm_dep_cp) > 0 {
-        tmpj = string.concat(cp, ":")
-        cp = string.concat(tmpj, jvm_dep_cp)
-    }
+    cp = build._cp_append(cp, classes_dir)
+    cp = build._cp_append(cp, dep_src)
+    cp = build._cp_append(cp, jvm_dep_cp)
     maven_cp = maven.classpath(ctx)
-    if string.length(maven_cp) > 0 {
-        tmp4 = string.concat(cp, ":")
-        cp = string.concat(tmp4, maven_cp)
-    }
+    cp = build._cp_append(cp, maven_cp)
 
     // AOT compile if main_ns is set
     if _builder != null {
@@ -382,27 +365,18 @@ builder test(ctx: ptr) {
 
     // Build classpath: src + test + dep src + maven deps
     cp = src_root
-    tmp2 = string.concat(cp, ":")
-    cp = string.concat(tmp2, test_root)
+    cp = build._cp_append(cp, test_root)
 
     dep_src = _dep_src_classpath(ctx)
-    if string.length(dep_src) > 0 {
-        tmp3 = string.concat(cp, ":")
-        cp = string.concat(tmp3, dep_src)
-    }
+    cp = build._cp_append(cp, dep_src)
 
     maven_cp = maven.classpath(ctx)
-    if string.length(maven_cp) > 0 {
-        tmp4 = string.concat(cp, ":")
-        cp = string.concat(tmp4, maven_cp)
-    }
+    cp = build._cp_append(cp, maven_cp)
 
     // JVM jar deps from build.dep'd modules — the clojure runtime jars and
     // any cross-language component (e.g. a Java binding the tests :import).
     jvm_dep_cp = build._build_dep_classpath(ctx)
-    if string.length(jvm_dep_cp) > 0 {
-        cp = string.concat(string.concat(cp, ":"), jvm_dep_cp)
-    }
+    cp = build._cp_append(cp, jvm_dep_cp)
 
     // Discover test namespaces from *_test.clj files
     discover = "find '${test_root}' -name '*_test.clj' -type f"
@@ -521,11 +495,7 @@ builder uberjar(ctx: ptr) {
         mvn_raw, _emv = io.read_file(mvn_file)
         maven_cp = string.trim(mvn_raw)
     }
-    aot_cp = src_root
-    if string.length(maven_cp) > 0 {
-        tmp_cp = string.concat(aot_cp, ":")
-        aot_cp = string.concat(tmp_cp, maven_cp)
-    }
+    aot_cp = build._cp_append(src_root, maven_cp)
 
     // 1. AOT-compile main_ns into the staging dir.
     println("${mod_dir}: AOT-compiling ${ns}")

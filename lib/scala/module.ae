@@ -221,18 +221,9 @@ builder scalac(ctx: ptr) {
     maven_cp = maven.classpath(ctx)
 
     cp = classes_dir
-    if string.length(library_cp) > 0 {
-        tmp = string.concat(cp, ":")
-        cp = string.concat(tmp, library_cp)
-    }
-    if string.length(dep_cp) > 0 {
-        tmp2 = string.concat(cp, ":")
-        cp = string.concat(tmp2, dep_cp)
-    }
-    if string.length(maven_cp) > 0 {
-        tmp3 = string.concat(cp, ":")
-        cp = string.concat(tmp3, maven_cp)
-    }
+    cp = build._cp_append(cp, library_cp)
+    cp = build._cp_append(cp, dep_cp)
+    cp = build._cp_append(cp, maven_cp)
 
     cmd = scalac_cmd(compiler_cp, classes_dir, cp, argfile)
 
@@ -346,18 +337,9 @@ builder scalac_test(ctx: ptr) {
     maven_cp = maven.classpath(ctx)
 
     cp = test_classes
-    if string.length(library_cp) > 0 {
-        tmp = string.concat(cp, ":")
-        cp = string.concat(tmp, library_cp)
-    }
-    if string.length(dep_cp) > 0 {
-        tmp2 = string.concat(cp, ":")
-        cp = string.concat(tmp2, dep_cp)
-    }
-    if string.length(maven_cp) > 0 {
-        tmp3 = string.concat(cp, ":")
-        cp = string.concat(tmp3, maven_cp)
-    }
+    cp = build._cp_append(cp, library_cp)
+    cp = build._cp_append(cp, dep_cp)
+    cp = build._cp_append(cp, maven_cp)
 
     cmd = scalac_cmd(compiler_cp, test_classes, cp, argfile)
 
@@ -595,18 +577,9 @@ builder munit(ctx: ptr) {
     maven_cp = maven.classpath(ctx)
 
     cp = test_classes
-    if string.length(library_cp) > 0 {
-        tmp = string.concat(cp, ":")
-        cp = string.concat(tmp, library_cp)
-    }
-    if string.length(dep_cp) > 0 {
-        tmp2 = string.concat(cp, ":")
-        cp = string.concat(tmp2, dep_cp)
-    }
-    if string.length(maven_cp) > 0 {
-        tmp3 = string.concat(cp, ":")
-        cp = string.concat(tmp3, maven_cp)
-    }
+    cp = build._cp_append(cp, library_cp)
+    cp = build._cp_append(cp, dep_cp)
+    cp = build._cp_append(cp, maven_cp)
 
     // Discover test classes
     cl_raw, _ecl = os.exec("find '${test_classes}' -name '*.class' ! -name '*$*' | sed 's|^${test_classes}/||; s|/|.|g; s|\\.class$||'")

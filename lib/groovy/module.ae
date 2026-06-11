@@ -121,10 +121,9 @@ builder groovyc(ctx: ptr) {
 
     dep_cp = build._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
-    classpath = string.concat(classes_dir, ":")
-    classpath = string.concat(classpath, groovy_cp)
-    if string.length(dep_cp) > 0 { classpath = string.concat(string.concat(classpath, ":"), dep_cp) }
-    if string.length(maven_cp) > 0 { classpath = string.concat(string.concat(classpath, ":"), maven_cp) }
+    classpath = build._cp_append(classes_dir, groovy_cp)
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, maven_cp)
 
     file_list = _source_files(_builder, source_dir, "src/main/groovy")
     if string.length(file_list) == 0 {
@@ -165,10 +164,9 @@ builder groovyc_test(ctx: ptr) {
 
     dep_cp = build._build_dep_classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
-    classpath = string.concat(test_classes, ":")
-    classpath = string.concat(classpath, groovy_cp)
-    if string.length(dep_cp) > 0 { classpath = string.concat(string.concat(classpath, ":"), dep_cp) }
-    if string.length(lib_cp) > 0 { classpath = string.concat(string.concat(classpath, ":"), lib_cp) }
+    classpath = build._cp_append(test_classes, groovy_cp)
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, lib_cp)
 
     file_list = _source_files(_builder, source_dir, "src/test/groovy")
     if string.length(file_list) == 0 {
