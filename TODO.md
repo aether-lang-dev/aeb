@@ -255,13 +255,36 @@ Remaining: end-to-end hit/miss verification on Linux (the macOS ld64
 duplicate-symbol issue blocks full `./aeb` links), and the remote cache
 layer below.
 
-### Remote build cache
+### Remote build cache (filesystem backend done; HTTP/S3 next)
 
 The next layer up from local caching: share artifacts across
 machines (Bazel, Gradle, Nx, Turborepo all do this). Implementation:
-hash inputs → check remote store (S3, GCS, local server) → download
-artifacts or build locally → upload result. The cache primitives in
-`lib/cache/` are the substrate; needs a backend protocol and auth.
+hash inputs → check remote store → download artifacts or build locally
+→ upload result.
+
+**Done — shared filesystem backend.** `lib/cache` now consults a shared
+remote *behind* the local store, transparently (no SDK changes — every
+SDK already calls `cache.get/put`). Read path: local hit → else pull the
+blob from the remote into the local store → else miss. Write path: write
+local → push the blob to the remote. The remote holds the SAME
+zlib-compressed sha256-sharded blobs, so local and remote are
+interchangeable CAS. Config: `AEB_REMOTE_CACHE_URL` =
+`file:///abs/path` (a plain path also works) — an NFS mount, a shared CI
+volume, a bind-mount; the equivalent of Bazel `--disk_cache` / Buck2
+disk cache. `AEB_REMOTE_CACHE_MODE` = off|read|write|readwrite (default
+readwrite when a URL is set; CI runners `write`, dev machines `read`).
+Every remote op is best-effort — a remote failure never fails the build.
+Covered by `tests/test_remote_cache.ae` (config core) and
+`tests/test_remote_cache_roundtrip.ae` (two simulated machines sharing a
+remote: put on A → get on a fresh B via the remote, byte-identical).
+
+**Next — HTTP/S3 backend.** Add an `http(s)://` backend behind the same
+`_remote_pull`/`_remote_push` seam (the scheme is already recognised and
+currently no-ops). Use `std.http.client` GET/PUT/HEAD with a bearer
+token (`AEB_REMOTE_CACHE_TOKEN`); the one thing to verify on a working
+toolchain is binary-safe blob download (the blobs contain NULs).
+S3/GCS/a tiny CAS server then all speak the same GET/PUT/HEAD-by-sha256
+shape.
 
 **Direction & policy:** [`docs/distributed-cache-plan.md`](docs/distributed-cache-plan.md)
 captures the design framing — repeatability vs reproducibility,

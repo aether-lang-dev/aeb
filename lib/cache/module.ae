@@ -1,15 +1,31 @@
-// cache — Content-addressable build artifact cache (v1, local-only).
+// cache — Content-addressable build artifact cache.
 //
-// Phase 1 of the remote-cache TODO in aeb. Just primitives:
 //   - sha256-keyed hashing of inputs (file contents, dep manifests, flags)
 //   - zlib-compressed storage under $AEB_CACHE_DIR (or ~/.aeb/cache)
 //   - put / get / has lookups against the local store
 //
-// No SDK builder integration, no remote backend, no eviction policy.
-// This is the substrate the remote-cache work will sit on top of.
-// Drop-in alongside the existing target/ timestamp cache — callers
-// opt in by hashing inputs themselves and only invoking the SDK
-// builder on cache miss.
+// REMOTE CACHE (shared, cross-machine). When $AEB_REMOTE_CACHE_URL names
+// a shared store, get/put transparently consult it BEHIND the local
+// store — no SDK changes, since every SDK already calls cache.get/put.
+//   - read path:  local hit → return; else pull the blob from the remote
+//     into the local store, then serve locally; else miss.
+//   - write path: write local; then push the blob to the remote.
+// The remote stores the SAME zlib-compressed blobs as local under the
+// same sha256 sharding, so the two stores are interchangeable CAS.
+//
+// Backend (v1): a shared FILESYSTEM root — $AEB_REMOTE_CACHE_URL is
+// `file:///abs/path` or a plain `/abs/path` (an NFS mount, a shared CI
+// volume, a container bind-mount). This is the equivalent of Bazel's
+// `--disk_cache` / Buck2's disk cache, and the substrate the HTTP/S3
+// backend (TODO) plugs into behind the same _remote_pull/_remote_push
+// seam. `http(s)://` URLs are recognised but not yet wired — they no-op
+// (filesystem-only for now), so an http URL safely disables the remote.
+//
+// $AEB_REMOTE_CACHE_MODE = off | read | write | readwrite (default
+// readwrite when a URL is set, off otherwise). CI runners typically
+// `write`; developer machines `read`. Every remote op is BEST-EFFORT:
+// a remote failure degrades to a local miss / a missed upload and NEVER
+// fails the build.
 //
 // Returns ("", "cache unavailable") when the toolchain was built
 // without OpenSSL or zlib — callers should fall back to the existing
@@ -64,9 +80,122 @@ path(hash: string) {
     return path.join(path.join(dir(), prefix), rest)
 }
 
-// has(hash) — does the cache contain an entry for this hash?
+// --- Remote cache (shared filesystem backend) -----------------------
+//
+// The config helpers come in two layers: a PURE `_of(...)` core (takes
+// the url/mode as arguments, unit-testable) and a thin env wrapper. The
+// pull/push helpers operate on the local blob file at path(hash) and the
+// remote blob at _remote_fs_path(hash), so they move exactly the bytes
+// the local store already holds (compressed) — binary-safe, no string
+// round-trip.
+
+// _remote_fs_root_of(url) — the filesystem root for a remote URL, or ""
+// when the URL is empty or a (not-yet-wired) http(s) backend. `file://`
+// is stripped; a plain path passes through. PURE.
+_remote_fs_root_of(url: string) {
+    if string.length(url) == 0 { return "" }
+    if string.starts_with(url, "file://") == 1 {
+        return string.substring(url, 7, string.length(url))
+    }
+    if string.starts_with(url, "http://") == 1 { return "" }
+    if string.starts_with(url, "https://") == 1 { return "" }
+    return url
+}
+
+// _remote_read_enabled_of(mode, url) / _remote_write_enabled_of(mode, url)
+// — resolve the effective mode. Empty mode defaults to readwrite when a
+// URL is present, else off. PURE.
+_remote_effective_mode_of(mode: string, url: string) {
+    if string.length(mode) > 0 { return mode }
+    if string.length(url) > 0 { return "readwrite" }
+    return "off"
+}
+_remote_read_enabled_of(mode: string, url: string) {
+    m = _remote_effective_mode_of(mode, url)
+    if string.equals(m, "read") == 1 { return 1 }
+    if string.equals(m, "readwrite") == 1 { return 1 }
+    return 0
+}
+_remote_write_enabled_of(mode: string, url: string) {
+    m = _remote_effective_mode_of(mode, url)
+    if string.equals(m, "write") == 1 { return 1 }
+    if string.equals(m, "readwrite") == 1 { return 1 }
+    return 0
+}
+
+// Env wrappers.
+_remote_url() { return os.getenv("AEB_REMOTE_CACHE_URL") }
+_remote_read_enabled() { return _remote_read_enabled_of(os.getenv("AEB_REMOTE_CACHE_MODE"), _remote_url()) }
+_remote_write_enabled() { return _remote_write_enabled_of(os.getenv("AEB_REMOTE_CACHE_MODE"), _remote_url()) }
+
+// _remote_fs_path(hash) — sharded blob path under the remote root, or
+// "" when no filesystem remote is configured. Mirrors path().
+_remote_fs_path(hash: string) {
+    root = _remote_fs_root_of(_remote_url())
+    if string.length(root) == 0 { return "" }
+    n = string.length(hash)
+    if n < 2 { return path.join(root, hash) }
+    prefix = string.substring(hash, 0, 2)
+    rest = string.substring(hash, 2, n)
+    return path.join(path.join(root, prefix), rest)
+}
+
+// _remote_has(hash) — 1 if read is enabled and the remote holds the blob.
+_remote_has(hash: string) {
+    if _remote_read_enabled() == 0 { return 0 }
+    rp = _remote_fs_path(hash)
+    if string.length(rp) == 0 { return 0 }
+    return file.exists(rp)
+}
+
+// _copy_atomic(src, dest) — copy src to dest via a sibling temp + rename
+// so a concurrent reader never sees a torn file. Returns 1 on success.
+// Best-effort: any failure returns 0 (caller degrades gracefully).
+_copy_atomic(src: string, dest: string) {
+    parent = path.dirname(dest)
+    merr = fs.mkdir_p(parent)
+    if string.length(merr) > 0 { return 0 }
+    tmp_raw, _e = os.exec("mktemp '${parent}/.aebrc.XXXXXX' 2>/dev/null")
+    tmp = string.trim(tmp_raw)
+    if string.length(tmp) == 0 { return 0 }
+    if os.system("cp '${src}' '${tmp}' 2>/dev/null") != 0 {
+        os.system("rm -f '${tmp}'")
+        return 0
+    }
+    if os.system("mv '${tmp}' '${dest}' 2>/dev/null") != 0 {
+        os.system("rm -f '${tmp}'")
+        return 0
+    }
+    return 1
+}
+
+// _remote_pull(hash) — populate the local store from the remote. 1 if
+// the local store now holds the blob. Best-effort.
+_remote_pull(hash: string) {
+    if _remote_read_enabled() == 0 { return 0 }
+    rp = _remote_fs_path(hash)
+    if string.length(rp) == 0 { return 0 }
+    if file.exists(rp) == 0 { return 0 }
+    return _copy_atomic(rp, path(hash))
+}
+
+// _remote_push(hash) — upload the local blob to the remote. Idempotent
+// (no-op when the remote already has it). Best-effort.
+_remote_push(hash: string) {
+    if _remote_write_enabled() == 0 { return 0 }
+    rp = _remote_fs_path(hash)
+    if string.length(rp) == 0 { return 0 }
+    src = path(hash)
+    if file.exists(src) == 0 { return 0 }
+    if file.exists(rp) == 1 { return 1 }
+    return _copy_atomic(src, rp)
+}
+
+// has(hash) — does the cache contain an entry for this hash? Consults
+// the remote (read-enabled) when the local store misses.
 has(hash: string) {
-    return file.exists(path(hash))
+    if file.exists(path(hash)) == 1 { return 1 }
+    return _remote_has(hash)
 }
 
 // hash_file(path) — sha256 hex digest of a file's bytes. Binary-safe
@@ -117,6 +246,9 @@ hash_inputs(parts: ptr) {
 put(hash: string, src_path: string) {
     dest = path(hash)
     if file.exists(dest) == 1 {
+        // Already local — still push so a write-enabled remote (e.g. a
+        // CI runner) shares it even when this build didn't recompute it.
+        _remote_push(hash)
         return ""
     }
 
@@ -140,7 +272,12 @@ put(hash: string, src_path: string) {
         return merr
     }
 
-    return fs.write_atomic(dest, compressed, clen)
+    werr = fs.write_atomic(dest, compressed, clen)
+    if string.length(werr) == 0 {
+        // Write-through to the shared remote. Best-effort.
+        _remote_push(hash)
+    }
+    return werr
 }
 
 // get(hash, dest_path) — fetch from the cache, decompress, write to
@@ -150,6 +287,10 @@ put(hash: string, src_path: string) {
 // decompress can't leave dest_path in a torn state.
 get(hash: string, dest_path: string) {
     src = path(hash)
+    if file.exists(src) == 0 {
+        // Local miss — try the shared remote, populating the local store.
+        _remote_pull(hash)
+    }
     if file.exists(src) == 0 {
         return "miss"
     }
@@ -173,6 +314,7 @@ get(hash: string, dest_path: string) {
 put_string(hash: string, value: string) {
     dest = path(hash)
     if file.exists(dest) == 1 {
+        _remote_push(hash)
         return ""
     }
 
@@ -187,7 +329,11 @@ put_string(hash: string, value: string) {
         return merr
     }
 
-    return fs.write_atomic(dest, compressed, clen)
+    werr = fs.write_atomic(dest, compressed, clen)
+    if string.length(werr) == 0 {
+        _remote_push(hash)
+    }
+    return werr
 }
 
 // get_string(hash) -> (value, err) — string-shaped get. Returns
@@ -203,6 +349,9 @@ put_string(hash: string, value: string) {
 // .class trees) use the file-shaped get/put pair instead.
 get_string(hash: string) {
     src = path(hash)
+    if file.exists(src) == 0 {
+        _remote_pull(hash)
+    }
     if file.exists(src) == 0 {
         return "", "miss"
     }
