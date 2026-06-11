@@ -177,8 +177,21 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
 
 ## Ordered next steps
 
-1. **Wire `aeb-cli`'s `os.run_supervised` exec** of `aeb-main` (Axis 1).
-   Resolve the `AEB_HOME`-from-`tools/` detail. → `tools/aeb-cli.ae`.
+1. ~~**Wire `aeb-cli`'s `os.run_supervised` exec** of `aeb-main` (Axis 1).~~
+   **WIRED (2026-06-11) but BLOCKED on an upstream runtime bug.** The exec is
+   in (`tools/aeb-cli.ae` — `os.run_supervised(main_bin, argv, null, 1,1,
+   timeout, 1)`), and the `AEB_HOME`-from-`tools/` walk-up is handled. But
+   `os.run`/`run_capture`/`run_supervised` **corrupt heap-allocated argv
+   strings** (any `string.concat`/`substring`/`os.getcwd` result) — only
+   literals and `aether_args_get` strings survive. A launcher's argv is
+   inherently computed, so `aeb-main` receives garbage args (observed:
+   `["aeb-main","ae","<home>","\336\300W\256\1","\336\300W\256\1"]`). The
+   wiring is correct; it works the moment the runtime is fixed.
+   **Upstream report: `../aether/run-argv-heap-string-corruption.md`** (ae
+   0.237.0, branch `fix/critical-windows-interp-and-namespace`). Root cause:
+   `std/os/aether_os.c` argv builder blind-casts each `list_get_raw` item to
+   `char*`, which only lines up for literals. **Phase-1 A/B is gated on this
+   fix.**
 2. **Phase-1 A/B on Linux** against `../google-monorepo-sim`, leaf → app →
    full. Land `ab.sh` that runs both and diffs.
 3. **Classpath plumbing** (Axis-2 #1) — then re-run Phase-1 (still `:` on Linux,

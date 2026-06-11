@@ -7,16 +7,20 @@
 // argv, set env, resolve synonyms against the filesystem, print, exit. See
 // TODO.md § "Full Aether CLI entrypoint".
 //
-// STATUS: front-end is complete through "resolve the launch"; the final
-// supervised exec of aeb-main (own process group, signal-forward, timeout,
-// group-reap) is a single std.os.run_supervised(prog, argv, env, 1, 1,
-// timeout, 1) call — see examples/applications/build-supervisor.ae in the
-// aether tree for the exact shape. That primitive is CROSS-PLATFORM (POSIX
-// process groups; Windows Job Objects with TerminateJobObject +
-// JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE for the group-reap), so the Windows arm
-// has full parity — NOT a taskkill degrade. Available in ae 0.231+ (this tree
-// is on 0.235). Until wired, aeb-cli resolves everything and prints the launch
-// plan (a useful dry-run).
+// STATUS: front-end complete AND the supervised exec is WIRED (the
+// os.run_supervised call below) — own process group, signal-forward, timeout,
+// group-reap, one cross-platform call (POSIX process groups / Windows Job
+// Objects). Reference shape: examples/applications/build-supervisor.ae.
+//
+// BLOCKED on an upstream Aether runtime bug (ae 0.237.0, branch
+// fix/critical-windows-interp-and-namespace): os.run / run_capture /
+// run_supervised corrupt any argv entry that is a HEAP string (a
+// string.concat / substring result) — literals and aether_args_get strings
+// survive, but the argv builder in std/os/aether_os.c blind-casts each
+// list_get_raw item to char*, which only lines up for literals. A launcher's
+// argv is inherently computed (os.getcwd + concat'd paths), so they all arrive
+// corrupted at aeb-main. The wiring here is CORRECT; it works the moment the
+// runtime is fixed. Report: ../aether/run-argv-heap-string-corruption.md.
 
 import aebcli
 import build
@@ -44,7 +48,15 @@ _resolve_aeb_home() {
     if string.length(h) > 0 {
         return h
     }
-    return build._dirname(aether_args_get(0))
+    // The bash trampoline lives AT <repo>/aeb, so dirname($0) = <repo>. This
+    // binary builds to <repo>/tools/aeb-cli, so dirname(argv0) = <repo>/tools
+    // — one level too deep (lib/ is at <repo>/lib). Walk up out of tools/.
+    d = build._dirname(aether_args_get(0))
+    base = build._basename(d)
+    if string.equals(base, "tools") == 1 {
+        return build._dirname(d)
+    }
+    return d
 }
 
 // The build root (cwd), as the bash captures with ROOT="$(pwd)". Uses the
@@ -164,20 +176,51 @@ main() {
         j = j + 1
     }
 
-    // Resolve the launch the supervision tail would exec. (The exec itself is
-    // the remaining wiring — see the STATUS note at the top.)
+    // Resolve the launch the supervision tail execs.
     aether = os.getenv("AETHER")
     if string.length(aether) == 0 { aether = "ae" }
     root = _resolve_root()
 
-    println("aeb-cli (native front-end): launch resolved")
-    println("  aether    ${aether}")
-    println("  AEB_HOME  ${aeb_home}")
-    println("  ROOT      ${root}")
-    _print_list("  target  ", targets)
-    _print_list("  env     ", env_shown)
-    println("  (pending: supervised exec of aeb-main — needs os.run_supervised, ae>=0.231)")
-    exit(0)
+    // The Aether-native entry point: tools/aeb-main, lazy-built if absent
+    // (mirrors the bash `[[ ! -x ]] && ae build …`).
+    main_bin = string.concat(aeb_home, "/tools/aeb-main")
+    if file.exists(main_bin) == 0 {
+        src = string.concat(aeb_home, "/tools/aeb-main.ae")
+        _bc = os.system("'${aether}' build '${src}' -o '${main_bin}' 2>/dev/null")
+    }
+
+    // Assemble the argv the bash supervision tail passes:
+    //   aeb-main <aether> <aeb_home> <root> <targets...>
+    // (Under --sandbox the bash prepends the aeb-sandbox wrapper; that arm is
+    // a follow-up — base case first per the MINGW A/B plan.)
+    // Copy each string (concat "") into the argv list. os.getcwd()'s buffer and
+    // the list.get'd target strings are pointers into storage that can be
+    // reused before run_supervised serialises argv — a fresh copy pins the
+    // bytes. (Without this, the child sees corrupted/aliased argv — observed:
+    // root + targets came through as garbage pointer bytes.)
+    argv = list.new()
+    _a0 = list.add(argv, string.concat(aether, ""))
+    _a1 = list.add(argv, string.concat(aeb_home, ""))
+    _a2 = list.add(argv, string.concat(root, ""))
+    ti = 0
+    tn = list.size(targets)
+    while ti < tn {
+        t, _gt = list.get(targets, ti)
+        _at = list.add(argv, string.concat(t, ""))
+        ti = ti + 1
+    }
+
+    // --timeout N / AEB_TIMEOUT=N (seconds; unset/0 = none) — already in env
+    // (the directive plan setenv'd it from the flag); read it back.
+    timeout_secs = _atoi(os.getenv("AEB_TIMEOUT"))
+
+    // Supervised exec: own process group, forward Ctrl-C/TERM to the group,
+    // enforce the timeout, group-reap any survivors. ONE cross-platform call
+    // (POSIX process groups / Windows Job Objects) — the whole bash `set -m` +
+    // trap + watchdog + reap tail. env=null inherits this process's env (we
+    // already setenv'd AEB_HOME + the directive-plan vars in-process).
+    code, _outcome = os.run_supervised(main_bin, argv, null, 1, 1, timeout_secs, 1)
+    exit(code)
 }
 
 // Tiny non-negative atoi for the error exit code (directive codes are "1"/"2").
