@@ -75,7 +75,10 @@ dfs_visit(file: string, file_deps: ptr, visited_map: ptr, order: ptr) {
         cur, _ = map.get(visited_map, file)
         if cur == "done" { return 0 }
         if cur == "visiting" {
-            os.system(string.concat(string.concat("printf 'error: circular dependency involving ", file), "\n' >&2"))
+            // Pure stderr write (was a `printf ... >&2` shell-out — cmd.exe can't
+            // do the >&2 redirect / quoting on Windows). io.stderr_write keeps the
+            // stderr semantics with no shell.
+            _e = io.stderr_write(string.concat("error: circular dependency involving ", string.concat(file, "\n")))
             exit(1)
         }
     }

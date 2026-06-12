@@ -15,8 +15,49 @@ import std.fs
 import std.io
 import std.os
 import std.strbuilder
+import std.list
 
 extern println(s: string)
+
+// _sort_lines(buf) — sort a newline-separated string of paths lexicographically,
+// PURE (no shell). Replaces `printf '%s' '${buf}' | sort`, which on Windows runs
+// through cmd.exe (can't do printf|sort with a multi-line quoted arg) and would
+// emit nothing/garbage. Insertion sort over std.string.compare — the discovered
+// file count is small (dozens), so O(n^2) is fine and avoids a sort shell-out.
+_sort_lines(buf: string) {
+    lines = list.new()
+    rest = buf
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        ln = ""
+        if nl < 0 { ln = rest  rest = "" }
+        else { ln = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if string.length(ln) > 0 { _a = list.add(lines, ln) }
+    }
+    n = list.size(lines)
+    i = 1
+    while i < n {
+        cur, _ = list.get(lines, i)
+        j = i - 1
+        while j >= 0 {
+            prev, _ = list.get(lines, j)
+            if string.compare(prev, cur) <= 0 { break }
+            list.set(lines, j + 1, prev)
+            j = j - 1
+        }
+        list.set(lines, j + 1, cur)
+        i = i + 1
+    }
+    out = ""
+    k = 0
+    while k < n {
+        e, _ = list.get(lines, k)
+        if k > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, e)
+        k = k + 1
+    }
+    return out
+}
 
 // Strip leading "./" from a path so output matches the bash version.
 strip_dot_slash(p: string) {
@@ -137,11 +178,6 @@ main() {
     if string.length(buf) == 0 {
         return 0
     }
-    sorted_out, eerr = os.exec("printf '%s' '${buf}' | sort")
-    if eerr != "" {
-        println(string.concat("scan-ae-files: ", eerr))
-        return 1
-    }
-    println(string.trim(sorted_out))
+    println(string.trim(_sort_lines(buf)))
     return 0
 }
