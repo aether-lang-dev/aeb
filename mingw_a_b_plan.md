@@ -208,16 +208,38 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
      `_toolbase` (suffixless, for `-o`) from `_toolbin` (suffixed, for
      exists/run); (b) cmd.exe acts on `> < & | ^` *inside* the sh single-quotes
      → **caret-escape** them so they reach sh, not cmd.exe.
-   - **aeb-main: DONE.** All its shell-outs + helper-tool paths converted; on
-     winbaz it now lazy-builds the helper `.exe`s and runs the build pipeline
-     (error count went 7→2 then progressed into aeb-link).
-   - **Remaining Axis-2 (the next increment, mechanical but large):** apply the
-     SAME chokepoint + `.exe` conversion to **`aeb-link`** (the orchestrator,
-     ~12 sites), `gen-orchestrator`, `transform-ae`, and then the SDKs (~369
-     `os.system`/`os.exec` sites in `lib/*`). On winbaz aeb-link's shell-outs
-     still hit cmd.exe (`'…/transform-ae' is not recognized`), plus a path-
-     quoting case (`''C:' is not recognized`) and a `gcc --libs` pkg-config
-     shell-out. Each is the same class, fixable via `build._sh` + `_toolbin`.
+   - **aeb-main: DONE.** All shell-outs + helper-tool paths converted.
+   - **aeb-link + gen-orchestrator + transform-ae: DONE.** The whole orchestrator
+     LINK CHAIN now works on Windows — verified on winbaz 2026-06-12:
+     **`target/_ae_build_all.exe` LINKS (525 KB PE32+ x86-64) and RUNS.** The
+     fixes that got there, each found by tracing the real box:
+       - aeb-link: chokepoint on all 13 sites; `.exe` split (`_toolbase` vs
+         `_toolbin`); aetherc `--lib` as **repeated flags** not a `;`-joined
+         value (a joined value gets re-split by sh as a statement separator —
+         cmd.exe doesn't honour the wrap's quotes, sh does, so the `;` leaks);
+         **dev-tree include fallback** (box has no `include/aether`, headers under
+         `runtime/`+`std/`); **quote-free `sed -e s,^,-I,`** in the -I find (the
+         `'s|^|-I|'` quotes collided with the chokepoint wrap → "unexpected EOF").
+       - gen-orchestrator: `encode_name` was a `printf|sed` shell-out returning
+         EMPTY on Windows → blank `extern (s: ptr)` → unparseable orchestrator.
+         Replaced with **pure-Aether** `string_replace_all` (no shell).
+       - transform-ae: routed its sed/`resolve-imports.sh` (a BASH script cmd.exe
+         can't run → it HUNG) through the chokepoint; the multi-line prepend is
+         now **pure Aether**. Dropped inner `'...'` quotes (they collide with the
+         wrap; build paths have no spaces).
+     **The cmd.exe∘sh quoting law learned:** on Windows `os.system` → cmd.exe →
+     sh.exe. cmd.exe passes chars through but does NOT honour the POSIX `'\''`
+     escape, so any EMBEDDED single quote inside the `sh -c '...'` wrap collides
+     and sh aborts. Rule: inside the chokepoint, use NO inner single quotes and
+     NO `;`-joined args — bare paths + repeated flags + quote-free sed.
+   - **Remaining Axis-2 — the SDK execute layer (~369 sites in `lib/*`):** the
+     orchestrator binary now runs and reaches the SDKs, which still shell out
+     raw. First hit: `lib/c`'s `_expand_sources` does
+     `os.exec("cd '${source_dir}' && ls -1 ${p}")` → cmd.exe can't `cd && ls`
+     → "no sources" → `c.program: no sources and no dep objects`. Same class:
+     route every SDK `os.system`/`os.exec` through `build._sh`/`_sh_capture`,
+     drop inner quotes. `lib/build` already HAS the chokepoint; the SDKs just
+     need to use it. This is the bulk, mechanical, one SDK at a time.
 4. **Phase-2 A/B on MINGW** — iterate path translation (#2) + per-SDK (#3).
    **Status (2026-06-12): Axis-1 PROVEN ON WINDOWS; now genuinely at the
    Axis-2 boundary.** Three upstream blockers were found on the box and all
