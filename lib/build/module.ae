@@ -817,11 +817,37 @@ _sh_quote(s: string) {
     return string.concat(out, "'")
 }
 
+// _cmd_caret_escape(s) — caret-escape cmd.exe metacharacters so they survive
+// cmd.exe's pre-parse and reach sh intact. CRITICAL: os.system on Windows runs
+// the OUTER command via cmd.exe, and cmd.exe acts on >, <, &, |, ^ EVEN inside
+// the single quotes meant for sh (it doesn't honour POSIX quoting). So
+// `sh -c 'ae build … >/dev/null 2>&1'` leaks the `>/dev/null 2>&1` to cmd.exe,
+// which tries to open /dev/null and fails ("system cannot find the path
+// specified"). Prefixing each metachar with `^` makes cmd.exe pass the literal
+// char through to sh. Verified on MINGW: `sh -c 'echo x ^>/dev/null 2^>^&1'`
+// runs cleanly.
+_cmd_caret_escape(s: string) {
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, ">") == 1 { out = string.concat(out, "^>") }
+        else { if string.equals(ch, "<") == 1 { out = string.concat(out, "^<") }
+        else { if string.equals(ch, "&") == 1 { out = string.concat(out, "^&") }
+        else { if string.equals(ch, "|") == 1 { out = string.concat(out, "^|") }
+        else { if string.equals(ch, "^") == 1 { out = string.concat(out, "^^") }
+        else { out = string.concat(out, ch) } } } } }
+    }
+    return out
+}
+
 // _sh_wrap(cmd) — the platform-correct command string: `sh -c '<cmd>'` on
-// Windows, `cmd` verbatim on POSIX.
+// Windows (with cmd.exe metachars caret-escaped so the redirects/pipes reach
+// sh, not cmd.exe), `cmd` verbatim on POSIX.
 _sh_wrap(cmd: string) {
     if _is_windows() == 1 {
-        return string.concat("sh -c ", _sh_quote(cmd))
+        return string.concat("sh -c ", _cmd_caret_escape(_sh_quote(cmd)))
     }
     return cmd
 }
