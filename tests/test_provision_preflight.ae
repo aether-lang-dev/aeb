@@ -1,0 +1,73 @@
+// Tests for lib/provision's preflight probe logic.
+//
+// Pure-ish: _split_token / _probe_binary are pure string ops; preflight_missing
+// probes the host (command -v) so it asserts against toolchains that are
+// reliably present (sh, ls — always on any box that can run the suite) and a
+// clearly-absent sentinel. See docs/build-prerequisites-and-provisioning.md.
+
+import provision (_split_token, _probe_binary, preflight_missing, _fmt_set)
+import std.string
+import std.list
+
+extern println(s: string)
+
+_eq_s(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+_ok(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+main() {
+    // --- _split_token ---
+    tc, ver = _split_token("zig:0.13")
+    _eq_s("split: toolchain", tc, "zig")
+    _eq_s("split: version", ver, "0.13")
+    tc2, ver2 = _split_token("make")
+    _eq_s("split: no-colon toolchain", tc2, "make")
+    _eq_s("split: no-colon version empty", ver2, "")
+
+    // --- _probe_binary mapping ---
+    _eq_s("probe-binary: jdk->javac", _probe_binary("jdk"), "javac")
+    _eq_s("probe-binary: python->python3", _probe_binary("python"), "python3")
+    _eq_s("probe-binary: rust->rustc", _probe_binary("rust"), "rustc")
+    _eq_s("probe-binary: nodejs->node", _probe_binary("nodejs"), "node")
+    _eq_s("probe-binary: default identity", _probe_binary("zig"), "zig")
+
+    // --- preflight_missing: a present token + an absent one ---
+    // `sh` is present on every box that runs this suite; the sentinel is not.
+    toks = list.new()
+    list.add(toks, "sh:1")
+    list.add(toks, "definitely-not-a-real-toolchain-xyzzy:9")
+    missing = preflight_missing(toks)
+    _ok("preflight: exactly one missing", list.size(missing) == 1)
+    if list.size(missing) == 1 {
+        m0, _ = list.get(missing, 0)
+        _eq_s("preflight: the absent one is reported",
+            m0, "definitely-not-a-real-toolchain-xyzzy:9")
+    }
+
+    // --- preflight_missing: all present -> empty ---
+    toks2 = list.new()
+    list.add(toks2, "sh:1")
+    missing2 = preflight_missing(toks2)
+    _ok("preflight: all present -> none missing", list.size(missing2) == 0)
+
+    // --- preflight_missing: dedupe (same token twice -> probed once, and if
+    // absent appears once in the missing set) ---
+    toks3 = list.new()
+    list.add(toks3, "definitely-not-a-real-toolchain-xyzzy:9")
+    list.add(toks3, "definitely-not-a-real-toolchain-xyzzy:9")
+    missing3 = preflight_missing(toks3)
+    _ok("preflight: duplicate absent token deduped", list.size(missing3) == 1)
+
+    // --- _fmt_set formatting ---
+    fs = list.new()
+    list.add(fs, "a:1")
+    list.add(fs, "b:2")
+    _eq_s("fmt_set: bracketed comma-joined", _fmt_set(fs), "[a:1, b:2]")
+
+    println("provision preflight tests done")
+}

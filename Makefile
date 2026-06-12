@@ -16,10 +16,14 @@ INSTALL_TOOLS := tools/aeb-main tools/aeb-init tools/aeb-link tools/aeb-graph to
 
 # --lib tools makes the shared `aeblabel` module (tools/aeblabel/
 # module.ae) importable by the tools that consume it (aeb-link,
-# gen-orchestrator, file-to-label). Harmless for tools that don't —
-# a flat tools/*.ae file is not a `name/module.ae` module, so the
-# extra search root never picks one up by accident.
-AEFLAGS ?= --lib tools
+# gen-orchestrator, file-to-label). --lib lib makes the SDK modules
+# (build, provision, c, ...) importable by the tools that consume THEM
+# (aeb-main imports build + provision; aeb-link/aeb-driver import build).
+# Both are harmless for tools that don't use them — a flat tools/*.ae
+# file is not a `name/module.ae` module, so an unused search root never
+# picks one up by accident. Pattern-rule builds (the `build` target) thus
+# get both, matching what the install loop's per-tool case already does.
+AEFLAGS ?= --lib tools --lib lib
 
 # Source-content hash of the aeb tree — a stable identity surfaced by
 # `aeb --version` (AEB_STAMP) and the stale-install check. `git

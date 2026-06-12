@@ -1,0 +1,147 @@
+// provision — build-prerequisite preflight (and, later, host/container install).
+//
+// Implements the PROBE + PREFLIGHT half of
+// docs/build-prerequisites-and-provisioning.md. A build node declares system
+// toolchain prerequisites with build.prereq(b, "<tc>:<ver>"); tools/extract-deps
+// --prereqs collects them statically; the flattened set (transitive union over
+// the dep DAG) is what preflight here consumes.
+//
+//   preflight (default, every agent, fail-closed):
+//     flatten set -> probe each token vs the host -> any missing yields the
+//     DISTINCT `unmet-prereqs: [tok ...]` verdict (NOT build-failed). Never
+//     installs. Runs identically on Windows and Linux — pure probing through
+//     the build._sh chokepoint, no podman.
+//
+// The token grammar is "<toolchain>:<version>" (exact version, v1). The probe
+// for each toolchain is a small operator-owned map; aeb ships defaults for its
+// SDK languages and the operator may override/extend (same dual-source pattern
+// as the SDKs). An unknown/unmapped token's probe falls back to a bare
+// `command -v <toolchain>` presence check — never arbitrary execution.
+//
+// Capability, not trust: a satisfied prerequisite means "the toolchain is
+// present," nothing about whether the build is permitted to run (that is the
+// veto/sandbox's job — orthogonal layers).
+
+import build
+import std.string
+import std.list
+import std.map
+import std.os
+
+extern println(s: string)
+
+// Split "zig:0.13" -> ("zig", "0.13"). A token with no ':' is all toolchain,
+// empty version (version-less probe — presence only).
+_split_token(token: string) {
+    colon = string.index_of(token, ":")
+    if colon < 0 {
+        return token, ""
+    }
+    tc = string.substring(token, 0, colon)
+    ver = string.substring(token, colon + 1, string.length(token))
+    return tc, ver
+}
+
+// The probe COMMAND for a toolchain — a shell snippet that exits 0 when the
+// toolchain is present (version-matching is layered on top by _probe_token).
+// Defaults are presence checks via `command -v`; a few toolchains whose binary
+// name differs from the token name get an explicit mapping. Operator-extensible
+// later via an external map; for v1 this is the shipped default vocabulary.
+//
+// Returns the binary name to probe for a given toolchain token name.
+_probe_binary(tc: string) {
+    if string.equals(tc, "jdk") == 1 { return "javac" }
+    if string.equals(tc, "java") == 1 { return "java" }
+    if string.equals(tc, "python") == 1 { return "python3" }
+    if string.equals(tc, "node") == 1 { return "node" }
+    if string.equals(tc, "nodejs") == 1 { return "node" }
+    if string.equals(tc, "dotnet") == 1 { return "dotnet" }
+    if string.equals(tc, "rust") == 1 { return "rustc" }
+    if string.equals(tc, "cargo") == 1 { return "cargo" }
+    if string.equals(tc, "go") == 1 { return "go" }
+    if string.equals(tc, "gcc") == 1 { return "gcc" }
+    if string.equals(tc, "clang") == 1 { return "clang" }
+    // Default: the toolchain token name IS the binary name (zig, dart, swift,
+    // kotlinc, scala, clojure, gleam, moonbit, nim, erlang, elixir, php, ...).
+    return tc
+}
+
+// 1 if the binary is on PATH, else 0. Uses `command -v` (a POSIX shell builtin
+// cmd.exe lacks) through the build chokepoint, so it's Windows-correct.
+_binary_present(bin: string) {
+    out, _e = build._sh_capture(string.concat("command -v ", string.concat(bin, " >/dev/null 2>&1 && echo Y || echo N")))
+    if string.index_of(out, "Y") >= 0 { return 1 }
+    return 0
+}
+
+// Probe a single token against the host. Returns 1 if satisfied, else 0.
+//
+// v1: presence-only. The binary for the toolchain must be on PATH. Version
+// matching (the "<ver>" half of the token) is deliberately NOT enforced yet —
+// probe fuzziness (system vs pyenv vs venv vs framework) is real and the design
+// says an ambiguous probe should lean fail-closed; presence is the crisp,
+// non-fuzzy floor we ship first. A later revision tightens this per-toolchain
+// in the operator probe map (e.g. `python3 --version` matches `3.14`).
+_probe_token(token: string) {
+    tc, _ver = _split_token(token)
+    if string.length(tc) == 0 { return 1 }
+    bin = _probe_binary(tc)
+    return _binary_present(bin)
+}
+
+// preflight_missing(tokens) — probe every token in the list; return a NEW list
+// of the tokens that are NOT satisfied (the unmet set). Empty list => all met.
+// Deduped on the way in (a flattened set may arrive with dupes if the caller
+// didn't dedupe).
+preflight_missing(tokens: ptr) {
+    missing = list.new()
+    seen = map.new()
+    n = list.size(tokens)
+    i = 0
+    while i < n {
+        tok, _ = list.get(tokens, i)
+        i = i + 1
+        if string.length(tok) == 0 { continue }
+        if map.has(seen, tok) == 1 { continue }
+        _s = map.put(seen, tok, "1")
+        if _probe_token(tok) == 0 {
+            _m = list.add(missing, tok)
+        }
+    }
+    return missing
+}
+
+// Join a token list into "[a, b, c]" for the verdict line.
+_fmt_set(tokens: ptr) {
+    out = "["
+    n = list.size(tokens)
+    i = 0
+    while i < n {
+        t, _ = list.get(tokens, i)
+        if i > 0 { out = string.concat(out, ", ") }
+        out = string.concat(out, t)
+        i = i + 1
+    }
+    return string.concat(out, "]")
+}
+
+// preflight(tokens) — the fail-closed verdict. Probes the set; prints and
+// returns a verdict code:
+//   0  -> all prerequisites met (or the set is empty)
+//   3  -> unmet-prereqs (distinct from build-failed=1, like the veto's
+//         vetoed-vs-failed split) — prints `unmet-prereqs: [tok ...]`
+// NEVER installs. The caller (aeb-main --preflight) exits with this code.
+preflight(tokens: ptr) {
+    missing = preflight_missing(tokens)
+    if list.size(missing) == 0 {
+        nt = list.size(tokens)
+        if nt == 0 {
+            println("preflight: no prerequisites declared — ok")
+        } else {
+            println(string.concat("preflight: all prerequisites met ", _fmt_set(tokens)))
+        }
+        return 0
+    }
+    println(string.concat("unmet-prereqs: ", _fmt_set(missing)))
+    return 3
+}

@@ -19,6 +19,7 @@
 // chdir to <root> before calling.
 
 import build
+import provision
 import std.string
 import std.file
 import std.fs
@@ -79,6 +80,43 @@ run_capture(cmd: string) {
         return string.concat("", "")
     }
     return string.trim(out)
+}
+
+// _collect_prereqs(extract_deps_bin, files) — flatten the prerequisite set over
+// a dep closure. For each file in `files` (already the transitive closure), run
+// `extract-deps --prereqs` and union the emitted tokens, deduped, preserving
+// first-seen order. Returns a list of token strings. Shared by --prereqs (list)
+// and --preflight (probe). See docs/build-prerequisites-and-provisioning.md.
+_collect_prereqs(extract_deps_bin: string, files: ptr) {
+    tokens = list.new()
+    seen = map.new()
+    n = list.size(files)
+    i = 0
+    while i < n {
+        f, _ = list.get(files, i)
+        i = i + 1
+        raw = run_capture(string.concat(string.concat(extract_deps_bin, " --prereqs "), f))
+        rest = string.trim(raw)
+        while string.length(rest) > 0 {
+            sp = string.index_of(rest, " ")
+            tok = ""
+            if sp < 0 {
+                tok = rest
+                rest = ""
+            } else {
+                tok = string.substring(rest, 0, sp)
+                rest = string.substring(rest, sp + 1, string.length(rest))
+            }
+            tok = string.trim(tok)
+            if string.length(tok) > 0 {
+                if map.has(seen, tok) == 0 {
+                    _a = list.add(tokens, tok)
+                    _m = map.put(seen, tok, "1")
+                }
+            }
+        }
+    }
+    return tokens
 }
 
 _split_lines(buf: string) {
@@ -226,6 +264,18 @@ main() {
     if string.equals(flag, "--why") == 1 {
         target = ""
     }
+    // --preflight and --prereqs are TARGET-mode (they need that target's dep
+    // closure, not the whole graph), but the target arrives as flag_arg (arg 5)
+    // since arg 4 is the flag itself. Pull it across so the BFS runs from it.
+    //   --prereqs  : LIST the flattened prerequisite set (one token per line) —
+    //                what the target needs, OS-agnostic, doesn't probe/install.
+    //   --preflight: PROBE the set vs the host, emit the unmet-prereqs verdict.
+    if string.equals(flag, "--preflight") == 1 {
+        target = strip_trailing_slash(flag_arg)
+    }
+    if string.equals(flag, "--prereqs") == 1 {
+        target = strip_trailing_slash(flag_arg)
+    }
 
     // --- Lazy-build helper tools ---
     extract_deps_bin = _toolbin(aebhome, "extract-deps")
@@ -366,6 +416,42 @@ main() {
     if list.size(files) == 0 {
         println("No .ae build files found")
         return 0
+    }
+
+    // --- --prereqs / --preflight: flatten the prerequisite set over the dep
+    // closure, then either LIST it (--prereqs) or PROBE it (--preflight).
+    // Read-only, no build/link, no install. `files` is already the transitive
+    // dep closure (target-mode BFS / scan). For each file collect its prereq()
+    // tokens (extract-deps --prereqs) and union them.
+    //   --prereqs  : print the set, one token per line (OS-agnostic — same on
+    //                Windows and Linux), exit 0. The "what does this need?" query.
+    //   --preflight: hand the set to provision.preflight → "all prerequisites
+    //                met" or the distinct "unmet-prereqs: [...]" verdict (exit 3,
+    //                NOT build-failed=1). The "what's missing?" check. Pure
+    //                probing through the build chokepoint — cross-platform.
+    if string.equals(flag, "--prereqs") == 1 {
+        target = string.concat(target, "")  // keep target-mode (already pulled)
+    }
+    if string.equals(flag, "--prereqs") == 1 {
+        prereq_tokens = _collect_prereqs(extract_deps_bin, files)
+        pq_n = list.size(prereq_tokens)
+        if pq_n == 0 {
+            // No output on an empty set — greppable / scriptable (like
+            // extract-deps' silent-on-none). Exit 0.
+        } else {
+            pq_i = 0
+            while pq_i < pq_n {
+                pq_t, _ = list.get(prereq_tokens, pq_i)
+                println(pq_t)
+                pq_i = pq_i + 1
+            }
+        }
+        exit(0)
+    }
+    if string.equals(flag, "--preflight") == 1 {
+        prereq_tokens = _collect_prereqs(extract_deps_bin, files)
+        pf_rc = provision.preflight(prereq_tokens)
+        exit(pf_rc)
     }
 
     // --- Resolve the SDK lib dir ---
