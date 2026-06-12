@@ -16,6 +16,128 @@
 import std.string
 import std.io
 import std.os
+import std.fs
+import std.list
+
+// --- Pure-Aether transitive-import resolver (replaces resolve-imports.sh) ---
+//
+// Was a fork-heavy POSIX bash script (nested `while read` + cmp/cp/sort/comm).
+// On Windows, run under os.exec → cmd.exe → MSYS2 sh, its fork storm hit the
+// MSYS2 `fork()` emulation failure (`0xC0000142` "child died", then
+// `fork: retry: Resource temporarily unavailable` FOREVER) — a hard hang. The
+// BFS is trivial, so do it in pure Aether: no shell, no fork, identical on
+// every platform.
+//
+// extract_imports: every `^import <id>` (dotted ok), parens/selectors stripped.
+// extract_bare_imports: only `^import <id>$` (the "already covered" set — a
+// selective `import foo (sel)` does NOT count as namespace-in-scope, matching
+// the old script's rationale for dotted transitive calls).
+
+// One import id from a line, or "" if the line isn't an import. If bare_only,
+// a line with anything after the id (parens/selector) yields "".
+_import_id(line: string, bare_only: int) {
+    pfx = "import "
+    if string.index_of(line, pfx) != 0 { return "" }
+    rest = string.substring(line, string.length(pfx), string.length(line))
+    // id = leading run of [A-Za-z0-9_.]
+    idlen = 0
+    n = string.length(rest)
+    while idlen < n {
+        ch = string.substring(rest, idlen, idlen + 1)
+        if _is_id_char(ch) == 0 { break }
+        idlen = idlen + 1
+    }
+    if idlen == 0 { return "" }
+    id = string.substring(rest, 0, idlen)
+    if bare_only == 1 {
+        // anything non-empty after the id (e.g. " (sel)") disqualifies it
+        tail = string.trim(string.substring(rest, idlen, string.length(rest)))
+        if string.length(tail) > 0 { return "" }
+    }
+    return id
+}
+
+_is_id_char(ch: string) {
+    if string.equals(ch, ".") == 1 { return 1 }
+    if string.equals(ch, "_") == 1 { return 1 }
+    // letters/digits: compare via a cheap range check on the single char
+    if string.compare(ch, "0") >= 0 { if string.compare(ch, "9") <= 0 { return 1 } }
+    if string.compare(ch, "A") >= 0 { if string.compare(ch, "Z") <= 0 { return 1 } }
+    if string.compare(ch, "a") >= 0 { if string.compare(ch, "z") <= 0 { return 1 } }
+    return 0
+}
+
+// Append each `import` id found in file `path` to `acc`. bare_only filters to
+// parens-free imports. Dedup is the caller's job (via _seen_has).
+_collect_imports(path: string, bare_only: int, acc: ptr) {
+    raw, rerr = io.read_file(path)
+    if rerr != "" { return }
+    rest = raw
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 { line = rest  rest = "" }
+        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        id = _import_id(string.trim(line), bare_only)
+        if string.length(id) > 0 { list.add(acc, id) }
+    }
+}
+
+_seen_has(seen: ptr, v: string) {
+    n = list.size(seen)
+    i = 0
+    while i < n {
+        e, _ = list.get(seen, i)
+        if string.equals(e, v) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// Resolve transitive imports of <src> against <lib_dir>. Returns a newline-
+// joined block of `import X` lines for every transitively-reached module that
+// <src> does NOT already cover with a bare import. Pure; no shell.
+_resolve_imports(src: string, lib_dir: string) {
+    seen = list.new()       // every import id reached (BFS frontier + visited)
+    direct = list.new()     // src's BARE imports (the "already covered" set)
+    _collect_imports(src, 0, seen)
+    _collect_imports(src, 1, direct)
+
+    // Fixed-point BFS: expand each seen module's own imports until stable.
+    // `cursor` marks how far we've expanded; new ids appended past it are
+    // processed on the next sweep. Terminates because ids are deduped into
+    // `seen` and the module set is finite.
+    cursor = 0
+    while cursor < list.size(seen) {
+        mod, _ = list.get(seen, cursor)
+        cursor = cursor + 1
+        mf = string.concat(lib_dir, string.concat("/", string.concat(mod, "/module.ae")))
+        if fs.exists(mf) == 0 { continue }
+        mods = list.new()
+        _collect_imports(mf, 0, mods)
+        mn = list.size(mods)
+        j = 0
+        while j < mn {
+            m, _ = list.get(mods, j)
+            j = j + 1
+            if _seen_has(seen, m) == 0 { list.add(seen, m) }
+        }
+    }
+
+    // Emit seen modules not in the direct (bare) set.
+    out = ""
+    sn = list.size(seen)
+    k = 0
+    while k < sn {
+        m, _ = list.get(seen, k)
+        k = k + 1
+        if _seen_has(direct, m) == 0 {
+            if string.length(out) > 0 { out = string.concat(out, "\n") }
+            out = string.concat(out, string.concat("import ", m))
+        }
+    }
+    return out
+}
 
 // --- POSIX-shell-on-Windows chokepoint (mirrors tools/aeb-link.ae) ---
 //
@@ -117,15 +239,10 @@ main() {
     _sh_tr("sed -f ${sed_file} ${src} > ${out}")
     _sh_tr("rm -f ${sed_file}")
 
-    // Step 2: resolve transitive imports via external script. resolve-imports.sh
-    // is a bash script — cmd.exe can't run it (it hangs), so this MUST route
-    // through the sh chokepoint on Windows.
-    resolve_cmd = string.concat(aeb_home, "/tools/resolve-imports.sh ${src} ${lib_dir}")
-    resolved_out, rerr = _sh_capture_tr(resolve_cmd)
-    extra = string.concat("", "")
-    if rerr == "" {
-        extra = string.trim(resolved_out)
-    }
+    // Step 2: resolve transitive imports — PURE Aether (was resolve-imports.sh,
+    // a fork-heavy bash script that hung under MSYS2's fork() emulation on
+    // Windows). No shell, no fork, identical on every platform.
+    extra = string.trim(_resolve_imports(src, lib_dir))
 
     // Step 3: prepend transitive imports to output file. Done in PURE Aether
     // (read out, rewrite as extra + "\n" + out) rather than the old
