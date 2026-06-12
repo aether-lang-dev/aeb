@@ -18,6 +18,7 @@
 // Operates on the current working directory; the bash trampoline must
 // chdir to <root> before calling.
 
+import build
 import std.string
 import std.file
 import std.fs
@@ -29,6 +30,14 @@ import std.path
 
 extern println(s: string)
 extern exit(code: int)
+
+// _toolbin(aebhome, name) — the absolute path to a built helper tool, with the
+// platform-correct executable suffix (`.exe` on Windows via build._exe_suffix,
+// "" on POSIX). Without the suffix cmd.exe can't run the lazy-built helpers
+// ("'…/extract-deps' is not recognized").
+_toolbin(aebhome: string, name: string) {
+    return string.concat(string.concat(aebhome, "/tools/"), string.concat(name, build._exe_suffix()))
+}
 
 // Strip trailing slash from a path (cosmetic match with bash's TARGET%/).
 strip_trailing_slash(s: string) {
@@ -53,9 +62,11 @@ resolve_target_dir(target: string) {
     return string.concat("", "")
 }
 
-// Run a shell command and return stdout (trimmed) or "" on failure.
+// Run a shell command and return stdout (trimmed) or "" on failure. Routed
+// through build._sh_capture so POSIX shell idioms (pipes, redirects, mkdir -p,
+// command -v) work on Windows (sh -c wrap) and pass through unchanged on POSIX.
 run_capture(cmd: string) {
-    out, eerr = os.exec(cmd)
+    out, eerr = build._sh_capture(cmd)
     if eerr != "" {
         return string.concat("", "")
     }
@@ -94,7 +105,7 @@ _sort_file_list(files: ptr) {
         i = i + 1
     }
     if string.length(buf) == 0 { return out }
-    sorted_raw, _serr = os.exec("printf '%s\\n' '${buf}' | sort -u")
+    sorted_raw, _serr = build._sh_capture("printf '%s\\n' '${buf}' | sort -u")
     sorted = string.trim(sorted_raw)
     if string.length(sorted) == 0 { return out }
     lines = _split_lines(sorted)
@@ -209,34 +220,34 @@ main() {
     }
 
     // --- Lazy-build helper tools ---
-    extract_deps_bin = string.concat(aebhome, "/tools/extract-deps")
+    extract_deps_bin = _toolbin(aebhome, "extract-deps")
     if file.exists(extract_deps_bin) == 0 {
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/extract-deps.ae -o "), string.concat(extract_deps_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/extract-deps.ae -o "), string.concat(extract_deps_bin, " >/dev/null 2>&1"))))
     }
-    scan_ae_files_bin = string.concat(aebhome, "/tools/scan-ae-files")
+    scan_ae_files_bin = _toolbin(aebhome, "scan-ae-files")
     if file.exists(scan_ae_files_bin) == 0 {
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/scan-ae-files.ae -o "), string.concat(scan_ae_files_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/scan-ae-files.ae -o "), string.concat(scan_ae_files_bin, " >/dev/null 2>&1"))))
     }
-    topo_sort_bin = string.concat(aebhome, "/tools/topo-sort")
+    topo_sort_bin = _toolbin(aebhome, "topo-sort")
     if file.exists(topo_sort_bin) == 0 {
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/topo-sort.ae -o "), string.concat(topo_sort_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/topo-sort.ae -o "), string.concat(topo_sort_bin, " >/dev/null 2>&1"))))
     }
-    aeb_link_bin = string.concat(aebhome, "/tools/aeb-link")
+    aeb_link_bin = _toolbin(aebhome, "aeb-link")
     if file.exists(aeb_link_bin) == 0 {
         // --lib <aebhome>/tools resolves aeb-link's `import aeblabel`.
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-link.ae -o "), string.concat(aeb_link_bin, string.concat(" --lib ", string.concat(aebhome, "/tools >/dev/null 2>&1"))))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-link.ae -o "), string.concat(aeb_link_bin, string.concat(" --lib ", string.concat(aebhome, "/tools >/dev/null 2>&1"))))))
     }
-    aeb_graph_bin = string.concat(aebhome, "/tools/aeb-graph")
+    aeb_graph_bin = _toolbin(aebhome, "aeb-graph")
     if file.exists(aeb_graph_bin) == 0 {
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-graph.ae -o "), string.concat(aeb_graph_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-graph.ae -o "), string.concat(aeb_graph_bin, " >/dev/null 2>&1"))))
     }
-    aeb_query_bin = string.concat(aebhome, "/tools/aeb-query")
+    aeb_query_bin = _toolbin(aebhome, "aeb-query")
     if file.exists(aeb_query_bin) == 0 {
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-query.ae -o "), string.concat(aeb_query_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-query.ae -o "), string.concat(aeb_query_bin, " >/dev/null 2>&1"))))
     }
-    affected_bin = string.concat(aebhome, "/tools/affected-targets")
+    affected_bin = _toolbin(aebhome, "affected-targets")
     if file.exists(affected_bin) == 0 {
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/affected-targets.ae -o "), string.concat(affected_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/affected-targets.ae -o "), string.concat(affected_bin, " >/dev/null 2>&1"))))
     }
 
     // --- Discover the file set ---
@@ -389,7 +400,7 @@ main() {
     }
     build_dir = string.concat(root, "/target/_aeb")
     out_bin = string.concat(root, "/target/_ae_build_all")
-    os.system(string.concat("mkdir -p ", build_dir))
+    build._sh(string.concat("mkdir -p ", build_dir))
 
     edges_path = string.concat(build_dir, "/_edges.txt")
     edges_buf = string.concat("", "")
@@ -421,7 +432,7 @@ main() {
         gcmd = string.concat(string.concat(aeb_graph_bin, " "), edges_path)
         gcmd = string.concat(gcmd, " ")
         gcmd = string.concat(gcmd, gfmt)
-        os.system(gcmd)
+        build._sh(gcmd)
         return 0
     }
 
@@ -436,7 +447,7 @@ main() {
         qcmd = string.concat(qcmd, " query '")
         qcmd = string.concat(qcmd, flag_arg)
         qcmd = string.concat(qcmd, "'")
-        rc_query = os.system(qcmd)
+        rc_query = build._sh(qcmd)
         exit(rc_query)
     }
     if string.equals(flag, "--owners") == 1 {
@@ -448,7 +459,7 @@ main() {
         ocmd = string.concat(ocmd, edges_path)
         ocmd = string.concat(ocmd, " owners ")
         ocmd = string.concat(ocmd, flag_arg)
-        rc_owners = os.system(ocmd)
+        rc_owners = build._sh(ocmd)
         exit(rc_owners)
     }
     if string.equals(flag, "--path") == 1 || string.equals(flag, "--why") == 1 {
@@ -466,7 +477,7 @@ main() {
         pcmd = string.concat(pcmd, flag_arg)
         pcmd = string.concat(pcmd, " ")
         pcmd = string.concat(pcmd, flag_arg2)
-        rc_q = os.system(pcmd)
+        rc_q = build._sh(pcmd)
         exit(rc_q)
     }
 
@@ -538,7 +549,7 @@ main() {
             // (the affected-targets tool silently skips paths with
             // no enclosing target).
             diff_cmd = string.concat("git diff --name-only ", git_ref)
-            diff_out, diff_err = os.exec(diff_cmd)
+            diff_out, diff_err = build._sh_capture(diff_cmd)
             if diff_err != "" {
                 println(string.concat("aeb: git diff failed: ", diff_err))
                 exit(1)
@@ -553,7 +564,7 @@ main() {
         aff_cmd = string.concat(aff_cmd, edges_path)
         aff_cmd = string.concat(aff_cmd, " ")
         aff_cmd = string.concat(aff_cmd, changed_path_file)
-        aff_out_raw, _aff_err = os.exec(aff_cmd)
+        aff_out_raw, _aff_err = build._sh_capture(aff_cmd)
         aff_out = string.trim(aff_out_raw)
 
         if is_print == 1 {
@@ -753,7 +764,7 @@ main() {
     }
 
     // --- Run topo-sort, capture output, write sorted edges file ---
-    sorted_raw, serr = os.exec(string.concat(string.concat(topo_sort_bin, " "), edges_path))
+    sorted_raw, serr = build._sh_capture(string.concat(string.concat(topo_sort_bin, " "), edges_path))
     if serr != "" {
         println(string.concat("aeb-main: ", serr))
         exit(1)
@@ -784,6 +795,6 @@ main() {
     cmd = string.concat(cmd, out_bin)
     cmd = string.concat(cmd, " ")
     cmd = string.concat(cmd, root)
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
     exit(rc)
 }

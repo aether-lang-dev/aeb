@@ -789,6 +789,55 @@ _exe_suffix() {
     return ""
 }
 
+// --- POSIX-shell chokepoint for Windows ------------------------------------
+//
+// aeb's build commands are POSIX shell: `>/dev/null`, `2>&1`, `| sort`,
+// `mkdir -p`, `command -v`, `mktemp`, `&&`, etc. On POSIX `os.system`/`os.exec`
+// run them via /bin/sh and they Just Work. On Windows `os.system` invokes
+// **cmd.exe**, which rejects every one of those idioms ("The system cannot
+// find the path specified" on `>/dev/null`). But a MINGW/MSYS box HAS a POSIX
+// `sh` — the bash trampoline proves the whole chain works under it. So on
+// Windows we route each shell-out through `sh -c '<cmd>'`; on POSIX we pass
+// through unchanged (byte-identical, zero overhead).
+//
+// _sh_quote(s) — wrap s in single quotes for `sh -c`, escaping embedded
+// single quotes the POSIX way: ' → '\'' (close, escaped-quote, reopen).
+_sh_quote(s: string) {
+    out = "'"
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, "'") == 1 {
+            out = string.concat(out, "'\\''")
+        } else {
+            out = string.concat(out, ch)
+        }
+    }
+    return string.concat(out, "'")
+}
+
+// _sh_wrap(cmd) — the platform-correct command string: `sh -c '<cmd>'` on
+// Windows, `cmd` verbatim on POSIX.
+_sh_wrap(cmd: string) {
+    if _is_windows() == 1 {
+        return string.concat("sh -c ", _sh_quote(cmd))
+    }
+    return cmd
+}
+
+// _sh(cmd) — os.system, but POSIX-shell-correct on Windows. Returns exit code.
+_sh(cmd: string) {
+    return os.system(_sh_wrap(cmd))
+}
+
+// _sh_capture(cmd) — os.exec, but POSIX-shell-correct on Windows. Returns
+// (stdout, err) — same shape as os.exec.
+_sh_capture(cmd: string) {
+    out, err = os.exec(_sh_wrap(cmd))
+    return out, err
+}
+
 // --- Aether toolchain resolution -------------------------------------
 //
 // Shared by lib/aether and lib/c (any SDK that compiles or links
