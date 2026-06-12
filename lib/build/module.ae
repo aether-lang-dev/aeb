@@ -901,7 +901,9 @@ _resolve_aether_dir() {
     }
     // `command -v` is an unavoidable PATH lookup, but the dirname is now
     // native (no `dirname` coreutils shell-out — going-forward rule).
-    raw, _eerr = os.exec("command -v ${ae}")
+    // Through the chokepoint: `command -v` is a POSIX shell builtin cmd.exe
+    // lacks, so on Windows it must run under sh.
+    raw, _eerr = _sh_capture("command -v ${ae}")
     return _dirname(string.trim(raw))
 }
 
@@ -972,7 +974,13 @@ _aether_include_flags(aether_dir: string, dev_root: string) {
 }
 
 _mkdirs(dir_path: string) {
-    os.system("mkdir -p ${dir_path}")
+    // Pure stdlib mkdir -p (no shell). The old `os.system("mkdir -p ...")`
+    // shelled out — fine on POSIX, but cmd.exe rejects the -p flag ("syntax
+    // incorrect") and never creates the dir, so a later `gcc -o <dir>/x.o`
+    // failed with "can't create ...: No such file or directory". fs.mkdir_p is
+    // the same primitive lib/cache and _untar_into already use; cross-platform,
+    // faster, no quoting hazard.
+    _m = fs.mkdir_p(dir_path)
 }
 
 _get(ctx: ptr, key: string) {
@@ -1293,7 +1301,7 @@ _run_project(ctx: ptr, bmap: ptr, default_step: string, is_test: int) {
     _mkdirs(target_dir)
 
     cmd = _run_project_cmd(source_dir, root, bmap, default_step)
-    exit_code = os.system(cmd)
+    exit_code = _sh(cmd)
 
     if is_test == 1 {
         if exit_code != 0 {
