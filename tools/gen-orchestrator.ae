@@ -15,19 +15,43 @@ import std.os
 // tool can never drift from tools/file-to-label.ae or aeb-link.ae.
 import aeblabel (file_to_label, infer_type)
 
-// encode_name: path → C-safe identifier
-// Matches the bash encode_name in aeb:
-//   / → _    __ → __   - → _H_   . → _D_
-// (single _ is NOT doubled; bash preserves it as-is)
-encode_name(input: string) {
-    cmd = "printf '%s' '"
-    cmd = string.concat(cmd, input)
-    cmd = string.concat(cmd, "' | sed 's/__/DBLUND/g; s|/|_|g; s/-/_H_/g; s/\\./_D_/g; s/DBLUND/__/g'")
-    out, eerr = os.exec(cmd)
-    if eerr != "" {
-        return string.concat("", "")
+// string_replace_all: pure (no shell) substring replace, every occurrence.
+// Inlined here (matching tools/aeb-link.ae) so encode_name needs no shell —
+// the old `printf '%s' | sed` shell-out returned EMPTY on Windows (cmd.exe
+// can't run the POSIX pipeline), which made every extern/call name blank and
+// produced an unparseable orchestrator (`extern (s: ptr)`). Pure string ops
+// are also faster and identical across platforms.
+string_replace_all(haystack: string, find: string, replace: string) {
+    flen = string.length(find)
+    if flen == 0 { return string.substring(haystack, 0, string.length(haystack)) }
+    out = string.concat("", "")
+    rest = haystack
+    while string.length(rest) > 0 {
+        idx = string.index_of(rest, find)
+        if idx < 0 {
+            return string.concat(out, rest)
+        }
+        out = string.concat(out, string.substring(rest, 0, idx))
+        out = string.concat(out, replace)
+        rest = string.substring(rest, idx + flen, string.length(rest))
     }
-    return string.trim(out)
+    return string.concat(out, "")
+}
+
+// encode_name: path → C-safe identifier. Matches the bash encode_name in aeb
+// AND tools/aeb-link.ae's pure version (single source of truth for the mapping
+// must stay in lockstep across all three):
+//   __ → __ (preserved via sentinel)   / → _   - → _H_   . → _D_
+// (single _ is NOT doubled). The sentinel guards real `__` before `_`-producing
+// rules run, then restores it last.
+encode_name(input: string) {
+    sentinel = "0DBLUND0"
+    s = string_replace_all(input, "__", sentinel)
+    s = string_replace_all(s, "/", "_")
+    s = string_replace_all(s, "-", "_H_")
+    s = string_replace_all(s, ".", "_D_")
+    s = string_replace_all(s, sentinel, "__")
+    return string.concat(s, "")
 }
 
 main() {

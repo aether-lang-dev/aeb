@@ -17,6 +17,59 @@ import std.string
 import std.io
 import std.os
 
+// --- POSIX-shell-on-Windows chokepoint (mirrors tools/aeb-link.ae) ---
+//
+// transform-ae's transforms are POSIX shell pipelines: `sed -f script src >
+// out`, a bash helper script (resolve-imports.sh), and `printf | cat - | mv`.
+// On Windows os.system/os.exec route through cmd.exe, which can't run any of
+// them — the `resolve-imports.sh` invocation in particular HANGS (cmd.exe
+// can't execute a .sh). A MinGW box always has `sh`, so wrap each command
+// `sh -c '<cmd>'` (passthrough on POSIX). Caret-escape cmd.exe's metachars
+// (> < & | ^) so they survive the cmd.exe layer and reach sh as redirects.
+_is_windows_tr() {
+    if os.platform() == "windows" { return 1 }
+    return 0
+}
+_sh_quote_tr(s: string) {
+    out = "'"
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, "'") == 1 { out = string.concat(out, "'\\''") }
+        else { out = string.concat(out, ch) }
+    }
+    return string.concat(out, "'")
+}
+_cmd_caret_escape_tr(s: string) {
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, ">") == 1 { out = string.concat(out, "^>") }
+        else { if string.equals(ch, "<") == 1 { out = string.concat(out, "^<") }
+        else { if string.equals(ch, "&") == 1 { out = string.concat(out, "^&") }
+        else { if string.equals(ch, "|") == 1 { out = string.concat(out, "^|") }
+        else { if string.equals(ch, "^") == 1 { out = string.concat(out, "^^") }
+        else { out = string.concat(out, ch) } } } } }
+    }
+    return out
+}
+_sh_wrap_tr(cmd: string) {
+    if _is_windows_tr() == 1 {
+        return string.concat("sh -c ", _cmd_caret_escape_tr(_sh_quote_tr(cmd)))
+    }
+    return cmd
+}
+_sh_tr(cmd: string) {
+    return os.system(_sh_wrap_tr(cmd))
+}
+_sh_capture_tr(cmd: string) {
+    out, err = os.exec(_sh_wrap_tr(cmd))
+    return out, err
+}
+
 main() {
     argc = aether_args_count()
     if argc < 7 {
@@ -53,12 +106,14 @@ main() {
         println(string.concat("transform-ae: ", werr))
         exit(1)
     }
-    os.system("sed -f '${sed_file}' '${src}' > '${out}'")
-    os.system("rm -f '${sed_file}'")
+    _sh_tr("sed -f '${sed_file}' '${src}' > '${out}'")
+    _sh_tr("rm -f '${sed_file}'")
 
-    // Step 2: resolve transitive imports via external script
+    // Step 2: resolve transitive imports via external script. resolve-imports.sh
+    // is a bash script — cmd.exe can't run it (it hangs), so this MUST route
+    // through the sh chokepoint on Windows.
     resolve_cmd = string.concat(aeb_home, "/tools/resolve-imports.sh '${src}' '${lib_dir}'")
-    resolved_out, rerr = os.exec(resolve_cmd)
+    resolved_out, rerr = _sh_capture_tr(resolve_cmd)
     extra = string.concat("", "")
     if rerr == "" {
         extra = string.trim(resolved_out)
@@ -67,6 +122,6 @@ main() {
     // Step 3: prepend transitive imports to output file
     if string.length(extra) > 0 {
         tmp_file = string.concat(out, ".tmp")
-        os.system("printf '%s\\n' '${extra}' | cat - '${out}' > '${tmp_file}' && mv '${tmp_file}' '${out}'")
+        _sh_tr("printf '%s\\n' '${extra}' | cat - '${out}' > '${tmp_file}' && mv '${tmp_file}' '${out}'")
     }
 }
