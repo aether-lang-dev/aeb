@@ -39,10 +39,14 @@ main() {
     _eq_s("install pacman", _pm_install("pacman", "foo"), "pacman -S --noconfirm foo")
     _eq_s("install unknownpm -> empty", _pm_install("zypper", "foo"), "")
 
-    // --- tarball recipe is distro-INVARIANT (no PM in it), version-pinned ---
+    // --- tarball recipe: no PM in it, version-pinned, HOST-specific artifact ---
     zig = _tarball_recipe("zig", "0.13")
     _contains("tarball zig: pinned version in URL", zig, "0.13")
-    _contains("tarball zig: fetches a tarball", zig, "ziglang.org")
+    _contains("tarball zig: fetches from ziglang.org", zig, "ziglang.org")
+    // The artifact is host-specific: this suite runs on Linux/macOS (not the
+    // MINGW box), so the slug must NOT be "windows" here. Assert the recipe
+    // names a non-Windows artifact (a .tar.xz, never a .zip) on this host.
+    _contains("tarball zig: host extractor is tar (non-Windows runner)", zig, "tar -xJ")
     _eq_s("tarball unmapped -> empty", _tarball_recipe("python", "3.14"), "")
 
     // --- _resolve_recipe: tarball preferred, else PM, else "" ---

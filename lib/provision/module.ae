@@ -219,17 +219,37 @@ _pkg_name(tc: string, pm: string) {
     return ""
 }
 
-// _tarball_recipe(tc, ver) — a distro/OS-invariant install command (fetch a
-// pinned upstream tarball to a prefix), or "" if this toolchain has no tarball
-// recipe (caller then tries the package-manager path). Preferred shape: no
-// package manager, so the apt/dnf/apk/pacman question never arises. Pinned by
-// version so the install is reproducible. (Starter set; operator-extensible.)
+// _os_arch_tag() — the OS slug upstream projects use in their download artifact
+// names ("linux", "windows", "macos"). The TOKEN is OS-agnostic, but the binary
+// ARTIFACT a tarball recipe fetches is not — `zig-linux-x86_64` vs
+// `zig-windows-x86_64` — so a tarball recipe must pick the right artifact for
+// THIS host. (Dry-run on the MINGW box caught the Linux URL being printed on
+// Windows; this is the fix.) Package-manager recipes don't need this — the PM
+// is already host-specific.
+_os_slug() {
+    if build._is_windows() == 1 { return "windows" }
+    if build._is_macos() == 1 { return "macos" }
+    return "linux"
+}
+
+// _tarball_recipe(tc, ver) — a pinned upstream-tarball install command for THIS
+// host, or "" if this toolchain has no tarball recipe (caller then tries the
+// package-manager path). Preferred shape: no package manager, so the
+// apt/dnf/apk/pacman question never arises — but the artifact + extractor ARE
+// host-specific (zip+unzip on Windows, tar.xz elsewhere). Version-pinned for
+// reproducibility. (Starter set; operator-extensible.)
 _tarball_recipe(tc: string, ver: string) {
     if string.equals(tc, "zig") == 1 {
-        // Pinned zig tarball to /usr/local/zig-<ver> + symlink. The exact URL
-        // shape is the ziglang.org download layout; version-pinned.
-        u = string.concat("https://ziglang.org/download/", string.concat(ver, string.concat("/zig-linux-x86_64-", string.concat(ver, ".tar.xz"))))
-        return string.concat("curl -fsSL ", string.concat(u, string.concat(" | tar -xJ -C /usr/local && ln -sf /usr/local/zig-linux-x86_64-", string.concat(ver, "/zig /usr/local/bin/zig"))))
+        os = _os_slug()
+        base = string.concat("zig-", string.concat(os, string.concat("-x86_64-", ver)))
+        if build._is_windows() == 1 {
+            // Windows: .zip artifact, unzip into a prefix, place zig.exe on PATH.
+            u = string.concat("https://ziglang.org/download/", string.concat(ver, string.concat("/", string.concat(base, ".zip"))))
+            return string.concat("curl -fsSL -o /tmp/zig.zip ", string.concat(u, string.concat(" && unzip -q -o /tmp/zig.zip -d /usr/local && ln -sf /usr/local/", string.concat(base, "/zig.exe /usr/local/bin/zig"))))
+        }
+        // Linux/macOS: .tar.xz artifact.
+        u = string.concat("https://ziglang.org/download/", string.concat(ver, string.concat("/", string.concat(base, ".tar.xz"))))
+        return string.concat("curl -fsSL ", string.concat(u, string.concat(" | tar -xJ -C /usr/local && ln -sf /usr/local/", string.concat(base, "/zig /usr/local/bin/zig"))))
     }
     return ""
 }
