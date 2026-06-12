@@ -1,12 +1,30 @@
 # Build prerequisites and provisioning — `prereq()`, preflight, and podman layering
 
-Status: **design.** No `prereq()`/`preflight`/provisioning code exists yet;
-this doc is the committed design. Motivated by a real monorepo with huge
-per-leaf toolchain variance (skir — `~/scm/skir`). Sits in
-[`directions.md`](directions.md)'s **Ring B/C** (provisioning needs podman, so
-it is never Ring A) and composes with
-[`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) (provisioning adds
-*capability*, never *trust* — see "Provisioning is not trust").
+Status: **partially IMPLEMENTED** (the host-install, no-container path). Built on
+`feat/win-axis2-orchestrator`, cross-platform-verified (Linux + the winbaz MINGW
+box):
+- `build.prereq(b, "<tc>:<ver>")` declaration (used bare via `import build
+  (prereq)`); `tools/extract-deps --prereqs` collects them; the set flattens
+  transitively over the dep DAG.
+- `aeb --prereqs <target>` — list the OS-agnostic token set.
+- `aeb --preflight <target>` — probe vs host, `unmet-prereqs: [...]` verdict
+  (exit 3), fail-closed default. (`lib/provision`.)
+- `aeb --install-prereqs <target>` — **dry-run** host install recipes (token →
+  per-OS package name / pinned tarball; `_detect_pm` + `_pkg_name` + `_os_slug`).
+  Nothing executes yet — `--execute` is the deferred follow-up.
+
+Still design-only below this point: the podman-layering `provision` phase (§Phase
+2), `ping`-advertised token routing (§Routing), and the pluck-into-base-layer
+optimization. NB: the implemented `--install-prereqs` targets the HOST directly
+(no container) — the opt-in *podman* provisioning is the unbuilt Ring B/C part.
+
+Original design follows. Motivated by a real monorepo with huge per-leaf
+toolchain variance (skir — `~/scm/skir`). Sits in
+[`directions.md`](directions.md)'s **Ring B/C** (podman provisioning needs
+podman, so it is never Ring A; the host-install path IS Ring-A-safe) and
+composes with [`build-veto-and-sandbox.md`](build-veto-and-sandbox.md)
+(provisioning adds *capability*, never *trust* — see "Provisioning is not
+trust").
 
 ## The motivating problem (skir)
 
