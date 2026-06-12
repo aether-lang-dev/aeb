@@ -219,9 +219,15 @@ _sh_wrap_link(cmd: string) {
 }
 
 // os.system, but POSIX-shell-correct on Windows. Every shell-out below routes
-// through this so the same command string works on both platforms.
+// through this so the same command string works on both platforms. Set
+// AEB_LINK_TRACE=1 to echo each wrapped command before running it (Windows
+// shell-handoff debugging — the wrapped form is what actually reaches the OS).
 _sh_link(cmd: string) {
-    return os.system(_sh_wrap_link(cmd))
+    wrapped = _sh_wrap_link(cmd)
+    if string.equals(os.getenv("AEB_LINK_TRACE"), "1") == 1 {
+        println(string.concat("[aeb-link trace] ", wrapped))
+    }
+    return os.system(wrapped)
 }
 
 // Resolve the directory containing libaether.a. Aether's own driver
