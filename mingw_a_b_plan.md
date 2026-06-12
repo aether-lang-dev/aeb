@@ -198,19 +198,27 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
 3. **Classpath plumbing** (Axis-2 #1) — then re-run Phase-1 (still `:` on Linux,
    so must stay identical) as a regression gate.
 4. **Phase-2 A/B on MINGW** — iterate path translation (#2) + per-SDK (#3).
-   **Status (2026-06-12): BLOCKED at the entrypoint by a Windows runtime bug.**
-   The box (Win11 + MSYS2/MinGW, aether `main` 0.243) now builds cleanly — two
-   upstream blockers were found + fixed: **#688** (argv heap-string corruption,
-   fixed) and **#693** (stale `runtime/memory/memory.c` ref in `tools/ae.c`
-   broke dev-tree builds, fixed). But a *third*, deeper one remains:
-   **#706 — `os.run`/`run_capture`/`run_supervised` fail to spawn on Windows**
-   (`win_launch`/`CreateProcessW`; `os.system` works, so it's the argv path).
-   Since `aeb-cli`'s supervised exec is `os.run_supervised`, the candidate
-   can't spawn `aeb-main` on Windows → Phase-2 A/B can't run yet. (Also noted:
-   the *bash* `aeb` itself has its own Windows breakage — coreutils/path —
-   `aeb-main: cannot write file` — so even the baseline needs Axis-2 path work.)
-   **Phase-2 is gated on #706.** Linux Phase-1 is unaffected (POSIX `os_run`
-   via `execvp` works; the Windows-only `win_launch` path is the issue).
+   **Status (2026-06-12): Axis-1 PROVEN ON WINDOWS; now genuinely at the
+   Axis-2 boundary.** Three upstream blockers were found on the box and all
+   FIXED: **#688** (argv heap-string corruption), **#693** (stale
+   `runtime/memory/memory.c` ref breaking dev-tree builds), and **#706**
+   (`os.run*` Windows spawn — two parts: `lpApplicationName=NULL` so
+   `CreateProcessW` PATH-resolves, *and* `build_command_line` aligned to the
+   POSIX argv convention — `prog` is always argv[0], the caller's list is the
+   args). With all three in (aether 0.243, branch
+   `fix/win-spawn-application-name`), `os.run`/`run_capture`/`run_supervised`
+   now spawn correctly on Windows.
+   **The aeb-cli entrypoint works on Windows:** `aeb-cli.exe` spawns
+   `aeb-main` via `os.run_supervised`, and — the A/B proof — **bash `aeb` and
+   `aeb-cli` fail IDENTICALLY** at the same downstream point (entrypoint
+   parity = Axis-1 proven on Windows, not just Linux).
+   **What remains is pure Axis-2** (and bash `aeb` needs it too — it fails the
+   same way): aeb-main shells out to its helper tools (`tools/extract-deps`
+   etc.) via `os.system` with **forward-slash paths + no `.exe`**, which
+   `cmd.exe` rejects (`'…/extract-deps' is not recognized`), plus
+   `aeb-main: cannot write file`. So the next work is the orchestrator's
+   Windows tool-invocation + path/`.exe` plumbing — independent of the
+   entrypoint, shared by both runners.
 5. **Feature-gate POSIX-only** (#4) so the cut-down fails honestly.
 
 ## Acceptance criteria
