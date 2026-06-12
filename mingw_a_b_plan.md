@@ -197,6 +197,27 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
    bash `AEB_LAUNCH`).
 3. **Classpath plumbing** (Axis-2 #1) — then re-run Phase-1 (still `:` on Linux,
    so must stay identical) as a regression gate.
+   **Axis-2 IN PROGRESS — the POSIX-shell-on-Windows chokepoint (branch
+   `feat/win-axis2-orchestrator`).** The core Windows-correctness mechanism is
+   built + verified incrementally on winbaz:
+   - **`build._sh` / `_sh_capture`** — the chokepoint. On Windows `os.system`
+     runs via **cmd.exe**, which rejects every POSIX idiom (`>/dev/null`,
+     `|sort`, `mkdir -p`, …). A MINGW box has `sh`, so `_sh` wraps each command
+     `sh -c '<cmd>'`; passthrough on POSIX. Two subtleties found + fixed on the
+     box: (a) `ae build -o foo.exe` double-suffixes to `foo.exe.exe` → split
+     `_toolbase` (suffixless, for `-o`) from `_toolbin` (suffixed, for
+     exists/run); (b) cmd.exe acts on `> < & | ^` *inside* the sh single-quotes
+     → **caret-escape** them so they reach sh, not cmd.exe.
+   - **aeb-main: DONE.** All its shell-outs + helper-tool paths converted; on
+     winbaz it now lazy-builds the helper `.exe`s and runs the build pipeline
+     (error count went 7→2 then progressed into aeb-link).
+   - **Remaining Axis-2 (the next increment, mechanical but large):** apply the
+     SAME chokepoint + `.exe` conversion to **`aeb-link`** (the orchestrator,
+     ~12 sites), `gen-orchestrator`, `transform-ae`, and then the SDKs (~369
+     `os.system`/`os.exec` sites in `lib/*`). On winbaz aeb-link's shell-outs
+     still hit cmd.exe (`'…/transform-ae' is not recognized`), plus a path-
+     quoting case (`''C:' is not recognized`) and a `gcc --libs` pkg-config
+     shell-out. Each is the same class, fixable via `build._sh` + `_toolbin`.
 4. **Phase-2 A/B on MINGW** — iterate path translation (#2) + per-SDK (#3).
    **Status (2026-06-12): Axis-1 PROVEN ON WINDOWS; now genuinely at the
    Axis-2 boundary.** Three upstream blockers were found on the box and all
