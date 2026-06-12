@@ -218,16 +218,62 @@ _sh_wrap_link(cmd: string) {
     return cmd
 }
 
-// os.system, but POSIX-shell-correct on Windows. Every shell-out below routes
-// through this so the same command string works on both platforms. Set
-// AEB_LINK_TRACE=1 to echo each wrapped command before running it (Windows
-// shell-handoff debugging — the wrapped form is what actually reaches the OS).
-_sh_link(cmd: string) {
-    wrapped = _sh_wrap_link(cmd)
-    if string.equals(os.getenv("AEB_LINK_TRACE"), "1") == 1 {
-        println(string.concat("[aeb-link trace] ", wrapped))
+// THE hardened Windows chokepoint (mirrors lib/build's _sh): write the raw
+// command to a temp .sh via Aether io, then run `sh <nativepath>`. cmd.exe only
+// ever sees `sh C:/.../x.sh` — it NEVER parses the command contents, so embedded
+// single quotes (e.g. the per-node `'aeb_driver' 'root' 'out_bin' ...` dcmd),
+// `;`, redirects, and spaces all survive. The old `sh -c '<quoted>'` form
+// (_sh_wrap_link) could not carry quoted commands — cmd.exe mangles the POSIX
+// '\'' escape, so the per-node dcmd died with "unexpected EOF matching `'`".
+// Kept _sh_wrap_link only as the temp-write-failed fallback.
+_sh_slashes_link(s: string) {
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, "\\") == 1 { out = string.concat(out, "/") }
+        else { out = string.concat(out, ch) }
     }
-    return os.system(wrapped)
+    return out
+}
+
+_sh_hash_link(s: string) {
+    h = 5381
+    rest = s
+    while string.length(rest) > 0 {
+        c = string.char_at(rest, 0)
+        rest = string.substring(rest, 1, string.length(rest))
+        h = ((h * 33) + c) & 2147483647
+    }
+    return h
+}
+
+_sh_script_path_link(cmd: string) {
+    tmp = _sh_slashes_link(os.getenv("TMP"))
+    if string.length(tmp) == 0 { tmp = _sh_slashes_link(os.getenv("TEMP")) }
+    if string.length(tmp) == 0 { tmp = "/tmp" }
+    name = string.concat("_aeb_link_", string.concat(string.from_int(os.getpid()),
+           string.concat("_", string.concat(string.from_int(_sh_hash_link(cmd)), ".sh"))))
+    return string.concat(tmp, string.concat("/", name))
+}
+
+// Set AEB_LINK_TRACE=1 to echo each command before running (Windows debugging).
+_sh_link(cmd: string) {
+    if string.equals(os.getenv("AEB_LINK_TRACE"), "1") == 1 {
+        println(string.concat("[aeb-link trace] ", cmd))
+    }
+    if _is_windows_link() == 0 {
+        return os.system(cmd)
+    }
+    scriptf = _sh_script_path_link(cmd)
+    werr = io.write_file(scriptf, cmd)
+    if string.length(werr) > 0 {
+        return os.system(_sh_wrap_link(cmd))
+    }
+    rc = os.system(string.concat("sh ", scriptf))
+    _d = fs.delete(scriptf)
+    return rc
 }
 
 // Resolve the directory containing libaether.a. Aether's own driver
