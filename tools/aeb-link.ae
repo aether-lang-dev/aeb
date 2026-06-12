@@ -566,9 +566,19 @@ main() {
     // Add -I for every dir under the include root.
     inc_root = _resolve_aether_include(aether_dir)
     if string.length(inc_root) > 0 {
+        // -I for every subdir under the include root. Two Windows-driven
+        // details:
+        //  - `sed -e s,^,-I,` (comma delim, NO surrounding quotes) instead of
+        //    `sed 's|^|-I|'`: the single quotes collide with the chokepoint's
+        //    own `sh -c '...'` wrap (cmd.exe mangles the POSIX `'\''` escape) and
+        //    abort the whole link with "unexpected EOF matching `'`". A
+        //    quote-free sect script survives both the cmd.exe and sh layers.
+        //  - `-path '*/.git/*' -prune` equivalent: a dev-tree root holds 600+
+        //    dirs incl .git/build; we only want the header trees, so prune the
+        //    noisy ones to keep the find fast (also quote-free).
         cc = string.concat(cc, " $(find ")
         cc = string.concat(cc, inc_root)
-        cc = string.concat(cc, " -type d -print | sed 's|^|-I|')")
+        cc = string.concat(cc, " -type d -name .git -prune -o -type d -name build -prune -o -type d -print | sed -e s,^,-I,)")
     }
 
     if string.length(libaether_dir) == 0 {
