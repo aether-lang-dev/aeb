@@ -276,6 +276,9 @@ main() {
     if string.equals(flag, "--prereqs") == 1 {
         target = strip_trailing_slash(flag_arg)
     }
+    if string.equals(flag, "--install-prereqs") == 1 {
+        target = strip_trailing_slash(flag_arg)
+    }
 
     // --- Lazy-build helper tools ---
     extract_deps_bin = _toolbin(aebhome, "extract-deps")
@@ -452,6 +455,16 @@ main() {
         prereq_tokens = _collect_prereqs(extract_deps_bin, files)
         pf_rc = provision.preflight(prereq_tokens)
         exit(pf_rc)
+    }
+    // --install-prereqs: flatten the set, find the MISSING tokens (preflight's
+    // probe), and print the host install recipe for each — a DRY RUN (nothing
+    // is executed; --execute will run them in a follow-up). Targets the HOST
+    // directly, no container. Exit 3 if any token is unprovisionable.
+    if string.equals(flag, "--install-prereqs") == 1 {
+        prereq_tokens = _collect_prereqs(extract_deps_bin, files)
+        missing = provision.preflight_missing(prereq_tokens)
+        ip_rc = provision.install_plan_dryrun(missing)
+        exit(ip_rc)
     }
 
     // --- Resolve the SDK lib dir ---

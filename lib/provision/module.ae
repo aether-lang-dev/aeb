@@ -145,3 +145,149 @@ preflight(tokens: ptr) {
     println(string.concat("unmet-prereqs: ", _fmt_set(missing)))
     return 3
 }
+
+// === install-prereqs: token -> host install recipe (dry-run first) =========
+//
+// install resolves each MISSING token to a concrete install command FOR THIS
+// HOST and (in the first cut) PRINTS it without executing — a dry run. The
+// design (docs/build-prerequisites-and-provisioning.md "Cross-distro package
+// names") keeps the token distro/OS-agnostic; all distro/OS-awareness lives
+// here in the recipe map, resolved three ways in order of preference:
+//   1. distro-invariant tarball recipe (no package manager at all) — preferred;
+//   2. per-package-manager branch (apt/dnf/apk/pacman) when a recipe needs one;
+//   3. fail-closed — an unmapped token, or a mapped token with no branch for
+//      this host's package manager, is UNPROVISIONABLE (never a guessed name).
+//
+// NO container: this targets the HOST directly (the user's chosen mode).
+
+// _detect_pm() — the host's system package manager, or "" if none found.
+// Probed once via `command -v` through the build chokepoint (Windows-correct).
+// On the MINGW box this finds "pacman" (MSYS2); on Debian "apt", etc.
+_detect_pm() {
+    if _binary_present("apt-get") == 1 { return "apt" }
+    if _binary_present("dnf") == 1 { return "dnf" }
+    if _binary_present("apk") == 1 { return "apk" }
+    if _binary_present("pacman") == 1 { return "pacman" }
+    if _binary_present("brew") == 1 { return "brew" }
+    return ""
+}
+
+// _pm_install(pm, pkg) — the install command line for a package on a given
+// package manager. "" for an unknown pm (caller fails closed).
+_pm_install(pm: string, pkg: string) {
+    if string.equals(pm, "apt") == 1 { return string.concat("apt-get install -y ", pkg) }
+    if string.equals(pm, "dnf") == 1 { return string.concat("dnf install -y ", pkg) }
+    if string.equals(pm, "apk") == 1 { return string.concat("apk add ", pkg) }
+    if string.equals(pm, "pacman") == 1 { return string.concat("pacman -S --noconfirm ", pkg) }
+    if string.equals(pm, "brew") == 1 { return string.concat("brew install ", pkg) }
+    return ""
+}
+
+// _pkg_name(tc, pm) — the package NAME for a toolchain on a given package
+// manager. One token, different names per PM (the doc's jdk:21 example). "" if
+// this PM has no known package for this toolchain → fail-closed upstream.
+// Operator-extensible later; v1 ships a starter vocabulary.
+_pkg_name(tc: string, pm: string) {
+    if string.equals(tc, "jdk") == 1 {
+        if string.equals(pm, "apt") == 1 { return "openjdk-21-jdk" }
+        if string.equals(pm, "dnf") == 1 { return "java-21-openjdk-devel" }
+        if string.equals(pm, "apk") == 1 { return "openjdk21" }
+        if string.equals(pm, "pacman") == 1 { return "jdk-openjdk" }
+        return ""
+    }
+    if string.equals(tc, "python") == 1 {
+        if string.equals(pm, "apt") == 1 { return "python3" }
+        if string.equals(pm, "dnf") == 1 { return "python3" }
+        if string.equals(pm, "apk") == 1 { return "python3" }
+        if string.equals(pm, "pacman") == 1 { return "python" }
+        return ""
+    }
+    if string.equals(tc, "go") == 1 {
+        if string.equals(pm, "apt") == 1 { return "golang" }
+        if string.equals(pm, "dnf") == 1 { return "golang" }
+        if string.equals(pm, "apk") == 1 { return "go" }
+        if string.equals(pm, "pacman") == 1 { return "go" }
+        return ""
+    }
+    if string.equals(tc, "gcc") == 1 {
+        if string.equals(pm, "apt") == 1 { return "gcc" }
+        if string.equals(pm, "dnf") == 1 { return "gcc" }
+        if string.equals(pm, "apk") == 1 { return "gcc" }
+        if string.equals(pm, "pacman") == 1 { return "gcc" }
+        return ""
+    }
+    return ""
+}
+
+// _tarball_recipe(tc, ver) — a distro/OS-invariant install command (fetch a
+// pinned upstream tarball to a prefix), or "" if this toolchain has no tarball
+// recipe (caller then tries the package-manager path). Preferred shape: no
+// package manager, so the apt/dnf/apk/pacman question never arises. Pinned by
+// version so the install is reproducible. (Starter set; operator-extensible.)
+_tarball_recipe(tc: string, ver: string) {
+    if string.equals(tc, "zig") == 1 {
+        // Pinned zig tarball to /usr/local/zig-<ver> + symlink. The exact URL
+        // shape is the ziglang.org download layout; version-pinned.
+        u = string.concat("https://ziglang.org/download/", string.concat(ver, string.concat("/zig-linux-x86_64-", string.concat(ver, ".tar.xz"))))
+        return string.concat("curl -fsSL ", string.concat(u, string.concat(" | tar -xJ -C /usr/local && ln -sf /usr/local/zig-linux-x86_64-", string.concat(ver, "/zig /usr/local/bin/zig"))))
+    }
+    return ""
+}
+
+// _resolve_recipe(token, pm) — the install command for one token on this host,
+// or "" if unprovisionable. Tarball (OS-invariant) first, then the package
+// manager. See the three-way resolution above.
+_resolve_recipe(token: string, pm: string) {
+    tc, ver = _split_token(token)
+    if string.length(tc) == 0 { return "" }
+    // 1. distro-invariant tarball (preferred — no PM)
+    tb = _tarball_recipe(tc, ver)
+    if string.length(tb) > 0 { return tb }
+    // 2. per-package-manager branch
+    if string.length(pm) == 0 { return "" }
+    pkg = _pkg_name(tc, pm)
+    if string.length(pkg) == 0 { return "" }
+    return _pm_install(pm, pkg)
+}
+
+// install_plan_dryrun(missing) — for each MISSING token, resolve its host
+// install recipe and PRINT it (does NOT execute — the safe first cut). An
+// unprovisionable token prints a `# unprovisionable:` line and makes the plan
+// incomplete. Returns:
+//   0 -> every missing token has a recipe (a complete, runnable plan printed)
+//   3 -> at least one token is unprovisionable (plan incomplete — fail-closed)
+//   0 -> nothing missing (no-op)
+// The caller (aeb --install-prereqs) prints a header and exits with this code.
+install_plan_dryrun(missing: ptr) {
+    n = list.size(missing)
+    if n == 0 {
+        println("install-prereqs: nothing to install — all prerequisites already met")
+        return 0
+    }
+    pm = _detect_pm()
+    if string.length(pm) == 0 {
+        println("# note: no system package manager detected (apt/dnf/apk/pacman/brew)")
+        println("#       only distro-invariant tarball recipes can apply on this host")
+    } else {
+        println(string.concat("# host package manager: ", pm))
+    }
+    println("# DRY RUN — these commands are NOT executed. Review, then run with --execute.")
+    incomplete = 0
+    i = 0
+    while i < n {
+        tok, _ = list.get(missing, i)
+        i = i + 1
+        recipe = _resolve_recipe(tok, pm)
+        if string.length(recipe) == 0 {
+            println(string.concat("# unprovisionable: ", string.concat(tok, " — no recipe for this host (token unmapped, or no package-manager branch)")))
+            incomplete = 1
+        } else {
+            println(string.concat("# ", tok))
+            println(recipe)
+        }
+    }
+    if incomplete == 1 {
+        return 3
+    }
+    return 0
+}
