@@ -99,7 +99,7 @@ builder resolve(ctx: ptr) {
     println("${mod_dir}: resolving deps (swift package resolve)")
 
     swift = _swift_of(_builder)
-    exit_code = os.system(resolve_cmd(swift, source_dir))
+    exit_code = build._sh(resolve_cmd(swift, source_dir))
     if exit_code != 0 {
         println("${mod_dir}: resolve FAILED")
         build.fail(ctx, "resolve FAILED")
@@ -124,7 +124,7 @@ builder build_pkg(ctx: ptr) {
     swift = _swift_of(_builder)
     println("${mod_dir}: building (swift build)")
     cmd = build_cmd(swift, source_dir, _config_flag(_release_of(_builder)))
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: build FAILED")
         build.fail(ctx, "build FAILED")
@@ -150,7 +150,7 @@ builder test(ctx: ptr) {
     cmd = test_cmd(swift, source_dir, _config_flag(_release_of(_builder)))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = os.system(full_cmd)
+    exit_code = build._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     tp_cnt, tf_cnt = _parse_xctest_counts(out_text)
     build._record_test_result(ctx, tp_cnt, tf_cnt)

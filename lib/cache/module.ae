@@ -148,24 +148,25 @@ _remote_has(hash: string) {
     return file.exists(rp)
 }
 
-// _copy_atomic(src, dest) — copy src to dest via a sibling temp + rename
-// so a concurrent reader never sees a torn file. Returns 1 on success.
-// Best-effort: any failure returns 0 (caller degrades gracefully).
+// _copy_atomic(src, dest) — copy src to dest atomically (temp + rename) so a
+// concurrent reader never sees a torn file. Returns 1 on success. Best-effort:
+// any failure returns 0 (caller degrades gracefully).
+//
+// PURE fs (was a mktemp/cp/mv shell pipeline). fs.write_atomic already does the
+// sibling-temp-then-rename dance internally, so read the bytes and write them
+// atomically — no shell, binary-safe (read_binary preserves embedded NULs),
+// and Windows-correct (the shell version's `mktemp '$parent/.aebrc.XXXXXX'`
+// and `cp`/`mv` all break under cmd.exe). lib/cache does NOT import build, so
+// it uses fs directly rather than the build._sh chokepoint — and this is the
+// better fix anyway (no subprocess at all for a file copy).
 _copy_atomic(src: string, dest: string) {
     parent = path.dirname(dest)
     merr = fs.mkdir_p(parent)
     if string.length(merr) > 0 { return 0 }
-    tmp_raw, _e = os.exec("mktemp '${parent}/.aebrc.XXXXXX' 2>/dev/null")
-    tmp = string.trim(tmp_raw)
-    if string.length(tmp) == 0 { return 0 }
-    if os.system("cp '${src}' '${tmp}' 2>/dev/null") != 0 {
-        os.system("rm -f '${tmp}'")
-        return 0
-    }
-    if os.system("mv '${tmp}' '${dest}' 2>/dev/null") != 0 {
-        os.system("rm -f '${tmp}'")
-        return 0
-    }
+    bytes, length, rerr = fs.read_binary(src)
+    if rerr != "" { return 0 }
+    werr = fs.write_atomic(dest, bytes, length)
+    if werr != "" { return 0 }
     return 1
 }
 

@@ -226,7 +226,7 @@ resolve(ctx: ptr) {
     // SLF4J warnings go to stderr, os.exec captures stdout only
 
     println("${mod_dir}: resolving maven dependencies")
-    result_raw, _eerr = os.exec(cmd)
+    result_raw, _eerr = build._sh_capture(cmd)
     result = string.trim(result_raw)
     if string.length(result) == 0 {
         println("${mod_dir}: warning: no maven jars resolved")

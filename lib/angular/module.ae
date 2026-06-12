@@ -76,7 +76,7 @@ builder ngc(ctx: ptr) {
     ngc_bin = path.join(aeb_dir, "node_modules/.bin/ngc")
     cmd = ngc_cmd(ngc_bin, tc, _builder)
 
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: ngc failed")
         return exit_code
@@ -97,7 +97,7 @@ builder ng_build(ctx: ptr) {
     pnpm.resolve(ctx)
 
     // Extract app name from source_dir (e.g. .../apps/products → products)
-    app_name_raw, _eerr = os.exec("basename '${source_dir}'")
+    app_name_raw, _eerr = build._sh_capture("basename '${source_dir}'")
     app_name = string.trim(app_name_raw)
 
     println("${mod_dir}: building (ng build)")
@@ -106,7 +106,7 @@ builder ng_build(ctx: ptr) {
     ng_bin = path.join(aeb_dir, "node_modules/.bin/ng")
     cmd = ng_build_cmd(ng_bin, app_name, "production")
 
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: ng build failed")
         return exit_code

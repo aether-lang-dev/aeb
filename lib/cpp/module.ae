@@ -163,7 +163,7 @@ _expand_sources(source_dir: string, pats: ptr) {
     while i < n {
         p, _ = list.get(pats, i)
         if string.length(p) > 0 {
-            raw, _e = os.exec("cd '${source_dir}' && ls -1 ${p} 2>/dev/null")
+            raw, _e = build._sh_capture("cd '${source_dir}' && ls -1 ${p} 2>/dev/null")
             lines = string.split(string.trim(raw), "\n")
             m = string.array_size(lines)
             j = 0
@@ -229,7 +229,7 @@ builder program(ctx: ptr) {
                           _list_or_null(_builder, "cpp_cxxflags"),
                           _list_or_null(_builder, "cpp_link_flags"),
                           out_abs)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: compile FAILED")
         build.fail(ctx, "compile FAILED")
@@ -272,7 +272,7 @@ builder tests(ctx: ptr) {
                           _list_or_null(_builder, "cpp_cxxflags"),
                           _list_or_null(_builder, "cpp_link_flags"),
                           test_bin)
-    bc = os.system(cmd)
+    bc = build._sh(cmd)
     if bc != 0 {
         println("${mod_dir}: test build FAILED")
         build._record_test_result(ctx, 0, 1)
@@ -282,7 +282,7 @@ builder tests(ctx: ptr) {
 
     println("${mod_dir}: running tests")
     out_path = path.join(target_dir, "test_output.log")
-    rc = os.system("'${test_bin}' 2>&1 | tee '${out_path}'")
+    rc = build._sh("'${test_bin}' 2>&1 | tee '${out_path}'")
     if rc != 0 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")

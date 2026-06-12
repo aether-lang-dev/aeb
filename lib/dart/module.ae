@@ -338,7 +338,7 @@ builder pub_get(ctx: ptr) {
     }
 
     cmd = pub_get_cmd(dart, source_dir, offline_flag)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: pub get FAILED")
         build.fail(ctx, "pub get FAILED")
@@ -362,7 +362,7 @@ builder analyze(ctx: ptr) {
 
     dart = _dart_of(_builder)
     cmd = analyze_cmd(dart, source_dir)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: analyze FAILED")
         build.fail(ctx, "analyze FAILED")
@@ -397,7 +397,7 @@ builder test(ctx: ptr) {
                     if string.length(ov) > 0 { pg_offline = " --offline" }
                 }
                 println("${mod_dir}: resolving deps (dart pub get)")
-                pg_rc = os.system(pub_get_cmd(dart, source_dir, pg_offline))
+                pg_rc = build._sh(pub_get_cmd(dart, source_dir, pg_offline))
                 if pg_rc != 0 {
                     println("${mod_dir}: pub get FAILED")
                     build.fail(ctx, "pub get FAILED")
@@ -426,7 +426,7 @@ builder test(ctx: ptr) {
     cmd = string.concat(build._env_export_prefix(_builder), test_cmd(dart, source_dir, args_part))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = os.system(full_cmd)
+    exit_code = build._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     tp_cnt, tf_cnt = _parse_dart_test_counts(out_text)
     build._record_test_result(ctx, tp_cnt, tf_cnt)
@@ -554,7 +554,7 @@ builder compile(ctx: ptr) {
 
     println("${mod_dir}: compiling (dart compile ${fmt})")
     cmd = compile_cmd(dart, source_dir, fmt, entry, out_abs)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: compile FAILED")
         build.fail(ctx, "compile FAILED")
@@ -697,7 +697,7 @@ builder codegen(ctx: ptr) {
     if skip == 0 {
         cmd = dart_codegen_cmd(dart, cwd, driver_form, driver_name, args)
         println("${mod_dir}: codegen running")
-        rc = os.system(cmd)
+        rc = build._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: codegen FAILED")
             build.fail(ctx, "codegen FAILED")

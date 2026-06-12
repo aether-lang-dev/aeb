@@ -105,7 +105,7 @@ resolve(ctx: ptr) {
     // COREPACK_ENABLE_STRICT=0 allows pnpm to work even when
     // a parent package.json declares a different package manager
     cmd = pnpm_add_cmd(aeb_dir, npm_deps)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: warning: pnpm add failed")
     }
@@ -217,7 +217,7 @@ builder install(ctx: ptr) {
 
     println("${mod_dir}: pnpm install")
     cmd = pnpm_install_cmd(source_dir, frozen)
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: pnpm install FAILED")
         build.fail(ctx, "pnpm install FAILED")
@@ -240,7 +240,7 @@ builder run(ctx: ptr, script: string) {
     args_str = _script_args_str(_builder)
     println("${mod_dir}: pnpm run ${script}")
     cmd = pnpm_run_cmd(source_dir, script, args_str)
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: pnpm run ${script} FAILED")
         build.fail(ctx, "pnpm run ${script} FAILED")

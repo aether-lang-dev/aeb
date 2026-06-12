@@ -91,14 +91,14 @@ _groovyc_bin(groovy_home: string) {
 _groovy_jars_nl(groovy_home: string) {
     if string.length(groovy_home) == 0 { return "" }
     libdir = path.join(groovy_home, "lib")
-    raw, _e = os.exec("ls '${libdir}'/groovy-*.jar 2>/dev/null")
+    raw, _e = build._sh_capture("ls '${libdir}'/groovy-*.jar 2>/dev/null")
     return string.trim(raw)
 }
 
 // _nl_to_colon(s) — newline-separated → colon-separated (classpath form).
 _nl_to_colon(s: string) {
     if string.length(s) == 0 { return "" }
-    out, _e = os.exec("printf '%s' '${s}' | tr '\n' ':' | sed 's/:$//'")
+    out, _e = build._sh_capture("printf '%s' '${s}' | tr '\n' ':' | sed 's/:$//'")
     return string.trim(out)
 }
 
@@ -131,7 +131,7 @@ builder groovyc(ctx: ptr) {
         return 0
     }
 
-    rc = os.system(string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, classes_dir, classpath, file_list)))
+    rc = build._sh(string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, classes_dir, classpath, file_list)))
     if rc != 0 {
         println("${mod_dir}: groovyc failed")
         build.fail(ctx, "groovyc failed")
@@ -174,7 +174,7 @@ builder groovyc_test(ctx: ptr) {
         return 0
     }
 
-    rc = os.system(string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, test_classes, classpath, file_list)))
+    rc = build._sh(string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, test_classes, classpath, file_list)))
     if rc != 0 {
         println("${mod_dir}: groovyc (test) failed")
         build.fail(ctx, "groovyc (test) failed")
@@ -198,13 +198,13 @@ _source_files(builder_map: ptr, source_dir: string, maven_subdir: string) {
     if use_maven == 1 { root = path.join(source_dir, maven_subdir) }
     depth = ""
     if use_maven == 0 { depth = "-maxdepth 1 " }
-    raw, _e = os.exec("find '${root}' ${depth}-name '*.groovy' 2>/dev/null | tr '\n' ' '")
+    raw, _e = build._sh_capture("find '${root}' ${depth}-name '*.groovy' 2>/dev/null | tr '\n' ' '")
     return string.trim(raw)
 }
 
 // _colon_to_nl(s) — colon-separated → newline-separated (artifact form).
 _colon_to_nl(s: string) {
     if string.length(s) == 0 { return "" }
-    out, _e = os.exec("printf '%s' '${s}' | tr ':' '\n'")
+    out, _e = build._sh_capture("printf '%s' '${s}' | tr ':' '\n'")
     return string.trim(out)
 }

@@ -124,7 +124,7 @@ builder test(ctx: ptr) {
             phar_abs = path.join(source_dir, phar)
             if file.exists(phar_abs) == 0 {
                 println("${mod_dir}: fetching ${phar}")
-                fr = os.system(phar_fetch_cmd(source_dir, url, phar))
+                fr = build._sh(phar_fetch_cmd(source_dir, url, phar))
                 if fr != 0 {
                     println("${mod_dir}: phar download FAILED")
                     build.fail(ctx, "phar download FAILED")
@@ -142,7 +142,7 @@ builder test(ctx: ptr) {
 
     println("${mod_dir}: running tests (php)")
     cmd = phpunit_cmd(source_dir, runner, config_part(cfg))
-    rc = os.system(string.concat(env_prefix, cmd))
+    rc = build._sh(string.concat(env_prefix, cmd))
     if rc != 0 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")

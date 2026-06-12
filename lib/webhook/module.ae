@@ -232,19 +232,19 @@ _resolve_env_tokens(template: string, ctx: ptr) {
 // multi-VCS extension). stderr is swallowed so a non-repo just
 // yields "".
 _git_branch() {
-    out, err = os.exec("git rev-parse --abbrev-ref HEAD 2>/dev/null")
+    out, err = build._sh_capture("git rev-parse --abbrev-ref HEAD 2>/dev/null")
     if err != "" { return "" }
     return string.trim(out)
 }
 
 _git_commit() {
-    out, err = os.exec("git rev-parse HEAD 2>/dev/null")
+    out, err = build._sh_capture("git rev-parse HEAD 2>/dev/null")
     if err != "" { return "" }
     return string.trim(out)
 }
 
 _repo_name() {
-    out, err = os.exec("git rev-parse --show-toplevel 2>/dev/null")
+    out, err = build._sh_capture("git rev-parse --show-toplevel 2>/dev/null")
     top = ""
     if err == "" { top = string.trim(out) }
     n = string.length(top)

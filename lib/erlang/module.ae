@@ -73,7 +73,7 @@ builder eunit(ctx: ptr) {
                 target_dir = build._get(ctx, "target_dir")
                 build._mkdirs(target_dir)
                 println("${mod_dir}: running tests (escript ${sp})")
-                rc = os.system(string.concat(build._env_export_prefix(_builder), escript_cmd(source_dir, sp)))
+                rc = build._sh(string.concat(build._env_export_prefix(_builder), escript_cmd(source_dir, sp)))
                 if rc != 0 {
                     build._record_test_result(ctx, 0, 1)
                     println("${mod_dir}: tests FAILED")

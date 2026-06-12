@@ -69,7 +69,7 @@ builder test(ctx: ptr) {
     build._mkdirs(target_dir)
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = os.system(full_cmd)
+    exit_code = build._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     if exit_code == 124 {
         build._record_test_result(ctx, 0, 1)

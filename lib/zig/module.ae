@@ -110,7 +110,7 @@ builder build_pkg(ctx: ptr) {
     zig = _zig_of(_builder)
     println("${mod_dir}: building (zig build)")
     cmd = build_cmd(zig, source_dir, _optimize_flag(_optimize_of(_builder)))
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: build FAILED")
         build.fail(ctx, "build FAILED")
@@ -146,7 +146,7 @@ builder test(ctx: ptr) {
     cmd = string.concat(build._env_export_prefix(_builder), test_cmd(zig, source_dir, _optimize_flag(_optimize_of(_builder))))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = os.system(full_cmd)
+    exit_code = build._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     tp_cnt, tf_cnt = _parse_zig_test_counts(out_text, exit_code)
     build._record_test_result(ctx, tp_cnt, tf_cnt)

@@ -211,7 +211,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
     if opts != null {
         if map.has(opts, "copies") == 1 {
             copies, _ = map.get(opts, "copies")
-            cl_raw, _e1 = os.exec("echo '${copies}' | while IFS=: read -r s d; do echo \"COPY $s $d\"; done")
+            cl_raw, _e1 = build._sh_capture("echo '${copies}' | while IFS=: read -r s d; do echo \"COPY $s $d\"; done")
             copy_lines = string.trim(cl_raw)
             df = string.concat(df, copy_lines)
             df = string.concat(df, "\n")
@@ -239,7 +239,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
     if opts != null {
         if map.has(opts, "env_vars") == 1 {
             env_raw, _ = map.get(opts, "env_vars")
-            el_raw, _e2 = os.exec("echo '${env_raw}' | while IFS='=' read -r k v; do echo \"ENV $k=$v\"; done")
+            el_raw, _e2 = build._sh_capture("echo '${env_raw}' | while IFS='=' read -r k v; do echo \"ENV $k=$v\"; done")
             env_lines = string.trim(el_raw)
             df = string.concat(df, env_lines)
             df = string.concat(df, "\n")
@@ -250,7 +250,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
     if opts != null {
         if map.has(opts, "ports") == 1 {
             ports, _ = map.get(opts, "ports")
-            pl_raw, _e3 = os.exec("echo '${ports}' | tr ' ' '\n' | while read -r p; do echo \"EXPOSE $p\"; done")
+            pl_raw, _e3 = build._sh_capture("echo '${ports}' | tr ' ' '\n' | while read -r p; do echo \"EXPOSE $p\"; done")
             port_lines = string.trim(pl_raw)
             df = string.concat(df, port_lines)
             df = string.concat(df, "\n")
@@ -480,7 +480,7 @@ builder image(ctx: ptr) {
     // Detect artifact to package
     artifact = ""
     jar_pat = path.join(target_dir, "bin/*.jar")
-    jl_raw, _e1 = os.exec("ls ${jar_pat} 2>/dev/null | head -1")
+    jl_raw, _e1 = build._sh_capture("ls ${jar_pat} 2>/dev/null | head -1")
     jar_list = string.trim(jl_raw)
     if string.length(jar_list) > 0 {
         artifact = jar_list
@@ -490,7 +490,7 @@ builder image(ctx: ptr) {
                 _e2 = map.put(_builder, "base", "eclipse-temurin:21-jre-alpine")
             }
             if map.has(_builder, "entrypoint") == 0 {
-                jn_raw, _e3 = os.exec("basename ${jar_list}")
+                jn_raw, _e3 = build._sh_capture("basename ${jar_list}")
                 jar_name = string.trim(jn_raw)
                 ep = string.concat("[\"java\", \"-jar\", \"/app/", jar_name)
                 ep = string.concat(ep, "\"]")
@@ -544,8 +544,8 @@ builder image(ctx: ptr) {
         out_path = df_path
         if string.index_of(emit_only, "/") >= 0 {
             out_dir = path.dirname(emit_only)
-            if string.length(out_dir) > 0 { os.system(string.concat("mkdir -p '", string.concat(out_dir, "'"))) }
-            _cp = os.system(string.concat(string.concat("cp '", df_path), string.concat("' '", string.concat(emit_only, "'"))))
+            if string.length(out_dir) > 0 { build._sh(string.concat("mkdir -p '", string.concat(out_dir, "'"))) }
+            _cp = build._sh(string.concat(string.concat("cp '", df_path), string.concat("' '", string.concat(emit_only, "'"))))
             out_path = emit_only
         }
         println("${mod_dir}: emit-only — wrote Dockerfile to ${out_path} (skipping podman build)")
@@ -554,7 +554,7 @@ builder image(ctx: ptr) {
 
     // Build image
     build_cmd = image_build_cmd(img_tag, root, df_path, _builder)
-    exit_code = os.system(build_cmd)
+    exit_code = build._sh(build_cmd)
     if exit_code != 0 {
         // build.fail is the channel the orchestrator actually reads — a bare
         // `return exit_code` is silently discarded (see gen-orchestrator),
@@ -580,7 +580,7 @@ builder lxc(ctx: ptr) {
 
     println("${mod_dir}: creating LXC container ${name}")
     cmd = lxc_create_cmd(name, _builder)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: lxc-create failed")
         return exit_code
@@ -630,10 +630,10 @@ builder run(ctx: ptr) {
     run_cmd = container_run_cmd(img, _builder)
     println("${mod_dir}: container.run ${run_cmd}")
 
-    out, _ = os.exec(run_cmd)
+    out, _ = build._sh_capture(run_cmd)
     captured = string.trim(out)
 
-    _mk = os.system("mkdir -p ${target_dir}")
+    _mk = build._sh("mkdir -p ${target_dir}")
     outfile = path.join(target_dir, "container-stdout.txt")
     _w = io.write_file(outfile, captured)
 

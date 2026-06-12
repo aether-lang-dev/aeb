@@ -1447,7 +1447,7 @@ _read_argfile_lines(argfile_path: string) {
     // Sort via shell — std.list lacks a sort primitive, and shelling
     // to sort is cheap (typical N is dozens to hundreds).
     cmd = "printf '%s\\n' '${content}' | sort"
-    sorted_raw, _err2 = os.exec(cmd)
+    sorted_raw, _err2 = _sh_capture(cmd)
     sorted_content = string.trim(sorted_raw)
     rest = sorted_content
     while string.length(rest) > 0 {
@@ -1474,13 +1474,13 @@ _read_argfile_lines(argfile_path: string) {
 // cache.put zlibs it on the way in. Shared by every dir-tree-caching
 // SDK (java, kotlin, scala, ts, dotnet, clojure).
 _tar_dir(src_dir: string) {
-    tmp_raw, _err = os.exec("mktemp")
+    tmp_raw, _err = _sh_capture("mktemp")
     tmp = string.trim(tmp_raw)
     if string.length(tmp) == 0 {
         return "", "mktemp failed"
     }
     cmd = "tar -cf '${tmp}' -C '${src_dir}' . 2>&1"
-    out, eerr = os.exec(cmd)
+    out, eerr = _sh_capture(cmd)
     if string.length(eerr) > 0 {
         return "", string.concat("tar failed: ", eerr)
     }
@@ -1492,11 +1492,11 @@ _tar_dir(src_dir: string) {
 // stale files mixing with the cached set). Returns "" on success or
 // err string. Shared partner of _tar_dir.
 _untar_into(tar_path: string, dest_dir: string) {
-    os.system("rm -rf '${dest_dir}'")
+    _sh("rm -rf '${dest_dir}'")
     merr = fs.mkdir_p(dest_dir)
     if string.length(merr) > 0 { return merr }
     cmd = "tar -xf '${tar_path}' -C '${dest_dir}' 2>&1"
-    out, _eerr = os.exec(cmd)
+    out, _eerr = _sh_capture(cmd)
     if string.length(out) > 0 {
         // tar prints to stdout via 2>&1 only on error; success is silent.
         return string.concat("untar failed: ", out)
@@ -1510,7 +1510,7 @@ _untar_into(tar_path: string, dest_dir: string) {
 // real output landed elsewhere). Shared by ts, dotnet, clojure.
 _dir_nonempty(d: string) {
     if dir.exists(d) == 0 { return 0 }
-    raw, _err = os.exec("find '${d}' -type f 2>/dev/null | head -1")
+    raw, _err = _sh_capture("find '${d}' -type f 2>/dev/null | head -1")
     if string.length(string.trim(raw)) > 0 { return 1 }
     return 0
 }
@@ -2669,7 +2669,7 @@ _build_dep_classpath(ctx: ptr) {
         dm = _strip_lang(dp)
         dep_cp_raw = _read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp_raw) > 0 {
-            out, _eerr = os.exec("echo '${dep_cp_raw}' | tr '\n' ':' | sed 's/:$//'")
+            out, _eerr = _sh_capture("echo '${dep_cp_raw}' | tr '\n' ':' | sed 's/:$//'")
             dep_cp = string.trim(out)
             if string.length(cp) > 0 {
                 tmp = string.concat(cp, ":")
@@ -2748,7 +2748,7 @@ load_third_party_deps(ctx: ptr, rel_path: string) {
     _e2 = list.add(bom_files, full_path)
 
     // Also extract dep() lines with npm: prefix
-    parsed_raw, _eerr = os.exec("grep 'dep.*npm:' '${full_path}' | grep -o '\"npm:[^\"]*\"' | tr -d '\"' | sed 's/^npm://'")
+    parsed_raw, _eerr = _sh_capture("grep 'dep.*npm:' '${full_path}' | grep -o '\"npm:[^\"]*\"' | tr -d '\"' | sed 's/^npm://'")
     parsed = string.trim(parsed_raw)
     if string.length(parsed) == 0 {
         return 1
@@ -2757,7 +2757,7 @@ load_third_party_deps(ctx: ptr, rel_path: string) {
     npm_deps_list, _ = map.get(ctx, "npm_deps")
     line_idx = 1
     while line_idx <= 500 {
-        line_raw, _e3 = os.exec("echo '${parsed}' | sed -n '${line_idx}p'")
+        line_raw, _e3 = _sh_capture("echo '${parsed}' | sed -n '${line_idx}p'")
         line = string.trim(line_raw)
         if string.length(line) == 0 {
             line_idx = 501

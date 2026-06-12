@@ -236,7 +236,7 @@ builder install(ctx: ptr) {
     build._mkdirs(bp)
 
     cmd = bundle_install_cmd(bundle, source_dir, bp)
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: bundle install FAILED")
         build.fail(ctx, "bundle install FAILED")
@@ -258,7 +258,7 @@ builder rspec(ctx: ptr) {
     bundle = _resolve_bundle_bin()
     args_str = _rspec_args_str(_builder)
     cmd = string.concat(build._env_export_prefix(_builder), rspec_cmd(bundle, source_dir, args_str))
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
     if rc != 0 {
         // rspec exits non-zero on test failure; record one logical
         // failure. A future iteration could parse rspec's
@@ -291,7 +291,7 @@ builder rubocop(ctx: ptr) {
         }
     }
     cmd = rubocop_cmd(bundle, source_dir, cfg)
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: lint FAILED")
         build.fail(ctx, "lint FAILED")
@@ -341,7 +341,7 @@ builder package(ctx: ptr) {
     gem_bin = _resolve_gem_bin()
     gemspec_basename = path.basename(gemspec_rel)
     cmd = gem_build_cmd(gem_bin, source_dir, gemspec_basename, dist_dir)
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: gem build FAILED")
         build.fail(ctx, "gem build FAILED")

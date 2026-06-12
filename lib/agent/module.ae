@@ -593,7 +593,7 @@ builder dispatch(ctx: ptr) {
                     return 1
                 }
                 // base64 (single line, -w0) so it's one clean JSON value.
-                enc_raw, _ee = os.exec("base64 -w0 '${pf_abs}' 2>/dev/null || base64 '${pf_abs}' | tr -d '\n'")
+                enc_raw, _ee = build._sh_capture("base64 -w0 '${pf_abs}' 2>/dev/null || base64 '${pf_abs}' | tr -d '\n'")
                 patch_b64 = string.trim(enc_raw)
             }
         }
@@ -791,7 +791,7 @@ _veto_tree_size_cap(repo: string) {
     cap_mb, _cerr = string.to_int(string.trim(capstr))
     if cap_mb <= 0 { return "" }
     // `du -sm` → size in MB (first whitespace-delimited field).
-    out, _e = os.exec("du -sm '${repo}' 2>/dev/null | awk '{print $1}'")
+    out, _e = build._sh_capture("du -sm '${repo}' 2>/dev/null | awk '{print $1}'")
     sz_mb, _serr = string.to_int(string.trim(out))
     if sz_mb > cap_mb {
         return "tree is ${sz_mb} MB, exceeds AEB_AGENT_MAX_TREE_MB=${cap_mb} (veto:tree-size)"
@@ -817,7 +817,7 @@ _veto_run_rules(repo: string, patch_path: string) {
         reason = _veto_rule_field(row, 3)
         cmd = _veto_scan_cmd(scope, pattern, repo, patch_path)
         if string.length(cmd) > 0 {
-            if os.system(cmd) == 0 {
+            if build._sh(cmd) == 0 {
                 // reason + the rule id, so the operator log is actionable.
                 return string.concat(reason, string.concat(" (veto:", string.concat(rid, ")")))
             }

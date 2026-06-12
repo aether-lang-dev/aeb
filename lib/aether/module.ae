@@ -392,7 +392,7 @@ _collect_ld_path(shared_libs_text: string) {
         return ""
     }
     cmd = "echo '${shared_libs_text}' | xargs -n1 dirname 2>/dev/null | sort -u | tr '\n' ':' | sed 's/:$//'"
-    out, _eerr = os.exec(cmd)
+    out, _eerr = build._sh_capture(cmd)
     return string.trim(out)
 }
 
@@ -464,7 +464,7 @@ _expand_source_globs(builder_map: ptr, source_dir: string) {
 _toolchain_version() {
     cached = os.getenv("_AEB_AETHER_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = os.exec("ae --version 2>/dev/null | head -1")
+    raw, _err = build._sh_capture("ae --version 2>/dev/null | head -1")
     return string.trim(raw)
 }
 
@@ -995,7 +995,7 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
         wsrcdir = _rewrite_under_root(build._get(ctx, "source_dir"), root, "/work")
         args = "build${cov_flag} ${wsrc} -o ${wbin}"
         cmd = _ae_build_cmd_delegated(args, root, container_image, wsrcdir)
-        rc = os.system(cmd)
+        rc = build._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: ae build (in ${container_image}) failed")
             build.fail(ctx, "ae build (containerized) failed")
@@ -1012,7 +1012,7 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
     // for the libffi-using tinygo bridge); the other bridges had empty tomls.
     source_dir = build._get(ctx, "source_dir")
     cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag} ${src_path} -o ${bin_path}"
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: ae build failed")
         build.fail(ctx, "ae build failed")
@@ -1466,7 +1466,7 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
                 caps = _detect_caps(ae_abs)
             }
             cmd = aetherc_emit_lib_cmd(aetherc, ae_abs, c_abs, caps)
-            rc = os.system(cmd)
+            rc = build._sh(cmd)
             if rc != 0 {
                 println("${mod_dir}: aetherc --emit=lib failed for ${rel}")
                 return rc
@@ -1542,7 +1542,7 @@ _find_extern_definer(project_root: string, sym: string) {
     if string.length(sym) == 0 { return "" }
     pattern = string.concat(sym, "(")
     cmd = "grep -rl --include='module_generated.c' -F -- '${pattern}' '${project_root}' 2>/dev/null | head -1"
-    out, _err = os.exec(cmd)
+    out, _err = build._sh_capture(cmd)
     found_c = string.trim(out)
     if string.length(found_c) == 0 { return "" }
     mod_dir = path.dirname(found_c)
@@ -1557,7 +1557,7 @@ _find_extern_definer(project_root: string, sym: string) {
 // failure; the caller can fall back to the absolute path.
 _relpath_for_hint(from_dir: string, to_file: string) {
     cmd = "python3 -c \"import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))\" '${to_file}' '${from_dir}' 2>/dev/null"
-    out, _err = os.exec(cmd)
+    out, _err = build._sh_capture(cmd)
     return string.trim(out)
 }
 
@@ -1713,7 +1713,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
             build._mkdirs(bin_parent)
             grc = cache.get(cache_key, bin_path)
             if string.length(grc) == 0 {
-                os.system("chmod +x ${bin_path}")
+                build._sh("chmod +x ${bin_path}")
                 println("${mod_dir}: aether cache hit ${cache_key}")
                 build._record_cache(ctx, "hit")
                 return 0
@@ -1745,7 +1745,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
         lib_flag = " --lib ${compile_lib_env}"
     }
     ac_cmd = "${aetherc}${lib_flag} ${src_path} ${c_path}"
-    rc = os.system(ac_cmd)
+    rc = build._sh(ac_cmd)
     if rc != 0 {
         println("${mod_dir}: aetherc failed")
         build.fail(ctx, "aetherc failed")
@@ -1758,10 +1758,10 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     rpath_link = ""
     if string.length(shared_libs) > 0 {
         extra_cmd = "echo '${shared_libs}' | tr '\n' ' '"
-        el_raw, _e1 = os.exec(extra_cmd)
+        el_raw, _e1 = build._sh_capture(extra_cmd)
         extra_link = string.trim(el_raw)
         rpath_cmd = "echo '${shared_libs}' | xargs -n1 dirname 2>/dev/null | sort -u | sed 's|^|-Wl,-rpath,|' | tr '\n' ' '"
-        rp_raw, _e2 = os.exec(rpath_cmd)
+        rp_raw, _e2 = build._sh_capture(rpath_cmd)
         rpath_link = string.trim(rp_raw)
     }
 
@@ -1853,9 +1853,9 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     gcc_stderr_path = path.join(target_dir, "_gcc_stderr.log")
     gcc_with_capture = string.concat(gcc_cmd, " 2>")
     gcc_with_capture = string.concat(gcc_with_capture, gcc_stderr_path)
-    rc = os.system(gcc_with_capture)
+    rc = build._sh(gcc_with_capture)
     if rc != 0 {
-        os.system("cat ${gcc_stderr_path} >&2 2>/dev/null")
+        build._sh("cat ${gcc_stderr_path} >&2 2>/dev/null")
         println("${mod_dir}: gcc link failed")
         stderr_text, _serr = io.read_file(gcc_stderr_path)
         if string.length(stderr_text) > 0 {
@@ -1902,7 +1902,7 @@ _default_source_name(ctx: ptr) {
     // Default source file name = last path component of module dir + ".ae"
     mod_dir = build._get(ctx, "module_dir")
     cmd = "basename '${mod_dir}'"
-    base_raw, _eerr = os.exec(cmd)
+    base_raw, _eerr = build._sh_capture(cmd)
     base = string.trim(base_raw)
     return string.concat(base, ".ae")
 }
@@ -1986,7 +1986,7 @@ builder tinygo_lib(ctx: ptr) {
             if string.length(selabel) == 0 { selabel = "Z" }
             mount = "-v ${root}:/work:${selabel}"
             cmd = "${engine} run --rm -e CGO_ENABLED=1 ${mount} -w /work --entrypoint go ${container_image} build -buildmode=c-shared -o ${wso} ${wgo}"
-            rc = os.system(cmd)
+            rc = build._sh(cmd)
             if rc != 0 {
                 println("${mod_dir}: go build (in ${container_image}) failed")
                 build.fail(ctx, "go c-shared build (containerized) failed")
@@ -1994,7 +1994,7 @@ builder tinygo_lib(ctx: ptr) {
             }
         } else {
             cmd = "CGO_ENABLED=1 go build -buildmode=c-shared -o ${so_path} ${go_path}"
-            rc = os.system(cmd)
+            rc = build._sh(cmd)
             if rc != 0 {
                 println("${mod_dir}: go build failed")
                 build.fail(ctx, "go c-shared build failed")
@@ -2103,7 +2103,7 @@ builder program_test(ctx: ptr) {
         dyld_var = build._dyld_env_var()
         run_cmd = "${dyld_var}=${ld_path} ${bin_path}"
     }
-    rc = os.system(run_cmd)
+    rc = build._sh(run_cmd)
     if rc != 0 {
         // aether.program_test runs one binary; non-zero exit = 1
         // logical failure. Test runners with sub-test counts

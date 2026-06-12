@@ -52,7 +52,7 @@ builder bundle(ctx: ptr) {
     nm_dir = path.join(aeb_dir, "node_modules")
     cmd = webpack_cmd(nm_dir, webpack_bin, wp_config)
 
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: webpack failed")
         build.fail(ctx, "webpack failed")

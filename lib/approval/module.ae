@@ -557,8 +557,8 @@ builder jira(ctx: ptr) {
     script = jira_check_script(base, issue_key, token, req_status, labels, fields, evidence_path, timeout_s)
     script_path = path.join(target_dir, "jira-approval-check.sh")
     _e = fs.write_atomic(script_path, script, string.length(script))
-    os.system(string.concat("chmod +x ", script_path))
-    rc = os.system(string.concat("bash ", script_path))
+    build._sh(string.concat("chmod +x ", script_path))
+    rc = build._sh(string.concat("bash ", script_path))
     if rc != 0 {
         println("${mod_dir}: approval.jira rejected ${issue_key}")
         build.fail(ctx, "approval.jira rejected ${issue_key}")
@@ -641,8 +641,8 @@ _write_and_run(ctx: ptr, provider: string, script: string, evidence_path: string
     build._mkdirs(target_dir)
     script_path = path.join(target_dir, string.concat(provider, "-approval-check.sh"))
     _e = fs.write_atomic(script_path, script, string.length(script))
-    os.system(string.concat("chmod +x ", script_path))
-    rc = os.system(string.concat("bash ", script_path))
+    build._sh(string.concat("chmod +x ", script_path))
+    rc = build._sh(string.concat("bash ", script_path))
     if rc != 0 {
         println("${mod_dir}: approval.${provider} rejected")
         build.fail(ctx, "approval.${provider} rejected")
@@ -671,7 +671,7 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
         raw_path = path.join(target_dir, string.concat(provider, "-attestation.raw"))
         cmd = string.concat(attest_cmd, " > ")
         cmd = string.concat(cmd, _shell_quote(raw_path))
-        rc = os.system(cmd)
+        rc = build._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: approval.${provider} attestation_command failed")
             build.fail(ctx, "approval.${provider} attestation_command failed")
@@ -699,7 +699,7 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
     verify_cmd = string.concat(verify_cmd, " ")
     verify_cmd = string.concat(verify_cmd, _shell_quote(verify_url))
     verify_cmd = string.concat(verify_cmd, " >/dev/null")
-    vrc = os.system(verify_cmd)
+    vrc = build._sh(verify_cmd)
     if vrc != 0 {
         println("${mod_dir}: approval.${provider} attestation verification failed ${verify_url}")
         build.fail(ctx, "approval.${provider} attestation verification failed ${verify_url}")

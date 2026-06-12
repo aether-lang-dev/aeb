@@ -162,7 +162,7 @@ builder file(ctx: ptr) {
     }
 
     println("${mod_dir}: copying ${src_rel} → ${dst_rel}")
-    rc = os.system(cp_file_cmd(src_abs, dst_abs))
+    rc = build._sh(cp_file_cmd(src_abs, dst_abs))
     if rc != 0 {
         println("${mod_dir}: copy.file: cp failed")
         build.fail(ctx, "copy.file: cp failed")
@@ -209,7 +209,7 @@ builder tree(ctx: ptr) {
     }
 
     println("${mod_dir}: copying tree ${src_rel} → ${dst_rel}")
-    rc = os.system(cp_tree_cmd(src_abs, dst_abs))
+    rc = build._sh(cp_tree_cmd(src_abs, dst_abs))
     if rc != 0 {
         println("${mod_dir}: copy.tree: cp failed")
         build.fail(ctx, "copy.tree: cp failed")

@@ -371,7 +371,7 @@ bash_runner_body() {
 _collect_scripts(source_dir: string) {
     // Auto-discovery default: every test_*.sh under source_dir.
     cmd = "ls '${source_dir}'/test_*.sh 2>/dev/null | sort"
-    raw, _err = os.exec(cmd)
+    raw, _err = build._sh_capture(cmd)
     out = string.trim(raw)
     found = list.new()
     if string.length(out) == 0 {
@@ -386,7 +386,7 @@ _collect_scripts(source_dir: string) {
         c = string.substring(out, i, i + 1)
         if string.equals(c, "\n") == 1 {
             line = string.substring(out, start, i)
-            base_raw, _b = os.exec("basename '${line}'")
+            base_raw, _b = build._sh_capture("basename '${line}'")
             base = string.trim(base_raw)
             _e = list.add(found, base)
             start = i + 1
@@ -395,7 +395,7 @@ _collect_scripts(source_dir: string) {
     }
     if start < n {
         line = string.substring(out, start, n)
-        base_raw, _b = os.exec("basename '${line}'")
+        base_raw, _b = build._sh_capture("basename '${line}'")
         base = string.trim(base_raw)
         _e = list.add(found, base)
     }
@@ -453,7 +453,7 @@ builder run(ctx: ptr) {
         s, _ = list.get(scripts, i)
         full = _resolve_script_path(source_dir, s)
         println("${mod_dir}: running ${s}")
-        rc = os.system("bash ${full}")
+        rc = build._sh("bash ${full}")
         if rc != 0 {
             println("${mod_dir}: ${s} FAILED (exit ${rc})")
             build.fail(ctx, "${s} FAILED (exit ${rc})")
@@ -485,11 +485,11 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     // disk-bound tests, so substitute via shell.
     jobs_arg = jobs_str
     if string.equals(jobs_str, "0") == 1 {
-        np_raw, _np = os.exec("nproc 2>/dev/null || echo 2")
+        np_raw, _np = build._sh_capture("nproc 2>/dev/null || echo 2")
         np_str = string.trim(np_raw)
         np_cmd = "echo $(( ${np_str} / 2 ))"
         if np_str == "1" { np_cmd = "echo 1" }
-        ja_raw, _ja = os.exec(np_cmd)
+        ja_raw, _ja = build._sh_capture(np_cmd)
         jobs_arg = string.trim(ja_raw)
         if string.length(jobs_arg) == 0 { jobs_arg = "1" }
     }
@@ -512,9 +512,9 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     // Write item list and runner script to temp files via
     // fs.write_atomic — bypasses any shell heredoc/quoting hazards
     // when the body contains $1, ${1%%|*}, etc.
-    list_file_raw, _lf = os.exec("mktemp")
+    list_file_raw, _lf = build._sh_capture("mktemp")
     list_file = string.trim(list_file_raw)
-    runner_raw, _rf = os.exec("mktemp")
+    runner_raw, _rf = build._sh_capture("mktemp")
     runner_file = string.trim(runner_raw)
 
     list_body = string.concat(items, "\n")
@@ -522,13 +522,13 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
 
     runner_body = bash_runner_body()
     _ewr = fs.write_atomic(runner_file, runner_body, string.length(runner_body))
-    os.system(string.concat("chmod +x ", runner_file))
+    build._sh(string.concat("chmod +x ", runner_file))
 
     pipe = bash_xargs_cmd(list_file, runner_file, jobs_arg)
 
-    out, _err = os.exec(pipe)
-    os.system(string.concat("rm -f ", list_file))
-    os.system(string.concat("rm -f ", runner_file))
+    out, _err = build._sh_capture(pipe)
+    build._sh(string.concat("rm -f ", list_file))
+    build._sh(string.concat("rm -f ", runner_file))
 
     // Parse output line by line, render in completion order, count.
     failed = _parse_xargs_output(out)
@@ -733,7 +733,7 @@ builder test(ctx: ptr) {
             s, _ = list.get(scripts, i)
             full = _resolve_script_path(source_dir, s)
             cmd = bash_chain_cmd(pre_cmds, full, post_cmds)
-            rc = os.system(cmd)
+            rc = build._sh(cmd)
             if rc == 0 {
                 println("  PASS: ${s}")
                 passed = passed + 1
@@ -779,7 +779,7 @@ builder test(ctx: ptr) {
                         full_cmd = string.concat(env_prefix, " bash -c '")
                         full_cmd = string.concat(full_cmd, fcmd)
                         full_cmd = string.concat(full_cmd, "'")
-                        frc = os.system(full_cmd)
+                        frc = build._sh(full_cmd)
                         if frc != 0 {
                             println("  on_failure exited ${frc}: ${fcmd}")
                         }
@@ -813,7 +813,7 @@ test_discover(_ctx: ptr, sub_dir: string) {
     source_dir = build._get(_ctx, "source_dir")
     full_dir = path.join(source_dir, sub_dir)
     cmd = "ls '${full_dir}'/test_*.sh 2>/dev/null | sort"
-    raw, _err = os.exec(cmd)
+    raw, _err = build._sh_capture(cmd)
     out = string.trim(raw)
     if string.length(out) == 0 {
         return 0
@@ -826,7 +826,7 @@ test_discover(_ctx: ptr, sub_dir: string) {
         c = string.substring(out, i, i + 1)
         if string.equals(c, "\n") == 1 {
             line = string.substring(out, start, i)
-            base_raw, _b = os.exec("basename '${line}'")
+            base_raw, _b = build._sh_capture("basename '${line}'")
             base = string.trim(base_raw)
             rel = path.join(sub_dir, base)
             _e = list.add(scripts, rel)
@@ -836,7 +836,7 @@ test_discover(_ctx: ptr, sub_dir: string) {
     }
     if start < n {
         line = string.substring(out, start, n)
-        base_raw, _b = os.exec("basename '${line}'")
+        base_raw, _b = build._sh_capture("basename '${line}'")
         base = string.trim(base_raw)
         rel = path.join(sub_dir, base)
         _e = list.add(scripts, rel)

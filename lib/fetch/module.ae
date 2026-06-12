@@ -255,7 +255,7 @@ builder file(ctx: ptr) {
 
     if file.exists(out_abs) == 1 {
         verify_existing = sha256_verify_cmd(out_abs, sha_str)
-        rc_v = os.system(verify_existing)
+        rc_v = build._sh(verify_existing)
         if rc_v == 0 {
             println("${mod_dir}: fetch.file up-to-date ${out_rel}")
             build._write_artifact(ctx, "fetched_file", out_abs)
@@ -265,18 +265,18 @@ builder file(ctx: ptr) {
     }
 
     println("${mod_dir}: fetching ${url_str}")
-    rc_dl = os.system(fetch_curl_cmd(url_str, out_abs))
+    rc_dl = build._sh(fetch_curl_cmd(url_str, out_abs))
     if rc_dl != 0 {
         println("${mod_dir}: fetch.file: curl failed for ${url_str}")
         return rc_dl
     }
-    rc_v2 = os.system(sha256_verify_cmd(out_abs, sha_str))
+    rc_v2 = build._sh(sha256_verify_cmd(out_abs, sha_str))
     if rc_v2 != 0 {
         println("${mod_dir}: fetch.file: sha256 verification FAILED for ${out_rel}")
         println("${mod_dir}: expected ${sha_str}; downloaded bytes hashed to something else")
         // Remove the bad file so the next run doesn't see a stale
         // bad blob and false-pass any subsequent staleness check.
-        os.system("rm -f '${out_abs}'")
+        build._sh("rm -f '${out_abs}'")
         return 1
     }
     build._write_artifact(ctx, "fetched_file", out_abs)
@@ -358,22 +358,22 @@ builder archive(ctx: ptr) {
     // Skip re-download if cached archive matches sha256.
     have_archive = 0
     if file.exists(archive_path) == 1 {
-        rc_v = os.system(sha256_verify_cmd(archive_path, sha_str))
+        rc_v = build._sh(sha256_verify_cmd(archive_path, sha_str))
         if rc_v == 0 {
             have_archive = 1
         }
     }
     if have_archive == 0 {
         println("${mod_dir}: fetching ${url_str}")
-        rc_dl = os.system(fetch_curl_cmd(url_str, archive_path))
+        rc_dl = build._sh(fetch_curl_cmd(url_str, archive_path))
         if rc_dl != 0 {
             println("${mod_dir}: fetch.archive: curl failed for ${url_str}")
             return rc_dl
         }
-        rc_v2 = os.system(sha256_verify_cmd(archive_path, sha_str))
+        rc_v2 = build._sh(sha256_verify_cmd(archive_path, sha_str))
         if rc_v2 != 0 {
             println("${mod_dir}: fetch.archive: sha256 verification FAILED for ${archive_name}")
-            os.system("rm -f '${archive_path}'")
+            build._sh("rm -f '${archive_path}'")
             return 1
         }
     }
@@ -403,7 +403,7 @@ builder archive(ctx: ptr) {
         extract_cmd = tar_extract_cmd(archive_path, ex_abs, flags, strip)
     }
     println("${mod_dir}: extracting ${archive_name} → ${ex_rel}")
-    rc_ex = os.system(extract_cmd)
+    rc_ex = build._sh(extract_cmd)
     if rc_ex != 0 {
         println("${mod_dir}: fetch.archive: extraction failed")
         return rc_ex

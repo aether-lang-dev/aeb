@@ -151,7 +151,7 @@ go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
 _go_version() {
     cached = os.getenv("_AEB_GO_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = os.exec("go version 2>&1 | head -1")
+    raw, _err = build._sh_capture("go version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -253,7 +253,7 @@ builder check(ctx: ptr) {
     }
 
     cmd = "cd '${root}' && go build ${pkg_pat}"
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: go build failed")
         return exit_code
@@ -296,7 +296,7 @@ builder go_build(ctx: ptr) {
 
     // Source set for the cache key (every .go under source_dir).
     argfile = path.join(target_dir, "go_sources.txt")
-    os.system("find '${source_dir}' -name '*.go' > '${argfile}' 2>/dev/null || true")
+    build._sh("find '${source_dir}' -name '*.go' > '${argfile}' 2>/dev/null || true")
 
     // Cache check: the output is a single file, restored directly on a
     // hit (no tar). exit_code sentinel: 0 = hit, -1 = build below.
@@ -308,7 +308,7 @@ builder go_build(ctx: ptr) {
             cache_key = ck
             grc = cache.get(cache_key, out_path)
             if string.length(grc) == 0 {
-                os.system("chmod +x '${out_path}' 2>/dev/null || true")
+                build._sh("chmod +x '${out_path}' 2>/dev/null || true")
                 println("${mod_dir}: go build cache hit ${cache_key}")
                 build._record_cache(ctx, "hit")
                 exit_code = 0
@@ -322,8 +322,8 @@ builder go_build(ctx: ptr) {
         } else {
             build._record_cache(ctx, "miss")
         }
-        os.system("cd ${source_dir} && go mod tidy")
-        exit_code = os.system(bld_cmd)
+        build._sh("cd ${source_dir} && go mod tidy")
+        exit_code = build._sh(bld_cmd)
         if exit_code != 0 {
             println("${mod_dir}: go build failed")
             build.fail(ctx, "go build failed")
@@ -371,7 +371,7 @@ builder go_test(ctx: ptr) {
         dm5 = build._strip_lang(dp5)
         dep_sh = build._read_dep_artifact(ctx, dm5, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
-            sh_raw, _esh = os.exec("dirname ${dep_sh} | head -1")
+            sh_raw, _esh = build._sh_capture("dirname ${dep_sh} | head -1")
             sh_dir = string.trim(sh_raw)
             if string.length(ld_path) > 0 {
                 ld_path = string.concat(string.concat(ld_path, ":"), sh_dir)
@@ -391,7 +391,7 @@ builder go_test(ctx: ptr) {
             test_cmd = go_test_cmd(root, ld_path, _builder)
         }
     }
-    exit_code = os.system(test_cmd)
+    exit_code = build._sh(test_cmd)
     if exit_code != 0 {
         // Default `go test` output doesn't include sub-test counts
         // (only -v does). Record coarse pass/fail. Future: parse

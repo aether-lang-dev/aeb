@@ -101,7 +101,7 @@ builder test(ctx: ptr) {
             iflags = ""
             if map.has(_builder, "npm_install_flags") == 1 { iflags, _ = map.get(_builder, "npm_install_flags") }
             println("${mod_dir}: installing deps (npm install)")
-            in_rc = os.system(string.concat(env_prefix, npm_install_cmd(source_dir, iflags)))
+            in_rc = build._sh(string.concat(env_prefix, npm_install_cmd(source_dir, iflags)))
             if in_rc != 0 {
                 println("${mod_dir}: npm install FAILED")
                 build.fail(ctx, "npm install FAILED")
@@ -121,7 +121,7 @@ builder test(ctx: ptr) {
     }
 
     println("${mod_dir}: running tests (node)")
-    rc = os.system(string.concat(env_prefix, test_command))
+    rc = build._sh(string.concat(env_prefix, test_command))
     if rc != 0 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")

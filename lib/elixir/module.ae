@@ -104,7 +104,7 @@ builder test(ctx: ptr) {
             dv, _ = map.get(_builder, "elixir_deps_get")
             if string.length(dv) > 0 {
                 println("${mod_dir}: resolving deps (mix deps.get)")
-                dg_rc = os.system(string.concat(env_prefix, mix_deps_get_cmd(source_dir)))
+                dg_rc = build._sh(string.concat(env_prefix, mix_deps_get_cmd(source_dir)))
                 if dg_rc != 0 {
                     println("${mod_dir}: deps.get FAILED")
                     build.fail(ctx, "deps.get FAILED")
@@ -119,7 +119,7 @@ builder test(ctx: ptr) {
         if map.has(_builder, "mix_test_flags") == 1 { flags, _ = map.get(_builder, "mix_test_flags") }
     }
     println("${mod_dir}: running tests (mix test)")
-    rc = os.system(string.concat(env_prefix, mix_test_cmd(source_dir, _flag_part(flags))))
+    rc = build._sh(string.concat(env_prefix, mix_test_cmd(source_dir, _flag_part(flags))))
     if rc != 0 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
