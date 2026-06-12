@@ -284,7 +284,7 @@ _expand_sources(source_dir: string, pats: string) {
         // Let the shell expand globs relative to source_dir. `ls -1`
         // on a literal name just echoes it; on a glob it lists
         // matches. Missing files surface as a compile error later.
-        raw, _e = os.exec("cd '${source_dir}' && ls -1 ${p} 2>/dev/null")
+        raw, _e = build._sh_capture("cd ${source_dir} && ls -1 ${p} 2>/dev/null")
         lines = string.split(string.trim(raw), "\n")
         m = string.array_size(lines)
         j = 0
@@ -391,8 +391,8 @@ builder compile(ctx: ptr) {
         // object name: src path basename with .o
         base = path.basename(src)
         obj = path.join(obj_dir, string.concat(_strip_ext(base), ".o"))
-        cmd = "cd '${source_dir}' && ${compiler} ${cflags}${inc_flags} -c -o '${obj}' '${src}'"
-        exit_code = os.system(cmd)
+        cmd = "cd ${source_dir} && ${compiler} ${cflags}${inc_flags} -c -o ${obj} ${src}"
+        exit_code = build._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: C compile failed on ${src}")
             build.fail(ctx, "C compile failed on ${src}")
@@ -471,14 +471,14 @@ builder aether_objects(ctx: ptr) {
         stem = _strip_ext(path.basename(ae_rel))
         gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
         gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
-        emit_cmd = "${aenv}${aetherc} --emit=lib${with_flag} '${ae_full}' '${gen_c}'"
-        ecg = os.system(emit_cmd)
+        emit_cmd = "${aenv}${aetherc} --emit=lib${with_flag} ${ae_full} ${gen_c}"
+        ecg = build._sh(emit_cmd)
         if ecg != 0 {
             println("${mod_dir}: aetherc --emit=lib failed for ${ae_rel}")
             return ecg
         }
-        ocmd = "${compiler} ${cflags}${ae_inc} -c -o '${gen_o}' '${gen_c}'"
-        eco = os.system(ocmd)
+        ocmd = "${compiler} ${cflags}${ae_inc} -c -o ${gen_o} ${gen_c}"
+        eco = build._sh(ocmd)
         if eco != 0 {
             println("${mod_dir}: C compile of generated ${gen_c} failed")
             return eco
@@ -517,15 +517,14 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
         src, _ = list.get(srcs, i)
         i = i + 1
         obj = path.join(obj_dir, string.concat(_strip_ext(path.basename(src)), ".o"))
-        cc1 = "cd '${source_dir}' && ${compiler} ${cflags}${inc_flags} -c -o '${obj}' '${src}'"
-        e1 = os.system(cc1)
+        cc1 = "cd ${source_dir} && ${compiler} ${cflags}${inc_flags} -c -o ${obj} ${src}"
+        e1 = build._sh(cc1)
         if e1 != 0 {
             println("${mod_dir}: tool C compile failed on ${src}")
             return e1
         }
-        own_objs = string.concat(own_objs, " '")
+        own_objs = string.concat(own_objs, " ")
         own_objs = string.concat(own_objs, obj)
-        own_objs = string.concat(own_objs, "'")
     }
 
     // Aether sources -> generated C -> objects; needs libaether.a.
@@ -553,30 +552,29 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
             stem = _strip_ext(path.basename(ae_rel))
             gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
             gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
-            eg = os.system("${aenv}${aetherc} --emit=lib${twith} '${ae_full}' '${gen_c}'")
+            eg = build._sh("${aenv}${aetherc} --emit=lib${twith} ${ae_full} ${gen_c}")
             if eg != 0 {
                 println("${mod_dir}: aetherc --emit=lib failed for ${ae_rel}")
                 return eg
             }
-            eo = os.system("${compiler} ${cflags}${ainc} -c -o '${gen_o}' '${gen_c}'")
+            eo = build._sh("${compiler} ${cflags}${ainc} -c -o ${gen_o} ${gen_c}")
             if eo != 0 {
                 println("${mod_dir}: C compile of generated ${gen_c} failed")
                 return eo
             }
-            ae_objs = string.concat(ae_objs, " '")
+            ae_objs = string.concat(ae_objs, " ")
             ae_objs = string.concat(ae_objs, gen_o)
-            ae_objs = string.concat(ae_objs, "'")
         }
         // Aether codegen emits imported-module functions into every
         // translation unit, so multi-file Aether builds have the same
         // symbol defined many times. The dup-symbol linker flag (GNU
         // ld --allow-multiple-definition) lets the link dedupe.
         dup = build._dup_symbol_link_flag()
-        aether_link = " -L'${ldir}' -laether -lpthread -lm ${dup}"
+        aether_link = " -L${ldir} -laether -lpthread -lm ${dup}"
     }
 
-    link = "${compiler} ${own_objs}${ae_objs} ${link_flags}${aether_link} -o '${bin_path}'"
-    el = os.system(link)
+    link = "${compiler} ${own_objs}${ae_objs} ${link_flags}${aether_link} -o ${bin_path}"
+    el = build._sh(link)
     if el != 0 {
         println("${mod_dir}: tool link failed")
         return el
@@ -674,16 +672,14 @@ builder generated_header(ctx: ptr) {
         // NB: local must NOT be named `run` — that collides with the
         // module-level run() DSL function and the assignment then
         // targets the function reference (an integer address).
-        run_cmd = string.concat("'", tool_path)
-        run_cmd = string.concat(run_cmd, "'")
+        run_cmd = string.concat(tool_path, "")
         if string.length(run_args) > 0 {
             run_cmd = string.concat(run_cmd, " ")
             run_cmd = string.concat(run_cmd, run_args)
         }
-        run_cmd = string.concat(run_cmd, " > '")
+        run_cmd = string.concat(run_cmd, " > ")
         run_cmd = string.concat(run_cmd, hdr_path)
-        run_cmd = string.concat(run_cmd, "'")
-        er = os.system(run_cmd)
+        er = build._sh(run_cmd)
         if er != 0 {
             println("${mod_dir}: generator tool failed for header ${header} (rc=${er})")
             build.fail(ctx, "generator tool failed for header ${header}")
@@ -781,16 +777,15 @@ builder program(ctx: ptr) {
         i = i + 1
         base = path.basename(src)
         obj = path.join(obj_dir, string.concat(_strip_ext(base), ".o"))
-        ccmd = "cd '${source_dir}' && ${compiler} ${cflags}${inc_flags} -c -o '${obj}' '${src}'"
-        ec = os.system(ccmd)
+        ccmd = "cd ${source_dir} && ${compiler} ${cflags}${inc_flags} -c -o ${obj} ${src}"
+        ec = build._sh(ccmd)
         if ec != 0 {
             println("${mod_dir}: C compile failed on ${src}")
             build.fail(ctx, "C compile failed on ${src}")
             return ec
         }
-        own_objs = string.concat(own_objs, " '")
+        own_objs = string.concat(own_objs, " ")
         own_objs = string.concat(own_objs, obj)
-        own_objs = string.concat(own_objs, "'")
     }
 
     // Compile any declared Aether sources: aetherc --emit=lib turns
@@ -821,28 +816,27 @@ builder program(ctx: ptr) {
             stem = _strip_ext(path.basename(ae_rel))
             gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
             gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
-            emit_cmd = "${aenv}${aetherc} --emit=lib${pwith} '${ae_full}' '${gen_c}'"
-            ecg = os.system(emit_cmd)
+            emit_cmd = "${aenv}${aetherc} --emit=lib${pwith} ${ae_full} ${gen_c}"
+            ecg = build._sh(emit_cmd)
             if ecg != 0 {
                 println("${mod_dir}: aetherc --emit=lib failed for ${ae_rel}")
                 build.fail(ctx, "aetherc --emit=lib failed for ${ae_rel}")
                 return ecg
             }
-            ocmd = "${compiler} ${cflags}${ae_inc} -c -o '${gen_o}' '${gen_c}'"
-            eco = os.system(ocmd)
+            ocmd = "${compiler} ${cflags}${ae_inc} -c -o ${gen_o} ${gen_c}"
+            eco = build._sh(ocmd)
             if eco != 0 {
                 println("${mod_dir}: C compile of generated ${gen_c} failed")
                 build.fail(ctx, "C compile of generated ${gen_c} failed")
                 return eco
             }
-            ae_objs = string.concat(ae_objs, " '")
+            ae_objs = string.concat(ae_objs, " ")
             ae_objs = string.concat(ae_objs, gen_o)
-            ae_objs = string.concat(ae_objs, "'")
         }
         // See _build_tool_binary: multi-file Aether builds need the
         // dup-symbol linker flag.
         dup = build._dup_symbol_link_flag()
-        aether_link = " -L'${lib_dir}' -laether -lpthread -lm ${dup}"
+        aether_link = " -L${lib_dir} -laether -lpthread -lm ${dup}"
     }
 
     // A dependency module's c.aether_objects may have published
@@ -859,13 +853,13 @@ builder program(ctx: ptr) {
                 return 1
             }
             dup2 = build._dup_symbol_link_flag()
-            aether_link = " -L'${ldir}' -laether -lpthread -lm ${dup2}"
+            aether_link = " -L${ldir} -laether -lpthread -lm ${dup2}"
         }
     }
 
     // Link.
-    link_cmd = "${compiler} ${own_objs}${ae_objs}${dep_objs} ${link_flags}${aether_link} -o '${out_path}'"
-    ec2 = os.system(link_cmd)
+    link_cmd = "${compiler} ${own_objs}${ae_objs}${dep_objs} ${link_flags}${aether_link} -o ${out_path}"
+    ec2 = build._sh(link_cmd)
     if ec2 != 0 {
         println("${mod_dir}: C link failed")
         build.fail(ctx, "C link failed")
@@ -936,13 +930,12 @@ builder tests(ctx: ptr) {
         }
         // Build the command without interpolating a possibly-empty
         // args slot.
-        cmd = string.concat("'", bin)
-        cmd = string.concat(cmd, "'")
+        cmd = string.concat(bin, "")
         if string.length(args) > 0 {
             cmd = string.concat(cmd, " ")
             cmd = string.concat(cmd, args)
         }
-        rc = os.system(cmd)
+        rc = build._sh(cmd)
         if rc == 0 {
             println("  PASS  ${prog} ${args}")
             passed = passed + 1
@@ -984,9 +977,8 @@ _collect_dep_objects(ctx: ptr) {
                 j = j + 1
                 t = string.trim(o)
                 if string.length(t) > 0 {
-                    out = string.concat(out, " '")
+                    out = string.concat(out, " ")
                     out = string.concat(out, t)
-                    out = string.concat(out, "'")
                 }
             }
             string.array_free(lines)
