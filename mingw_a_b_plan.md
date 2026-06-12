@@ -198,6 +198,19 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
 3. **Classpath plumbing** (Axis-2 #1) — then re-run Phase-1 (still `:` on Linux,
    so must stay identical) as a regression gate.
 4. **Phase-2 A/B on MINGW** — iterate path translation (#2) + per-SDK (#3).
+   **Status (2026-06-12): BLOCKED at the entrypoint by a Windows runtime bug.**
+   The box (Win11 + MSYS2/MinGW, aether `main` 0.243) now builds cleanly — two
+   upstream blockers were found + fixed: **#688** (argv heap-string corruption,
+   fixed) and **#693** (stale `runtime/memory/memory.c` ref in `tools/ae.c`
+   broke dev-tree builds, fixed). But a *third*, deeper one remains:
+   **#706 — `os.run`/`run_capture`/`run_supervised` fail to spawn on Windows**
+   (`win_launch`/`CreateProcessW`; `os.system` works, so it's the argv path).
+   Since `aeb-cli`'s supervised exec is `os.run_supervised`, the candidate
+   can't spawn `aeb-main` on Windows → Phase-2 A/B can't run yet. (Also noted:
+   the *bash* `aeb` itself has its own Windows breakage — coreutils/path —
+   `aeb-main: cannot write file` — so even the baseline needs Axis-2 path work.)
+   **Phase-2 is gated on #706.** Linux Phase-1 is unaffected (POSIX `os_run`
+   via `execvp` works; the Windows-only `win_launch` path is the issue).
 5. **Feature-gate POSIX-only** (#4) so the cut-down fails honestly.
 
 ## Acceptance criteria
