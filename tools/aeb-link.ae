@@ -140,6 +140,87 @@ _is_macos_link() {
     return 0
 }
 
+_is_windows_link() {
+    if os.platform() == "windows" { return 1 }
+    return 0
+}
+
+// aetherc's `--lib` module-search-path separator: `;` on Windows, `:` on POSIX
+// (compiler/aether_lib_path.h AETHER_LIB_PATH_SEP_CHAR — `:` collides with the
+// drive-letter colon on Windows, so the toolchain uses `;` there). aeb-link
+// joins <aeb_lib> and the discovered repo root into one --lib value, so this
+// must match what ae/aetherc split on. Mirrors build._path_sep().
+_lib_sep_link() {
+    if _is_windows_link() == 1 { return ";" }
+    return ":"
+}
+
+// `.exe` suffix for native binaries on Windows, "" elsewhere. MinGW gcc and
+// `ae build` both emit <name>.exe; the tools aeb-link invokes (transform-ae,
+// gen-orchestrator, aeb-driver, aetherc) only EXIST and are only RUNNABLE under
+// their .exe name on Windows. Mirrors build._exe_suffix (aeb-link is
+// standalone, so inlined here alongside _is_macos_link / _resolve_*).
+_exe_suffix_link() {
+    if _is_windows_link() == 1 { return ".exe" }
+    return ""
+}
+
+// --- POSIX-shell-on-Windows chokepoint (mirrors lib/build's _sh family) ---
+//
+// On Windows os.system() runs the command through cmd.exe, which rejects every
+// POSIX idiom aeb-link emits: `2>/dev/null`, `> file`, `mkdir -p`, the `$(find
+// ...)` / `$(pkg-config ...)` command substitutions on the gcc line, and bare
+// forward-slash tool paths it reads as switches. A MinGW box always has `sh`
+// (C:\msys64\usr\bin\sh.exe on PATH under -l), so we wrap each command
+// `sh -c '<cmd>'`; passthrough unchanged on POSIX. sh also EVALUATES the
+// `$(...)` substitutions, which cmd.exe never would.
+//
+// Two subtleties, both found on the box:
+//  - sh single-quoting: ' -> '\'' (close, escaped quote, reopen).
+//  - cmd.exe still acts on > < & | ^ INSIDE the sh single-quotes (it doesn't
+//    honour POSIX quoting), so caret-escape them (^>, ^&, ...) — that makes
+//    cmd.exe pass the literal through to sh instead of consuming it.
+_sh_quote_link(s: string) {
+    out = "'"
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, "'") == 1 { out = string.concat(out, "'\\''") }
+        else { out = string.concat(out, ch) }
+    }
+    return string.concat(out, "'")
+}
+
+_cmd_caret_escape_link(s: string) {
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, ">") == 1 { out = string.concat(out, "^>") }
+        else { if string.equals(ch, "<") == 1 { out = string.concat(out, "^<") }
+        else { if string.equals(ch, "&") == 1 { out = string.concat(out, "^&") }
+        else { if string.equals(ch, "|") == 1 { out = string.concat(out, "^|") }
+        else { if string.equals(ch, "^") == 1 { out = string.concat(out, "^^") }
+        else { out = string.concat(out, ch) } } } } }
+    }
+    return out
+}
+
+_sh_wrap_link(cmd: string) {
+    if _is_windows_link() == 1 {
+        return string.concat("sh -c ", _cmd_caret_escape_link(_sh_quote_link(cmd)))
+    }
+    return cmd
+}
+
+// os.system, but POSIX-shell-correct on Windows. Every shell-out below routes
+// through this so the same command string works on both platforms.
+_sh_link(cmd: string) {
+    return os.system(_sh_wrap_link(cmd))
+}
+
 // Resolve the directory containing libaether.a. Aether's own driver
 // (tools/ae.c) probes these locations, so we mirror that:
 //   1. ${aether_dir}/../lib/aether/libaether.a   (FHS install — current default)
@@ -274,7 +355,9 @@ main() {
         aebhome = string.concat(".", "")
     }
 
-    aetherc        = string.concat(aether_dir, "/aetherc")
+    // .exe on Windows: aetherc and the helper tools only exist/run as <name>.exe.
+    esuf           = _exe_suffix_link()
+    aetherc        = string.concat(string.concat(aether_dir, "/aetherc"), esuf)
     libaether_dir  = _resolve_libaether_dir(aether_dir)
 
     // PATH-style --lib for the per-file + orchestrator aetherc compiles.
@@ -290,7 +373,7 @@ main() {
     repo_root   = _discover_repo_root(root)
     compile_lib = string.concat(aeb_lib, "")
     if string.length(repo_root) > 0 {
-        compile_lib = string.concat(aeb_lib, string.concat(":", repo_root))
+        compile_lib = string.concat(aeb_lib, string.concat(_lib_sep_link(), repo_root))
     }
     // Export the same search path the per-file orchestrator compile uses
     // so the `aether.program` manual path (lib/aether's _compile_and_link)
@@ -303,19 +386,24 @@ main() {
     // orchestrator binary / aeb-driver / make / per-node children through
     // the process env (all spawned via os.system after this point).
     _sl = os.setenv("AEB_COMPILE_LIB", compile_lib)
-    transform_ae   = string.concat(aebhome, "/tools/transform-ae")
-    gen_orchestrator = string.concat(aebhome, "/tools/gen-orchestrator")
+    // Helper tool paths: suffixless base for `ae build -o` (ae auto-appends
+    // .exe on Windows, so an explicit .exe there would double-suffix to
+    // .exe.exe), and the .exe-suffixed name for file.exists + invocation.
+    transform_ae_base    = string.concat(aebhome, "/tools/transform-ae")
+    gen_orchestrator_base = string.concat(aebhome, "/tools/gen-orchestrator")
+    transform_ae   = string.concat(transform_ae_base, esuf)
+    gen_orchestrator = string.concat(gen_orchestrator_base, esuf)
 
     // Lazy-build the helper tools if they aren't compiled yet.
     if file.exists(transform_ae) == 0 {
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/transform-ae.ae -o "), string.concat(transform_ae, " 2>/dev/null"))))
+        _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/transform-ae.ae -o "), string.concat(transform_ae_base, " 2>/dev/null"))))
     }
     if file.exists(gen_orchestrator) == 0 {
         // --lib <aebhome>/tools resolves gen-orchestrator's `import aeblabel`.
-        os.system(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/gen-orchestrator.ae -o "), string.concat(gen_orchestrator, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null"))))))
+        _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/gen-orchestrator.ae -o "), string.concat(gen_orchestrator_base, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null"))))))
     }
 
-    os.system(string.concat("mkdir -p ", build_dir))
+    _sh_link(string.concat("mkdir -p ", build_dir))
 
     files = load_files(edges_file)
     n = list.size(files)
@@ -370,7 +458,7 @@ main() {
         tr_cmd = string.concat(tr_cmd, aeb_lib)
         tr_cmd = string.concat(tr_cmd, " ")
         tr_cmd = string.concat(tr_cmd, aebhome)
-        os.system(tr_cmd)
+        _sh_link(tr_cmd)
 
         // aetherc --lib <compile_lib> <ae_tmp> <c_out>
         // compile_lib = <aeb_lib>:<repo_root> so SDK imports AND
@@ -381,7 +469,7 @@ main() {
         ac_cmd = string.concat(ac_cmd, ae_tmp)
         ac_cmd = string.concat(ac_cmd, " ")
         ac_cmd = string.concat(ac_cmd, c_out)
-        os.system(ac_cmd)
+        _sh_link(ac_cmd)
 
         _lc = list.add(c_files, c_out)
         i = i + 1
@@ -406,7 +494,7 @@ main() {
     go_cmd = string.concat(go_cmd, strbuilder.finish(gofiles))
     go_cmd = string.concat(go_cmd, " > ")
     go_cmd = string.concat(go_cmd, orch_file)
-    os.system(go_cmd)
+    _sh_link(go_cmd)
 
     // Compile orchestrator .ae -> .c. Uses compile_lib (not aeb_lib): the
     // orchestrator imports each transformed per-file .ae, which carry the
@@ -419,7 +507,7 @@ main() {
     oc_cmd = string.concat(oc_cmd, " ")
     oc_cmd = string.concat(oc_cmd, orch_c)
     oc_cmd = string.concat(oc_cmd, " 2>/dev/null")
-    os.system(oc_cmd)
+    _sh_link(oc_cmd)
 
     // --- Link with gcc ---
     cc = "gcc -O2 -pipe -w "
@@ -473,7 +561,7 @@ main() {
         cc = string.concat(cc, sysdeps)
         cc = string.concat(cc, " -Wl,--allow-multiple-definition 2>&1")
     }
-    os.system(cc)
+    _sh_link(cc)
 
     // --noexe (AEB_NOEXE=1): stop here. The orchestrator binary (out_bin) is
     // linked and on disk, but we do NOT run it — so no build work executes.
@@ -503,15 +591,17 @@ main() {
         if string.equals(_pn, "0") == 1 { per_node = 0 }
     }
     if per_node == 1 {
-        aeb_driver = string.concat(aebhome, "/tools/aeb-driver")
+        aeb_driver_base = string.concat(aebhome, "/tools/aeb-driver")
+        aeb_driver = string.concat(aeb_driver_base, esuf)
         if file.exists(aeb_driver) == 0 {
             // Lazy-build: aeb-driver imports `build` (lib) + aeblabel (tools).
+            // -o uses the suffixless base (ae appends .exe on Windows).
             db = string.concat(aether_bin, " build ")
             db = string.concat(db, string.concat(aebhome, "/tools/aeb-driver.ae -o "))
-            db = string.concat(db, aeb_driver)
+            db = string.concat(db, aeb_driver_base)
             db = string.concat(db, string.concat(" --lib ", compile_lib))
             db = string.concat(db, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null")))
-            os.system(db)
+            _sh_link(db)
         }
         // aeb-driver reads the edges file (node + its deps per line) to
         // generate the parallel Makefile. NB: aeb-link's arg1
@@ -526,7 +616,7 @@ main() {
         dcmd = string.concat(dcmd, "' '")
         dcmd = string.concat(dcmd, real_edges)
         dcmd = string.concat(dcmd, "'")
-        rc = os.system(dcmd)
+        rc = _sh_link(dcmd)
         exit(rc)
     }
 
@@ -536,6 +626,6 @@ main() {
     // semantically identical to the bash `exec` it replaces.
     exec_cmd = string.concat(out_bin, " ")
     exec_cmd = string.concat(exec_cmd, root)
-    rc = os.system(exec_cmd)
+    rc = _sh_link(exec_cmd)
     exit(rc)
 }
