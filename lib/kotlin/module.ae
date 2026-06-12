@@ -134,7 +134,7 @@ _kotlinc_bin(kotlin_home: string) {
 _kotlinc_version(kotlinc_bin: string) {
     cached = os.getenv("_AEB_KOTLINC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = os.exec("'${kotlinc_bin}' -version 2>&1 | head -1")
+    raw, _err = build._sh_capture("'${kotlinc_bin}' -version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -281,10 +281,10 @@ builder kotlinc(ctx: ptr) {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/main/kotlin")
-            os.system("find '${src_root}' -name '*.kt' > '${argfile}' 2>/dev/null || true")
+            build._sh("find '${src_root}' -name '*.kt' > '${argfile}' 2>/dev/null || true")
         }
     } else {
-        os.system("find '${source_dir}' -maxdepth 1 -name '*.kt' > '${argfile}' 2>/dev/null || true")
+        build._sh("find '${source_dir}' -maxdepth 1 -name '*.kt' > '${argfile}' 2>/dev/null || true")
     }
 
     af_raw, _eaf = io.read_file(argfile)
@@ -308,24 +308,24 @@ builder kotlinc(ctx: ptr) {
         ck, kerr = _cache_key_for_kotlinc(ctx, _builder, argfile, kc_cmd, stdlib_jar)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = os.exec("mktemp")
+            tmp_raw, _terr = build._sh_capture("mktemp")
             tmp_tar = string.trim(tmp_raw)
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
                     uerr = build._untar_into(tmp_tar, classes_dir)
-                    os.system("rm -f '${tmp_tar}'")
+                    build._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: kotlinc cache hit ${cache_key}")
                         build._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        os.system("rm -rf '${classes_dir}'")
+                        build._sh("rm -rf '${classes_dir}'")
                         build._mkdirs(classes_dir)
                         build._mkdirs(ts_dir)
                     }
                 } else {
-                    os.system("rm -f '${tmp_tar}'")
+                    build._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -337,7 +337,7 @@ builder kotlinc(ctx: ptr) {
         } else {
             build._record_cache(ctx, "miss")
         }
-        exit_code = os.system(kc_cmd)
+        exit_code = build._sh(kc_cmd)
         if exit_code != 0 {
             println("${mod_dir}: kotlinc failed")
             build.fail(ctx, "kotlinc failed")
@@ -347,7 +347,7 @@ builder kotlinc(ctx: ptr) {
             tar_path, terr = build._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                os.system("rm -f '${tar_path}'")
+                build._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: kotlinc cache write failed: ${perr}")
                 }
@@ -421,7 +421,7 @@ builder kotlinc_test(ctx: ptr) {
     }
     if use_maven == 1 {
         tsrc = path.join(source_dir, "src/test/kotlin")
-        fl_raw, _efl = os.exec("find '${tsrc}' -name '*.kt' 2>/dev/null | tr '\n' ' '")
+        fl_raw, _efl = build._sh_capture("find '${tsrc}' -name '*.kt' 2>/dev/null | tr '\n' ' '")
         file_list = string.trim(fl_raw)
     } else {
         kt_pat = path.join(source_dir, "*.kt")
@@ -460,24 +460,24 @@ builder kotlinc_test(ctx: ptr) {
         ck, kerr = _cache_key_for_kotlinc(ctx, _builder, test_argfile, kc_cmd, stdlib_jar)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = os.exec("mktemp")
+            tmp_raw, _terr = build._sh_capture("mktemp")
             tmp_tar = string.trim(tmp_raw)
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
                     uerr = build._untar_into(tmp_tar, test_classes)
-                    os.system("rm -f '${tmp_tar}'")
+                    build._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: kotlinc (test) cache hit ${cache_key}")
                         build._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        os.system("rm -rf '${test_classes}'")
+                        build._sh("rm -rf '${test_classes}'")
                         build._mkdirs(test_classes)
                         build._mkdirs(ts_dir)
                     }
                 } else {
-                    os.system("rm -f '${tmp_tar}'")
+                    build._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -489,7 +489,7 @@ builder kotlinc_test(ctx: ptr) {
         } else {
             build._record_cache(ctx, "miss")
         }
-        exit_code = os.system(kc_cmd)
+        exit_code = build._sh(kc_cmd)
         if exit_code != 0 {
             println("${mod_dir}: kotlinc (test) failed")
             build.fail(ctx, "kotlinc (test) failed")
@@ -499,7 +499,7 @@ builder kotlinc_test(ctx: ptr) {
             tar_path, terr = build._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                os.system("rm -f '${tar_path}'")
+                build._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: kotlinc (test) cache write failed: ${perr}")
                 }
@@ -541,7 +541,7 @@ builder kotlin_test(ctx: ptr, test_class: string) {
         }
     }
     run_cmd = string.concat(run_cmd, " -cp ${classpath} ${test_class}")
-    exit_code = os.system(run_cmd)
+    exit_code = build._sh(run_cmd)
     if exit_code != 0 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")

@@ -145,7 +145,7 @@ _dep_src_classpath(ctx: ptr) {
 _clj_java_version() {
     cached = os.getenv("_AEB_JAVA_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = os.exec("java -version 2>&1 | head -1")
+    raw, _err = build._sh_capture("java -version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -235,7 +235,7 @@ builder compile(ctx: ptr) {
     // dependent test node inherits them by depping THIS build node alone.
     jvm_dep_cp = build._build_dep_classpath(ctx)
     if string.length(jvm_dep_cp) > 0 {
-        nl_raw, _enl = os.exec("printf '%s' '${jvm_dep_cp}' | tr ':' '\n'")
+        nl_raw, _enl = build._sh_capture("printf '%s' '${jvm_dep_cp}' | tr ':' '\n'")
         build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", string.trim(nl_raw))
     }
 
@@ -255,7 +255,7 @@ builder compile(ctx: ptr) {
 
             // Source set for the cache key (every .clj under src/).
             argfile = path.join(target_dir, "clj_sources.txt")
-            os.system("find '${src_root}' -name '*.clj' > '${argfile}' 2>/dev/null || true")
+            build._sh("find '${src_root}' -name '*.clj' > '${argfile}' 2>/dev/null || true")
 
             // Cache check: restore the AOT classes/ tree on hit.
             cache_key = ""
@@ -264,23 +264,23 @@ builder compile(ctx: ptr) {
                 ck, kerr = _cache_key_for_clj(ctx, argfile, cmd, maven_cp, ns)
                 if string.length(kerr) == 0 {
                     cache_key = ck
-                    tmp_raw, _terr = os.exec("mktemp")
+                    tmp_raw, _terr = build._sh_capture("mktemp")
                     tmp_tar = string.trim(tmp_raw)
                     if string.length(tmp_tar) > 0 {
                         grc = cache.get(cache_key, tmp_tar)
                         if string.length(grc) == 0 {
                             uerr = build._untar_into(tmp_tar, classes_dir)
-                            os.system("rm -f '${tmp_tar}'")
+                            build._sh("rm -f '${tmp_tar}'")
                             if string.length(uerr) == 0 {
                                 println("${mod_dir}: clojure AOT cache hit ${cache_key}")
                                 build._record_cache(ctx, "hit")
                                 exit_code = 0
                             } else {
-                                os.system("rm -rf '${classes_dir}'")
+                                build._sh("rm -rf '${classes_dir}'")
                                 build._mkdirs(classes_dir)
                             }
                         } else {
-                            os.system("rm -f '${tmp_tar}'")
+                            build._sh("rm -f '${tmp_tar}'")
                         }
                     }
                 }
@@ -292,7 +292,7 @@ builder compile(ctx: ptr) {
                 } else {
                     build._record_cache(ctx, "miss")
                 }
-                exit_code = os.system(cmd)
+                exit_code = build._sh(cmd)
                 if exit_code != 0 {
                     println("${mod_dir}: clojure AOT compilation failed")
                     build.fail(ctx, "clojure AOT compilation failed")
@@ -302,7 +302,7 @@ builder compile(ctx: ptr) {
                     tar_path, terr = build._tar_dir(classes_dir)
                     if string.length(terr) == 0 {
                         perr = cache.put(cache_key, tar_path)
-                        os.system("rm -f '${tar_path}'")
+                        build._sh("rm -f '${tar_path}'")
                         if string.length(perr) > 0 {
                             println("${mod_dir}: clojure AOT cache write failed: ${perr}")
                         }
@@ -319,16 +319,16 @@ builder compile(ctx: ptr) {
     // compile error in the binding's own code fails the BUILD, not just tests.
     discover = "find '${src_root}' -name '*.clj' -type f"
     discover = string.concat(discover, " | sed 's|^${src_root}/||; s|/|.|g; s|_|-|g; s|\\.clj$||'")
-    ns_raw, _ed = os.exec(discover)
+    ns_raw, _ed = build._sh_capture(discover)
     ns_list = string.trim(ns_raw)
     if string.length(ns_list) == 0 {
         _e0 = io.write_file(path.join(target_dir, ".timestamp"), "")
         return 0
     }
-    quoted_raw, _eq2 = os.exec("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
+    quoted_raw, _eq2 = build._sh_capture("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
     quoted = string.trim(quoted_raw)
     cmd = "java -cp '${cp}' clojure.main -e \"(require ${quoted})\""
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: clojure load-check failed")
         build.fail(ctx, "clojure load-check failed")
@@ -382,7 +382,7 @@ builder test(ctx: ptr) {
     discover = "find '${test_root}' -name '*_test.clj' -type f"
     discover = string.concat(discover, " | sed 's|^${test_root}/||; s|/|.|g; s|_|-|g; s|\\.clj$||'")
 
-    ns_list_raw, _e_disc = os.exec(discover)
+    ns_list_raw, _e_disc = build._sh_capture(discover)
     ns_list = string.trim(ns_list_raw)
     if string.length(ns_list) == 0 {
         println("${mod_dir}: no test files found")
@@ -391,7 +391,7 @@ builder test(ctx: ptr) {
     }
 
     // Convert newline-separated ns list to space-separated quoted symbols
-    quoted_raw, _e_q = os.exec("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
+    quoted_raw, _e_q = build._sh_capture("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
     quoted = string.trim(quoted_raw)
 
     timeout_secs = ""
@@ -409,7 +409,7 @@ builder test(ctx: ptr) {
     //   "Ran 14 tests containing 30 assertions. 0 failures, 0 errors."
     // Coarse record for now (1/1 success, 0/1 failure); full
     // test-count parsing is a follow-up if a Clojure consumer cares.
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         build._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
@@ -482,7 +482,7 @@ builder uberjar(ctx: ptr) {
 
     // Fresh staging dir.
     stage_dir = path.join(target_dir, "_uber")
-    _e0 = os.system("rm -rf '${stage_dir}'")
+    _e0 = build._sh("rm -rf '${stage_dir}'")
     build._mkdirs(stage_dir)
 
     src_root = path.join(source_dir, "src")
@@ -500,7 +500,7 @@ builder uberjar(ctx: ptr) {
     // 1. AOT-compile main_ns into the staging dir.
     println("${mod_dir}: AOT-compiling ${ns}")
     aot_cmd = clj_aot_compile_cmd(stage_dir, aot_cp, ns)
-    rc_aot = os.system(aot_cmd)
+    rc_aot = build._sh(aot_cmd)
     if rc_aot != 0 {
         println("${mod_dir}: clojure.uberjar: AOT compile failed")
         build.fail(ctx, "clojure.uberjar: AOT compile failed")
@@ -509,7 +509,7 @@ builder uberjar(ctx: ptr) {
 
     // 2. Stage the source tree so non-AOT namespaces load at runtime.
     if dir.exists(src_root) == 1 {
-        rc_src = os.system(uber_copy_tree_cmd(src_root, stage_dir))
+        rc_src = build._sh(uber_copy_tree_cmd(src_root, stage_dir))
         if rc_src != 0 {
             println("${mod_dir}: clojure.uberjar: staging sources failed")
             build.fail(ctx, "clojure.uberjar: staging sources failed")
@@ -527,7 +527,7 @@ builder uberjar(ctx: ptr) {
             entry = string.array_get(parts, pi)
             if string.length(entry) > 0 {
                 if _ends_with_jar(entry) == 1 {
-                    rc_uz = os.system(uber_unzip_jar_cmd(entry, stage_dir))
+                    rc_uz = build._sh(uber_unzip_jar_cmd(entry, stage_dir))
                     if rc_uz != 0 {
                         println("${mod_dir}: clojure.uberjar: unzipping ${entry} failed")
                         build.fail(ctx, "clojure.uberjar: unzipping ${entry} failed")
@@ -552,7 +552,7 @@ builder uberjar(ctx: ptr) {
 
     // 5. Jar it.
     println("${mod_dir}: building uberjar ${jar_name}")
-    rc = os.system(uber_jar_cmd(jar_path, stage_dir))
+    rc = build._sh(uber_jar_cmd(jar_path, stage_dir))
     if rc != 0 {
         println("${mod_dir}: clojure.uberjar: jar command failed")
         build.fail(ctx, "clojure.uberjar: jar command failed")

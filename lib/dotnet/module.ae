@@ -219,7 +219,7 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
 _dotnet_version() {
     cached = os.getenv("_AEB_DOTNET_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = os.exec("dotnet --version 2>&1 | head -1")
+    raw, _err = build._sh_capture("dotnet --version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -325,20 +325,20 @@ _dotnet_cache_restore(ctx: ptr, argfile: string, fingerprint: string, config: st
     }
     map.put(ctx, "_dotnet_cache_key", ck)
     bin_dir = path.join(path.join(source_dir, "bin"), config)
-    tmp_raw, _terr = os.exec("mktemp")
+    tmp_raw, _terr = build._sh_capture("mktemp")
     tmp_tar = string.trim(tmp_raw)
     if string.length(tmp_tar) > 0 {
         grc = cache.get(ck, tmp_tar)
         if string.length(grc) == 0 {
             uerr = build._untar_into(tmp_tar, bin_dir)
-            os.system("rm -f '${tmp_tar}'")
+            build._sh("rm -f '${tmp_tar}'")
             if string.length(uerr) == 0 {
                 build._record_cache(ctx, "hit")
                 return 1
             }
-            os.system("rm -rf '${bin_dir}'")
+            build._sh("rm -rf '${bin_dir}'")
         } else {
-            os.system("rm -f '${tmp_tar}'")
+            build._sh("rm -f '${tmp_tar}'")
         }
     }
     build._record_cache(ctx, "miss")
@@ -357,7 +357,7 @@ _dotnet_cache_store(ctx: ptr, config: string, source_dir: string) {
     tar_path, terr = build._tar_dir(bin_dir)
     if string.length(terr) == 0 {
         perr = cache.put(ck, tar_path)
-        os.system("rm -f '${tar_path}'")
+        build._sh("rm -f '${tar_path}'")
     }
     return 0
 }
@@ -424,7 +424,7 @@ builder build_project(ctx: ptr) {
 
     build._mkdirs(target_dir)
 
-    pn_raw, _ep = os.exec("basename '${source_dir}'")
+    pn_raw, _ep = build._sh_capture("basename '${source_dir}'")
     project_name = string.trim(pn_raw)
 
     // Collect package refs: inline nuget() + .nupkg.ae registry deps.
@@ -465,7 +465,7 @@ builder build_project(ctx: ptr) {
         if string.length(raw_n) > 0 {
             ni = 1
             while ni <= 200 {
-                ln_raw, _eln = os.exec("printf '%s\\n' '${raw_n}' | sed -n '${ni}p'")
+                ln_raw, _eln = build._sh_capture("printf '%s\\n' '${raw_n}' | sed -n '${ni}p'")
                 line_n = string.trim(ln_raw)
                 if string.length(line_n) == 0 {
                     ni = 999
@@ -490,7 +490,7 @@ builder build_project(ctx: ptr) {
         if string.length(raw_r) > 0 {
             ri = 1
             while ri <= 200 {
-                lr_raw, _elr = os.exec("printf '%s\\n' '${raw_r}' | sed -n '${ri}p'")
+                lr_raw, _elr = build._sh_capture("printf '%s\\n' '${raw_r}' | sed -n '${ri}p'")
                 line_r = string.trim(lr_raw)
                 if string.length(line_r) == 0 {
                     ri = 999
@@ -499,7 +499,7 @@ builder build_project(ctx: ptr) {
                         idx = string.index_of(line_r, "~")
                         r_name = string.substring(line_r, 0, idx)
                         r_path = string.substring(line_r, idx + 1, string.length(line_r))
-                        hr_raw, _ehr = os.exec("python3 -c \"import os; print(os.path.relpath('${root}/${r_path}', '${source_dir}'))\"")
+                        hr_raw, _ehr = build._sh_capture("python3 -c \"import os; print(os.path.relpath('${root}/${r_path}', '${source_dir}'))\"")
                         hint_rel = string.trim(hr_raw)
                         entry = string.concat(r_name, "~")
                         entry = string.concat(entry, hint_rel)
@@ -522,16 +522,16 @@ builder build_project(ctx: ptr) {
     while i < dep_count {
         dp, _ = list.get(deps, i)
         dep_dir = path.join(root, dp)
-        rel_raw, _erel = os.exec("python3 -c \"import os; print(os.path.relpath('${dep_dir}', '${source_dir}'))\"")
+        rel_raw, _erel = build._sh_capture("python3 -c \"import os; print(os.path.relpath('${dep_dir}', '${source_dir}'))\"")
         rel = string.trim(rel_raw)
-        dc_raw, _edc = os.exec("ls '${dep_dir}'/.*.generated.csproj 2>/dev/null | head -1")
+        dc_raw, _edc = build._sh_capture("ls '${dep_dir}'/.*.generated.csproj 2>/dev/null | head -1")
         dep_csproj = string.trim(dc_raw)
         if string.length(dep_csproj) == 0 {
-            dc2_raw, _edc2 = os.exec("ls '${dep_dir}'/*.csproj 2>/dev/null | head -1")
+            dc2_raw, _edc2 = build._sh_capture("ls '${dep_dir}'/*.csproj 2>/dev/null | head -1")
             dep_csproj = string.trim(dc2_raw)
         }
         if string.length(dep_csproj) > 0 {
-            cn_raw, _ecn = os.exec("basename '${dep_csproj}'")
+            cn_raw, _ecn = build._sh_capture("basename '${dep_csproj}'")
             csproj_name = string.trim(cn_raw)
             ref_path = string.concat(rel, "/")
             ref_path = string.concat(ref_path, csproj_name)
@@ -568,7 +568,7 @@ builder build_project(ctx: ptr) {
     cached = 0
     if is_test == 0 {
         argfile = path.join(target_dir, "dotnet_sources.txt")
-        os.system("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        build._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
         cached = _dotnet_cache_restore(ctx, argfile, xml, config, source_dir, root)
         if cached == 1 {
             println("${mod_dir}: dotnet cache hit")
@@ -579,7 +579,7 @@ builder build_project(ctx: ptr) {
 
     if cached == 0 {
         cmd = dotnet_build_cmd(csproj, config)
-        exit_code = os.system(cmd)
+        exit_code = build._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: dotnet build failed")
             return exit_code
@@ -638,7 +638,7 @@ builder build_project_existing(ctx: ptr) {
     csproj = _resolve_csproj_path(source_dir, csproj_rel)
     if string.length(csproj) == 0 {
         // No explicit setter — scan source_dir for a single .csproj.
-        cs_raw, _ecs = os.exec("ls '${source_dir}'/*.csproj 2>/dev/null")
+        cs_raw, _ecs = build._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null")
         cs_list = string.trim(cs_raw)
         nl_pos = string.index_of(cs_list, "\n")
         if string.length(cs_list) == 0 {
@@ -679,7 +679,7 @@ builder build_project_existing(ctx: ptr) {
         fp_raw, _efp = io.read_file(csproj)
         fingerprint = string.trim(fp_raw)
         argfile = path.join(target_dir, "dotnet_sources.txt")
-        os.system("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        build._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
         cached = _dotnet_cache_restore(ctx, argfile, fingerprint, config, source_dir, root)
         if cached == 1 {
             println("${mod_dir}: dotnet cache hit")
@@ -690,7 +690,7 @@ builder build_project_existing(ctx: ptr) {
 
     if cached == 0 {
         cmd = dotnet_build_cmd(csproj, config)
-        exit_code = os.system(cmd)
+        exit_code = build._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: dotnet build failed")
             return exit_code
@@ -713,10 +713,10 @@ builder test(ctx: ptr) {
     build._mkdirs(target_dir)
     println("${mod_dir}: running tests (dotnet)")
 
-    cs_raw, _ecs = os.exec("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
+    cs_raw, _ecs = build._sh_capture("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
     csproj = string.trim(cs_raw)
     if string.length(csproj) == 0 {
-        cs2_raw, _ecs2 = os.exec("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
+        cs2_raw, _ecs2 = build._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
         csproj = string.trim(cs2_raw)
     }
 
@@ -736,7 +736,7 @@ builder test(ctx: ptr) {
     //   "Passed!  - Failed: 0, Passed: 14, Skipped: 0, Total: 14"
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = os.system(full_cmd)
+    exit_code = build._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     pd, fd = _parse_dotnet_counts(out_text)
     build._record_test_result(ctx, pd, fd)

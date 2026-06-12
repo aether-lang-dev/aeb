@@ -309,7 +309,7 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
 _ensure_venv(root: string) {
     venv = path.join(root, ".aeb/venv")
     if file.exists(venv) == 0 {
-        os.system("python3 -m venv '${venv}'")
+        build._sh("python3 -m venv '${venv}'")
     }
     return venv
 }
@@ -384,7 +384,7 @@ builder install(ctx: ptr) {
             req, _ = map.get(_builder, "requirements_file")
             req_path = path.join(root, req)
             if file.exists(req_path) == 1 {
-                os.system(pip_install_requirements_cmd(pip_bin, req_path))
+                build._sh(pip_install_requirements_cmd(pip_bin, req_path))
             }
         }
     }
@@ -397,7 +397,7 @@ builder install(ctx: ptr) {
             i = 0
             while i < count {
                 pkg, _ = list.get(pkgs, i)
-                os.system(pip_install_cmd(pip_bin, pkg))
+                build._sh(pip_install_cmd(pip_bin, pkg))
                 i = i + 1
             }
         }
@@ -414,7 +414,7 @@ builder install(ctx: ptr) {
         if string.length(raw_pypi) > 0 {
             pi = 1
             while pi <= 200 {
-                pr_raw, _epr = os.exec("printf '%s\\n' '${raw_pypi}' | sed -n '${pi}p'")
+                pr_raw, _epr = build._sh_capture("printf '%s\\n' '${raw_pypi}' | sed -n '${pi}p'")
                 pline = string.trim(pr_raw)
                 if string.length(pline) == 0 {
                     pi = 999
@@ -425,9 +425,9 @@ builder install(ctx: ptr) {
                     //   "django~"              → "django" (no version)
                     // Rule: if spec starts with a comparator char (<>=~!), use as-is;
                     //       otherwise default to == for exact version pinning.
-                    ps_raw, _eps = os.exec("printf '%s' '${pline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
+                    ps_raw, _eps = build._sh_capture("printf '%s' '${pline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
                     pip_spec = string.trim(ps_raw)
-                    os.system(pip_install_cmd(pip_bin, pip_spec))
+                    build._sh(pip_install_cmd(pip_bin, pip_spec))
                     pi = pi + 1
                 }
             }
@@ -436,14 +436,14 @@ builder install(ctx: ptr) {
         if string.length(raw_whl) > 0 {
             wi = 1
             while wi <= 200 {
-                wr_raw, _ewr = os.exec("printf '%s\\n' '${raw_whl}' | sed -n '${wi}p'")
+                wr_raw, _ewr = build._sh_capture("printf '%s\\n' '${raw_whl}' | sed -n '${wi}p'")
                 wline = string.trim(wr_raw)
                 if string.length(wline) == 0 {
                     wi = 999
                 } else {
                     // wline is a path relative to project root
                     wheel_full = path.join(root, wline)
-                    os.system(pip_install_cmd(pip_bin, wheel_full))
+                    build._sh(pip_install_cmd(pip_bin, wheel_full))
                     wi = wi + 1
                 }
             }
@@ -475,7 +475,7 @@ builder pytest(ctx: ptr) {
     build._mkdirs(target_dir)
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = os.system(full_cmd)
+    exit_code = build._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     pp, pf = _parse_pytest_counts(out_text)
     build._record_test_result(ctx, pp, pf)
@@ -560,11 +560,11 @@ builder lint(ctx: ptr) {
 
     // Ensure ruff is installed
     if file.exists(ruff) == 0 {
-        os.system("'${pip_bin}' install -q ruff")
+        build._sh("'${pip_bin}' install -q ruff")
     }
 
     cmd = ruff_lint_cmd(ruff, source_dir)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: lint FAILED")
         build.fail(ctx, "lint FAILED")
@@ -591,12 +591,12 @@ builder typecheck(ctx: ptr) {
 
     // Ensure mypy is installed
     if file.exists(mypy) == 0 {
-        os.system("'${pip_bin}' install -q mypy")
+        build._sh("'${pip_bin}' install -q mypy")
     }
 
     py = path.join(venv, "bin/python")
     cmd = mypy_cmd(py, source_dir, root)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: typecheck FAILED")
         build.fail(ctx, "typecheck FAILED")
@@ -647,12 +647,12 @@ builder package(ctx: ptr) {
         if string.length(raw_p) > 0 {
             ppi = 1
             while ppi <= 200 {
-                pl_raw, _epl = os.exec("printf '%s\\n' '${raw_p}' | sed -n '${ppi}p'")
+                pl_raw, _epl = build._sh_capture("printf '%s\\n' '${raw_p}' | sed -n '${ppi}p'")
                 plline = string.trim(pl_raw)
                 if string.length(plline) == 0 {
                     ppi = 999
                 } else {
-                    ps_raw, _eps = os.exec("printf '%s' '${plline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
+                    ps_raw, _eps = build._sh_capture("printf '%s' '${plline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
                     pip_spec = string.trim(ps_raw)
                     _e_b = list.add(dep_specs, pip_spec)
                     ppi = ppi + 1
@@ -669,7 +669,7 @@ builder package(ctx: ptr) {
     println("${mod_dir}: packaging (python -m build)")
 
     // Ensure build tool is installed
-    os.system("'${pip_bin}' install -q build")
+    build._sh("'${pip_bin}' install -q build")
 
     // python -m build doesn't support --config for pyproject path.
     // Instead, write pyproject.toml directly (overwrite if exists).
@@ -677,7 +677,7 @@ builder package(ctx: ptr) {
     _ew2 = io.write_file(real_pyproject, toml)
 
     cmd = build_package_cmd(py, source_dir, dist_dir)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: packaging failed")
         build.fail(ctx, "packaging failed")
@@ -755,7 +755,7 @@ builder package_existing(ctx: ptr) {
 
     // Ensure the `build` package is installed in the venv. Same
     // shape as `python.package`; idempotent on re-run.
-    os.system("'${pip_bin}' install -q build")
+    build._sh("'${pip_bin}' install -q build")
 
     // `python -m build` runs from the dir containing pyproject.toml.
     // If the override pointed somewhere else, cd to that dir.
@@ -766,7 +766,7 @@ builder package_existing(ctx: ptr) {
 
     println("${mod_dir}: packaging via existing pyproject.toml (${pyproject_abs})")
     cmd = build_package_cmd(py, build_dir, dist_dir)
-    exit_code = os.system(cmd)
+    exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: packaging failed")
         build.fail(ctx, "packaging failed")
@@ -890,7 +890,7 @@ builder codegen(ctx: ptr) {
     if skip == 0 {
         cmd = python_codegen_cmd(py, cwd, driver_form, driver_name, args)
         println("${mod_dir}: codegen running")
-        rc = os.system(cmd)
+        rc = build._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: codegen FAILED")
             build.fail(ctx, "codegen FAILED")

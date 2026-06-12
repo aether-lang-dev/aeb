@@ -439,18 +439,18 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
     cache_dir = "${home}/.cache/aeb/jars"
     cached = "${cache_dir}/${sha256}.jar"
     if file.exists(cached) == 1 { return cached }
-    _mk = os.system("mkdir -p '${cache_dir}'")
+    _mk = build._sh("mkdir -p '${cache_dir}'")
 
     relpath = _pinned_relpath(coord)
     if string.length(relpath) == 0 { return "" }
 
     tmp = "${cache_dir}/.tmp-${sha256}.jar"
-    _rm = os.system("rm -f '${tmp}'")
+    _rm = build._sh("rm -f '${tmp}'")
 
     m2 = "${home}/.m2/repository/${relpath}"
     got = 0
     if file.exists(m2) == 1 {
-        _cp = os.system("cp '${m2}' '${tmp}'")
+        _cp = build._sh("cp '${m2}' '${tmp}'")
         got = 1
     }
     if got == 0 {
@@ -466,7 +466,7 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
             base = string.array_get(rparts, ri)
             if string.length(base) > 0 {
                 url = "${base}/${relpath}"
-                rc = os.system("curl -fsSL '${url}' -o '${tmp}' 2>/dev/null")
+                rc = build._sh("curl -fsSL '${url}' -o '${tmp}' 2>/dev/null")
                 if rc == 0 { got = 1  ri = nr }
             }
             ri = ri + 1
@@ -475,13 +475,13 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
     }
     if got == 0 { return "" }
 
-    actual_raw, _es = os.exec("sha256sum '${tmp}' | cut -d' ' -f1")
+    actual_raw, _es = build._sh_capture("sha256sum '${tmp}' | cut -d' ' -f1")
     actual = string.trim(actual_raw)
     if string.equals(actual, sha256) == 0 {
-        _rm2 = os.system("rm -f '${tmp}'")
+        _rm2 = build._sh("rm -f '${tmp}'")
         return ""
     }
-    _mv = os.system("mv '${tmp}' '${cached}'")
+    _mv = build._sh("mv '${tmp}' '${cached}'")
     return cached
 }
 
@@ -509,7 +509,7 @@ builder jar_registry_finalize(ctx: ptr) {
     }
 
     // Convert colon-separated to newline-separated for the classpath artifact
-    cp_raw, _ecp = os.exec("echo '${cp}' | tr ':' '\\n'")
+    cp_raw, _ecp = build._sh_capture("echo '${cp}' | tr ':' '\\n'")
     cp_nl = string.trim(cp_raw)
     build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_nl)
     println("${mod_dir}: fetched maven deps")
@@ -523,7 +523,7 @@ builder jar_registry_finalize(ctx: ptr) {
 _jdk_version() {
     cached = os.getenv("_AEB_JAVAC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = os.exec("javac -version 2>&1 | head -1")
+    raw, _err = build._sh_capture("javac -version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -574,7 +574,7 @@ _discover_jvm_root() {
 // the JDKs under jvm_root, for the not-found diagnostic. Best-effort.
 _installed_jvm_majors(jvm_root: string) {
     if string.length(jvm_root) == 0 { return "" }
-    out, _e = os.exec("ls -1 '${jvm_root}' 2>/dev/null")
+    out, _e = build._sh_capture("ls -1 '${jvm_root}' 2>/dev/null")
     majors = ""
     rest = string.trim(out)
     name = ""
@@ -604,7 +604,7 @@ _resolve_jdk_home(want: string) {
     if string.length(want) == 0 { return "" }
     root = _discover_jvm_root()
     if string.length(root) == 0 { return "" }
-    listing_raw, _e = os.exec("ls -1 '${root}' 2>/dev/null")
+    listing_raw, _e = build._sh_capture("ls -1 '${root}' 2>/dev/null")
     home = build._select_jvm_home(root, string.trim(listing_raw), want)
     if string.length(home) == 0 { return "" }
     // macOS: the real home is <entry>/Contents/Home.
@@ -678,7 +678,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
         if map.has(builder_map, "_selected_jdk_home") == 1 {
             sel_home, _ = map.get(builder_map, "_selected_jdk_home")
             sel_javac = path.join(sel_home, "bin/javac")
-            jv_raw, _jverr = os.exec("'${sel_javac}' -version 2>&1 | head -1")
+            jv_raw, _jverr = build._sh_capture("'${sel_javac}' -version 2>&1 | head -1")
             jdk_ver = string.concat(string.concat(sel_home, "|"), string.trim(jv_raw))
         }
     }
@@ -758,10 +758,10 @@ builder javac(ctx: ptr) {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/main/java")
-            os.system("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
+            build._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
         }
     } else {
-        os.system("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
+        build._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
     }
 
     af_raw, _eaf = io.read_file(argfile)
@@ -812,25 +812,25 @@ builder javac(ctx: ptr) {
         ck, kerr = _cache_key_for_javac(ctx, _builder, argfile, cmd)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = os.exec("mktemp")
+            tmp_raw, _terr = build._sh_capture("mktemp")
             tmp_tar = string.trim(tmp_raw)
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
                     uerr = build._untar_into(tmp_tar, classes_dir)
-                    os.system("rm -f '${tmp_tar}'")
+                    build._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: javac cache hit ${cache_key}")
                         build._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
                         // Untar failed — clean up and fall through.
-                        os.system("rm -rf '${classes_dir}'")
+                        build._sh("rm -rf '${classes_dir}'")
                         build._mkdirs(classes_dir)
                         build._mkdirs(ts_dir)
                     }
                 } else {
-                    os.system("rm -f '${tmp_tar}'")
+                    build._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -842,7 +842,7 @@ builder javac(ctx: ptr) {
         } else {
             build._record_cache(ctx, "miss")
         }
-        exit_code = os.system(cmd)
+        exit_code = build._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: javac failed")
             build.fail(ctx, "javac failed")
@@ -853,7 +853,7 @@ builder javac(ctx: ptr) {
             tar_path, terr = build._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                os.system("rm -f '${tar_path}'")
+                build._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: javac cache write failed: ${perr}")
                 }
@@ -939,10 +939,10 @@ builder javac_test(ctx: ptr) {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/test/java")
-            os.system("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
+            build._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
         }
     } else {
-        os.system("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
+        build._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
     }
 
     af_raw, _eaf = io.read_file(argfile)
@@ -971,24 +971,24 @@ builder javac_test(ctx: ptr) {
         ck, kerr = _cache_key_for_javac(ctx, _builder, argfile, cmd)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = os.exec("mktemp")
+            tmp_raw, _terr = build._sh_capture("mktemp")
             tmp_tar = string.trim(tmp_raw)
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
                     uerr = build._untar_into(tmp_tar, test_classes)
-                    os.system("rm -f '${tmp_tar}'")
+                    build._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: javac-test cache hit ${cache_key}")
                         build._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        os.system("rm -rf '${test_classes}'")
+                        build._sh("rm -rf '${test_classes}'")
                         build._mkdirs(test_classes)
                         build._mkdirs(ts_dir)
                     }
                 } else {
-                    os.system("rm -f '${tmp_tar}'")
+                    build._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -1000,7 +1000,7 @@ builder javac_test(ctx: ptr) {
         } else {
             build._record_cache(ctx, "miss")
         }
-        exit_code = os.system(cmd)
+        exit_code = build._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: javac (test) failed")
             build.fail(ctx, "javac (test) failed")
@@ -1010,7 +1010,7 @@ builder javac_test(ctx: ptr) {
             tar_path, terr = build._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                os.system("rm -f '${tar_path}'")
+                build._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: javac-test cache write failed: ${perr}")
                 }
@@ -1060,7 +1060,7 @@ builder junit(ctx: ptr) {
         tf = dir_list_get(test_files, j)
         tflen = string.length(tf)
         class_path = string.substring(tf, prefix_len, tflen - 6)
-        raw, _er = os.exec("echo ${class_path} | sed s,/,.,g")
+        raw, _er = build._sh_capture("echo ${class_path} | sed s,/,.,g")
         class_name = string.trim(raw)
         if j == 0 {
             class_names = class_name
@@ -1082,7 +1082,7 @@ builder junit(ctx: ptr) {
         dm3 = build._strip_lang(dp3)
         dep_ld = build._read_dep_artifact(ctx, dm3, "ldlibdeps")
         if string.length(dep_ld) > 0 {
-            ld_raw, _eld = os.exec("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
+            ld_raw, _eld = build._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
             ld_dirs = string.trim(ld_raw)
             if string.length(ld_dirs) > 0 {
                 if string.length(ld_path) > 0 {
@@ -1104,7 +1104,7 @@ builder junit(ctx: ptr) {
     build._mkdirs(target_dir)
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = os.system(full_cmd)
+    exit_code = build._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     p4, f4 = _parse_junit4_counts(out_text)
     build._record_test_result(ctx, p4, f4)
@@ -1266,7 +1266,7 @@ builder junit5(ctx: ptr) {
         dm3 = build._strip_lang(dp3)
         dep_ld = build._read_dep_artifact(ctx, dm3, "ldlibdeps")
         if string.length(dep_ld) > 0 {
-            ld_raw, _eld = os.exec("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
+            ld_raw, _eld = build._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
             ld_dirs = string.trim(ld_raw)
             if string.length(ld_dirs) > 0 {
                 if string.length(ld_path) > 0 {
@@ -1293,7 +1293,7 @@ builder junit5(ctx: ptr) {
     rc_file = path.join(target_dir, "test_exit.rc")
     inner = "cd \"${source_dir}\" && ( ${cmd} 2>&1; echo $? > \"${rc_file}\" ) | tee \"${out_path}\""
     full_cmd = string.concat(build._env_export_prefix(_builder), inner)
-    _ig = os.system(full_cmd)
+    _ig = build._sh(full_cmd)
     rc_txt, _rcerr = io.read_file(rc_file)
     exit_code, _ec = string.to_int(string.trim(rc_txt))
     out_text, _orerr = fs.read(out_path)
@@ -1456,7 +1456,7 @@ shade(ctx: ptr, main_class: string, jar_name: string) {
     // Package.
     sh = string.concat(sh, "jar cfM '${jar_path}' -C \"$st\" .")
 
-    exit_code = os.system(sh)
+    exit_code = build._sh(sh)
     if exit_code != 0 {
         println("${mod_dir}: jar packaging failed")
         return exit_code
