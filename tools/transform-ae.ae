@@ -148,48 +148,55 @@ _resolve_imports(src: string, lib_dir: string) {
 // can't execute a .sh). A MinGW box always has `sh`, so wrap each command
 // `sh -c '<cmd>'` (passthrough on POSIX). Caret-escape cmd.exe's metachars
 // (> < & | ^) so they survive the cmd.exe layer and reach sh as redirects.
+// Hardened temp-script chokepoint (mirrors lib/build._sh and aeb-link): write
+// the raw command to a %TMP% .sh via Aether io, run `sh <nativepath>`. cmd.exe
+// only ever sees `sh C:/.../x.sh`, so any quoting/redirect/space in the command
+// survives intact. POSIX = passthrough.
 _is_windows_tr() {
     if os.platform() == "windows" { return 1 }
     return 0
 }
-_sh_quote_tr(s: string) {
-    out = "'"
-    rest = s
-    while string.length(rest) > 0 {
-        ch = string.substring(rest, 0, 1)
-        rest = string.substring(rest, 1, string.length(rest))
-        if string.equals(ch, "'") == 1 { out = string.concat(out, "'\\''") }
-        else { out = string.concat(out, ch) }
-    }
-    return string.concat(out, "'")
-}
-_cmd_caret_escape_tr(s: string) {
+_slashes_tr(s: string) {
     out = ""
     rest = s
     while string.length(rest) > 0 {
         ch = string.substring(rest, 0, 1)
         rest = string.substring(rest, 1, string.length(rest))
-        if string.equals(ch, ">") == 1 { out = string.concat(out, "^>") }
-        else { if string.equals(ch, "<") == 1 { out = string.concat(out, "^<") }
-        else { if string.equals(ch, "&") == 1 { out = string.concat(out, "^&") }
-        else { if string.equals(ch, "|") == 1 { out = string.concat(out, "^|") }
-        else { if string.equals(ch, "^") == 1 { out = string.concat(out, "^^") }
-        else { out = string.concat(out, ch) } } } } }
+        if string.equals(ch, "\\") == 1 { out = string.concat(out, "/") }
+        else { out = string.concat(out, ch) }
     }
     return out
 }
-_sh_wrap_tr(cmd: string) {
-    if _is_windows_tr() == 1 {
-        return string.concat("sh -c ", _cmd_caret_escape_tr(_sh_quote_tr(cmd)))
+_hash_tr(s: string) {
+    h = 5381
+    rest = s
+    while string.length(rest) > 0 {
+        c = string.char_at(rest, 0)
+        rest = string.substring(rest, 1, string.length(rest))
+        h = ((h * 33) + c) & 2147483647
     }
-    return cmd
+    return h
+}
+_script_path_tr(cmd: string) {
+    tmp = _slashes_tr(os.getenv("TMP"))
+    if string.length(tmp) == 0 { tmp = _slashes_tr(os.getenv("TEMP")) }
+    if string.length(tmp) == 0 { tmp = "/tmp" }
+    name = string.concat("_aeb_tr_", string.concat(string.from_int(os.getpid()),
+           string.concat("_", string.concat(string.from_int(_hash_tr(cmd)), ".sh"))))
+    return string.concat(tmp, string.concat("/", name))
 }
 _sh_tr(cmd: string) {
-    return os.system(_sh_wrap_tr(cmd))
-}
-_sh_capture_tr(cmd: string) {
-    out, err = os.exec(_sh_wrap_tr(cmd))
-    return out, err
+    if _is_windows_tr() == 0 {
+        return os.system(cmd)
+    }
+    scriptf = _script_path_tr(cmd)
+    werr = io.write_file(scriptf, cmd)
+    if string.length(werr) > 0 {
+        return os.system(cmd)
+    }
+    rc = os.system(string.concat("sh ", scriptf))
+    _d = fs.delete(scriptf)
+    return rc
 }
 
 main() {
@@ -228,16 +235,11 @@ main() {
         println(string.concat("transform-ae: ", werr))
         exit(1)
     }
-    // NB: no inner single quotes around the interpolated paths. The chokepoint
-    // wraps the whole command in `sh -c '...'`, and on Windows that outer string
-    // is first parsed by cmd.exe — which does NOT understand the POSIX `'\''`
-    // escape, so an EMBEDDED single quote collides with the wrap and sh aborts
-    // with "unexpected EOF looking for matching `'`". Build paths under
-    // target/_aeb/ have no spaces, so bare args inside the single wrap are both
-    // correct and the only quoting layer. (Matches aeb-link, which passes bare
-    // paths the same way.)
-    _sh_tr("sed -f ${sed_file} ${src} > ${out}")
-    _sh_tr("rm -f ${sed_file}")
+    // Quoted paths are safe now: the hardened _sh_tr writes the command to a
+    // temp .sh and runs `sh <file>`, so cmd.exe never parses the contents — the
+    // single quotes (and any space in a path) survive intact.
+    _sh_tr("sed -f '${sed_file}' '${src}' > '${out}'")
+    _sh_tr("rm -f '${sed_file}'")
 
     // Step 2: resolve transitive imports — PURE Aether (was resolve-imports.sh,
     // a fork-heavy bash script that hung under MSYS2's fork() emulation on
