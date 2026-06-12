@@ -845,6 +845,14 @@ _cmd_caret_escape(s: string) {
 // _sh_wrap(cmd) — the platform-correct command string: `sh -c '<cmd>'` on
 // Windows (with cmd.exe metachars caret-escaped so the redirects/pipes reach
 // sh, not cmd.exe), `cmd` verbatim on POSIX.
+//
+// DEPRECATED for the general case. The `sh -c '<quoted>'` form cannot carry an
+// arbitrary command through cmd.exe: cmd.exe doesn't honour the POSIX `'\''`
+// escape, so any EMBEDDED single quote (every quoted path) collides with the
+// wrap and sh aborts ("unexpected EOF matching `'`"), and a `;` inside the wrap
+// gets re-split by sh as a statement separator. _sh/_sh_capture below use the
+// robust temp-script form instead. Kept only for callers that pass a
+// quote-free, separator-free command and want the inline wrap.
 _sh_wrap(cmd: string) {
     if _is_windows() == 1 {
         return string.concat("sh -c ", _cmd_caret_escape(_sh_quote(cmd)))
@@ -852,15 +860,89 @@ _sh_wrap(cmd: string) {
     return cmd
 }
 
-// _sh(cmd) — os.system, but POSIX-shell-correct on Windows. Returns exit code.
-_sh(cmd: string) {
-    return os.system(_sh_wrap(cmd))
+// _sh_slashes(s) — backslashes → forward slashes. A native Windows temp path
+// from %TMP% (`C:\msys64\tmp`) is understood by BOTH Aether's io.write_file
+// (native fopen) and sh when written with forward slashes, so we normalise.
+_sh_slashes(s: string) {
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, "\\") == 1 { out = string.concat(out, "/") }
+        else { out = string.concat(out, ch) }
+    }
+    return out
 }
 
-// _sh_capture(cmd) — os.exec, but POSIX-shell-correct on Windows. Returns
-// (stdout, err) — same shape as os.exec.
+// A small content hash, so two distinct commands sharing a pid get distinct
+// temp-script names (Aether forbids top-level mutable state, so no global
+// counter; pid + content hash is the uniqueness source). Each _sh call writes,
+// runs, and deletes its script synchronously, so the only collision window is
+// genuine in-process concurrency on the same command — which is harmless (same
+// content), and on different commands the hash differs.
+_sh_hash(s: string) {
+    h = 5381
+    rest = s
+    while string.length(rest) > 0 {
+        c = string.char_at(rest, 0)
+        rest = string.substring(rest, 1, string.length(rest))
+        h = ((h * 33) + c) & 2147483647
+    }
+    return h
+}
+
+// _sh_script_path(cmd) — a unique, native temp path for a throwaway sh script.
+// Uses %TMP% (Windows always sets it; falls back to /tmp), the pid, and a hash
+// of the command. Forward-slashed so io.write_file and sh agree on it.
+_sh_script_path(cmd: string) {
+    tmp = _sh_slashes(os.getenv("TMP"))
+    if string.length(tmp) == 0 { tmp = _sh_slashes(os.getenv("TEMP")) }
+    if string.length(tmp) == 0 { tmp = "/tmp" }
+    name = string.concat("_aeb_sh_", string.concat(string.from_int(os.getpid()),
+           string.concat("_", string.concat(string.from_int(_sh_hash(cmd)), ".sh"))))
+    return string.concat(tmp, string.concat("/", name))
+}
+
+// THE Windows chokepoint mechanism (proven on the MINGW box against the hardest
+// command shape — inner single quotes, `;` `|` inside quotes, `>` redirect,
+// `&&`, `$()` substitution, AND a path WITH A SPACE):
+//
+// Write the raw command verbatim to a temp .sh file (via Aether io — no shell),
+// then run `sh <nativepath>`. cmd.exe only ever sees `sh C:/.../x.sh` — it
+// NEVER parses the command's contents, so nothing can be mangled. This makes
+// every SDK shell-out a pure os.system→_sh swap: NO per-command quote surgery,
+// NO inner-quote-drop, and space-in-path-safe. On POSIX, pass through verbatim.
+_sh(cmd: string) {
+    if _is_windows() == 0 {
+        return os.system(cmd)
+    }
+    scriptf = _sh_script_path(cmd)
+    werr = io.write_file(scriptf, cmd)
+    if string.length(werr) > 0 {
+        // Fall back to the inline wrap if the temp write failed.
+        return os.system(_sh_wrap(cmd))
+    }
+    rc = os.system(string.concat("sh ", scriptf))
+    _d = fs.delete(scriptf)
+    return rc
+}
+
+// _sh_capture(cmd) — os.exec variant of _sh. Same temp-script mechanism;
+// returns (stdout, err) like os.exec.
 _sh_capture(cmd: string) {
-    out, err = os.exec(_sh_wrap(cmd))
+    if _is_windows() == 0 {
+        out, err = os.exec(cmd)
+        return out, err
+    }
+    scriptf = _sh_script_path(cmd)
+    werr = io.write_file(scriptf, cmd)
+    if string.length(werr) > 0 {
+        out, err = os.exec(_sh_wrap(cmd))
+        return out, err
+    }
+    out, err = os.exec(string.concat("sh ", scriptf))
+    _d = fs.delete(scriptf)
     return out, err
 }
 
