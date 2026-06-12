@@ -31,12 +31,20 @@ import std.path
 extern println(s: string)
 extern exit(code: int)
 
-// _toolbin(aebhome, name) — the absolute path to a built helper tool, with the
-// platform-correct executable suffix (`.exe` on Windows via build._exe_suffix,
-// "" on POSIX). Without the suffix cmd.exe can't run the lazy-built helpers
-// ("'…/extract-deps' is not recognized").
+// _toolbase(aebhome, name) — the helper tool's path WITHOUT an exe suffix.
+// Use this for the `ae build -o <target>` output: `ae` auto-appends `.exe` on
+// Windows, so passing `foo.exe` here would produce `foo.exe.exe`. Pass the
+// bare name and let `ae` add the suffix.
+_toolbase(aebhome: string, name: string) {
+    return string.concat(string.concat(aebhome, "/tools/"), name)
+}
+
+// _toolbin(aebhome, name) — the helper tool's path WITH the platform suffix
+// (`.exe` on Windows, "" on POSIX). Use this for file.exists() and for
+// INVOKING the tool — cmd.exe/sh need the real on-disk name, and `ae build`
+// will have produced `<name>.exe` on Windows.
 _toolbin(aebhome: string, name: string) {
-    return string.concat(string.concat(aebhome, "/tools/"), string.concat(name, build._exe_suffix()))
+    return string.concat(_toolbase(aebhome, name), build._exe_suffix())
 }
 
 // Strip trailing slash from a path (cosmetic match with bash's TARGET%/).
@@ -222,32 +230,32 @@ main() {
     // --- Lazy-build helper tools ---
     extract_deps_bin = _toolbin(aebhome, "extract-deps")
     if file.exists(extract_deps_bin) == 0 {
-        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/extract-deps.ae -o "), string.concat(extract_deps_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/extract-deps.ae -o "), string.concat(_toolbase(aebhome, "extract-deps"), " >/dev/null 2>&1"))))
     }
     scan_ae_files_bin = _toolbin(aebhome, "scan-ae-files")
     if file.exists(scan_ae_files_bin) == 0 {
-        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/scan-ae-files.ae -o "), string.concat(scan_ae_files_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/scan-ae-files.ae -o "), string.concat(_toolbase(aebhome, "scan-ae-files"), " >/dev/null 2>&1"))))
     }
     topo_sort_bin = _toolbin(aebhome, "topo-sort")
     if file.exists(topo_sort_bin) == 0 {
-        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/topo-sort.ae -o "), string.concat(topo_sort_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/topo-sort.ae -o "), string.concat(_toolbase(aebhome, "topo-sort"), " >/dev/null 2>&1"))))
     }
     aeb_link_bin = _toolbin(aebhome, "aeb-link")
     if file.exists(aeb_link_bin) == 0 {
         // --lib <aebhome>/tools resolves aeb-link's `import aeblabel`.
-        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-link.ae -o "), string.concat(aeb_link_bin, string.concat(" --lib ", string.concat(aebhome, "/tools >/dev/null 2>&1"))))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-link.ae -o "), string.concat(_toolbase(aebhome, "aeb-link"), string.concat(" --lib ", string.concat(aebhome, "/tools >/dev/null 2>&1"))))))
     }
     aeb_graph_bin = _toolbin(aebhome, "aeb-graph")
     if file.exists(aeb_graph_bin) == 0 {
-        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-graph.ae -o "), string.concat(aeb_graph_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-graph.ae -o "), string.concat(_toolbase(aebhome, "aeb-graph"), " >/dev/null 2>&1"))))
     }
     aeb_query_bin = _toolbin(aebhome, "aeb-query")
     if file.exists(aeb_query_bin) == 0 {
-        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-query.ae -o "), string.concat(aeb_query_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-query.ae -o "), string.concat(_toolbase(aebhome, "aeb-query"), " >/dev/null 2>&1"))))
     }
     affected_bin = _toolbin(aebhome, "affected-targets")
     if file.exists(affected_bin) == 0 {
-        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/affected-targets.ae -o "), string.concat(affected_bin, " >/dev/null 2>&1"))))
+        build._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/affected-targets.ae -o "), string.concat(_toolbase(aebhome, "affected-targets"), " >/dev/null 2>&1"))))
     }
 
     // --- Discover the file set ---
