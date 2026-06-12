@@ -112,15 +112,70 @@ resolve_dep_rel(dep: string, base_dir: string) {
     return resolved
 }
 
+// Scan `content` for every `prereq(b, "<token>")` call and emit each token
+// space-separated on stdout. Mirrors the dep(b, " needle-scan below. Tokens are
+// toolchain prerequisites (e.g. "zig:0.13"), NOT file paths — kept on a
+// separate `--prereqs` mode so they never mix into the dep-path output. The
+// caller (preflight / install-prereqs) runs this over the target's whole dep
+// closure and unions the result into the prerequisite set.
+// See docs/build-prerequisites-and-provisioning.md.
+_emit_prereqs(content: string) {
+    out = ""
+    seen = map.new()
+    needle = "prereq(b, \""
+    nlen = string.length(needle)
+    rest = content
+    while string.length(rest) > 0 {
+        idx = string.index_of(rest, needle)
+        if idx < 0 {
+            rest = ""
+        } else {
+            after_open = idx + nlen
+            tail = string.substring(rest, after_open, string.length(rest))
+            close = string.index_of(tail, "\"")
+            if close < 0 {
+                rest = ""
+            } else {
+                tok = string.substring(tail, 0, close)
+                if string.length(tok) > 0 {
+                    if map.has(seen, tok) == 0 {
+                        if string.length(out) > 0 { out = string.concat(out, " ") }
+                        out = string.concat(out, tok)
+                        _e = map.put(seen, tok, "1")
+                    }
+                }
+                rest = string.substring(tail, close + 1, string.length(tail))
+            }
+        }
+    }
+    if string.length(out) > 0 { println(out) }
+}
+
 main() {
     argc = aether_args_count()
     if argc < 2 {
-        println("Usage: extract-deps <ae-file>")
+        println("Usage: extract-deps [--prereqs] <ae-file>")
         exit(1)
     }
+    // --prereqs mode: emit prereq() tokens instead of dep() paths.
+    prereq_mode = 0
     path = aether_args_get(1)
+    if string.equals(path, "--prereqs") == 1 {
+        if argc < 3 {
+            println("Usage: extract-deps --prereqs <ae-file>")
+            exit(1)
+        }
+        prereq_mode = 1
+        path = aether_args_get(2)
+    }
     if file.exists(path) == 0 {
         // Match bash's `2>/dev/null || true` — silent on missing file.
+        return 0
+    }
+    if prereq_mode == 1 {
+        pcontent, perr = io.read_file(path)
+        if perr != "" { return 0 }
+        _emit_prereqs(pcontent)
         return 0
     }
 

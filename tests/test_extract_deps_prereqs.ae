@@ -1,0 +1,123 @@
+// Tests for tools/extract-deps.ae's --prereqs mode (prereq(b, "<token>")).
+//
+// extract-deps is a tool (not a lib), so the test invokes it as a
+// subprocess against tmpdir fixtures — same shape as
+// test_extract_deps_scan.ae.
+//
+// What we cover:
+//   - --prereqs emits each prereq(b, "tok") token (space-separated)
+//   - duplicate tokens within one file collapse to one
+//   - prereq tokens do NOT leak into the normal dep-path output, and
+//     dep paths do NOT leak into --prereqs output (the two modes are
+//     cleanly separated)
+//   - a file with no prereq() emits nothing
+//
+// See docs/build-prerequisites-and-provisioning.md.
+
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+extern println(s: string)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if actual == expected {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected: '${expected}'")
+        println("  actual:   '${actual}'")
+    }
+}
+
+_mktempdir() {
+    raw, _err = os.exec("mktemp -d")
+    return string.trim(raw)
+}
+
+_abs_bin() {
+    extract_bin = os.getenv("AEB_EXTRACT_DEPS_BIN")
+    if string.length(extract_bin) == 0 {
+        extract_bin = "tools/extract-deps"
+    }
+    abs_raw, _e1 = os.exec("readlink -f '${extract_bin}'")
+    return string.trim(abs_raw)
+}
+
+// Invoke extract-deps --prereqs <target> from workdir; trimmed stdout.
+_run_prereqs(workdir: string, target: string) {
+    abs_bin = _abs_bin()
+    if string.length(abs_bin) == 0 { return "ERROR: extract-deps not found" }
+    raw, _e2 = os.exec("cd '${workdir}' && '${abs_bin}' --prereqs '${target}'")
+    return string.trim(raw)
+}
+
+// Invoke extract-deps (normal dep mode) from workdir; trimmed stdout.
+_run_deps(workdir: string, target: string) {
+    abs_bin = _abs_bin()
+    if string.length(abs_bin) == 0 { return "ERROR: extract-deps not found" }
+    raw, _e2 = os.exec("cd '${workdir}' && '${abs_bin}' '${target}'")
+    return string.trim(raw)
+}
+
+// Sort whitespace-separated tokens so assertions don't depend on order.
+_normalise(out: string) {
+    if string.length(out) == 0 { return out }
+    sorted_raw, _err = os.exec("printf '%s' '${out}' | tr ' ' '\\n' | grep -v '^$' | sort | tr '\\n' ' ' | sed 's/ $//'")
+    return string.trim(sorted_raw)
+}
+
+_ensure_built() {
+    if string.length(os.getenv("AEB_EXTRACT_DEPS_BIN")) > 0 { return 0 }
+    if file.exists("tools/extract-deps") == 1 { return 0 }
+    ae_bin = os.getenv("AETHER")
+    if string.length(ae_bin) == 0 { ae_bin = "ae" }
+    os.system("${ae_bin} build tools/extract-deps.ae -o tools/extract-deps --lib lib --lib tools >/dev/null 2>&1")
+    return 0
+}
+
+main() {
+    _ensure_built()
+    root = _mktempdir()
+
+    // A leaf with two distinct prereqs + a dep + a duplicate prereq.
+    leaf = "import build\nimport build (prereq)\nmain() {\n    b = build.start()\n    dep(b, \"shared/.build.ae\")\n    prereq(b, \"zig:0.13\")\n    prereq(b, \"python:3.14\")\n    prereq(b, \"zig:0.13\")\n}\n"
+    fs.write_atomic("${root}/.build.ae", leaf, string.length(leaf))
+
+    // --- tokens emitted, deduped, sorted ---
+    out_pq = _run_prereqs(root, ".build.ae")
+    _assert_eq("prereqs: distinct tokens deduped",
+        _normalise(out_pq), "python:3.14 zig:0.13")
+
+    // --- prereq tokens do NOT appear in normal dep output ---
+    out_dep = _run_deps(root, ".build.ae")
+    has_tok = string.index_of(out_dep, "zig:0.13")
+    if has_tok < 0 {
+        println("PASS: prereq tokens absent from dep output")
+    } else {
+        println("FAIL: prereq token leaked into dep output: '${out_dep}'")
+    }
+
+    // --- dep paths do NOT appear in --prereqs output ---
+    has_dep = string.index_of(out_pq, "shared/.build.ae")
+    if has_dep < 0 {
+        println("PASS: dep paths absent from prereqs output")
+    } else {
+        println("FAIL: dep path leaked into prereqs output: '${out_pq}'")
+    }
+
+    // --- a file with no prereq() emits nothing ---
+    noprq = "import build\nmain() {\n    b = build.start()\n    dep(b, \"x/.build.ae\")\n}\n"
+    fs.write_atomic("${root}/.noprq.ae", noprq, string.length(noprq))
+    out_none = _run_prereqs(root, ".noprq.ae")
+    _assert_eq("prereqs: none declared -> empty", out_none, "")
+
+    os.system("rm -rf '${root}'")
+    println("extract-deps prereqs tests done")
+}

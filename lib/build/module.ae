@@ -119,6 +119,7 @@ begin(s: ptr, module_dir: string) {
     _e8 = map.put(ctx, "cargo_deps", list.new())
     _e9 = map.put(ctx, "npm_deps", list.new())
     _e10 = map.put(ctx, "maven_deps", list.new())
+    _e10b = map.put(ctx, "prereqs", list.new())
     _e11 = map.put(ctx, "boms", list.new())
     _e12 = map.put(ctx, "repos", list.new())
 
@@ -273,6 +274,7 @@ start() {
     _e8 = map.put(ctx, "cargo_deps", list.new())
     _e9 = map.put(ctx, "npm_deps", list.new())
     _e10 = map.put(ctx, "maven_deps", list.new())
+    _e10b = map.put(ctx, "prereqs", list.new())
     _e11 = map.put(ctx, "boms", list.new())
     _e12 = map.put(ctx, "repos", list.new())
 
@@ -307,6 +309,27 @@ dep(ctx: ptr, path_str: string) {
         deps, _ = map.get(ctx, "deps")
         _e2 = list.add(deps, path_str)
     }
+}
+
+// prereq(ctx, "<toolchain>:<version>") — declare a system-toolchain
+// prerequisite for this build node (e.g. "zig:0.13", "python:3.14", "jdk:21").
+// See docs/build-prerequisites-and-provisioning.md.
+//
+// Like dep(), this is a DECLARATION (a noun), not a procedure: it does NOT
+// probe or install anything at build time. The load-bearing collection path is
+// STATIC — tools/extract-deps greps `prereq(b, "..."` out of the source and
+// flattens the transitive union over the dep DAG into the prerequisite set,
+// which preflight (and, opt-in, install-prereqs) consume. The runtime setter
+// just records the tokens on the ctx so the call is valid and a future
+// in-process consumer can read them; static extraction is what preflight uses
+// (you can't run the leaf to discover what it needs — chicken-and-egg).
+//
+// A missing prerequisite is a clean, attributable `unmet-prereqs` verdict at
+// preflight, NEVER a silent provision. The repo declares WHAT; the operator
+// owns HOW and WHETHER (lib/provision's recipe map).
+prereq(ctx: ptr, token: string) {
+    prereqs, _ = map.get(ctx, "prereqs")
+    _e = list.add(prereqs, token)
 }
 
 // scan(ctx, pattern) — glob-based dep discovery. Expands `pattern`
