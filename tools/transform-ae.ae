@@ -106,22 +106,43 @@ main() {
         println(string.concat("transform-ae: ", werr))
         exit(1)
     }
-    _sh_tr("sed -f '${sed_file}' '${src}' > '${out}'")
-    _sh_tr("rm -f '${sed_file}'")
+    // NB: no inner single quotes around the interpolated paths. The chokepoint
+    // wraps the whole command in `sh -c '...'`, and on Windows that outer string
+    // is first parsed by cmd.exe — which does NOT understand the POSIX `'\''`
+    // escape, so an EMBEDDED single quote collides with the wrap and sh aborts
+    // with "unexpected EOF looking for matching `'`". Build paths under
+    // target/_aeb/ have no spaces, so bare args inside the single wrap are both
+    // correct and the only quoting layer. (Matches aeb-link, which passes bare
+    // paths the same way.)
+    _sh_tr("sed -f ${sed_file} ${src} > ${out}")
+    _sh_tr("rm -f ${sed_file}")
 
     // Step 2: resolve transitive imports via external script. resolve-imports.sh
     // is a bash script — cmd.exe can't run it (it hangs), so this MUST route
     // through the sh chokepoint on Windows.
-    resolve_cmd = string.concat(aeb_home, "/tools/resolve-imports.sh '${src}' '${lib_dir}'")
+    resolve_cmd = string.concat(aeb_home, "/tools/resolve-imports.sh ${src} ${lib_dir}")
     resolved_out, rerr = _sh_capture_tr(resolve_cmd)
     extra = string.concat("", "")
     if rerr == "" {
         extra = string.trim(resolved_out)
     }
 
-    // Step 3: prepend transitive imports to output file
+    // Step 3: prepend transitive imports to output file. Done in PURE Aether
+    // (read out, rewrite as extra + "\n" + out) rather than the old
+    // `printf '%s\n' '${extra}' | cat - out > tmp && mv` shell pipeline: the
+    // single quotes that pipeline needs around the multi-line ${extra} collide
+    // with the Windows chokepoint's own single-quote wrap (cmd.exe mangles the
+    // POSIX `'\''` escape), and there's no reason to shell out for a string
+    // prepend. No shell = no quoting hazard, identical on every platform.
     if string.length(extra) > 0 {
-        tmp_file = string.concat(out, ".tmp")
-        _sh_tr("printf '%s\\n' '${extra}' | cat - '${out}' > '${tmp_file}' && mv '${tmp_file}' '${out}'")
+        body, berr = io.read_file(out)
+        if berr == "" {
+            merged = string.concat(extra, string.concat("\n", body))
+            werr2 = io.write_file(out, merged)
+            if werr2 != "" {
+                println(string.concat("transform-ae: ", werr2))
+                exit(1)
+            }
+        }
     }
 }

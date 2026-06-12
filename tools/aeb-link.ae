@@ -258,9 +258,14 @@ _resolve_libaether_dir(aether_dir: string) {
 // nests them under include/aether/{runtime,std}/<subdir>/. We probe
 // for the include root and the caller adds -I for every subdir.
 //   1. $AETHER_INCLUDE (explicit override)
-//   2. ${aether_dir}/../include/aether
-//   3. "" if neither exists (caller falls back to no -I, which works
-//      only on dev-tree layouts where the headers sit beside the .c)
+//   2. ${aether_dir}/../include/aether       (FHS install)
+//   3. ${aether_dir}/..                       (DEV TREE — headers live
+//      scattered under runtime/<sub>/ and std/<sub>/ next to the sources;
+//      a built `ae` in <root>/build has no include/ at all. Common on the
+//      Windows MinGW box, which builds aether in-tree.)
+//   4. "" if none exists (caller falls back to no -I).
+// Cases 2 and 3 both point at a tree whose -type d subdirs hold the headers;
+// the caller's `find <root> -type d | sed 's|^|-I|'` covers either layout.
 _resolve_aether_include(aether_dir: string) {
     env_inc = os.getenv("AETHER_INCLUDE")
     if string.length(env_inc) > 0 {
@@ -271,6 +276,13 @@ _resolve_aether_include(aether_dir: string) {
     cand = string.concat(aether_dir, "/../include/aether")
     if dir.exists(cand) == 1 {
         return cand
+    }
+    // Dev-tree fallback: the aether source root (one up from the build dir),
+    // whose runtime/ + std/ subtrees carry the headers. Probe a known header
+    // dir so we only return this when it really is a dev tree.
+    dev_root = string.concat(aether_dir, "/..")
+    if dir.exists(string.concat(dev_root, "/runtime")) == 1 {
+        return dev_root
     }
     return ""
 }
