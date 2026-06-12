@@ -79,7 +79,7 @@ _print_version(aeb_home: string) {
     }
     aether = os.getenv("AETHER")
     if string.length(aether) == 0 { aether = "ae" }
-    av, _ae = os.exec("${aether} --version 2>/dev/null | head -1")
+    av, _ae = build._sh_capture("${aether} --version 2>/dev/null | head -1")
     av_t = string.trim(av)
     if string.length(av_t) > 0 { println(av_t) }
 }
@@ -95,7 +95,7 @@ _maybe_podman() {
     if build._is_windows() == 1 {
         return 0
     }
-    uid, _u = os.exec("id -u")
+    uid, _u = build._sh_capture("id -u")
     sock = string.concat(string.concat("/run/user/", string.trim(uid)), "/podman/podman.sock")
     if file.exists(sock) == 1 {
         _s = os.setenv("DOCKER_HOST", string.concat("unix://", sock))
@@ -181,7 +181,7 @@ main() {
     main_bin = string.concat(aeb_home, "/tools/aeb-main")
     if file.exists(main_bin) == 0 {
         src = string.concat(aeb_home, "/tools/aeb-main.ae")
-        _bc = os.system("'${aether}' build '${src}' -o '${main_bin}' 2>/dev/null")
+        _bc = build._sh("'${aether}' build '${src}' -o '${main_bin}' 2>/dev/null")
     }
 
     // Assemble the argv the bash supervision tail passes:

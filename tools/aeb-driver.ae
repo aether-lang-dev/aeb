@@ -117,12 +117,12 @@ main() {
     // --- Choose parallel (make) or sequential ---
     jobs = os.getenv("AEB_JOBS")
     if string.length(jobs) == 0 {
-        np, _npe = os.exec("nproc 2>/dev/null || echo 4")
+        np, _npe = build._sh_capture("nproc 2>/dev/null || echo 4")
         jobs = string.trim(np)
     }
     have_make = 0
     if string.equals(jobs, "1") == 0 {
-        mk_probe, _mpe = os.exec("command -v make >/dev/null 2>&1 && echo y || echo n")
+        mk_probe, _mpe = build._sh_capture("command -v make >/dev/null 2>&1 && echo y || echo n")
         if string.equals(string.trim(mk_probe), "y") == 1 { have_make = 1 }
     }
 
@@ -181,7 +181,7 @@ main() {
         run = string.concat(run, " -k -f '")
         run = string.concat(run, mk_path)
         run = string.concat(run, "' all")
-        _mrc = os.system(run)
+        _mrc = build._sh(run)
     } else {
         // --- Sequential fallback (no make / AEB_JOBS=1) ---
         i = 0
@@ -203,7 +203,7 @@ main() {
             cmd = string.concat(cmd, "' > '")
             cmd = string.concat(cmd, log)
             cmd = string.concat(cmd, "' 2>&1")
-            rc1 = os.system(cmd)
+            rc1 = build._sh(cmd)
             _we = io.write_file(rcmark, string.from_int(rc1))
         }
     }
@@ -255,7 +255,7 @@ main() {
             any_failed = 1
             log = path.join(logs_dir, _log_name(label))
             println("  ${type_word}: ${label} — FAILED (see ${log}):")
-            _cat = os.system(string.concat(string.concat("cat '", log), "' 2>/dev/null"))
+            _cat = build._sh(string.concat(string.concat("cat '", log), "' 2>/dev/null"))
         }
     }
 
