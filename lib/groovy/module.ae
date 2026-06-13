@@ -12,6 +12,7 @@
 //   aeb(cap) { b = build.start(); build.dep(b, "java/.build.ae")
 //              groovy.groovyc(b) { source_layout("maven idiomatic") } }
 import build
+import cache
 import maven
 import std.string
 import std.io
@@ -102,6 +103,97 @@ _nl_to_colon(s: string) {
     return string.trim(out)
 }
 
+// --- Content-addressed cache ---
+
+// _groovyc_version(groovyc_bin) — `groovyc --version` first line, the
+// toolchain-bump invalidator for the cache key. Memoised per build via an
+// env-var cache (the probe forks a JVM). Returns "" when groovyc is absent;
+// the key is still deterministic within a run.
+_groovyc_version(groovyc_bin: string) {
+    cached = os.getenv("_AEB_GROOVYC_VERSION_CACHE")
+    if string.length(cached) > 0 { return cached }
+    raw, _err = os.exec("'${groovyc_bin}' --version 2>&1 | head -1")
+    return string.trim(raw)
+}
+
+// _cache_key_for_groovyc — cache key for a groovyc compile action.
+// Mirrors java/scala/kotlin (the JVM class-tree shape). Inputs
+// (length-prefixed, sorted via cache.hash_inputs):
+//   - groovyc version — toolchain-bump invalidator
+//   - the groovy runtime jar list (paths embed the version, e.g.
+//     groovy-4.0.21.jar) — a groovy upgrade busts the key
+//   - canonical groovyc command string — captures the classpath, the
+//     -d output dir, and the JAVA_OPTS target-bytecode prefix
+//   - each .groovy source's path + content hash, sorted by path
+//   - each dep's jvm_classpath_deps_including_transitive content —
+//     captures upstream rebuilds
+//
+// FALSE-HIT HAZARD (same as javac): a sibling dep's local classes/ tree
+// can change while its classpath string stays the same; the dep artifact
+// content hash catches most real changes. Punted to full correctness for
+// v1. Returns ("", err) on any source read failure — caller falls through
+// to the live groovyc build.
+_cache_key_for_groovyc(ctx: ptr, argfile_path: string, groovyc_cmd_str: string, groovy_jars_nl: string, groovyc_bin: string) {
+    parts = list.new()
+
+    list.add(parts, string.concat("groovyc:", _groovyc_version(groovyc_bin)))
+    list.add(parts, string.concat("groovy-jars:", groovy_jars_nl))
+    list.add(parts, string.concat("cmd:", groovyc_cmd_str))
+
+    sources = build._read_argfile_lines(argfile_path)
+    nsrc = list.size(sources)
+    si = 0
+    while si < nsrc {
+        src, _ = list.get(sources, si)
+        sh, serr = cache.hash_file(src)
+        if string.length(serr) > 0 {
+            return "", serr
+        }
+        list.add(parts, string.concat("src:", src))
+        list.add(parts, string.concat("src-hash:", sh))
+        si = si + 1
+    }
+
+    deps, _ = map.get(ctx, "deps")
+    dn = list.size(deps)
+    di = 0
+    while di < dn {
+        dp, _ = list.get(deps, di)
+        dm = build._strip_lang(dp)
+        dep_cp = build._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
+        if string.length(dep_cp) > 0 {
+            list.add(parts, string.concat("dep:", dm))
+            list.add(parts, string.concat("dep-cp:", dep_cp))
+        }
+        di = di + 1
+    }
+
+    digest, derr = cache.hash_inputs(parts)
+    return digest, derr
+}
+
+// _write_argfile(target_dir, name, file_list) — write a space-separated
+// source list as a newline argfile so the cache-key helper can hash each
+// source. Returns the argfile path.
+_write_argfile(target_dir: string, name: string, file_list: string) {
+    argfile = path.join(target_dir, name)
+    paths = string.split(file_list, " ")
+    af = ""
+    i = 0
+    n = list.size(paths)
+    while i < n {
+        p, _ = list.get(paths, i)
+        p = string.trim(p)
+        if string.length(p) > 0 {
+            if string.length(af) > 0 { af = string.concat(af, "\n") }
+            af = string.concat(af, p)
+        }
+        i = i + 1
+    }
+    _e = io.write_file(argfile, af)
+    return argfile
+}
+
 // --- SDK functions ---
 
 // groovy.groovyc(b) — compile src/main/groovy (or flat *.groovy).
@@ -131,11 +223,62 @@ builder groovyc(ctx: ptr) {
         return 0
     }
 
-    rc = build._sh(string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, classes_dir, classpath, file_list)))
-    if rc != 0 {
-        println("${mod_dir}: groovyc failed")
-        build.fail(ctx, "groovyc failed")
-        return rc
+    cmd = string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, classes_dir, classpath, file_list))
+
+    // Cache check: hash sources + groovy jars + classpath + flags +
+    // groovyc version, restore the classes/ tarball on hit and skip
+    // groovyc. exit_code sentinel: 0 = cache hit, -1 = run groovyc below.
+    argfile = _write_argfile(target_dir, "groovyc_sources.txt", file_list)
+    cache_key = ""
+    exit_code = -1
+    if cache.available() == 1 {
+        ck, kerr = _cache_key_for_groovyc(ctx, argfile, cmd, groovy_jars_nl, groovyc_bin)
+        if string.length(kerr) == 0 {
+            cache_key = ck
+            tmp_raw, _terr = os.exec("mktemp")
+            tmp_tar = string.trim(tmp_raw)
+            if string.length(tmp_tar) > 0 {
+                grc = cache.get(cache_key, tmp_tar)
+                if string.length(grc) == 0 {
+                    uerr = build._untar_into(tmp_tar, classes_dir)
+                    os.system("rm -f '${tmp_tar}'")
+                    if string.length(uerr) == 0 {
+                        println("${mod_dir}: groovyc cache hit ${cache_key}")
+                        build._record_cache(ctx, "hit")
+                        exit_code = 0
+                    } else {
+                        os.system("rm -rf '${classes_dir}'")
+                        build._mkdirs(classes_dir)
+                    }
+                } else {
+                    os.system("rm -f '${tmp_tar}'")
+                }
+            }
+        }
+    }
+
+    if exit_code == -1 {
+        if cache.available() == 0 {
+            build._record_cache(ctx, "unavailable")
+        } else {
+            build._record_cache(ctx, "miss")
+        }
+        rc = build._sh(cmd)
+        if rc != 0 {
+            println("${mod_dir}: groovyc failed")
+            build.fail(ctx, "groovyc failed")
+            return rc
+        }
+        if string.length(cache_key) > 0 {
+            tar_path, terr = build._tar_dir(classes_dir)
+            if string.length(terr) == 0 {
+                perr = cache.put(cache_key, tar_path)
+                os.system("rm -f '${tar_path}'")
+                if string.length(perr) > 0 {
+                    println("${mod_dir}: groovyc cache write failed: ${perr}")
+                }
+            }
+        }
     }
 
     // Publish classes + groovy runtime jars so consumers (groovyc_test,
@@ -160,7 +303,8 @@ builder groovyc_test(ctx: ptr) {
 
     groovy_home = _groovy_home()
     groovyc_bin = _groovyc_bin(groovy_home)
-    groovy_cp = _nl_to_colon(_groovy_jars_nl(groovy_home))
+    groovy_jars_nl = _groovy_jars_nl(groovy_home)
+    groovy_cp = _nl_to_colon(groovy_jars_nl)
 
     dep_cp = build._build_dep_classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
@@ -174,11 +318,61 @@ builder groovyc_test(ctx: ptr) {
         return 0
     }
 
-    rc = build._sh(string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, test_classes, classpath, file_list)))
-    if rc != 0 {
-        println("${mod_dir}: groovyc (test) failed")
-        build.fail(ctx, "groovyc (test) failed")
-        return rc
+    cmd = string.concat(_java_opts(_builder), groovyc_cmd(groovyc_bin, test_classes, classpath, file_list))
+
+    // Cache check: same shape as the prod path; caches the test-classes/
+    // tree. exit_code sentinel: 0 = cache hit, -1 = run groovyc below.
+    argfile = _write_argfile(target_dir, "groovyc_test_sources.txt", file_list)
+    cache_key = ""
+    exit_code = -1
+    if cache.available() == 1 {
+        ck, kerr = _cache_key_for_groovyc(ctx, argfile, cmd, groovy_jars_nl, groovyc_bin)
+        if string.length(kerr) == 0 {
+            cache_key = ck
+            tmp_raw, _terr = os.exec("mktemp")
+            tmp_tar = string.trim(tmp_raw)
+            if string.length(tmp_tar) > 0 {
+                grc = cache.get(cache_key, tmp_tar)
+                if string.length(grc) == 0 {
+                    uerr = build._untar_into(tmp_tar, test_classes)
+                    os.system("rm -f '${tmp_tar}'")
+                    if string.length(uerr) == 0 {
+                        println("${mod_dir}: groovyc (test) cache hit ${cache_key}")
+                        build._record_cache(ctx, "hit")
+                        exit_code = 0
+                    } else {
+                        os.system("rm -rf '${test_classes}'")
+                        build._mkdirs(test_classes)
+                    }
+                } else {
+                    os.system("rm -f '${tmp_tar}'")
+                }
+            }
+        }
+    }
+
+    if exit_code == -1 {
+        if cache.available() == 0 {
+            build._record_cache(ctx, "unavailable")
+        } else {
+            build._record_cache(ctx, "miss")
+        }
+        rc = build._sh(cmd)
+        if rc != 0 {
+            println("${mod_dir}: groovyc (test) failed")
+            build.fail(ctx, "groovyc (test) failed")
+            return rc
+        }
+        if string.length(cache_key) > 0 {
+            tar_path, terr = build._tar_dir(test_classes)
+            if string.length(terr) == 0 {
+                perr = cache.put(cache_key, tar_path)
+                os.system("rm -f '${tar_path}'")
+                if string.length(perr) > 0 {
+                    println("${mod_dir}: groovyc (test) cache write failed: ${perr}")
+                }
+            }
+        }
     }
     return 0
 }
