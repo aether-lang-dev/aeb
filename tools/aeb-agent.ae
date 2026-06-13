@@ -244,11 +244,15 @@ _veto_ast(repo: string, target: string) {
         return "veto policy resolved to zero rules (fail-closed)"
     }
 
-    // Trusted --lib roots for origin scoping: aeb's SDK tree (if the agent
-    // knows AEB_HOME) + the prepared tree's own .aeb/lib.
+    // Trusted --lib roots for origin scoping: aeb's SDK tree + the prepared
+    // tree's own .aeb/lib. Use _agent_sdk_lib() (NOT bare $AEB_HOME/lib) — when
+    // the agent is installed apart from aeb (container: AEB_HOME points at the
+    // agent's tools-only tree), $AEB_HOME/lib is absent and the AST emit would
+    // fail → every SDK-importing target fail-closes to `vetoed`. _agent_sdk_lib
+    // falls back to the real SDK home reported by `aeb --version`.
     lib_roots = list.new()
-    home = os.getenv("AEB_HOME")
-    if string.length(home) > 0 { list.add(lib_roots, path.join(home, "lib")) }
+    sdk_lib = _agent_sdk_lib()
+    if string.length(sdk_lib) > 0 { list.add(lib_roots, sdk_lib) }
     proj_lib = path.join(repo, ".aeb/lib")
     if file.exists(proj_lib) == 1 { list.add(lib_roots, proj_lib) }
 
@@ -301,6 +305,57 @@ _agent_ae() {
     e = os.getenv("AEB_AGENT_AE")
     if string.length(e) > 0 { return e }
     return "ae"
+}
+
+// _agent_sdk_lib() — the aeb SDK `lib/` dir the veto's `aetherc --emit=ast`
+// needs so a target importing SDK modules (build/java/c/…) resolves. NOT just
+// `$AEB_HOME/lib`: when aeb-agent is installed separately from aeb (the
+// container case — the agent wrapper sets AEB_HOME=/root/.local/share/aeb, which
+// holds ONLY the agent's tools/, while the real SDK is at /usr/local/share/aeb),
+// `$AEB_HOME/lib` doesn't exist and the AST emit fails → every such target
+// fail-closes to `vetoed`. So:
+//   1. `$AEB_HOME/lib` if it exists (normal: AEB_HOME points at the full SDK);
+//   2. else ask `aeb` itself — `aeb --version` prints `AEB_HOME <dir>`, the
+//      authoritative SDK home (the inner aeb that actually builds knows where
+//      its lib is) → use `<that>/lib`;
+//   3. else "" (caller adds no SDK --lib; same as before).
+_agent_sdk_lib() {
+    home = os.getenv("AEB_HOME")
+    if string.length(home) > 0 {
+        cand = path.join(home, "lib")
+        if file.exists(path.join(cand, "build")) == 1 { return cand }
+    }
+    // Probe the real SDK home from `aeb --version`'s "AEB_HOME <dir>" line —
+    // `aeb` is on PATH (its install wrapper exports the true SDK AEB_HOME and
+    // --version echoes it). AEB_AGENT_AEB overrides for an unusual layout.
+    aeb = os.getenv("AEB_AGENT_AEB")
+    if string.length(aeb) == 0 { aeb = "aeb" }
+    out, _e = build._sh_capture(string.concat(aeb, " --version 2>/dev/null"))
+    real = _parse_aeb_home(out)
+    if string.length(real) > 0 {
+        cand2 = path.join(real, "lib")
+        if file.exists(path.join(cand2, "build")) == 1 { return cand2 }
+    }
+    return ""
+}
+
+// _parse_aeb_home(version_text) — pull the dir from an `aeb --version` line
+// `  AEB_HOME     <dir>`. Returns "" if not found. Pure string scan.
+_parse_aeb_home(text: string) {
+    needle = "AEB_HOME"
+    idx = string.index_of(text, needle)
+    if idx < 0 { return "" }
+    rest = string.substring(text, idx + string.length(needle), string.length(text))
+    // skip leading spaces
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        if string.equals(ch, " ") == 0 { break }
+        rest = string.substring(rest, 1, string.length(rest))
+    }
+    // take up to end-of-line
+    nl = string.index_of(rest, "\n")
+    if nl >= 0 { rest = string.substring(rest, 0, nl) }
+    return string.trim(rest)
 }
 
 // os_getpid_safe() — a per-process suffix for the temp policy binary so
