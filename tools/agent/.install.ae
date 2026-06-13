@@ -26,7 +26,10 @@ main() {
     dep(b, "tools/agent/.dist.ae")
 
     root = build.root(b)
-    src_bin = string.concat(root, "/target/tools/agent/bin/aeb-agent")
+    // .dist.ae is a `.dist.ae` node, so aeb lands its aether.program output
+    // under target/dist/<module>/bin/ (the dist: node type prefixes "dist/").
+    // (Was target/tools/agent/bin — the missing "dist/" made the copy fail.)
+    src_bin = string.concat(root, "/target/dist/tools/agent/bin/aeb-agent")
 
     home = os.getenv("HOME")
     share = string.concat(home, "/.local/share/aeb")

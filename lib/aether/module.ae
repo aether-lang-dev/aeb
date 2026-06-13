@@ -963,6 +963,33 @@ _ae_build_cmd_delegated(ae_build_args: string, root: string, image: string, work
     return cmd
 }
 
+// _ae_build_lib_flags(compile_lib) — turn a separator-joined AEB_COMPILE_LIB
+// value (<a><sep><b>…, sep = build._path_sep(): ':' POSIX / ';' Windows) into a
+// repeated-flag fragment " --lib a --lib b". Empty in → "". Repeated flags (not
+// a joined --lib value) keep it Windows-shell-safe (aetherc's first --lib resets
+// the chain, each subsequent appends). Pure string assembly.
+_ae_build_lib_flags(compile_lib: string) {
+    if string.length(compile_lib) == 0 { return "" }
+    sep = build._path_sep()
+    out = ""
+    rest = compile_lib
+    while string.length(rest) > 0 {
+        idx = string.index_of(rest, sep)
+        entry = ""
+        if idx < 0 {
+            entry = rest
+            rest = ""
+        } else {
+            entry = string.substring(rest, 0, idx)
+            rest = string.substring(rest, idx + string.length(sep), string.length(rest))
+        }
+        if string.length(entry) > 0 {
+            out = string.concat(out, string.concat(" --lib ", entry))
+        }
+    }
+    return out
+}
+
 _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
     mod_dir = build._get(ctx, "module_dir")
     ae_bin = os.getenv("AETHER")
@@ -979,6 +1006,19 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
         cov_flag = " --coverage"
     }
 
+    // Thread the orchestrator's module search path (AEB_COMPILE_LIB, set by
+    // tools/aeb-link as <aeb_lib>:<repo_root>) onto this `ae build` as repeated
+    // `--lib` flags. Without it, a program that imports an SDK module from lib/
+    // (e.g. tools/aeb-agent: `import agent` / `import veto` / `import build`)
+    // fails with E0301 — `ae build` only searches cwd + --lib, and the imported
+    // modules live under the repo's lib/, not the source dir. The
+    // _compile_and_link path already threads this; the default shell-out path
+    // (here) did not — which is why the aeb-agent dogfood build
+    // (tools/agent/.dist.ae) was broken (asks/agent-dist-dogfood-broken.md).
+    // Repeated flags (not a `;`/`:`-joined value) so it's Windows-shell-safe
+    // (the cmd.exe∘sh quoting law — see lib/build's _sh).
+    lib_flags = _ae_build_lib_flags(os.getenv("AEB_COMPILE_LIB"))
+
     // COMPILE-DELEGATION (docs/two-aeb-duality.md): when AEB_COMPILE_CONTAINER
     // names a toolchain image, this compile step runs IN that container
     // (host-aeb has no toolchain) rather than locally. Paths are rewritten
@@ -993,7 +1033,10 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
         // finds the module's aether.toml (ae reads "aether.toml" from CWD). The
         // in-container source dir is the source dir rewritten root/… → /work/….
         wsrcdir = _rewrite_under_root(build._get(ctx, "source_dir"), root, "/work")
-        args = "build${cov_flag} ${wsrc} -o ${wbin}"
+        // NB: lib_flags carry host paths; inside the container they're rewritten
+        // root/… → /work/… so the SDK lib resolves at the bind-mounted location.
+        wlibs = _rewrite_under_root(lib_flags, root, "/work")
+        args = "build${cov_flag} ${wsrc} -o ${wbin}${wlibs}"
         cmd = _ae_build_cmd_delegated(args, root, container_image, wsrcdir)
         rc = build._sh(cmd)
         if rc != 0 {
@@ -1011,7 +1054,7 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
     // first target to actually need this was hosttinygo (link_flags = "-lffi"
     // for the libffi-using tinygo bridge); the other bridges had empty tomls.
     source_dir = build._get(ctx, "source_dir")
-    cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag} ${src_path} -o ${bin_path}"
+    cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag} ${src_path} -o ${bin_path}${lib_flags}"
     rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: ae build failed")
