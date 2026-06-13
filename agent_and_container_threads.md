@@ -476,6 +476,33 @@ work" question:
 > bazzite duality images can be rebuilt from this branch when the container-thread
 > work (not just the agent) needs re-verifying against post-Windows aeb.
 
+### Results (2026-06-13)
+
+- **winbaz native agent: LIVE SERVER ✓** — past "compiles + --help". Started
+  `aeb-agent.exe --host 127.0.0.1 --port 9440 --tokens …`; `GET /health`→`ok`,
+  `GET /ping` no-token→**401** (fail-closed), `GET /ping` +token→**200** +
+  `{"platform":"windows","accept":"preint/*","auth":"required",…}`. A native
+  Windows agent listens, authenticates, and advertises itself as a Windows peer.
+- **oldnuc: aeb + whole branch builds clean under ae 0.247 ✓** — `make install`
+  rc=0 (the earlier 4 aeb-cli errors were a STALE `main` checkout; `--depth 30`
+  hadn't fetched the feature branch — fixed with explicit
+  `git fetch origin <branch>:<branch>`). Confirms forward-compat with the latest
+  toolchain.
+- **BUG found (pre-existing, not Windows/0.247): the agent DOGFOOD build is
+  broken.** `aeb tools/agent/.install.ae` → `.dist.ae`'s `aether.program` runs
+  `aetherc <aeb-agent.ae> <out.c>` with NO `--lib`, so every `import agent/veto/
+  build` symbol is E0301-undefined. Reproduced on BOTH 0.247 (oldnuc) and 0.244
+  (dev box). Root cause: `AEB_COMPILE_LIB` is empty in the dist-node
+  aether.program builder (it threads that env as `--lib`, but it's unset on the
+  dist path). The agent builds fine via explicit `ae build tools/aeb-agent.ae
+  --lib lib --lib tools -o …` (winbaz/dev-box path) — only the documented dogfood
+  (§1.4 "if aeb builds the agent, aeb installs it") is broken. Full writeup +
+  candidate fixes: `asks/agent-dist-dogfood-broken.md`.
+- **Net:** the agent CODE is post-Windows-correct and runs as a live server
+  natively on Windows; the Linux-container proof is blocked on the dogfood-build
+  bug (or sidestep it with the explicit `ae build` to get an agent binary into a
+  container image). The bug is the next concrete fix.
+
 ## 6. Pointers
 
 - Agent: `tools/aeb-agent.ae`, `lib/agent/module.ae`, `tools/agent/{.dist,
