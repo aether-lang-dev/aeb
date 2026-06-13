@@ -55,7 +55,9 @@ extern http_get_header(req: ptr, name: string) -> string
 
 _scope_from_env() {
     s = map.new()
-    _r = map.put(s, "run_on", "host")
+    ron = os.getenv("AEB_AGENT_RUN_ON")
+    if string.length(ron) == 0 { ron = "host" }
+    _r = map.put(s, "run_on", ron)
     mj = os.getenv("AEB_AGENT_MAX_JOBS")
     if string.length(mj) > 0 { _m = map.put(s, "max_jobs", mj) }
     glob = os.getenv("AEB_AGENT_ACCEPT")
@@ -492,6 +494,21 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     log_path = string.concat(string.concat("/tmp/aeb-agent-", guid), ".log")
     _ea = os.setenv("AEB_ARTIFACTS_JSON", artifacts_path)
 
+    // run_on(podman): delegate compilation into the toolchain image via the
+    // AEB_COMPILE_CONTAINER seam (lib/aether) — the compile-in-container/
+    // execute-on-host duality, so an agent on an immutable host (no gcc/aetherc)
+    // still builds. The orchestrator + execution run on the agent host; each
+    // per-target `ae build` it triggers runs in the container. run_on(host)
+    // (default) leaves AEB_COMPILE_CONTAINER unset → today's bare-host build.
+    run_on = os.getenv("AEB_AGENT_RUN_ON")
+    if string.equals(run_on, "podman") == 1 {
+        ctr_image = os.getenv("AEB_AGENT_CTR_IMAGE")
+        if string.length(ctr_image) > 0 {
+            _ecc = os.setenv("AEB_COMPILE_CONTAINER", ctr_image)
+            println("agent: run_on=podman — delegating compiles to ${ctr_image}")
+        }
+    }
+
     cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
     rc = build._sh(cmd)
 
@@ -614,6 +631,8 @@ main() {
     workdir = "."
     repo_dir = ""
     tokens_file = ""
+    run_on = "host"
+    ctr_image = ""
 
     i = 1
     while i < argc {
@@ -631,6 +650,13 @@ main() {
         if string.equals(a, "--workdir") == 1 { i = i + 1; workdir = aether_args_get(i) }
         if string.equals(a, "--repo") == 1 { i = i + 1; repo_dir = aether_args_get(i) }
         if string.equals(a, "--tokens") == 1 { i = i + 1; tokens_file = aether_args_get(i) }
+        // --run-on host|podman: where the agent runs the build it accepts.
+        // "podman" delegates each compile step into --ctr-image via the
+        // AEB_COMPILE_CONTAINER seam (the compile-in-container/execute-on-host
+        // duality, docs/two-aeb-duality.md) — so an agent on an immutable host
+        // (no toolchain) can still build. Default "host" = today's bare build.
+        if string.equals(a, "--run-on") == 1 { i = i + 1; run_on = aether_args_get(i) }
+        if string.equals(a, "--ctr-image") == 1 { i = i + 1; ctr_image = aether_args_get(i) }
         i = i + 1
     }
     // --repo defaults to --workdir (the agent's clone IS the build dir
@@ -643,6 +669,19 @@ main() {
     _e3 = os.setenv("AEB_AGENT_WORKDIR", workdir)
     _e3b = os.setenv("AEB_AGENT_REPO", repo_dir)
     if string.length(tokens_file) > 0 { _e4 = os.setenv("AEB_AGENT_TOKENS", tokens_file) }
+
+    // run_on plumbing: publish the run mode + container image so the handler
+    // (state-less) reconstructs them per dispatch. --run-on podman REQUIRES a
+    // --ctr-image; refuse to start otherwise (a silent fall-back to host on an
+    // immutable host would fail every build confusingly).
+    if string.equals(run_on, "podman") == 1 {
+        if string.length(ctr_image) == 0 {
+            println("aeb-agent: --run-on podman requires --ctr-image <toolchain-image>; refusing to start.")
+            exit(2)
+        }
+    }
+    _e5 = os.setenv("AEB_AGENT_RUN_ON", run_on)
+    if string.length(ctr_image) > 0 { _e6 = os.setenv("AEB_AGENT_CTR_IMAGE", ctr_image) }
 
     // Fail-closed auth posture announcement. Distinguish the three
     // operator-visible states so a MISCONFIGURATION (unreadable mount)
@@ -697,6 +736,8 @@ _usage() {
     println("  --max-jobs N    concurrent job cap (default unbounded)")
     println("  --tokens FILE   bearer-token file; WITHOUT it the agent refuses ALL dispatches (fail-closed)")
     println("  --scope NAME    scope label for display (default 'preint')")
+    println("  --run-on KIND   host (default) | podman — where builds run")
+    println("  --ctr-image IMG toolchain image for --run-on podman (e.g. aeb-toolchain:slim); required then")
     println("  -h, --help      this message")
     println("")
     println("Endpoints: GET /health (open), GET /ping (auth), POST /dispatch (auth)")
