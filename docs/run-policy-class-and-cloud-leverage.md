@@ -10,7 +10,11 @@ verdict → fold into `any_failed`). What's implemented vs. still design:
   capability probe, not an `aeb agent` subcommand), scope decision
   (accept/busy/reject), bare-host run, **`run_on=podman` run** (the dispatched
   build's compile delegates into a `--ctr-image` toolchain container via the
-  aeb-ctr two-phase duality — proven on a host with no aetherc/gcc), originator
+  aeb-ctr two-phase duality — proven on a host with no aetherc/gcc),
+  **`run_on=vm` run** (rsync the prepared tree to an SSH-reachable VM, run
+  `aeb <target>` there on the VM's own toolchain, rsync the artifacts JSON back;
+  the VM target is an `~/.ssh/config` alias that owns key/ProxyJump, fail-closed
+  without `--vm-host` — proven end-to-end), originator
   dispatch + verdict fold, the composable scope-tree data model,
   fail-back-on-busy/reject/unreachable, **agent OS self-report** (the auth-gated
   `/ping` reports `platform` — runs natively on Windows). Synchronous wire
@@ -22,8 +26,10 @@ verdict → fold into `any_failed`). What's implemented vs. still design:
   model (claim→verify→veto, purpose-in-the-token, issuance constraint —
   the `--tokens` file is the naive placeholder for this), cache
   partitioning by embedded purpose, fire-async + webhook-back +
-  `details_url` split, the `run_on=vm` kind (podman is done),
-  the `.ae` closure-DSL agent config (skeleton uses flags).
+  `details_url` split, the VM-host **spawn/loan** layer (virsh start/clone —
+  `run_on=vm` dispatches to an *already-reachable* VM; provisioning one on
+  demand is still design), the `.ae` closure-DSL agent config (skeleton uses
+  flags).
 
 ## The thing being modelled
 
