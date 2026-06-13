@@ -253,6 +253,12 @@ _veto_ast(repo: string, target: string) {
     lib_roots = list.new()
     sdk_lib = _agent_sdk_lib()
     if string.length(sdk_lib) > 0 { list.add(lib_roots, sdk_lib) }
+    // The Aether stdlib is part of the trusted toolchain too — the SDK's
+    // modules import std.os/etc, whose exec/extern live under the aether tree,
+    // not the aeb SDK tree. Without this trusted root, a build whose SDK
+    // transitively shells out (java→javac) is spuriously vetoed.
+    aether_std = _agent_aether_std()
+    if string.length(aether_std) > 0 { list.add(lib_roots, aether_std) }
     proj_lib = path.join(repo, ".aeb/lib")
     if file.exists(proj_lib) == 1 { list.add(lib_roots, proj_lib) }
 
@@ -341,6 +347,33 @@ _agent_sdk_lib() {
         if fs.exists(path.join(cand2, "build")) == 1 { return cand2 }
     }
     return ""
+}
+
+// _agent_aether_std() — the Aether STDLIB dir, a trusted origin for the veto
+// alongside the aeb SDK lib. The veto exempts calls whose source file is under a
+// trusted --lib root (the SDK legitimately does exec/extern); but the SDK's
+// modules import std.os etc., and those stdlib calls live under the AETHER
+// tree, not the aeb SDK tree — so without this they get flagged (observed:
+// `denied exec: os_run_full_raw (.../share/aether/std/os/module.ae)`), vetoing
+// every build whose SDK transitively shells out (java→javac, c→gcc, …). The
+// stdlib is part of the trusted toolchain, not untrusted build code, so its dir
+// is a legitimate trusted origin.
+//
+// aetherc emits the source path as `<aetherc-dir>/../share/aether/std/...`
+// (unnormalised `bin/../share`), so we return `<aetherc-dir>/../share/aether`
+// to starts_with-match it. aetherc-dir comes from `command -v <aetherc>`.
+// Returns "" if aetherc can't be located (caller adds no extra root).
+_agent_aether_std() {
+    aetherc = _agent_aetherc()
+    // If it's a bare name, resolve to an absolute path the same way aetherc
+    // resolves its own argv0 (PATH lookup) so the prefix matches what it emits.
+    resolved, _e = build._sh_capture(string.concat("command -v ", string.concat(aetherc, " 2>/dev/null")))
+    resolved = string.trim(resolved)
+    if string.length(resolved) == 0 { return "" }
+    bindir = path.dirname(resolved)
+    if string.length(bindir) == 0 { return "" }
+    // The emitted form is <bindir>/../share/aether/...; match that prefix.
+    return string.concat(bindir, "/../share/aether")
 }
 
 // _parse_aeb_home(version_text) — pull the dir from an `aeb --version` line
