@@ -116,7 +116,11 @@ Per target, stored in the session:
 
 ```aether
 build.fail(ctx, reason)                 // mark this target failed + reason
-build.fail_with(ctx, reason, root_cause)
+build.fail_with(ctx, reason, root_cause) // PROPOSED — not shipped; only the
+                                        //   single-reason build.fail(ctx, reason)
+                                        //   landed (see §6). The root_cause
+                                        //   variant was dropped — fold detail
+                                        //   into `reason` for now.
 // …or inferred: a builder that returns non-zero is recorded "failed"
 // with a generic reason by the orchestrator.
 ```

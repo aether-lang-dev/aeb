@@ -13,6 +13,19 @@ node scheduling, exec — is Aether.
 What's left preventing the trampoline from going away entirely, and what
 would let `aeb` run unmodified on Windows.
 
+> **The pure-Aether entrypoint already exists.** `tools/aeb-cli` is a faithful
+> facsimile of the bash `aeb` — full flag parity (all build flags + `--sandbox`,
+> `--version`, `--init`), the supervised exec (own process group, signal
+> forwarding, timeout, group-reap — one cross-platform `os.run_supervised` call,
+> POSIX process groups / Windows Job Objects), and an A/B harness (`ab.sh`)
+> proving it produces identical exit code + artifact set + telemetry to the bash
+> trampoline across C/Rust targets. It compiles and serves natively on Windows
+> too. **It may become the default `aeb` once the items in §A below are closed
+> upstream in Aether** — at which point the bash trampoline is retired and `aeb`
+> is pure Aether end to end (and Windows-native without MSYS/bash). Until then,
+> bash `aeb` ships as the default and `aeb-cli` is the proven-equivalent
+> alternate. See `mingw_a_b_plan.md` for the A/B methodology.
+
 ## A. Make the bash trampoline disappear
 
 The trampoline exists because of three things Aether can't currently express

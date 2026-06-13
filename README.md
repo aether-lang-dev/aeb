@@ -1306,8 +1306,17 @@ working directory, optionally exports a Podman socket, and dispatches `--init` /
 `gcheckout` / normal builds to the matching Aether-language tool under `tools/`.
 Everything else — argument parsing, scan/target discovery, dep extraction, topo
 sort, per-file compile, orchestrator generation, gcc link, exec — runs in
-Aether. (The pure-Aether entrypoint `tools/aeb-cli` is a faithful facsimile of
-this trampoline; see `mingw_a_b_plan.md`.)
+Aether.
+
+A pure-Aether entrypoint, `tools/aeb-cli`, is a faithful facsimile of this bash
+trampoline — full flag parity (including `--sandbox`, `--init`, `--version`), the
+same supervised exec (own process group, signal forwarding, timeout, group-reap),
+verified to produce identical exit code + artifacts + telemetry via the `ab.sh`
+A/B harness, and it runs natively on Windows. **It may become the default `aeb`
+in a future release** (retiring the bash trampoline, making `aeb` pure Aether end
+to end); for now bash `aeb` is the default and `aeb-cli` the proven-equivalent
+alternate. See `mingw_a_b_plan.md` and
+[docs/aether-runtime-needs.md](docs/aether-runtime-needs.md).
 
 ```
 aeb/
@@ -1365,6 +1374,7 @@ aeb/
 │   ├── topo-sort.ae           # DFS post-order over the file dep graph
 │   ├── mvn-to-aeb.ae          # pom.xml → .build.ae migration helper
 │   ├── cargo-to-deps-ae.sh    # Cargo.toml → .crate.ae dep files (migration)
+│   ├── cargo-crate-to-ae.sh   # one crate → .crate.ae (migration)
 │   └── resolver/              # Maven Resolver wrapper (→ aeb-resolve.jar)
 ├── tools/container/           # aeb-ctr (compile-in-container/execute-on-host) + image
 ├── itests/                    # integration tests (real open-source projects)

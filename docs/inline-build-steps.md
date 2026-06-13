@@ -1,7 +1,8 @@
 # Inline build steps — dropping into raw Aether
 
-A `.build.ae` is not a config file; it's an **Aether program** with a
-`main()`. The idiomatic SDK builders (`java.javac(b)`,
+A `.build.ae` is not a config file; it's an **Aether program** with an
+`aeb(cap)` entrypoint (the capability the trusted host injects; legacy
+`main()` also works). The idiomatic SDK builders (`java.javac(b)`,
 `rust.cargo_project(b)`, `pnpm.run(b, "lint")`, …) are just function
 calls. Between them — or instead of them — you can write *any* Aether:
 shell out, parse stdout, transform strings, do arithmetic, and write
@@ -83,7 +84,7 @@ aeb(cap) {
     return 0
 }
 
-// Adjacent helper — a normal Aether function, invoked from main()
+// Adjacent helper — a normal Aether function, invoked from aeb(cap)
 // above. Numbers each commit line and prepends a header.
 format_recent(raw: string) {
     title = "Recent changes (last 10 commits)\n"

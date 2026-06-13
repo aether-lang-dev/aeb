@@ -8,18 +8,22 @@ verdict → fold into `any_failed`). What's implemented vs. still design:
 
 - **Implemented (skeleton):** the standalone `aeb-agent` binary (a sysop
   capability probe, not an `aeb agent` subcommand), scope decision
-  (accept/busy/reject), bare-host run, originator dispatch + verdict fold,
-  the composable scope-tree data model, fail-back-on-busy/reject/
-  unreachable. Synchronous wire (HTTP), scope from CLI flags. **Naive
-  `--tokens` auth**: a flat bearer-token file, fail-closed (no file →
-  refuse all). This is the interim, shared-secret stand-in for the trust
-  model below — it authenticates "you hold the secret," nothing more.
+  (accept/busy/reject), bare-host run, **`run_on=podman` run** (the dispatched
+  build's compile delegates into a `--ctr-image` toolchain container via the
+  aeb-ctr two-phase duality — proven on a host with no aetherc/gcc), originator
+  dispatch + verdict fold, the composable scope-tree data model,
+  fail-back-on-busy/reject/unreachable, **agent OS self-report** (the auth-gated
+  `/ping` reports `platform` — runs natively on Windows). Synchronous wire
+  (HTTP), scope from CLI flags. **Naive `--tokens` auth**: a flat bearer-token
+  file, fail-closed (no file → refuse all). This is the interim, shared-secret
+  stand-in for the trust model below — it authenticates "you hold the secret,"
+  nothing more.
 - **Still design (this doc):** the real policy class + token/purpose trust
   model (claim→verify→veto, purpose-in-the-token, issuance constraint —
   the `--tokens` file is the naive placeholder for this), cache
   partitioning by embedded purpose, fire-async + webhook-back +
-  `details_url` split, `podman`/`vm` run_on kinds, agent OS self-report
-  under auth, the `.ae` closure-DSL agent config (skeleton uses flags).
+  `details_url` split, the `run_on=vm` kind (podman is done),
+  the `.ae` closure-DSL agent config (skeleton uses flags).
 
 ## The thing being modelled
 
