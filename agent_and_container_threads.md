@@ -503,6 +503,34 @@ work" question:
   bug (or sidestep it with the explicit `ae build` to get an agent binary into a
   container image). The bug is the next concrete fix.
 
+### Dogfood bug FIXED + agent-in-container PROVEN (2026-06-13, on main)
+
+- **Dogfood fixed** (main `1270959`): `lib/aether`'s default `aether.program`
+  path (`_shell_out_ae_build`) now threads `AEB_COMPILE_LIB` as repeated `--lib`
+  flags (`_ae_build_lib_flags`), and `.install.ae`'s copy path corrected
+  (`target/dist/tools/...`). `aeb tools/agent/.install.ae` succeeds end-to-end.
+  See `asks/agent-dist-dogfood-broken.md` (RESOLVED). Suite 109/109.
+- **Agent-in-container PROVEN on oldnuc:** built `itests/agent-container/`
+  Containerfile (Aether→aeb→**`RUN aeb tools/agent/.install.ae`**←the just-fixed
+  dogfood, which previously failed this exact step) → image `aeb-agent:test`
+  (1.02 GB), all 12 steps rc=0. Ran it: `podman run -d -p 9440:9440 -v
+  tokens:/etc/aeb/agent.tokens`. `/health`→`ok`; `/ping`+token→200
+  `{"platform":"linux","accept":"preint/*","auth":"required"}`; **`POST
+  /dispatch` → real verdict `{"guid":"smoke-1","status":"vetoed","result":""}`**
+  — the full lifecycle ran (accept→prepare→build→verdict) in-container on
+  post-Windows code.
+- The `vetoed` is the **target fixture** (`aeb-test` repo's `.build.ae`) failing
+  its own build (`Undefined build.start / java.javac` — that repo has no
+  `.aeb/lib` and the agent's inner `aeb .build.ae` didn't resolve the TARGET
+  repo's SDK imports). That's a fixture/target-repo issue, NOT an agent bug — the
+  agent correctly ran the build and reported the failure as a verdict instead of
+  crashing. (Follow-up: the agent's inner `aeb <target>` build of an
+  un-`--init`'d repo has the same lib-resolution gap; either `aeb --init` the
+  workdir in the agent's prepare step, or thread `--lib` — a real next item, but
+  separate from "does the agent run in a container": it does.)
+- **So the headline question is answered: YES — aeb-agent runs in a container
+  after the Windows work**, and the dogfood that builds it in-image works.
+
 ## 6. Pointers
 
 - Agent: `tools/aeb-agent.ae`, `lib/agent/module.ae`, `tools/agent/{.dist,
