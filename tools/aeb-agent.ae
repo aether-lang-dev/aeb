@@ -22,11 +22,13 @@
 // NOT yet: token auth, cache partitioning. See
 // docs/run-policy-class-and-cloud-leverage.md.
 
+import build
 import std.http
 import std.string
 import std.os
 import std.map
 import std.list
+import std.fs
 
 import agent (_decision, dispatch_reply_json, ping_json, _json_field,
               _parse_tokens, _token_ok, _bearer_strip, _veto_run_rules)
@@ -133,7 +135,7 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
         // This is a correctness property (repeatable builds), independent of
         // the security hardening in docs/agent-lifecycle.md.
         scrub_cmd = string.concat(string.concat("cd '", repo), "' && git reset --hard --quiet && git clean -ffdxq")
-        src = os.system(scrub_cmd)
+        src = build._sh(scrub_cmd)
         if src != 0 { return "git worktree scrub failed (reset/clean)" }
 
         // ref is optional (fetch a specific ref before checkout); default
@@ -148,11 +150,11 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
         } else {
             fetch_cmd = string.concat(fetch_cmd, "' && git fetch origin")
         }
-        frc = os.system(fetch_cmd)
+        frc = build._sh(fetch_cmd)
         if frc != 0 { return "git fetch failed" }
 
         co_cmd = string.concat(string.concat("cd '", repo), string.concat("' && git checkout --quiet '", string.concat(ghash, "'")))
-        crc = os.system(co_cmd)
+        crc = build._sh(co_cmd)
         if crc != 0 { return "git checkout ${ghash} failed" }
     }
 
@@ -161,10 +163,10 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
         // a temp file, then git apply. printf the b64 then base64 -d.
         pf = string.concat("/tmp/aeb-agent-patch-", string.concat(guid, ".diff"))
         dec_cmd = string.concat(string.concat("printf '%s' '", patch_b64), string.concat("' | base64 -d > '", string.concat(pf, "'")))
-        drc = os.system(dec_cmd)
+        drc = build._sh(dec_cmd)
         if drc != 0 { return "patch base64 decode failed" }
         ap_cmd = string.concat(string.concat("cd '", repo), string.concat("' && git apply '", string.concat(pf, "'")))
-        arc = os.system(ap_cmd)
+        arc = build._sh(ap_cmd)
         // NB: the decoded patch file (pf) is deliberately NOT removed here — the
         // Tier-A veto's patch-scope rules scan it (the highest-signal target).
         // handle_dispatch removes it after the veto decision. On apply failure
@@ -256,8 +258,8 @@ _veto_ast(repo: string, target: string) {
     // target resolvable regardless of the agent's own cwd.
     emit = emit_ast_cmd(aetherc, _lib_flags(lib_roots), target)
     cmd = string.concat(string.concat("cd '", repo), string.concat("' && ", emit))
-    ast_json, _e = os.exec(cmd)
-    rc = os.system(string.concat(cmd, " >/dev/null 2>&1"))
+    ast_json, _e = build._sh_capture(cmd)
+    rc = build._sh(string.concat(cmd, " >/dev/null 2>&1"))
     return decide(ast_json, rc, lib_roots, rules)
 }
 
@@ -281,11 +283,16 @@ _agent_veto_rules(aetherc: string) {
     lib = "lib"
     if string.length(home) > 0 { lib = path.join(home, "lib") }
     ae = _agent_ae()
-    bin = string.concat("/tmp/aeb-agent-veto-policy-", string.concat(string.from_int(os_getpid_safe()), ".bin"))
-    brc = os.system("'${ae}' build '${policy}' --lib '${lib}' -o '${bin}' 2>/dev/null")
+    // -o uses the suffixless base; ae appends .exe on Windows, so the file that
+    // exists/runs is binbase + _exe_suffix(). Splitting them avoids the
+    // /tmp/...bin.exe-vs-/tmp/...bin mismatch (the run/cleanup must name the
+    // actually-produced file).
+    binbase = string.concat("/tmp/aeb-agent-veto-policy-", string.from_int(os_getpid_safe()))
+    bin = string.concat(binbase, build._exe_suffix())
+    brc = build._sh("'${ae}' build '${policy}' --lib '${lib}' -o '${binbase}' 2>/dev/null")
     if brc != 0 { return null }
-    out, _e = os.exec("'${bin}'")
-    os.system(string.concat("rm -f '", string.concat(bin, "'")))
+    out, _e = build._sh_capture("'${bin}'")
+    _d = fs.delete(bin)
     return rules_from_lines(out)
 }
 
@@ -372,7 +379,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     patch_path = _patch_path_for(guid, patch_b64)
     veto = _maybe_veto_build(repo, target, purpose, patch_path)
     if string.length(patch_path) > 0 {
-        os.system(string.concat("rm -f '", string.concat(patch_path, "'")))
+        _dp = fs.delete(patch_path)
     }
     if string.length(veto) > 0 {
         println("agent: VETOED guid=${guid} (${veto})")
@@ -394,7 +401,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     _ea = os.setenv("AEB_ARTIFACTS_JSON", artifacts_path)
 
     cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
-    rc = os.system(cmd)
+    rc = build._sh(cmd)
 
     result = "pass"
     if rc != 0 { result = "fail" }
@@ -411,8 +418,9 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     if file.exists(log_path) == 1 {
         log_tail = _tail_capture(log_path, 40)
     }
-    // Tidy the per-guid temp files now that we've read them.
-    os.system(string.concat("rm -f '", string.concat(artifacts_path, string.concat("' '", string.concat(log_path, "'")))))
+    // Tidy the per-guid temp files now that we've read them (pure, no shell).
+    _da = fs.delete(artifacts_path)
+    _dl = fs.delete(log_path)
 
     println("agent: DONE guid=${guid} result=${result} (rc=${rc})")
     http.response_set_status(res, 200)
@@ -425,12 +433,12 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
 // is simplest + robust for an arbitrarily large log). Returns "" on failure.
 _tail_capture(path: string, n: int) {
     tmp = string.concat(path, ".tail")
-    _r = os.system(string.concat(string.concat("tail -n ", string.from_int(n)), string.concat(string.concat(" '", path), string.concat("' > '", string.concat(tmp, "' 2>/dev/null")))))
+    _r = build._sh(string.concat(string.concat("tail -n ", string.from_int(n)), string.concat(string.concat(" '", path), string.concat("' > '", string.concat(tmp, "' 2>/dev/null")))))
     out = ""
     if file.exists(tmp) == 1 {
         out_raw, _e = io.read_file(tmp)
         out = out_raw
-        os.system(string.concat("rm -f '", string.concat(tmp, "'")))
+        _dt = fs.delete(tmp)
     }
     return out
 }
