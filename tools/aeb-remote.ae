@@ -24,6 +24,7 @@
 // callers that want to name endpoint/ref/patch by hand; this is the
 // zero-ceremony flag form over the same wire + lease machinery.
 
+import build
 import std.os
 import std.string
 import std.io
@@ -38,8 +39,9 @@ extern aether_args_count() -> int
 extern aether_args_get(i: int) -> string
 
 // _capture(cmd) -> trimmed stdout of a shell command ("" on failure).
+// Through the build chokepoint so POSIX idioms work on Windows (cmd.exe).
 _capture(cmd: string) {
-    out, _e = os.exec(cmd)
+    out, _e = build._sh_capture(cmd)
     return string.trim(out)
 }
 

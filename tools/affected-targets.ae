@@ -55,6 +55,51 @@ _split_lines(buf: string) {
     return lines
 }
 
+// Pure (no shell) sort -u of a newline buffer -> sorted-unique newline string.
+// Was `printf '%s\n' '${keys_buf}' | sort -u` — broken under cmd.exe on Windows.
+// Byte-wise insertion sort + adjacent dedup; deterministic across locales.
+_sort_unique(buf: string) {
+    if string.length(buf) == 0 { return "" }
+    lines = _split_lines(buf)
+    // drop empties
+    clean = list.new()
+    cn0 = list.size(lines)
+    ci0 = 0
+    while ci0 < cn0 {
+        e, _ = list.get(lines, ci0)
+        ci0 = ci0 + 1
+        if string.length(e) > 0 { list.add(clean, e) }
+    }
+    n = list.size(clean)
+    i = 1
+    while i < n {
+        cur, _ = list.get(clean, i)
+        j = i - 1
+        while j >= 0 {
+            prev, _ = list.get(clean, j)
+            if string.compare(prev, cur) <= 0 { break }
+            list.set(clean, j + 1, prev)
+            j = j - 1
+        }
+        list.set(clean, j + 1, cur)
+        i = i + 1
+    }
+    out = ""
+    last = ""
+    have = 0
+    k = 0
+    while k < n {
+        e, _ = list.get(clean, k)
+        k = k + 1
+        if have == 1 { if string.equals(e, last) == 1 { continue } }
+        if string.length(out) > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, e)
+        last = string.concat(e, "")
+        have = 1
+    }
+    return out
+}
+
 // Split a single edges line "<file> <dep1> <dep2> ..." into a list.
 _split_tokens(line: string) {
     tokens = list.new()
@@ -275,9 +320,7 @@ affected_set(changed_paths: ptr, indices: ptr) {
         qi = qi + 1
     }
     if string.length(keys_buf) == 0 { return out }
-    sort_cmd = "printf '%s\\n' '${keys_buf}' | sort -u"
-    sorted_raw, _serr = os.exec(sort_cmd)
-    sorted_text = string.trim(sorted_raw)
+    sorted_text = _sort_unique(keys_buf)
     if string.length(sorted_text) == 0 { return out }
     sorted_lines = _split_lines(sorted_text)
     sn = list.size(sorted_lines)

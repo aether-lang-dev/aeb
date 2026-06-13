@@ -20,6 +20,7 @@
 //
 // Output (stdout): JSON { "maven": ["g:a:v", ...] } — the resolved
 // transitive closure, sorted + de-duped (the resolver already sorts).
+import build
 import std.string
 import std.os
 import std.file
@@ -70,7 +71,7 @@ main() {
             cmd = string.concat(cmd, string.concat(" '", string.concat(c, "'")))
             ci = ci + 1
         }
-        out, _e = os.exec(cmd)
+        out, _e = build._sh_capture(cmd)
         _parse_lines_into(out, resolved, rseen)
     }
 

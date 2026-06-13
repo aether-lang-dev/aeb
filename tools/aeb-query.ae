@@ -74,11 +74,50 @@ _dirname(p: string) {
     return string.substring(p, 0, last)
 }
 
+// Pure (no shell) sort -u of a newline-separated buffer. Was
+// `printf '%s\n' '${buf}' | sort -u` — broken under cmd.exe on Windows (can't
+// printf|sort a multi-line quoted arg). Insertion sort over string.compare +
+// adjacent-dedup; byte-wise so the order is deterministic across machines/
+// locales (matches scan-ae-files' pure sort).
 _sort_lines(buf: string) {
     if string.length(buf) == 0 { return "" }
-    cmd = "printf '%s\\n' '${buf}' | sort -u"
-    out, _err = os.exec(cmd)
-    return string.trim(out)
+    lines = list.new()
+    rest = buf
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        ln = ""
+        if nl < 0 { ln = rest  rest = "" }
+        else { ln = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if string.length(ln) > 0 { _a = list.add(lines, ln) }
+    }
+    n = list.size(lines)
+    i = 1
+    while i < n {
+        cur, _ = list.get(lines, i)
+        j = i - 1
+        while j >= 0 {
+            prev, _ = list.get(lines, j)
+            if string.compare(prev, cur) <= 0 { break }
+            list.set(lines, j + 1, prev)
+            j = j - 1
+        }
+        list.set(lines, j + 1, cur)
+        i = i + 1
+    }
+    out = ""
+    last = ""
+    have = 0
+    k = 0
+    while k < n {
+        e, _ = list.get(lines, k)
+        k = k + 1
+        if have == 1 { if string.equals(e, last) == 1 { continue } }
+        if string.length(out) > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, e)
+        last = string.concat(e, "")
+        have = 1
+    }
+    return out
 }
 
 _build_indices(edges_text: string) {
