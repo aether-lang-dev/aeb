@@ -11,10 +11,17 @@ verdict → fold into `any_failed`). What's implemented vs. still design:
   (accept/busy/reject), bare-host run, **`run_on=podman` run** (the dispatched
   build's compile delegates into a `--ctr-image` toolchain container via the
   aeb-ctr two-phase duality — proven on a host with no aetherc/gcc),
-  **`run_on=vm` run** (rsync the prepared tree to an SSH-reachable VM, run
-  `aeb <target>` there on the VM's own toolchain, rsync the artifacts JSON back;
-  the VM target is an `~/.ssh/config` alias that owns key/ProxyJump, fail-closed
-  without `--vm-host` — proven end-to-end), originator
+  **`run_on=vm` run** (ship the prepared tree to an SSH-reachable VM, build
+  there on the VM's own toolchain, bring the artifacts JSON back; the VM target
+  is an `~/.ssh/config` alias that owns key/ProxyJump, fail-closed without
+  `--vm-host` — proven end-to-end). **Two build verbs:** `aeb <target>` (default)
+  or a **raw command** (the dispatch's `command` field — `build.sh`/`make`/`cmake`
+  for non-aeb projects; opt-in via `--allow-vm-command`, fail-closed). **Transport
+  auto-falls-back** rsync→`tar|ssh` for a VM without rsync, and `--vm-shell`
+  wraps remote commands for a non-POSIX default ssh shell (e.g.
+  `C:\msys64\usr\bin\bash.exe -lc` on a Windows VM). Proven Linux→**winbaz**:
+  a `build.sh` compiled + ran a Windows `.exe`, no rsync/aeb on the VM. The
+  originator
   dispatch + verdict fold, the composable scope-tree data model,
   fail-back-on-busy/reject/unreachable, **agent OS self-report** (the auth-gated
   `/ping` reports `platform` — runs natively on Windows). Synchronous wire

@@ -4,7 +4,7 @@
 // Design: docs/run-policy-class-and-cloud-leverage.md
 
 import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
-              _decision, dispatch_request_json, dispatch_reply_json,
+              _decision, dispatch_request_json, dispatch_request_json_ex, dispatch_reply_json,
               _json_field, run_on, max_jobs, accept_scope,
               _parse_tokens, _token_ok, _bearer_strip, ping_json,
               _parse_pool, _pool_url_of, _pool_token_of,
@@ -88,6 +88,18 @@ main() {
     _eq("req patch_b64 empty", _json_field(req, "patch_b64"), "")
     req2 = dispatch_request_json("G2", "t.ae", "p", "", "", "YmFzZTY0")
     _eq("req2 patch_b64", _json_field(req2, "patch_b64"), "YmFzZTY0")
+    // 6-field form omits the optional image/command (agent sees "").
+    _eq("req omits image when unset", _json_field(req, "image"), "")
+    _eq("req omits command when unset", _json_field(req, "command"), "")
+
+    // --- _ex form: optional image (podman) + command (vm raw build) ---
+    reqi = dispatch_request_json_ex("G3", "t.ae", "preint", "", "", "", "aeb-tc:rust", "")
+    _eq("ex image present", _json_field(reqi, "image"), "aeb-tc:rust")
+    _eq("ex command absent when empty", _json_field(reqi, "command"), "")
+    reqc = dispatch_request_json_ex("G4", "t.ae", "preint", "", "", "", "", "./build.sh ex.ae build/ex")
+    _eq("ex command present", _json_field(reqc, "command"), "./build.sh ex.ae build/ex")
+    _eq("ex image absent when empty", _json_field(reqc, "image"), "")
+    _eq("ex still carries guid", _json_field(reqc, "guid"), "G4")
 
     rep = dispatch_reply_json("G123", "done", "fail")
     _eq("reply guid", _json_field(rep, "guid"), "G123")

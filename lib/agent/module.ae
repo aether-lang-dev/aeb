@@ -480,8 +480,24 @@ _lease_verify(secret: string, token: string, now_ms: long, req_purpose: string) 
 //                                      of the binary-ish diff).
 // (Pre-integration model: trusted base from origin + the requester's
 // untrusted patch delta — which maybe_veto_build then scrutinizes.)
+// The common 6-field form. For the optional run_on=podman "image" and
+// run_on=vm "command" fields, use dispatch_request_json_ex (this delegates).
 dispatch_request_json(guid: string, target: string, purpose: string,
                       ref: string, hash: string, patch_b64: string) {
+    return dispatch_request_json_ex(guid, target, purpose, ref, hash, patch_b64, "", "")
+}
+
+// dispatch_request_json_ex — adds the optional per-dispatch routing fields:
+//   image    — run_on=podman toolchain image override (agent gates via
+//              --allow-image). "" omits it.
+//   command  — run_on=vm RAW build command (build.sh / make / cmake) run in
+//              the tree root instead of `aeb <target>`; the agent honours it
+//              only with --allow-vm-command. "" omits it (default aeb <target>).
+// Both are emitted only when non-empty, so the wire stays minimal and the
+// agent's _json_field("image"/"command") sees "" when absent.
+dispatch_request_json_ex(guid: string, target: string, purpose: string,
+                         ref: string, hash: string, patch_b64: string,
+                         image: string, command: string) {
     out = "{"
     out = string.concat(out, "\"guid\":\"")
     out = string.concat(out, guid)
@@ -495,6 +511,14 @@ dispatch_request_json(guid: string, target: string, purpose: string,
     out = string.concat(out, hash)
     out = string.concat(out, "\",\"patch_b64\":\"")
     out = string.concat(out, patch_b64)
+    if string.length(image) > 0 {
+        out = string.concat(out, "\",\"image\":\"")
+        out = string.concat(out, image)
+    }
+    if string.length(command) > 0 {
+        out = string.concat(out, "\",\"command\":\"")
+        out = string.concat(out, command)
+    }
     out = string.concat(out, "\"}")
     return out
 }

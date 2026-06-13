@@ -512,16 +512,92 @@ os_getpid_safe() {
 //   --vm-dir <remote-dir>    (AEB_AGENT_VM_DIR, default /tmp/aeb-vm-build) — where
 //                            the prepared tree is rsync'd on the VM.
 //
-// Steps: rsync the prepared tree → VM, `ssh <vm> 'cd <dir> && aeb <target>'`
-// (tee'd to the local log), exit code is the build verdict, then rsync the VM's
-// target/ artifacts JSON back to AEB_ARTIFACTS_JSON so the rich reply still
-// reports what got built. Best-effort on the artifact fetch (a missing file →
-// empty artifacts, not a failure). Returns the build's exit code.
+// Steps: ship the prepared tree → VM, run the build there (tee'd to the local
+// log), exit code is the verdict, then bring the VM's artifacts JSON back to
+// AEB_ARTIFACTS_JSON so the rich reply still reports what got built.
+//
+// TWO build verbs, selected per-dispatch:
+//   - default: `aeb <target>` on the VM's own toolchain (the proven path).
+//   - RAW COMMAND (AEB_AGENT_VM_COMMAND, the dispatch's "command" field): run
+//     THAT command in the tree root instead — for projects that build with a
+//     hand-rolled build.sh / make / cmake and have no `.build.ae` (e.g.
+//     aether-ui's Win32 bring-up on winbaz). aeb does NOT parse the command's
+//     output: exit 0 → pass, non-zero → fail; whatever the command leaves in
+//     the artifacts path comes back. The command runs through the same shell on
+//     the VM, in the tree root, so MSYS2/Windows POSIX idioms work.
+//
+// TRANSPORT: rsync both ways when the VM has it; otherwise fall back to
+// `tar | ssh` (a fresh/locked-down VM — e.g. winbaz, no rsync — then needs ZERO
+// install). _vm_has_rsync probes once.
+//
+// VM SHELL: a bare `ssh <vm> '<cmd>'` runs <cmd> in the VM's DEFAULT ssh shell.
+// On a POSIX VM that's a POSIX shell (fine). On a Windows VM (winbaz) it's
+// cmd.exe — which can't `cd /tmp && tar …`. So --vm-shell <prefix>
+// (AEB_AGENT_VM_SHELL) wraps the remote, POSIX-side command: with it set, the
+// agent runs `ssh <vm> '<prefix> "<posix_cmd>"'` — e.g. prefix
+// `C:\msys64\usr\bin\bash.exe -lc` forces MSYS bash. Empty prefix = bare
+// (POSIX VM). The inner <posix_cmd> must stay double-quote-free (the wrapper
+// uses "…" around it) — see [[win-cmdexe-sh-quoting-law]].
 //
 // (The VM-host *spawning/loaning* the VM — `virsh start`/`clone` a transient
 // domain — is a later layer; this first cut treats the VM as an already-running,
 // SSH-reachable build node, which is the common fleet shape and what the
 // bazzite/win11 setup already provides.)
+
+// _vm_remote(vm, posix_cmd) — build the `ssh` invocation that runs a POSIX-shell
+// command on the VM, honouring AEB_AGENT_VM_SHELL. No --vm-shell → bare
+// `ssh <vm> '<posix_cmd>'`. With one → `ssh <vm> '<prefix> "<posix_cmd>"'`
+// (the prefix's own shell then interprets posix_cmd). posix_cmd must be
+// double-quote-free when a shell prefix is used.
+_vm_remote(vm: string, posix_cmd: string) {
+    shell = os.getenv("AEB_AGENT_VM_SHELL")
+    if string.length(shell) == 0 {
+        return string.concat("ssh ", string.concat(vm, string.concat(" '", string.concat(posix_cmd, "'"))))
+    }
+    inner = string.concat(shell, string.concat(" \"", string.concat(posix_cmd, "\"")))
+    return string.concat("ssh ", string.concat(vm, string.concat(" '", string.concat(inner, "'"))))
+}
+
+// _vm_has_rsync(vm) — 1 if `rsync` is on the VM's PATH (probed via ssh,
+// through the VM shell), else 0.
+_vm_has_rsync(vm: string) {
+    probe = _vm_remote(vm, "command -v rsync >/dev/null 2>&1 && echo yes || echo no")
+    out, _e = build._sh_capture(probe)
+    if string.index_of(out, "yes") >= 0 { return 1 }
+    return 0
+}
+
+// _vm_push(vm, workdir, vmdir, use_rsync, log_path) — ship workdir/ → vm:vmdir/.
+// rsync (mirror w/ --delete) when available; else stream a tarball over ssh
+// (clears vmdir first so it's a clean mirror, like --delete). Returns rc.
+_vm_push(vm: string, workdir: string, vmdir: string, use_rsync: int, log_path: string) {
+    mk = _vm_remote(vm, string.concat("mkdir -p ", vmdir))
+    _ = build._sh(string.concat(mk, " >> '${log_path}' 2>&1"))
+    if use_rsync == 1 {
+        rp = string.concat("rsync -az --delete -e ssh '", string.concat(workdir, string.concat("/' '", string.concat(vm, string.concat(":", string.concat(vmdir, "/'"))))))
+        return build._sh(string.concat(rp, " >> '${log_path}' 2>&1"))
+    }
+    // tar fallback: clean the remote dir, then stream `tar c` from workdir into
+    // `tar x` on the VM. -C workdir . = copy the tree's CONTENTS into vmdir.
+    clean = _vm_remote(vm, string.concat("rm -rf ", string.concat(vmdir, string.concat("/* ", string.concat(vmdir, "/.[!.]* 2>/dev/null; true")))))
+    _c = build._sh(string.concat(clean, " >> '${log_path}' 2>&1"))
+    rx = _vm_remote(vm, string.concat("tar xzf - -C ", vmdir))
+    tp = string.concat("tar czf - -C '", string.concat(workdir, string.concat("' . | ", rx)))
+    return build._sh(string.concat(tp, " >> '${log_path}' 2>&1"))
+}
+
+// _vm_fetch_file(vm, remote, local, use_rsync, log_path) — bring a single file
+// vm:remote → local. Best-effort (caller ignores rc). rsync or `ssh cat`.
+_vm_fetch_file(vm: string, remote: string, local: string, use_rsync: int, log_path: string) {
+    if use_rsync == 1 {
+        f = string.concat("rsync -az -e ssh '", string.concat(vm, string.concat(":", string.concat(remote, string.concat("' '", string.concat(local, "'"))))))
+        return build._sh(string.concat(f, " >> '${log_path}' 2>&1"))
+    }
+    // tar/cat fallback: `ssh cat remote > local` (file may be absent → empty).
+    f = string.concat(_vm_remote(vm, string.concat("cat ", string.concat(remote, " 2>/dev/null"))), string.concat(" > '", string.concat(local, "'")))
+    return build._sh(string.concat(f, " 2>> '${log_path}'"))
+}
+
 _run_on_vm(workdir: string, target: string, log_path: string) {
     vm = os.getenv("AEB_AGENT_VM_HOST")
     if string.length(vm) == 0 {
@@ -530,31 +606,42 @@ _run_on_vm(workdir: string, target: string, log_path: string) {
     }
     vmdir = os.getenv("AEB_AGENT_VM_DIR")
     if string.length(vmdir) == 0 { vmdir = "/tmp/aeb-vm-build" }
-    println("agent: run_on=vm — building on ${vm}:${vmdir}")
+    raw_cmd = os.getenv("AEB_AGENT_VM_COMMAND")
 
-    // 1. Ship the prepared tree to the VM. -e ssh so rsync uses the ssh-config
-    //    alias (ProxyJump etc.). Trailing slash on src = copy contents into vmdir.
-    push = string.concat("ssh ", string.concat(vm, string.concat(" 'mkdir -p ", string.concat(vmdir, "'"))))
-    _ = build._sh(string.concat(push, " >> '${log_path}' 2>&1"))
-    rsync_push = string.concat("rsync -az --delete -e ssh '", string.concat(workdir, string.concat("/' '", string.concat(vm, string.concat(":", string.concat(vmdir, "/'"))))))
-    prc = build._sh(string.concat(rsync_push, " >> '${log_path}' 2>&1"))
+    // Transport: prefer rsync; fall back to tar|ssh on a VM without it.
+    use_rsync = _vm_has_rsync(vm)
+    transport = "tar|ssh"
+    if use_rsync == 1 { transport = "rsync" }
+    println("agent: run_on=vm — building on ${vm}:${vmdir} (transport=${transport})")
+
+    // 1. Ship the prepared tree to the VM.
+    prc = _vm_push(vm, workdir, vmdir, use_rsync, log_path)
     if prc != 0 {
-        _wp = io.write_file(log_path, "run_on=vm: rsync to ${vm}:${vmdir} failed\n")
+        _wp = io.write_file(log_path, "run_on=vm: ship tree to ${vm}:${vmdir} failed (transport=${transport})\n")
         return prc
     }
 
-    // 2. Build on the VM. The VM's own aeb resolves its own AEB_HOME/toolchain.
-    //    AEB_ARTIFACTS_JSON points at a VM-side path we fetch back in step 3.
+    // 2. Build on the VM — raw command OR aeb <target>.
     vm_art = string.concat(vmdir, "/.aeb-vm-artifacts.json")
-    runc = string.concat("ssh ", string.concat(vm, string.concat(" 'cd ", string.concat(vmdir, string.concat(" && AEB_ARTIFACTS_JSON=", string.concat(vm_art, string.concat(" aeb ", string.concat(target, "'"))))))))
+    runc = ""
+    if string.length(raw_cmd) > 0 {
+        // Raw foreign build (build.sh / make / cmake …). cd into the tree, run
+        // the command verbatim. Its exit code IS the verdict; aeb parses nothing.
+        println("agent: run_on=vm raw command: ${raw_cmd}")
+        runc = _vm_remote(vm, string.concat("cd ", string.concat(vmdir, string.concat(" && ", raw_cmd))))
+    } else {
+        // Default: the VM's own aeb resolves its AEB_HOME/toolchain; point
+        // AEB_ARTIFACTS_JSON at a VM-side path we fetch back in step 3.
+        runc = _vm_remote(vm, string.concat("cd ", string.concat(vmdir, string.concat(" && AEB_ARTIFACTS_JSON=", string.concat(vm_art, string.concat(" aeb ", target))))))
+    }
     rc = build._sh(string.concat(runc, " >> '${log_path}' 2>&1"))
 
-    // 3. Bring the artifacts JSON back to where the rich-reply builder reads it
-    //    (AEB_ARTIFACTS_JSON, set by the caller to a local /tmp path).
+    // 3. Bring the artifacts JSON back (best-effort). For the aeb path this is
+    //    what the build wrote; for the raw path a build.sh MAY have written it
+    //    (if not, the fetch yields an empty file → empty artifacts, fine).
     local_art = os.getenv("AEB_ARTIFACTS_JSON")
     if string.length(local_art) > 0 {
-        fetch = string.concat("rsync -az -e ssh '", string.concat(vm, string.concat(":", string.concat(vm_art, string.concat("' '", string.concat(local_art, "'"))))))
-        _f = build._sh(string.concat(fetch, " >> '${log_path}' 2>&1"))
+        _f = _vm_fetch_file(vm, vm_art, local_art, use_rsync, log_path)
     }
     return rc
 }
@@ -649,6 +736,31 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         _eci = os.setenv("AEB_AGENT_CTR_IMAGE", dispatch_image)
     }
 
+    // --- Per-dispatch raw build command (run_on=vm): a non-aeb project (its
+    //   build is build.sh / make / cmake, no .build.ae) names the command to run
+    //   on the VM via the "command" field, instead of `aeb <target>`. This is
+    //   arbitrary command execution on the VM, so it is OPT-IN + fail-closed:
+    //   the agent honours it ONLY if started with --allow-vm-command
+    //   (AEB_AGENT_ALLOW_VM_COMMAND=1). Without that, a "command" is REJECTED —
+    //   a leased agent can't be talked into running an arbitrary command. When
+    //   allowed, it's published to AEB_AGENT_VM_COMMAND for THIS dispatch (read
+    //   by _run_on_vm) and restored after. Only meaningful for run_on=vm; for
+    //   host/podman it's ignored (those build verbs aren't command-shaped).
+    dispatch_command = _json_field(body, "command")
+    saved_vm_command = os.getenv("AEB_AGENT_VM_COMMAND")
+    if string.length(dispatch_command) > 0 {
+        allow_cmd = os.getenv("AEB_AGENT_ALLOW_VM_COMMAND")
+        if string.equals(allow_cmd, "1") == 0 {
+            println("agent: REJECT guid=${guid} (dispatch carries a raw command but agent lacks --allow-vm-command; fail-closed)")
+            http.response_set_status(res, 403)
+            http.response_set_header(res, "Content-Type", "application/json")
+            http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
+            return 0
+        }
+        println("agent: vm-command guid=${guid} -> ${dispatch_command}")
+        _evc = os.setenv("AEB_AGENT_VM_COMMAND", dispatch_command)
+    }
+
     // --- Prepare (wire ops, the agent's own lifecycle — NOT build grammar):
     //   1. git fetch origin <ref> && git checkout <hash>  (fetch-base)
     //   2. git apply <patch>                              (pre-integration delta)
@@ -673,7 +785,15 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     // The decoded patch (left by _prepare_tree) is scanned by patch-scope
     // rules, then removed regardless of outcome.
     patch_path = _patch_path_for(guid, patch_b64)
-    veto = _maybe_veto_build(repo, target, purpose, patch_path)
+    // In raw-command mode the build verb is the foreign command, NOT `aeb
+    // <target>` — there's no aeb target to emit an AST for (target is often a
+    // placeholder like ".build.ae" that doesn't exist). So pass "" as the veto
+    // target to skip the AST-emit layer; Tier-A (secret/banned markers over the
+    // tree + the untrusted patch) STILL runs — that's the load-bearing gate for
+    // an opaque foreign build.
+    veto_target = target
+    if string.length(dispatch_command) > 0 { veto_target = "" }
+    veto = _maybe_veto_build(repo, veto_target, purpose, patch_path)
     if string.length(patch_path) > 0 {
         _dp = fs.delete(patch_path)
     }
@@ -770,6 +890,10 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     // into the NEXT dispatch (which may carry no "image" and expect the default).
     if string.length(dispatch_image) > 0 {
         _rci = os.setenv("AEB_AGENT_CTR_IMAGE", saved_ctr_image)
+    }
+    // Likewise restore the raw-command env so it doesn't leak to the next dispatch.
+    if string.length(dispatch_command) > 0 {
+        _rvc = os.setenv("AEB_AGENT_VM_COMMAND", saved_vm_command)
     }
 
     println("agent: DONE guid=${guid} result=${result} (rc=${rc})")
@@ -876,8 +1000,10 @@ main() {
     run_on = "host"
     ctr_image = ""
     allow_image = ""
+    allow_vm_command = 0
     vm_host = ""
     vm_dir = ""
+    vm_shell = ""
 
     i = 1
     while i < argc {
@@ -918,6 +1044,15 @@ main() {
         // ProxyJump through the VM host); --vm-dir is the remote build dir.
         if string.equals(a, "--vm-host") == 1 { i = i + 1; vm_host = aether_args_get(i) }
         if string.equals(a, "--vm-dir") == 1 { i = i + 1; vm_dir = aether_args_get(i) }
+        // --vm-shell PREFIX: wrap remote VM commands in PREFIX "<cmd>" (e.g.
+        // 'C:\msys64\usr\bin\bash.exe -lc' for a Windows VM whose default ssh
+        // shell is cmd.exe). Empty = the VM's default ssh shell is POSIX.
+        if string.equals(a, "--vm-shell") == 1 { i = i + 1; vm_shell = aether_args_get(i) }
+        // --allow-vm-command: opt-in to honouring a dispatch's "command" field
+        // (run_on=vm raw build verb — build.sh/make/cmake instead of aeb
+        // <target>). Arbitrary command execution on the VM, so fail-closed:
+        // without this flag a dispatch carrying a command is rejected.
+        if string.equals(a, "--allow-vm-command") == 1 { allow_vm_command = 1 }
         i = i + 1
     }
     // --repo defaults to --workdir (the agent's clone IS the build dir
@@ -966,8 +1101,10 @@ main() {
     _e5 = os.setenv("AEB_AGENT_RUN_ON", run_on)
     if string.length(ctr_image) > 0 { _e6 = os.setenv("AEB_AGENT_CTR_IMAGE", ctr_image) }
     if string.length(allow_image) > 0 { _e6b = os.setenv("AEB_AGENT_ALLOW_IMAGE", allow_image) }
+    if allow_vm_command == 1 { _e6c = os.setenv("AEB_AGENT_ALLOW_VM_COMMAND", "1") }
     if string.length(vm_host) > 0 { _e7 = os.setenv("AEB_AGENT_VM_HOST", vm_host) }
     if string.length(vm_dir) > 0 { _e8 = os.setenv("AEB_AGENT_VM_DIR", vm_dir) }
+    if string.length(vm_shell) > 0 { _e9 = os.setenv("AEB_AGENT_VM_SHELL", vm_shell) }
 
     // Fail-closed auth posture announcement. Distinguish the three
     // operator-visible states so a MISCONFIGURATION (unreadable mount)
@@ -1038,6 +1175,10 @@ _usage() {
     println("                  (trailing '*' = prefix, '*' = any). Without it, only --ctr-image runs.")
     println("  --vm-host HOST  ssh target/alias for --run-on vm (its config may ProxyJump); required then")
     println("  --vm-dir DIR    remote build dir on the VM (--run-on vm; default /tmp/aeb-vm-build)")
+    println("  --vm-shell PFX  wrap VM commands as PFX \"<cmd>\" for a non-POSIX default ssh shell, e.g.")
+    println("                  'C:\\msys64\\usr\\bin\\bash.exe -lc' on a Windows VM (winbaz)")
+    println("  --allow-vm-command  honour a dispatch's \"command\" field on --run-on vm (run build.sh/make")
+    println("                  instead of aeb <target>). Arbitrary VM command exec — off by default (fail-closed).")
     println("  -h, --help      this message")
     println("")
     println("Endpoints: GET /health (open), GET /ping (auth), POST /dispatch (auth)")

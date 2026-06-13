@@ -30,7 +30,7 @@ import std.string
 import std.io
 import std.http.client
 
-import agent (_lease_node, dispatch_request_json, _json_field, _gen_guid)
+import agent (_lease_node, dispatch_request_json, dispatch_request_json_ex, _json_field, _gen_guid)
 import std.json
 
 extern println(s: string)
@@ -103,7 +103,15 @@ main() {
     if string.length(patch_b64) > 0 { pdisp = "+patch" }
     println("aeb --use-remote-agents: ${guid} → ${ep} target=${target} base=${gref}@${ghash} ${pdisp}")
 
-    req_body = dispatch_request_json(guid, target, purpose, gref, ghash, patch_b64)
+    // Optional run_on=vm RAW command: a non-aeb project (build.sh/make/cmake,
+    // no .build.ae) sets AEB_VM_COMMAND to the build command; the agent runs it
+    // on the VM in the tree root instead of `aeb <target>` (requires the agent
+    // to be started with --allow-vm-command). "" → default aeb <target> path.
+    vm_command = os.getenv("AEB_VM_COMMAND")
+    req_body = dispatch_request_json_ex(guid, target, purpose, gref, ghash, patch_b64, "", vm_command)
+    if string.length(vm_command) > 0 {
+        println("aeb --use-remote-agents: run_on=vm raw command: ${vm_command}")
+    }
     url = string.concat(ep, "/dispatch")
     creq = client.request("POST", url)
     _sh = client.set_header(creq, "X-AEB-Token", tok)

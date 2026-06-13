@@ -1,5 +1,21 @@
 # `run_on=vm` should support a raw build command, not only `aeb <target>`
 
+> **STATUS: IMPLEMENTED (2026-06-13, main).** Option 1 (the recommended one)
+> shipped: a dispatch `command` field runs verbatim on the VM in the tree root
+> instead of `aeb <target>`; exit code → verdict. Opt-in + fail-closed via the
+> agent's `--allow-vm-command` (a leased agent can't be talked into arbitrary
+> command exec without it). The "second, smaller prerequisite" also shipped:
+> transport **auto-falls-back rsync→`tar|ssh`** so a VM with no rsync (winbaz)
+> needs ZERO install; and `--vm-shell 'C:\msys64\usr\bin\bash.exe -lc'` wraps
+> remote commands for a Windows VM whose default ssh shell is cmd.exe.
+> **Acceptance met on real winbaz:** a single dispatch with `--vm-host winbaz`
+> + `command: "export PATH=/mingw64/bin:$PATH; ./build.sh hello.c hello.exe &&
+> ./hello.exe"` shipped the tree (tar), built with gcc, ran the `.exe`, and
+> returned `result:pass` — no `.build.ae`, no `aeb`, no rsync on the VM.
+> Originator side: `aeb-remote` reads `AEB_VM_COMMAND` (or use
+> `dispatch_request_json_ex(..., command)`).
+
+
 **Filed by**: the aether-ui GUI-toolkit project (sibling claude session), after
 bringing the native **Win32** backend up green-ish on the **winbaz** Windows VM
 by hand (tar+ssh → `build.sh` on the VM → tunnel the AetherUIDriver back → run
