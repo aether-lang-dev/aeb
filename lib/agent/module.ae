@@ -38,6 +38,7 @@ import std.list
 import std.map
 import std.path
 import std.file
+import std.cryptography
 
 // --- Originator-side DSL setters (live on _builder) ---
 
@@ -356,6 +357,107 @@ _bearer_strip(header_value: string) {
         }
     }
     return v
+}
+
+// --- Lease tokens: HMAC-signed, purpose-bound, expiring (pure; tested) ----
+//
+// The real-auth thickening of the flat --tokens bearer set. A LEASE token is
+// self-describing and unforgeable without the shared signing secret, per
+// "A Purpose in a Token" (docs/run-policy-class-and-cloud-leverage.md §trust):
+//
+//   ae1.<purpose>.<expiry_unix_ms>.<hmac_sha256_hex>
+//        \_______________________/  \____________/
+//         the SIGNED PREFIX           proves the prefix wasn't forged
+//
+// - purpose: legibly in the middle (e.g. "preint/phammant/rust"). The agent
+//   verifies the DISPATCH's purpose is covered by the token's purpose (glob),
+//   so a token minted for one purpose can't be replayed for another.
+// - expiry_unix_ms: the lease's hard deadline; the agent rejects past it.
+// - hmac: HMAC-SHA256(secret, "ae1.<purpose>.<expiry>") in hex. Only a holder
+//   of the secret can mint; the agent only VERIFIES (never self-issues —
+//   issuance lives with the lessor/issuer, the doc's hard rule). Rotating the
+//   secret revokes every outstanding lease.
+//
+// Why "." separated, not JSON/JWT: keeps the verifier a few pure string ops
+// (no parser, no clock skew tolerance to misconfigure) — a small, auditable
+// spine. The purpose itself must not contain "." (canonical purposes use "/").
+//
+// The version tag is the literal "ae1" (Aether has no module-level constants —
+// see the no-pre-entry-execution rule — so it's inlined / via _lease_tag()).
+
+// _lease_tag() — the lease-token version tag. A fn (not a const) because
+// Aether forbids top-level executable statements.
+_lease_tag() { return "ae1" }
+
+// _lease_field(token, i) — the i-th "."-separated field of a lease token
+// (0=tag,1=purpose,2=expiry,3=sig). "" if absent. Pure.
+_lease_field(token: string, idx: int) {
+    rest = token
+    i = 0
+    while i < idx {
+        dot = string.index_of(rest, ".")
+        if dot < 0 { return "" }
+        rest = string.substring(rest, dot + 1, string.length(rest))
+        i = i + 1
+    }
+    dot = string.index_of(rest, ".")
+    if dot < 0 { return rest }
+    return string.substring(rest, 0, dot)
+}
+
+// _lease_signed_prefix(purpose, expiry) — the exact bytes the HMAC covers.
+_lease_signed_prefix(purpose: string, expiry: string) {
+    return string.concat(_lease_tag(), string.concat(".", string.concat(purpose, string.concat(".", expiry))))
+}
+
+// _lease_sign(secret, purpose, expiry) — HMAC-SHA256 hex over the signed
+// prefix. Returns "" if openssl is unavailable (caller treats as fail-closed).
+_lease_sign(secret: string, purpose: string, expiry: string) {
+    pre = _lease_signed_prefix(purpose, expiry)
+    sig, err = cryptography.hmac_sha256_hex(secret, string.length(secret), pre, string.length(pre))
+    if string.length(err) > 0 { return "" }
+    return sig
+}
+
+// _lease_mint(secret, purpose, expiry) — build a full lease token. Issuer-side
+// helper (and the tests' fixture); the AGENT never calls this. Pure.
+_lease_mint(secret: string, purpose: string, expiry: string) {
+    sig = _lease_sign(secret, purpose, expiry)
+    if string.length(sig) == 0 { return "" }
+    return string.concat(_lease_signed_prefix(purpose, expiry), string.concat(".", sig))
+}
+
+// _lease_verify(secret, token, now_ms, req_purpose) — the agent-side gate.
+// Returns "" if the lease is valid for this dispatch, else a non-empty REASON
+// (the verdict logs it). Fail-closed: any malformedness / bad sig / expiry /
+// purpose-mismatch is a refusal. now_ms is the current unix-ms clock (passed in
+// so the function stays pure + testable). _atoi_ms parses the expiry.
+_lease_verify(secret: string, token: string, now_ms: long, req_purpose: string) {
+    if string.length(secret) == 0 { return "lease: no signing secret (fail-closed)" }
+    if string.length(token) == 0 { return "lease: empty token" }
+    tag = _lease_field(token, 0)
+    if string.equals(tag, _lease_tag()) == 0 { return "lease: not an ae1 token" }
+    purpose = _lease_field(token, 1)
+    expiry = _lease_field(token, 2)
+    sig = _lease_field(token, 3)
+    if string.length(purpose) == 0 { return "lease: missing purpose" }
+    if string.length(expiry) == 0 { return "lease: missing expiry" }
+    if string.length(sig) == 0 { return "lease: missing signature" }
+    // 1. Signature: recompute over the prefix; constant-string compare.
+    want = _lease_sign(secret, purpose, expiry)
+    if string.length(want) == 0 { return "lease: cannot verify (openssl unavailable)" }
+    if string.equals(sig, want) == 0 { return "lease: bad signature (forged or wrong secret)" }
+    // 2. Expiry: reject at/after the deadline. string.to_long is overflow-safe
+    //    (unix-ms ~1.7e12 exceeds int32); a non-numeric expiry => fail-closed.
+    exp_ms, exp_err = string.to_long(expiry)
+    if string.length(exp_err) > 0 { return "lease: malformed expiry" }
+    if exp_ms <= now_ms { return "lease: expired" }
+    // 3. Purpose binding: the token's purpose must COVER the requested purpose
+    //    (same glob grammar as scopes — "preint/*" token covers "preint/rust").
+    if _scope_glob_match(purpose, req_purpose) == 0 {
+        return "lease: purpose '${req_purpose}' not covered by token purpose '${purpose}'"
+    }
+    return ""
 }
 
 // --- Wire payloads (pure builders; tested) ---

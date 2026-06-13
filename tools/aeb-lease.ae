@@ -1,0 +1,88 @@
+// aeb-lease — the LESSOR-side minting tool for agent lease tokens.
+//
+// The counterpart to the agent's --lease-secret verify path: a holder of the
+// shared signing secret mints an ae1.<purpose>.<expiry>.<sig> bearer token,
+// scoped to a purpose and expiring after a TTL. The requester then presents it
+// to the agent (X-AEB-Token), which verifies (signature + expiry + purpose
+// coverage) but NEVER mints — issuance lives here, with the secret holder.
+//
+//   aeb-lease --secret <file> --purpose preint/phammant/rust --ttl-mins 30
+//     → prints the token to stdout (one line, nothing else — pipe/capture it)
+//
+// Why a separate tool: the agent must not be able to self-issue (the trust
+// model's hard rule). Minting is a distinct capability the lessor runs; the
+// agent binary has no mint path at all. See lib/agent _lease_mint and
+// docs/run-policy-class-and-cloud-leverage.md §trust model.
+
+import std.os
+import std.string
+import std.io
+
+import agent (_lease_mint)
+
+extern println(s: string)
+extern exit(code: int)
+extern aether_args_count() -> int
+extern aether_args_get(i: int) -> string
+
+_usage() {
+    println("aeb-lease — mint an agent lease token (lessor-side)")
+    println("")
+    println("Usage: aeb-lease --secret <file> --purpose <p> [--ttl-mins N]")
+    println("  --secret FILE   file holding the shared signing secret (matches the agent's --lease-secret)")
+    println("  --purpose P     the lease purpose, embedded + signed (e.g. preint/phammant/rust)")
+    println("  --ttl-mins N    minutes until the lease expires (default 30)")
+    println("")
+    println("Prints the token (ae1.<purpose>.<expiry-ms>.<sig>) to stdout. The agent VERIFIES it; only the secret holder can mint.")
+}
+
+main() {
+    argc = aether_args_count()
+    secret_file = ""
+    purpose = ""
+    ttl_mins = 30
+    i = 1
+    while i < argc {
+        a = aether_args_get(i)
+        if string.equals(a, "--help") == 1 { _usage(); exit(0) }
+        if string.equals(a, "-h") == 1 { _usage(); exit(0) }
+        if string.equals(a, "--secret") == 1 { i = i + 1; secret_file = aether_args_get(i) }
+        if string.equals(a, "--purpose") == 1 { i = i + 1; purpose = aether_args_get(i) }
+        if string.equals(a, "--ttl-mins") == 1 { i = i + 1; ttl_mins = _atoi(aether_args_get(i)) }
+        i = i + 1
+    }
+    if string.length(secret_file) == 0 { println("aeb-lease: --secret <file> required"); exit(2) }
+    if string.length(purpose) == 0 { println("aeb-lease: --purpose <p> required"); exit(2) }
+    // The purpose is signed verbatim; "." would break the field split.
+    if string.index_of(purpose, ".") >= 0 {
+        println("aeb-lease: --purpose must not contain '.' (canonical purposes use '/')"); exit(2)
+    }
+    secret_raw, serr = io.read_file(secret_file)
+    if string.length(serr) > 0 { println("aeb-lease: cannot read --secret file: ${secret_file} (${serr})"); exit(2) }
+    secret = string.trim(secret_raw)
+    if string.length(secret) == 0 { println("aeb-lease: --secret file is empty: ${secret_file}"); exit(2) }
+
+    // expiry = now + ttl, in unix-ms. ttl_mins * 60_000.
+    ttl_ms = ttl_mins * 60000
+    expiry = os.now_unix_ms() + ttl_ms
+    token = _lease_mint(secret, purpose, string.from_long(expiry))
+    if string.length(token) == 0 { println("aeb-lease: mint failed (openssl unavailable?)"); exit(1) }
+    println(token)
+    exit(0)
+}
+
+_atoi(s: string) {
+    n = string.length(s)
+    if n == 0 { return 0 }
+    i = 0
+    v = 0
+    digits = "0123456789"
+    while i < n {
+        c = string.substring(s, i, i + 1)
+        d = string.index_of(digits, c)
+        if d < 0 { return v }
+        v = v * 10 + d
+        i = i + 1
+    }
+    return v
+}

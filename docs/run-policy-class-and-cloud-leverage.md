@@ -18,13 +18,18 @@ verdict → fold into `any_failed`). What's implemented vs. still design:
   dispatch + verdict fold, the composable scope-tree data model,
   fail-back-on-busy/reject/unreachable, **agent OS self-report** (the auth-gated
   `/ping` reports `platform` — runs natively on Windows). Synchronous wire
-  (HTTP), scope from CLI flags. **Naive `--tokens` auth**: a flat bearer-token
-  file, fail-closed (no file → refuse all). This is the interim, shared-secret
-  stand-in for the trust model below — it authenticates "you hold the secret,"
-  nothing more.
-- **Still design (this doc):** the real policy class + token/purpose trust
-  model (claim→verify→veto, purpose-in-the-token, issuance constraint —
-  the `--tokens` file is the naive placeholder for this), cache
+  (HTTP), scope from CLI flags. **Two auth modes:** *legacy* `--tokens` (a flat
+  bearer-token file, fail-closed) and **LEASE auth** (`--lease-secret`) — the
+  real model below, walking-skeleton-complete: **HMAC-signed, expiring,
+  purpose-bound** tokens `ae1.<purpose>.<expiry-ms>.<sig>`. The agent VERIFIES
+  (signature vs the shared secret, not expired, embedded purpose COVERS the
+  dispatch's purpose) and **never mints** — minting is a separate lessor-side
+  tool (`tools/aeb-lease`). Proven end-to-end: valid→accepted,
+  expired/forged/wrong-secret/wrong-purpose→rejected.
+- **Still design (this doc):** the FULL trust model beyond the lease skeleton —
+  hierarchical scope constraint-at-issuance (the lessor's minting policy:
+  which principal may be minted which purposes), token revocation lists (today
+  revocation = rotate the secret, killing all leases), cache
   partitioning by embedded purpose, fire-async + webhook-back +
   `details_url` split, the VM-host **spawn/loan** layer (virsh start/clone —
   `run_on=vm` dispatches to an *already-reachable* VM; provisioning one on
@@ -156,6 +161,43 @@ The veto must **degrade, not abort**: a rejected ci-claim becomes a
 pre-integration run (isolated cache, advisory green), with a clear log
 line ("policy ci claimed but not authenticated; proceeding as
 pre-integration"). It does not fail the build — it fails the *promotion*.
+
+### Lease tokens — the implemented skeleton of this model
+
+The agent's `--lease-secret` mode is the first concrete cut of "purpose in the
+token". A lease is one self-describing bearer string:
+
+```
+ae1.<purpose>.<expiry-unix-ms>.<hmac_sha256_hex>
+     \__________ signed prefix __________/
+```
+
+- **purpose, legible in the middle** (`preint/phammant/rust`) — exactly the
+  post's "find it again across your systems" placement.
+- **expiry** — the agent rejects at/after the deadline (`os.now_unix_ms`).
+- **hmac** — `HMAC-SHA256(shared_secret, "ae1.<purpose>.<expiry>")`. Only a
+  secret-holder can mint a token that verifies; tampering the purpose breaks
+  the signature.
+
+The split of authority matches the model's hard rules:
+
+- **The lessor mints** with `tools/aeb-lease --secret <file> --purpose <p>
+  --ttl-mins N`. The secret is read from a file (never on the command line).
+- **The agent only verifies** (`--lease-secret <file>`, the same secret). It has
+  *no mint path* — self-issuance is structurally impossible, not just policed.
+- **Purpose-bound:** the lease's embedded purpose must COVER the dispatch's
+  purpose (same glob grammar as scopes — a `preint/*` lease covers `preint/rust`
+  but a `preint/rust` lease does **not** cover `ci/main`). A leaked lease can't
+  be replayed outside its purpose.
+- **Time-bounded + revocable:** expiry caps the blast radius; rotating the
+  secret revokes every outstanding lease at once.
+
+What this is *not yet*: the issuance-side constraint (which principal may be
+minted which purposes — today `aeb-lease` will mint any purpose the secret
+holder types), per-token revocation lists (only secret-rotation today), and
+asymmetric keys (HMAC means verify ⇒ could-mint, so the agent's secret must be
+guarded like a minting key — fine for a single-tenant lessor, a gap for
+mutually-distrusting tenants).
 
 ## Cache partitioning (the concrete teeth)
 

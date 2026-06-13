@@ -9,7 +9,8 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _parse_tokens, _token_ok, _bearer_strip, ping_json,
               _parse_pool, _pool_url_of, _pool_token_of,
               _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
-              _image_match)
+              _image_match,
+              _lease_mint, _lease_verify, _lease_field, _lease_sign)
 import std.string
 import std.list
 import std.map
@@ -186,7 +187,59 @@ main() {
     _assert("curl-pipe-sh rule is tree-scope", _has_rule_with_scope(drules, "curl-pipe-sh", "tree"))
     _assert("patch-extern rule is patch-scope", _has_rule_with_scope(drules, "patch-extern", "patch"))
 
-    println("agent scope + wire + token + ping + pool + veto tests done")
+    // --- Lease tokens: HMAC-signed, purpose-bound, expiring -------------
+    // Fixed clock + fixed secret so tests are deterministic (no wall clock).
+    secret = "shhh-lessor-secret-xyz"
+    now = 1000000000000  // a fixed "now" in unix-ms
+    future = "1000000600000"  // now + 10 min
+    past   = "999999990000"   // now - ~10s
+
+    // A well-formed lease for preint/phammant/rust, not expired, verifies ("").
+    good = _lease_mint(secret, "preint/phammant/rust", future)
+    _eq("valid lease verifies", _lease_verify(secret, good, now, "preint/phammant/rust"), "")
+
+    // Tamper: flip the purpose in the token but keep the old signature => bad sig.
+    forged = _lease_mint(secret, "preint/phammant/rust", future)
+    // rebuild with a DIFFERENT purpose but splice the ORIGINAL sig back on.
+    orig_sig = _lease_field(good, 3)
+    tampered = "ae1.ci/aether/main.${future}.${orig_sig}"
+    _assert("tampered purpose => bad signature (rejected)",
+        1 - _streq(_lease_verify(secret, tampered, now, "ci/aether/main"), ""))
+
+    // Wrong secret => bad signature.
+    _assert("wrong secret => rejected",
+        1 - _streq(_lease_verify("not-the-secret", good, now, "preint/phammant/rust"), ""))
+
+    // Expired lease => rejected (even though signature is valid).
+    expired = _lease_mint(secret, "preint/phammant/rust", past)
+    _assert("expired lease => rejected",
+        1 - _streq(_lease_verify(secret, expired, now, "preint/phammant/rust"), ""))
+
+    // Purpose binding: a token for preint/* COVERS preint/rust (glob).
+    broad = _lease_mint(secret, "preint/*", future)
+    _eq("preint/* token covers preint/rust", _lease_verify(secret, broad, now, "preint/rust"), "")
+    // ...but a token for preint/rust does NOT cover a different purpose.
+    narrow = _lease_mint(secret, "preint/rust", future)
+    _assert("preint/rust token does NOT cover ci/main (purpose-bound)",
+        1 - _streq(_lease_verify(secret, narrow, now, "ci/main"), ""))
+
+    // No secret configured => fail-closed.
+    _assert("empty secret => fail-closed",
+        1 - _streq(_lease_verify("", good, now, "preint/phammant/rust"), ""))
+    // Empty/garbage token => rejected.
+    _assert("empty token => rejected",
+        1 - _streq(_lease_verify(secret, "", now, "preint/rust"), ""))
+    _assert("non-ae1 token => rejected",
+        1 - _streq(_lease_verify(secret, "garbage.foo.bar.baz", now, "preint/rust"), ""))
+
+    // Field accessor + signing are stable (mint is deterministic for fixed inputs).
+    _eq("lease field 0 is the ae1 tag", _lease_field(good, 0), "ae1")
+    _eq("lease field 1 is the purpose", _lease_field(good, 1), "preint/phammant/rust")
+    _eq("sign is deterministic",
+        _lease_sign(secret, "preint/rust", future),
+        _lease_sign(secret, "preint/rust", future))
+
+    println("agent scope + wire + token + ping + pool + veto + lease tests done")
 }
 
 // tiny local helpers (the test file is self-contained)

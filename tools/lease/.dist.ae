@@ -1,0 +1,18 @@
+// Build the aeb-lease binary WITH aeb (dogfood) — the lessor-side mint tool,
+// companion to the agent's --lease-secret verify path. Like the agent, it is
+// an OPT-IN satellite: NOT wired into `make` (the lessor is a distinct role).
+//
+//   aeb tools/lease/.dist.ae      # → target/dist/tools/lease/bin/aeb-lease
+//
+// Build + install deliberately:
+//   aeb tools/lease/.install.ae   (deps this, then installs to ~/.local)
+import build
+import aether
+import aether (source, output)
+main() {
+    b = build.start()
+    aether.program(b) {
+        source("../aeb-lease.ae")
+        output("aeb-lease")
+    }
+}
