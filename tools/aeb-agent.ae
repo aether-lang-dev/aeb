@@ -323,7 +323,11 @@ _agent_sdk_lib() {
     home = os.getenv("AEB_HOME")
     if string.length(home) > 0 {
         cand = path.join(home, "lib")
-        if file.exists(path.join(cand, "build")) == 1 { return cand }
+        // fs.exists (path-agnostic), NOT file.exists — `build` is a DIRECTORY
+        // (lib/build/), and file.exists returns 0 for dirs (that was the bug:
+        // _agent_sdk_lib silently returned "" so the veto got no SDK --lib and
+        // fail-closed-vetoed every SDK-importing target).
+        if fs.exists(path.join(cand, "build")) == 1 { return cand }
     }
     // Probe the real SDK home from `aeb --version`'s "AEB_HOME <dir>" line —
     // `aeb` is on PATH (its install wrapper exports the true SDK AEB_HOME and
@@ -334,7 +338,7 @@ _agent_sdk_lib() {
     real = _parse_aeb_home(out)
     if string.length(real) > 0 {
         cand2 = path.join(real, "lib")
-        if file.exists(path.join(cand2, "build")) == 1 { return cand2 }
+        if fs.exists(path.join(cand2, "build")) == 1 { return cand2 }
     }
     return ""
 }
