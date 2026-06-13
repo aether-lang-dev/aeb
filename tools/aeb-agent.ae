@@ -494,23 +494,43 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     log_path = string.concat(string.concat("/tmp/aeb-agent-", guid), ".log")
     _ea = os.setenv("AEB_ARTIFACTS_JSON", artifacts_path)
 
-    // run_on(podman): delegate compilation into the toolchain image via the
-    // AEB_COMPILE_CONTAINER seam (lib/aether) — the compile-in-container/
-    // execute-on-host duality, so an agent on an immutable host (no gcc/aetherc)
-    // still builds. The orchestrator + execution run on the agent host; each
-    // per-target `ae build` it triggers runs in the container. run_on(host)
-    // (default) leaves AEB_COMPILE_CONTAINER unset → today's bare-host build.
+    // run_on: where the build runs.
+    //   host (default): `aeb <target>` on the agent host (needs the toolchain).
+    //   podman: the aeb-ctr TWO-PHASE duality (docs/two-aeb-duality.md) so an
+    //     agent on an IMMUTABLE/toolchain-less host still builds —
+    //       Phase 1 (IN container): `aeb --compile-only <target>` compiles the
+    //         orchestrator (_ae_build_all) AND every node, with the image's full
+    //         toolchain; artifacts land on the host via the :Z bind mount.
+    //       Phase 2 (ON host): run the host-native orchestrator with
+    //         AEB_EXECUTE_ONLY=1 — runs/tests against the host's runtimes.
+    //     (The per-node AEB_COMPILE_CONTAINER seam alone is NOT enough: the
+    //     orchestrator's OWN bootstrap compile still needs a host toolchain —
+    //     verified on oldnuc, the build failed at _orchestrator.c with host
+    //     aetherc hidden. Phase 1 compiles the whole thing in-container instead.)
     run_on = os.getenv("AEB_AGENT_RUN_ON")
+    rc = 0
     if string.equals(run_on, "podman") == 1 {
         ctr_image = os.getenv("AEB_AGENT_CTR_IMAGE")
-        if string.length(ctr_image) > 0 {
-            _ecc = os.setenv("AEB_COMPILE_CONTAINER", ctr_image)
-            println("agent: run_on=podman — delegating compiles to ${ctr_image}")
+        engine = os.getenv("AEB_CONTAINER_ENGINE")
+        if string.length(engine) == 0 { engine = "podman" }
+        selabel = os.getenv("AEB_CONTAINER_SELABEL")
+        if string.length(selabel) == 0 { selabel = "Z" }
+        mnt = string.concat(workdir, string.concat(":/work:", selabel))
+        println("agent: run_on=podman — phase 1 compile-only in ${ctr_image}")
+        // Phase 1: compile (orchestrator + all nodes) IN the container.
+        p1 = string.concat(engine, string.concat(" run --rm -v '", string.concat(mnt, string.concat("' -w /work --entrypoint aeb '", string.concat(ctr_image, string.concat("' --compile-only '", string.concat(target, "'")))))))
+        p1 = string.concat(p1, " > '${log_path}' 2>&1")
+        rc = build._sh(p1)
+        if rc == 0 {
+            // Phase 2: run the host-native orchestrator (execute-only) on the host.
+            orch = string.concat(workdir, "/target/_ae_build_all")
+            p2 = string.concat("AEB_EXECUTE_ONLY=1 '", string.concat(orch, string.concat("' '", string.concat(workdir, "' >> '${log_path}' 2>&1"))))
+            rc = build._sh(p2)
         }
+    } else {
+        cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
+        rc = build._sh(cmd)
     }
-
-    cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
-    rc = build._sh(cmd)
 
     result = "pass"
     if rc != 0 { result = "fail" }
