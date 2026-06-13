@@ -256,12 +256,17 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
      AND the default per-node path (aeb-driver + make). c-hello.exe builds + runs
      rc=0 in both. scan-ae-files (pure byte-wise sort) + topo-sort (pure stderr)
      also de-shelled — the last core-path shell-outs.
-   - **Remaining Axis-2:** peripheral tools off the core build path (aeb-agent,
-     aeb-sandbox, mvn-to-aeb, gcheckout, aeb-init, aeb-query/sbom/remote,
-     affected-targets) still shell out raw — same chokepoint recipe when needed;
-     none block a build. Plus the bulk SDK-layer LIVE verification on Windows
-     awaits the non-C language toolchains being installed on the box (winbaz has
-     only gcc/sh/make today — see the prereq/install-prereqs feature).
+   - **Peripheral tools — Windows-reachable ones DONE.** aeb-init (inline
+     chokepoint), aeb-query + affected-targets (pure sort -u), aeb-sbom +
+     aeb-remote (build._sh_capture) all converted + A/B/suite-green. Remaining
+     raw shell-outs are off the core path and not common Windows commands:
+     aeb-agent (15, opt-in network agent), gcheckout (8, git util), aeb-sandbox
+     (7, Linux-ONLY — spawn_sandboxed refuses off Linux), mvn-to-aeb (4, migration
+     util). Convert with the same recipe if/when their Windows use arises.
+   - **Remaining Axis-2:** the bulk SDK-layer LIVE verification on Windows awaits
+     the non-C language toolchains being installed on the box (winbaz has only
+     gcc/sh/make today — see the prereq/install-prereqs feature, which exists to
+     resolve+install exactly those per-OS).
 4. **Phase-2 A/B on MINGW** — iterate path translation (#2) + per-SDK (#3).
    **Status (2026-06-12): Axis-1 PROVEN ON WINDOWS; now genuinely at the
    Axis-2 boundary.** Three upstream blockers were found on the box and all
