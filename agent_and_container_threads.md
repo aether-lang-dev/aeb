@@ -600,11 +600,23 @@ into a podman container.
   it), the dispatch still returned `status:done result:PASS`, and a 194KB
   `_ae_build_all` landed on the host — the orchestrator was compiled+linked IN
   the container, impossible on the host without gcc. gcc restored after.
-- **Follow-up (the last host-toolchain dependency):** the VETO's AST-emit
-  (`aetherc --emit=ast`) still runs on the agent HOST, so a *fully* toolchain-less
-  agent host needs the veto stage to delegate into the container too. The
-  build/orchestrator now delegates; the veto is the remaining host-aetherc
-  dependency. Clean next increment for "agent on a fully immutable host."
+- ~~**Follow-up: the VETO's AST-emit still runs on the host**~~ **DONE (main
+  86b033c).** `_veto_ast_in_container`: under run_on=podman the veto's
+  `aetherc --emit=ast` runs IN the container (repo bind-mounted at /work,
+  --entrypoint aetherc), with decide() against the CONTAINER's trusted
+  SDK/stdlib origins (/usr/local/share/aeb/lib, <bin>/../share/aether). Now BOTH
+  the veto and the build delegate.
+- **FULLY TOOLCHAIN-LESS AGENT — AIRTIGHT-PROVEN (oldnuc):** with host **aetherc
+  AND gcc BOTH hidden**, a run_on=podman dispatch returned `status:done
+  result:PASS`. The WHOLE dispatch — veto AST-emit + orchestrator compile+link +
+  node compiles — ran in the container; the host only orchestrated + bind-
+  mounted. (Both tools restored after, verified.) This is the complete
+  immutable-host agent story: a box with NO build toolchain serves a dispatched
+  build purely by container delegation, with the supply-chain veto intact (the
+  veto runs in-container against the container's trusted origins; a malicious
+  direct-exec .build.ae would still veto — same source-file origin scoping).
+  run_on(podman) is now COMPLETE: vet + build both containerized, proven on a
+  real toolchain-stripped host.
 
 ## 6. Pointers
 
