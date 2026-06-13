@@ -1,30 +1,70 @@
-# Build prerequisites and provisioning — `prereq()`, preflight, and podman layering
+# Build prerequisites — `prereq()`, preflight, and why aeb has NO install verb
 
-Status: **partially IMPLEMENTED** (the host-install, no-container path). Built on
-`feat/win-axis2-orchestrator`, cross-platform-verified (Linux + the winbaz MINGW
-box):
-- `build.prereq(b, "<tc>:<ver>")` declaration (used bare via `import build
-  (prereq)`); `tools/extract-deps --prereqs` collects them; the set flattens
+Status: **IMPLEMENTED, and deliberately scoped to STATING needs, not installing
+them.** aeb owns the part it can keep perfect — *what a build requires* — and
+explicitly delegates the unbounded part — *how to install it on this OS* — to a
+capable agent in the loop. Built in `lib/provision`, cross-platform.
+
+What ships:
+- `build.prereq(b, "<tc>:<ver>")` declaration (bare via `import build (prereq)`);
+  `tools/extract-deps --prereqs` collects it statically; the set flattens
   transitively over the dep DAG.
-- `aeb --prereqs <target>` — list the OS-agnostic token set.
-- `aeb --preflight <target>` — probe vs host, `unmet-prereqs: [...]` verdict
-  (exit 3), fail-closed default. (`lib/provision`.)
-- `aeb --install-prereqs <target>` — **dry-run** host install recipes (token →
-  per-OS package name / pinned tarball; `_detect_pm` + `_pkg_name` + `_os_slug`).
-  Nothing executes yet — `--execute` is the deferred follow-up.
+- **`aeb --prereqs <target>`** — print the flattened, OS-agnostic requirement
+  manifest (one canonical token per line). *The whole feature.* This is what aeb
+  can keep correct for a decade: a closed, host-independent statement of need.
+- **`aeb --preflight <target>`** — probe whether each token is present
+  (`command -v`), emit the distinct `unmet-prereqs: [tok …]` verdict (exit 3,
+  fail-closed). Pure observation; no install, no synonym map.
+- **Canonical token names + misname rejection** (`lib/provision`
+  `_misname_canonical` / `check_token_names`): aeb publishes a small CLOSED set
+  of canonical names for the prominent confusions (`node` not `nodejs`, `jdk`
+  not `java`/`openjdk`, `go` not `golang`, `python` not `python3`, `rust` not
+  `rustc`, …) and REJECTS the known misnames at declaration time (loud, exit 3,
+  names the canonical fix). This is the *one* small curated thing aeb owns — it's
+  about naming, so it never drifts with distros, unlike an install map.
 
-Still design-only below this point: the podman-layering `provision` phase (§Phase
-2), `ping`-advertised token routing (§Routing), and the pluck-into-base-layer
-optimization. NB: the implemented `--install-prereqs` targets the HOST directly
-(no container) — the opt-in *podman* provisioning is the unbuilt Ring B/C part.
+## Why there is NO install verb (the load-bearing decision)
 
-Original design follows. Motivated by a real monorepo with huge per-leaf
-toolchain variance (skir — `~/scm/skir`). Sits in
-[`directions.md`](directions.md)'s **Ring B/C** (podman provisioning needs
-podman, so it is never Ring A; the host-install path IS Ring-A-safe) and
-composes with [`build-veto-and-sandbox.md`](build-veto-and-sandbox.md)
-(provisioning adds *capability*, never *trust* — see "Provisioning is not
-trust").
+An earlier cut shipped `aeb --install-prereqs` (token → per-OS package name /
+tarball, dry-run). **It was removed.** Resolving `jdk:21` →
+`openjdk-21-jdk` (apt) / `java-21-openjdk-devel` (dnf) / `openjdk21` (apk) /
+`jdk-openjdk` (pacman) / a Temurin tarball / a Windows `.zip` is an *unbounded*
+problem — every toolchain × every distro × every version × every arch, drifting
+constantly. There is no good home for that map:
+- **In aeb** → aeb signs up to chase distro renames forever and is always wrong
+  for someone's box (a treadmill aeb loses).
+- **In `.build.ae` files** → a per-distro case-switch in every repo, dragging the
+  host into the build graph and dumping the burden on every repo author (defeats
+  the whole point of an OS-agnostic token).
+- **In an operator policy file** → finite per fleet, but still a map someone
+  maintains and that silently rots.
+
+So aeb does **none** of those. It states the need (`--prereqs`) and observes
+presence (`--preflight`); turning a requirement into installs is delegated to the
+thing that's actually good at the long tail and improving daily — **a capable
+agent in the loop** (the user's Claude: read `aeb --prereqs`, read the host's
+package manager, run the right installs — including next year's renames, the odd
+arch, the toolchain aeb never heard of). The unbounded, drifting per-OS trivia
+lives where that competence already is — in the model's general knowledge — not
+in a map aeb must perfect. aeb draws the line exactly at its own competence edge:
+it knows the build graph perfectly and package ecosystems not at all.
+
+The flip side of that contract is the canonical-names policy above: if agents are
+the resolvers, the token vocabulary must be unambiguous, so aeb forbids the
+misnames rather than silently letting two resolvers read `nodejs:20` two ways.
+
+Sits in [`directions.md`](directions.md)'s Ring A (pure observation; no podman,
+no host mutation) and composes with
+[`build-veto-and-sandbox.md`](build-veto-and-sandbox.md).
+
+---
+
+> The sections below are the ORIGINAL provisioning design (the install/podman-
+> layering machinery), kept for historical context and for the agent-fleet
+> *routing* ideas (an agent advertising which toolchains it holds — still
+> useful). The host-install and podman-layering *install* parts are NOT built and
+> are not planned per the decision above; read them as the rationale that led to
+> "state, don't install." Motivated by skir (`~/scm/skir`).
 
 ## The motivating problem (skir)
 

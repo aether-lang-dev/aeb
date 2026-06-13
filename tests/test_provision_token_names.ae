@@ -1,0 +1,56 @@
+// Tests for lib/provision's canonical-token-name policy: aeb publishes a small
+// closed set of canonical prereq names and REJECTS known misnames at declaration
+// time (node not nodejs, jdk not java/openjdk, …). Pure string logic — no host,
+// no install (aeb has no install verb). See
+// docs/build-prerequisites-and-provisioning.md.
+
+import provision (_misname_canonical, check_token_names)
+import std.string
+import std.list
+
+extern println(s: string)
+
+_eq_s(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+_ok(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+main() {
+    // --- _misname_canonical: known misnames map to canonical ---
+    _eq_s("nodejs -> node",    _misname_canonical("nodejs"),  "node")
+    _eq_s("openjdk -> jdk",    _misname_canonical("openjdk"), "jdk")
+    _eq_s("java -> jdk",       _misname_canonical("java"),    "jdk")
+    _eq_s("golang -> go",      _misname_canonical("golang"),  "go")
+    _eq_s("python3 -> python", _misname_canonical("python3"), "python")
+    _eq_s("rustc -> rust",     _misname_canonical("rustc"),   "rust")
+    // --- canonical names are NOT misnames (return "") ---
+    _eq_s("node ok",   _misname_canonical("node"),   "")
+    _eq_s("jdk ok",    _misname_canonical("jdk"),    "")
+    _eq_s("zig ok",    _misname_canonical("zig"),    "")
+    _eq_s("python ok", _misname_canonical("python"), "")
+
+    // --- check_token_names: all-canonical set passes ("") ---
+    ok = list.new()
+    list.add(ok, "jdk:21")
+    list.add(ok, "node:20")
+    list.add(ok, "zig:0.13")
+    _eq_s("all-canonical set passes", check_token_names(ok), "")
+
+    // --- a misname in the set is rejected, naming the offending token ---
+    bad = list.new()
+    list.add(bad, "jdk:21")
+    list.add(bad, "nodejs:20")
+    rej = check_token_names(bad)
+    _ok("misname set rejected (non-empty)", string.length(rej) > 0)
+    _ok("rejection names the bad token", string.index_of(rej, "nodejs:20") >= 0)
+    _ok("rejection names the canonical fix", string.index_of(rej, "'node'") >= 0)
+
+    // --- empty set passes ---
+    _eq_s("empty set passes", check_token_names(list.new()), "")
+
+    println("provision token-name tests done")
+}
