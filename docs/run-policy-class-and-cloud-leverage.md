@@ -309,6 +309,32 @@ So:
   mode — it is the agent doing, mid-dispatch, what aeb already does with
   containers anywhere.
 
+### Per-job image selection (`image` field + `--allow-image`) — IMPLEMENTED
+
+One root-level `run_on=podman` agent serves **fine-grained jobs whose layers
+the bare host lacks**, choosing the toolchain image **per dispatch** rather
+than one image for the agent's whole life. A dispatch carries an optional
+`image` field (a Rust job names `aeb-tc:rust`, a JDK job `aeb-tc:jdk21`); the
+agent runs *that* image for that one job (both the AST-veto and the two-phase
+build honour it), ephemeral `--rm` as always.
+
+Where the choice comes from is the same boundary drawn for install-resolution
+([`build-prerequisites-and-provisioning.md`](build-prerequisites-and-provisioning.md)):
+**aeb owns no token→image map.** The build *states* its need —
+`build.prereq(b, "rust:1.75")`, read back with `aeb --prereqs <target>` as a
+canonical OS-agnostic token — and the **requester's agent** resolves that token
+to an image reference, which it puts in the dispatch's `image` field. aeb only
+*runs* the image it is handed.
+
+Because a leased agent must not be coercible into pulling/running an arbitrary
+image, the override is **fail-closed**: `image` is honoured only if it equals
+the agent's own `--ctr-image` *or* matches the agent's `--allow-image GLOB`
+(trailing `*` = prefix, `*` = any). With no `--allow-image`, only the agent's
+configured image runs — a dispatch may *name* it but cannot substitute another;
+an out-of-glob image is `rejected`. Proven end-to-end against
+`google-monorepo-sim` (rust/java/go nodes each declare their `prereq`; the
+gate accepts in-glob overrides, applies them, and rejects the rest).
+
 The unifying rule: **aeb is the same requester-of-sovereign-peers at every
 node of the topology** (laptop, agent, agent-of-an-agent), and a container is
 just one more sovereign peer it can request. The grid is not a hierarchy aeb

@@ -31,7 +31,8 @@ import std.list
 import std.fs
 
 import agent (_decision, dispatch_reply_json, ping_json, _json_field,
-              _parse_tokens, _token_ok, _bearer_strip, _veto_run_rules)
+              _parse_tokens, _token_ok, _bearer_strip, _veto_run_rules,
+              _image_match)
 import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.io
 import std.file
@@ -517,6 +518,22 @@ _run_on_vm(workdir: string, target: string, log_path: string) {
     return rc
 }
 
+// _image_allowed(image) — is this requester-supplied image one the agent will
+// run? Fail-closed lease gate: a leased agent must NOT be coerced into pulling
+// /running an arbitrary image. An empty `image` (no override) is always allowed
+// — the build uses the agent's default --ctr-image. A non-empty override is
+// allowed iff it equals the default --ctr-image OR matches the --allow-image
+// glob (AEB_AGENT_ALLOW_IMAGE). With NO --allow-image set, only the default
+// image is runnable: the requester can name it but cannot substitute another.
+_image_allowed(image: string) {
+    if string.length(image) == 0 { return 1 }
+    deflt = os.getenv("AEB_AGENT_CTR_IMAGE")
+    if string.length(deflt) > 0 { if string.equals(image, deflt) == 1 { return 1 } }
+    allow = os.getenv("AEB_AGENT_ALLOW_IMAGE")
+    if string.length(allow) == 0 { return 0 }
+    return _image_match(allow, image)
+}
+
 handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     body = http.request_body(req)
     guid = _json_field(body, "guid")
@@ -559,6 +576,31 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     repo = os.getenv("AEB_AGENT_REPO")
     if string.length(repo) == 0 { repo = workdir }
     println("agent: ACCEPT guid=${guid} purpose=${purpose} target=${target}")
+
+    // --- Per-dispatch container image (run_on=podman): the requester may name
+    //   the toolchain image this job needs ("image" field) — e.g. a Rust job
+    //   asks for aeb-tc:rust, a JDK job for aeb-tc:jdk21 — so ONE agent serves
+    //   fine-grained jobs whose layers the bare host lacks, choosing the image
+    //   PER JOB instead of one image for the agent's whole life. aeb owns no
+    //   token→image map (that resolution lives with the requester's agent, like
+    //   install-resolution); aeb only RUNS the image it's handed, and only if
+    //   _image_allowed lets it (fail-closed lease gate). The override is applied
+    //   to AEB_AGENT_CTR_IMAGE for THIS dispatch (both the veto and the build
+    //   phase read it) and restored after, so the next dispatch w/o an image
+    //   falls back to the agent default. Single-job-at-a-time => safe to mutate.
+    dispatch_image = _json_field(body, "image")
+    saved_ctr_image = os.getenv("AEB_AGENT_CTR_IMAGE")
+    if string.length(dispatch_image) > 0 {
+        if _image_allowed(dispatch_image) == 0 {
+            println("agent: REJECT guid=${guid} image=${dispatch_image} (not in --allow-image; fail-closed)")
+            http.response_set_status(res, 403)
+            http.response_set_header(res, "Content-Type", "application/json")
+            http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
+            return 0
+        }
+        println("agent: image-override guid=${guid} -> ${dispatch_image}")
+        _eci = os.setenv("AEB_AGENT_CTR_IMAGE", dispatch_image)
+    }
 
     // --- Prepare (wire ops, the agent's own lifecycle — NOT build grammar):
     //   1. git fetch origin <ref> && git checkout <hash>  (fetch-base)
@@ -677,6 +719,12 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     _da = fs.delete(artifacts_path)
     _dl = fs.delete(log_path)
 
+    // Restore the agent-default image so a per-dispatch override doesn't leak
+    // into the NEXT dispatch (which may carry no "image" and expect the default).
+    if string.length(dispatch_image) > 0 {
+        _rci = os.setenv("AEB_AGENT_CTR_IMAGE", saved_ctr_image)
+    }
+
     println("agent: DONE guid=${guid} result=${result} (rc=${rc})")
     http.response_set_status(res, 200)
     http.response_set_header(res, "Content-Type", "application/json")
@@ -779,6 +827,7 @@ main() {
     tokens_file = ""
     run_on = "host"
     ctr_image = ""
+    allow_image = ""
     vm_host = ""
     vm_dir = ""
 
@@ -805,6 +854,11 @@ main() {
         // (no toolchain) can still build. Default "host" = today's bare build.
         if string.equals(a, "--run-on") == 1 { i = i + 1; run_on = aether_args_get(i) }
         if string.equals(a, "--ctr-image") == 1 { i = i + 1; ctr_image = aether_args_get(i) }
+        // --allow-image GLOB: per-dispatch "image" overrides the agent default
+        // ONLY if they match this glob (trailing "*" = prefix, "*" = any). With
+        // no --allow-image, only the default --ctr-image is runnable — a leased
+        // agent can't be talked into pulling an arbitrary image. Fail-closed.
+        if string.equals(a, "--allow-image") == 1 { i = i + 1; allow_image = aether_args_get(i) }
         // --run-on vm: build on an SSH-reachable VM node (rsync tree → ssh aeb →
         // rsync artifacts back). --vm-host is the ssh target/alias (its config may
         // ProxyJump through the VM host); --vm-dir is the remote build dir.
@@ -841,6 +895,7 @@ main() {
     }
     _e5 = os.setenv("AEB_AGENT_RUN_ON", run_on)
     if string.length(ctr_image) > 0 { _e6 = os.setenv("AEB_AGENT_CTR_IMAGE", ctr_image) }
+    if string.length(allow_image) > 0 { _e6b = os.setenv("AEB_AGENT_ALLOW_IMAGE", allow_image) }
     if string.length(vm_host) > 0 { _e7 = os.setenv("AEB_AGENT_VM_HOST", vm_host) }
     if string.length(vm_dir) > 0 { _e8 = os.setenv("AEB_AGENT_VM_DIR", vm_dir) }
 
@@ -899,6 +954,8 @@ _usage() {
     println("  --scope NAME    scope label for display (default 'preint')")
     println("  --run-on KIND   host (default) | podman | vm — where builds run")
     println("  --ctr-image IMG toolchain image for --run-on podman (e.g. aeb-toolchain:slim); required then")
+    println("  --allow-image GLOB  let a dispatch's \"image\" field override --ctr-image if it matches")
+    println("                  (trailing '*' = prefix, '*' = any). Without it, only --ctr-image runs.")
     println("  --vm-host HOST  ssh target/alias for --run-on vm (its config may ProxyJump); required then")
     println("  --vm-dir DIR    remote build dir on the VM (--run-on vm; default /tmp/aeb-vm-build)")
     println("  -h, --help      this message")

@@ -8,7 +8,8 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _json_field, run_on, max_jobs, accept_scope,
               _parse_tokens, _token_ok, _bearer_strip, ping_json,
               _parse_pool, _pool_url_of, _pool_token_of,
-              _veto_rule_field, _veto_scan_cmd, _veto_default_rules)
+              _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
+              _image_match)
 import std.string
 import std.list
 import std.map
@@ -33,6 +34,19 @@ main() {
         1 - _scope_glob_match("preint/*", "preintXYZ"))
     _assert("exact match", _scope_glob_match("preint", "preint"))
     _assert("exact mismatch", 1 - _scope_glob_match("preint", "ci"))
+
+    // --- _image_match: per-dispatch image vs --allow-image glob (run_on=podman) ---
+    _assert("image * allows anything", _image_match("*", "aeb-tc:rust"))
+    _assert("aeb-tc:* allows aeb-tc:rust", _image_match("aeb-tc:*", "aeb-tc:rust"))
+    _assert("aeb-tc:* allows aeb-tc:jdk21", _image_match("aeb-tc:*", "aeb-tc:jdk21"))
+    _assert("aeb-tc:* allows bare prefix aeb-tc:", _image_match("aeb-tc:*", "aeb-tc:"))
+    _assert("aeb-tc:* rejects other-registry image",
+        1 - _image_match("aeb-tc:*", "evil/exfil:latest"))
+    _assert("exact image allowed", _image_match("aeb-tc:jdk21", "aeb-tc:jdk21"))
+    _assert("exact image mismatch rejected",
+        1 - _image_match("aeb-tc:jdk21", "aeb-tc:rust"))
+    _assert("prefix shorter than glob rejected (aeb not aeb-tc:)",
+        1 - _image_match("aeb-tc:*", "aeb"))
 
     // --- _scope_accepts: no accept_scope => open ---
     open_scope = map.new()

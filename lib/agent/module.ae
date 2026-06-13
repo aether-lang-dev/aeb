@@ -151,6 +151,32 @@ _scope_glob_match(glob: string, purpose: string) {
     return 0
 }
 
+// _image_match(glob, image) — does a per-dispatch container `image` satisfy an
+// agent's --allow-image `glob`? For run_on=podman, one agent can serve
+// fine-grained jobs that each name the toolchain image they need (a Rust job
+// asks for aeb-tc:rust, a JDK job for aeb-tc:jdk21); this glob is the lease gate
+// on WHICH images that agent will run. Grammar (image-ref oriented, distinct
+// from _scope_glob_match's "/*"): "*" allows anything; a trailing "*" is a
+// PREFIX match ("aeb-tc:*" allows "aeb-tc:rust", "aeb-tc:jdk21", …); otherwise
+// exact. Pure — the env-reading lease policy (_image_allowed) lives in the tool.
+_image_match(glob: string, image: string) {
+    if string.equals(glob, "*") == 1 { return 1 }
+    n = string.length(glob)
+    if n >= 1 {
+        last = string.substring(glob, n - 1, n)
+        if string.equals(last, "*") == 1 {
+            prefix = string.substring(glob, 0, n - 1)
+            pn = string.length(prefix)
+            if string.length(image) >= pn {
+                if string.equals(string.substring(image, 0, pn), prefix) == 1 { return 1 }
+            }
+            return 0
+        }
+    }
+    if string.equals(glob, image) == 1 { return 1 }
+    return 0
+}
+
 // _scope_accepts(scope_map, purpose) — 1 if any of the scope's
 // accept_scope globs match the purpose. A scope with NO accept_scope
 // declared accepts everything (open by default in the skeleton).
