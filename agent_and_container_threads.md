@@ -556,6 +556,29 @@ fail-closed `veto:no-ast`. Two layers, both fixed:
   listen→auth→accept→prepare→emit-clean-AST→informed-verdict. The remaining knob
   is purely operator policy, not resolution.
 
+### Dispatched build reaches result:PASS — full CI loop in a container (main 71f7cd8)
+
+The "informed verdict" above still vetoed real builds because the SDK's stdlib
+exec wasn't trusted. Final fix: `_agent_aether_std()` adds the **Aether stdlib**
+dir (`<aetherc-dir>/../share/aether`) to the veto's trusted `lib_roots` — the
+stdlib is the trusted toolchain, and the SDK's modules legitimately call into it
+(`os_run_full_raw` for java→javac, c→gcc). PROVEN on the oldnuc container:
+- **`aeb-test` (java) dispatches to `status:done result:PASS`** with the full
+  rich reply — log + 6 real artifacts (classes, javac_sources.txt,
+  maven_classpath, …). The complete CI loop runs in a container:
+  **listen → auth → accept → prepare → veto-pass → build → pass+artifacts.**
+- **Safety holds:** a malicious `.build.ae` doing `os.system("curl …|sh")`
+  DIRECTLY is still **vetoed** — the exemption keys on the call's SOURCE FILE
+  (stdlib internals trusted; the user's `.build.ae` not), so no over-exemption.
+
+**Net: the agent×container thread is GREEN end-to-end.** A dispatched real build
+compiles in a podman container on an immutable-host-style box and returns a
+structured pass verdict, with the supply-chain veto correctly distinguishing the
+trusted toolchain from untrusted build code. The aeb-agent dogfood install, the
+SDK-lib + stdlib veto origins, and both build modes are all fixed/proven. Open
+items now are thickenings (real token auth, async dispatch, run_on(podman) so the
+agent itself containerizes), not blockers.
+
 ## 6. Pointers
 
 - Agent: `tools/aeb-agent.ae`, `lib/agent/module.ae`, `tools/agent/{.dist,
