@@ -736,16 +736,16 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         _eci = os.setenv("AEB_AGENT_CTR_IMAGE", dispatch_image)
     }
 
-    // --- Per-dispatch raw build command (run_on=vm): a non-aeb project (its
-    //   build is build.sh / make / cmake, no .build.ae) names the command to run
-    //   on the VM via the "command" field, instead of `aeb <target>`. This is
-    //   arbitrary command execution on the VM, so it is OPT-IN + fail-closed:
-    //   the agent honours it ONLY if started with --allow-vm-command
-    //   (AEB_AGENT_ALLOW_VM_COMMAND=1). Without that, a "command" is REJECTED —
-    //   a leased agent can't be talked into running an arbitrary command. When
-    //   allowed, it's published to AEB_AGENT_VM_COMMAND for THIS dispatch (read
-    //   by _run_on_vm) and restored after. Only meaningful for run_on=vm; for
-    //   host/podman it's ignored (those build verbs aren't command-shaped).
+    // --- Per-dispatch raw build command (run_on=host OR vm): a non-aeb project
+    //   (its build is build.sh / make / cmake, no .build.ae) names the command
+    //   to run via the "command" field, instead of `aeb <target>`. run_on=host
+    //   runs it in the workdir (agent NATIVE on the build box — e.g. a Mac mini
+    //   doing AppKit builds, no ssh hop); run_on=vm runs it on the VM. Either
+    //   way it's arbitrary command execution, so OPT-IN + fail-closed: honoured
+    //   ONLY with --allow-vm-command (AEB_AGENT_ALLOW_VM_COMMAND=1); without it a
+    //   "command" is REJECTED. Published to AEB_AGENT_VM_COMMAND for THIS
+    //   dispatch (read by the host branch / _run_on_vm) and restored after.
+    //   run_on=podman ignores it (that verb is container-shaped, not command-shaped).
     dispatch_command = _json_field(body, "command")
     saved_vm_command = os.getenv("AEB_AGENT_VM_COMMAND")
     if string.length(dispatch_command) > 0 {
@@ -757,7 +757,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
             http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
             return 0
         }
-        println("agent: vm-command guid=${guid} -> ${dispatch_command}")
+        println("agent: raw-command guid=${guid} -> ${dispatch_command}")
         _evc = os.setenv("AEB_AGENT_VM_COMMAND", dispatch_command)
     }
 
@@ -862,8 +862,23 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         if string.equals(run_on, "vm") == 1 {
             rc = _run_on_vm(workdir, target, log_path)
         } else {
-            cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
-            rc = build._sh(cmd)
+            // run_on=host. Default verb is `aeb <target>`; but a raw command
+            // (the dispatch's "command" field, gated by --allow-vm-command and
+            // published to AEB_AGENT_VM_COMMAND) runs verbatim in the workdir
+            // instead — for a non-aeb project (build.sh/make/cmake, no
+            // .build.ae) built by an agent running NATIVELY on the build box
+            // (e.g. a Mac mini doing native AppKit builds: no ssh hop, no
+            // transport). Same fail-closed gate as the vm path; exit code is the
+            // verdict, aeb parses nothing.
+            host_cmd = os.getenv("AEB_AGENT_VM_COMMAND")
+            if string.length(host_cmd) > 0 {
+                println("agent: run_on=host raw command: ${host_cmd}")
+                cmd = "cd '${workdir}' && ${host_cmd} > '${log_path}' 2>&1"
+                rc = build._sh(cmd)
+            } else {
+                cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
+                rc = build._sh(cmd)
+            }
         }
     }
 
@@ -1177,8 +1192,8 @@ _usage() {
     println("  --vm-dir DIR    remote build dir on the VM (--run-on vm; default /tmp/aeb-vm-build)")
     println("  --vm-shell PFX  wrap VM commands as PFX \"<cmd>\" for a non-POSIX default ssh shell, e.g.")
     println("                  'C:\\msys64\\usr\\bin\\bash.exe -lc' on a Windows VM (winbaz)")
-    println("  --allow-vm-command  honour a dispatch's \"command\" field on --run-on vm (run build.sh/make")
-    println("                  instead of aeb <target>). Arbitrary VM command exec — off by default (fail-closed).")
+    println("  --allow-vm-command  honour a dispatch's \"command\" field on --run-on host OR vm (run")
+    println("                  build.sh/make instead of aeb <target>). Arbitrary command exec — off by default (fail-closed).")
     println("  -h, --help      this message")
     println("")
     println("Endpoints: GET /health (open), GET /ping (auth), POST /dispatch (auth)")

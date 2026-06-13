@@ -145,7 +145,9 @@ operator how-to — every flag, the lease-minting and winbaz recipes — is
 The three modes:
 
 - **`host` (default)** — `cd <workdir> && aeb <target>` on the agent host. Needs
-  the toolchain locally.
+  the toolchain locally. For a non-aeb project, a **raw `command`** (opt-in via
+  `--allow-vm-command`) runs in the workdir instead — the agent NATIVE on the
+  build box (e.g. a Mac mini doing AppKit builds, no ssh hop).
 - **`podman`** — the aeb-ctr two-phase duality (compile in a `--ctr-image`
   toolchain container, execute on the host) so a toolchain-less host still
   builds. The dispatch may name a per-job `image` (gated by `--allow-image`), so

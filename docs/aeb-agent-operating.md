@@ -98,6 +98,30 @@ aeb-agent --port 9440 --accept 'preint/*' \
           --lease-secret /etc/aeb/lease.secret
 ```
 
+**Raw command on host** — like the vm path, a **non-aeb project** (build.sh /
+make / cmake, no `.build.ae`) can run its own build command **natively in the
+workdir** via the dispatch's `command` field, gated by `--allow-vm-command`
+(fail-closed; a `command` without the flag is `rejected`). No ssh, no transport,
+no shell-wrapping — the agent IS on the build box. This is the setup for a
+dedicated native builder, e.g. a **Mac mini doing AppKit builds** of aether-ui:
+
+```bash
+# On the Mac mini (aeb already installed there):
+aeb-agent --host 0.0.0.0 --port 9440 --accept 'preint/*' \
+          --workdir ~/aether-ui --repo ~/aether-ui \
+          --run-on host --allow-vm-command \
+          --lease-secret ~/.aeb/lease.secret
+```
+```jsonc
+// Requester's dispatch — "command" runs in ~/aether-ui on the Mac:
+{ "guid":"…", "purpose":"preint/macos", "target":".build.ae",
+  "command":"./build.sh example_counter.ae build/counter" }
+// → clang compiles aether_ui_macos.m against AppKit; exit code → pass/fail.
+```
+
+(`run_on=host` is the right mode when the agent runs **on** the build machine.
+Use `run_on=vm` when a *different* box dispatches to it over ssh.)
+
 ### `podman` — build in a toolchain container
 
 The dispatched build's compile runs **inside `--ctr-image`** (the aeb-ctr
@@ -189,7 +213,7 @@ No `.build.ae`, no `aeb`, no `rsync` on the VM is required.
 | `ref`, `hash` | fetch-base: agent does `git fetch origin <ref> && git checkout <hash>` ("" = build the workdir as-is) |
 | `patch_b64` | base64 of an uncommitted unified diff, `git apply`'d onto the base ("" = none) |
 | `image` | *(run_on=podman)* per-job toolchain image override; gated by `--allow-image` |
-| `command` | *(run_on=vm)* raw build command; gated by `--allow-vm-command` |
+| `command` | *(run_on=host or vm)* raw build command; gated by `--allow-vm-command` |
 
 Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 "result": pass|fail, "log": "<tail>", "artifacts": [...] }`.
@@ -227,7 +251,7 @@ Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 --vm-host HOST        ssh target/alias for --run-on vm (required then; config may ProxyJump)
 --vm-dir DIR          remote build dir on the VM (default /tmp/aeb-vm-build)
 --vm-shell PFX        wrap VM commands as PFX "<cmd>" for a non-POSIX default ssh shell (e.g. cmd.exe)
---allow-vm-command    honour a dispatch's "command" on --run-on vm (run build.sh/make); off by default
+--allow-vm-command    honour a dispatch's "command" on --run-on host OR vm (run build.sh/make); off by default
 ```
 
 (`aeb-agent --help` prints this list. `aeb-lease --help` covers the mint tool.)
