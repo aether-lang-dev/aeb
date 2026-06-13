@@ -459,6 +459,64 @@ os_getpid_safe() {
     return os.getpid()
 }
 
+// _run_on_vm(workdir, target, log_path) — run the whole build on an SSH-reachable
+// VM node and bring the result back. The agent host need not have a toolchain at
+// all (mirrors run_on=podman, one indirection further out): agent → ssh (often
+// via the VM-host's ProxyJump, encoded in the ssh-config alias) → VM.
+//
+//   --vm-host <ssh-target>   (AEB_AGENT_VM_HOST) — the VM, as an ssh target/alias
+//                            (e.g. "winbaz", whose config carries ProxyJump
+//                            bazzite@…). The VM owns its own aeb + toolchain.
+//   --vm-dir <remote-dir>    (AEB_AGENT_VM_DIR, default /tmp/aeb-vm-build) — where
+//                            the prepared tree is rsync'd on the VM.
+//
+// Steps: rsync the prepared tree → VM, `ssh <vm> 'cd <dir> && aeb <target>'`
+// (tee'd to the local log), exit code is the build verdict, then rsync the VM's
+// target/ artifacts JSON back to AEB_ARTIFACTS_JSON so the rich reply still
+// reports what got built. Best-effort on the artifact fetch (a missing file →
+// empty artifacts, not a failure). Returns the build's exit code.
+//
+// (The VM-host *spawning/loaning* the VM — `virsh start`/`clone` a transient
+// domain — is a later layer; this first cut treats the VM as an already-running,
+// SSH-reachable build node, which is the common fleet shape and what the
+// bazzite/win11 setup already provides.)
+_run_on_vm(workdir: string, target: string, log_path: string) {
+    vm = os.getenv("AEB_AGENT_VM_HOST")
+    if string.length(vm) == 0 {
+        _w = io.write_file(log_path, "run_on=vm: no --vm-host configured (fail-closed)\n")
+        return 1
+    }
+    vmdir = os.getenv("AEB_AGENT_VM_DIR")
+    if string.length(vmdir) == 0 { vmdir = "/tmp/aeb-vm-build" }
+    println("agent: run_on=vm — building on ${vm}:${vmdir}")
+
+    // 1. Ship the prepared tree to the VM. -e ssh so rsync uses the ssh-config
+    //    alias (ProxyJump etc.). Trailing slash on src = copy contents into vmdir.
+    push = string.concat("ssh ", string.concat(vm, string.concat(" 'mkdir -p ", string.concat(vmdir, "'"))))
+    _ = build._sh(string.concat(push, " >> '${log_path}' 2>&1"))
+    rsync_push = string.concat("rsync -az --delete -e ssh '", string.concat(workdir, string.concat("/' '", string.concat(vm, string.concat(":", string.concat(vmdir, "/'"))))))
+    prc = build._sh(string.concat(rsync_push, " >> '${log_path}' 2>&1"))
+    if prc != 0 {
+        _wp = io.write_file(log_path, "run_on=vm: rsync to ${vm}:${vmdir} failed\n")
+        return prc
+    }
+
+    // 2. Build on the VM. The VM's own aeb resolves its own AEB_HOME/toolchain.
+    //    AEB_ARTIFACTS_JSON points at a VM-side path we fetch back in step 3.
+    vm_art = string.concat(vmdir, "/.aeb-vm-artifacts.json")
+    runc = string.concat("ssh ", string.concat(vm, string.concat(" 'cd ", string.concat(vmdir, string.concat(" && AEB_ARTIFACTS_JSON=", string.concat(vm_art, string.concat(" aeb ", string.concat(target, "'"))))))))
+    rc = build._sh(string.concat(runc, " >> '${log_path}' 2>&1"))
+
+    // 3. Bring the artifacts JSON back to where the rich-reply builder reads it
+    //    (AEB_ARTIFACTS_JSON, set by the caller to a local /tmp path).
+    local_art = os.getenv("AEB_ARTIFACTS_JSON")
+    if string.length(local_art) > 0 {
+        fetch = string.concat("rsync -az -e ssh '", string.concat(vm, string.concat(":", string.concat(vm_art, string.concat("' '", string.concat(local_art, "'"))))))
+        _f = build._sh(string.concat(fetch, " >> '${log_path}' 2>&1"))
+    }
+    return rc
+}
+
 handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     body = http.request_body(req)
     guid = _json_field(body, "guid")
@@ -562,6 +620,15 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     //     orchestrator's OWN bootstrap compile still needs a host toolchain —
     //     verified on oldnuc, the build failed at _orchestrator.c with host
     //     aetherc hidden. Phase 1 compiles the whole thing in-container instead.)
+    //   vm: run the WHOLE build on an SSH-reachable VM node (--vm-host, e.g. an
+    //     ssh-config alias whose ProxyJump routes through the VM host). The
+    //     agent rsyncs the prepared tree to the VM, runs `aeb <target>` there
+    //     (the VM owns its own toolchain + aeb), then rsyncs artifacts + the log
+    //     back. Mirrors run_on(podman)'s delegate-and-collect, one indirection
+    //     out: agent → (ssh, maybe via the VM-host) → VM. The VM-host
+    //     spawning/loaning the VM (virsh start/clone) is a later layer — for now
+    //     the VM is an already-running, SSH-reachable build node. Lets a Linux
+    //     agent dispatch a build onto e.g. a Windows VM.
     run_on = os.getenv("AEB_AGENT_RUN_ON")
     rc = 0
     if string.equals(run_on, "podman") == 1 {
@@ -583,8 +650,12 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
             rc = build._sh(p2)
         }
     } else {
-        cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
-        rc = build._sh(cmd)
+        if string.equals(run_on, "vm") == 1 {
+            rc = _run_on_vm(workdir, target, log_path)
+        } else {
+            cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
+            rc = build._sh(cmd)
+        }
     }
 
     result = "pass"
@@ -708,6 +779,8 @@ main() {
     tokens_file = ""
     run_on = "host"
     ctr_image = ""
+    vm_host = ""
+    vm_dir = ""
 
     i = 1
     while i < argc {
@@ -732,6 +805,11 @@ main() {
         // (no toolchain) can still build. Default "host" = today's bare build.
         if string.equals(a, "--run-on") == 1 { i = i + 1; run_on = aether_args_get(i) }
         if string.equals(a, "--ctr-image") == 1 { i = i + 1; ctr_image = aether_args_get(i) }
+        // --run-on vm: build on an SSH-reachable VM node (rsync tree → ssh aeb →
+        // rsync artifacts back). --vm-host is the ssh target/alias (its config may
+        // ProxyJump through the VM host); --vm-dir is the remote build dir.
+        if string.equals(a, "--vm-host") == 1 { i = i + 1; vm_host = aether_args_get(i) }
+        if string.equals(a, "--vm-dir") == 1 { i = i + 1; vm_dir = aether_args_get(i) }
         i = i + 1
     }
     // --repo defaults to --workdir (the agent's clone IS the build dir
@@ -755,8 +833,16 @@ main() {
             exit(2)
         }
     }
+    if string.equals(run_on, "vm") == 1 {
+        if string.length(vm_host) == 0 {
+            println("aeb-agent: --run-on vm requires --vm-host <ssh-target>; refusing to start.")
+            exit(2)
+        }
+    }
     _e5 = os.setenv("AEB_AGENT_RUN_ON", run_on)
     if string.length(ctr_image) > 0 { _e6 = os.setenv("AEB_AGENT_CTR_IMAGE", ctr_image) }
+    if string.length(vm_host) > 0 { _e7 = os.setenv("AEB_AGENT_VM_HOST", vm_host) }
+    if string.length(vm_dir) > 0 { _e8 = os.setenv("AEB_AGENT_VM_DIR", vm_dir) }
 
     // Fail-closed auth posture announcement. Distinguish the three
     // operator-visible states so a MISCONFIGURATION (unreadable mount)
@@ -811,8 +897,10 @@ _usage() {
     println("  --max-jobs N    concurrent job cap (default unbounded)")
     println("  --tokens FILE   bearer-token file; WITHOUT it the agent refuses ALL dispatches (fail-closed)")
     println("  --scope NAME    scope label for display (default 'preint')")
-    println("  --run-on KIND   host (default) | podman — where builds run")
+    println("  --run-on KIND   host (default) | podman | vm — where builds run")
     println("  --ctr-image IMG toolchain image for --run-on podman (e.g. aeb-toolchain:slim); required then")
+    println("  --vm-host HOST  ssh target/alias for --run-on vm (its config may ProxyJump); required then")
+    println("  --vm-dir DIR    remote build dir on the VM (--run-on vm; default /tmp/aeb-vm-build)")
     println("  -h, --help      this message")
     println("")
     println("Endpoints: GET /health (open), GET /ping (auth), POST /dispatch (auth)")
