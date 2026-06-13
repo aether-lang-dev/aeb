@@ -83,7 +83,7 @@ One per framework stack, at the project root:
 import build
 import build (dep)
 
-main() {
+aeb(cap) {
     b = build.deps()
     dep(b, "npm:typescript:5.9.2")
     dep(b, "npm:tslib:2.8.1")
@@ -101,7 +101,7 @@ main() {
 import build
 import build (dep)
 
-main() {
+aeb(cap) {
     b = build.deps()
     dep(b, "npm:typescript:5.9.2")
     dep(b, "npm:react:18.3.1")
@@ -145,7 +145,7 @@ import build (dep, load_third_party_deps)
 import ts
 import ts (skip_lib_check)
 
-main() {
+aeb(cap) {
     b = build.start()
     load_third_party_deps(b, "../../../../base.deps.ae")
     ts.tsc_project(b) {
@@ -162,7 +162,7 @@ import build (dep, load_third_party_deps)
 import angular
 import angular (skip_lib_check)
 
-main() {
+aeb(cap) {
     b = build.start()
     load_third_party_deps(b, "../../../../angular.deps.ae")
     dep(b, "libs/shared/product/data")
@@ -183,7 +183,7 @@ import build (dep, load_third_party_deps)
 import angular
 import angular (skip_lib_check, tsconfig)
 
-main() {
+aeb(cap) {
     b = build.start()
     load_third_party_deps(b, "../../angular.deps.ae")
     dep(b, "libs/products/home-page")
@@ -213,7 +213,7 @@ import build
 import build (dep, load_third_party_deps)
 import jest
 
-main() {
+aeb(cap) {
     b = build.start()
     dep(b, "libs/shared/product/state")
     load_third_party_deps(b, "../../../../angular.deps.ae")
@@ -296,7 +296,7 @@ import build
 import build (dep, load_third_party_deps)
 import webpack
 
-main() {
+aeb(cap) {
     b = build.start()
     dep(b, "apps/cart")
     load_third_party_deps(b, "../../react.deps.ae")
@@ -331,7 +331,7 @@ import build
 import build (dep, load_third_party_deps)
 import angular
 
-main() {
+aeb(cap) {
     b = build.start()
     dep(b, "apps/products")
     load_third_party_deps(b, "../../angular.deps.ae")
@@ -399,7 +399,7 @@ README for the canonical reference; brief pointers:
   ```aether
   // .all-tests.ae at the workspace root
   import build
-  main() {
+  aeb(cap) {
       b = build.start()
       build.scan(b, "**/.tests.ae")
   }

@@ -138,7 +138,7 @@ import maven (load_bom_file)
 import java
 import java (release, source_layout, enable_preview)
 
-main() {
+aeb(cap) {
     b = build.start()
     load_bom_file(b, "../path/to/your.bom.ae")
     dep(b, "org.springframework.boot:spring-boot-starter-data-jpa")
@@ -203,7 +203,7 @@ import maven (load_bom_file)
 import java
 import java (release, source_layout, enable_preview, test_timeout)
 
-main() {
+aeb(cap) {
     b = build.start()
     dep(b, "module/path")
     load_bom_file(b, "../path/to/your.bom.ae")
@@ -336,7 +336,7 @@ README for the canonical reference; brief pointers:
   ```aether
   // .all-tests.ae at the repo root
   import build
-  main() {
+  aeb(cap) {
       b = build.start()
       build.scan(b, "**/.tests.ae")
   }

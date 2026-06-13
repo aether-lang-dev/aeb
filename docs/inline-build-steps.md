@@ -53,7 +53,7 @@ import std.io
 import std.string
 import std.path
 
-main() {
+aeb(cap) {
     b = build.start()
 
     // --- Idiomatic SDK builders would go here, e.g. ---
@@ -156,7 +156,7 @@ import std.io
 import std.string
 import std.path
 
-main() {
+aeb(cap) {
     b = build.start()
     dep(b, ".build.ae")          // ensure the inline producer ran first
 

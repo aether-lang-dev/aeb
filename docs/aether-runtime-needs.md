@@ -1,7 +1,8 @@
 # Aether enhancements wanted by `aeb`
 
-`aeb` is now a bash trampoline (~300 lines — it also carries the
-build-level process-group reap + `--timeout` watchdog) plus ~19
+`aeb` is now a bash trampoline (~600 lines — it also carries the
+build-level process-group reap + `--timeout` watchdog, plus the
+`--vet`/`--sandbox`/remote-agent dispatch arms) plus a suite of
 Aether-language tools under `tools/`. The bash bit sets `AETHER` /
 `AEB_HOME` / `ROOT`, auto-detects the Podman socket, runs the build in its
 own process group and reaps survivors, and dispatches to `tools/aeb-main`,

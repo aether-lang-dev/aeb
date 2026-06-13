@@ -80,7 +80,7 @@ main() {
 }
 ```
 
-`.crate.ae` / `.jar.ae` / `.npm.ae` / `.whl.ae` are dot-prefixed `.ae` nodes
+`.crate.ae` / `.jar.ae` / `.npm.ae` / `.nupkg.ae` / `.whl.ae` are dot-prefixed `.ae` nodes
 that declare *how to obtain a dependency* and expose it to consumers via
 `build.dep(b, "…/.serde_json.crate.ae")`. They resolve to a **prebuilt
 artifact to link**. A Gentoo-style source package is the **same declaration

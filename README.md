@@ -1299,13 +1299,15 @@ step; tests always re-run.
 
 ## Project layout
 
-`aeb` itself is a ~36-line bash trampoline. It picks up `AETHER`,
-`AEB_HOME`, and the working directory, optionally exports a Podman
-socket, and dispatches `--init` / `gcheckout` / normal builds to the
-matching Aether-language tool under `tools/`. Everything else —
-argument parsing, scan/target discovery, dep extraction, topo sort,
-per-file compile, orchestrator generation, gcc link, exec — runs in
-Aether.
+`aeb` itself is a bash trampoline (~600 lines — a thin dispatch core plus
+opt-in feature arms for `--vet` / `--sandbox` / `--timeout` / remote-agent
+dispatch and process-group reaping). It picks up `AETHER`, `AEB_HOME`, and the
+working directory, optionally exports a Podman socket, and dispatches `--init` /
+`gcheckout` / normal builds to the matching Aether-language tool under `tools/`.
+Everything else — argument parsing, scan/target discovery, dep extraction, topo
+sort, per-file compile, orchestrator generation, gcc link, exec — runs in
+Aether. (The pure-Aether entrypoint `tools/aeb-cli` is a faithful facsimile of
+this trampoline; see `mingw_a_b_plan.md`.)
 
 ```
 aeb/
@@ -1331,21 +1333,40 @@ aeb/
 │   ├── angular/module.ae
 │   └── container/module.ae    # OCI image builds, LXC
 ├── tools/                     # Aether-language tools that aeb dispatches to
+│   │  # core build pipeline
 │   ├── aeb-main.ae            # arg parsing, scan/target discovery, sort, exec aeb-link
-│   ├── aeb-init.ae            # `aeb --init` symlink + .gitignore setup
 │   ├── aeb-link.ae            # per-file compile + orchestrator + gcc link + exec
+│   ├── aeb-driver.ae          # per-node parallel driver (emits the Makefile)
+│   ├── gen-orchestrator.ae    # emits the single-binary orchestrator
+│   ├── transform-ae.ae        # rewrites user .ae files for linking (pure-Aether
+│   │                          #   transitive-import resolver, no shell)
+│   ├── aeb-init.ae            # `aeb --init` symlink + .gitignore setup
+│   ├── aeb-cli.ae             # pure-Aether entrypoint (facsimile of the bash `aeb`)
+│   │  # graph / query / affected
+│   ├── aeb-graph.ae           # `aeb --graph` DOT/Mermaid
+│   ├── aeb-query.ae           # `aeb query/owners/path/why`
+│   ├── affected-targets.ae    # `aeb --since` / `--print-affected` walk
 │   ├── gcheckout.ae           # `aeb gcheckout` sparse-checkout DAG walker
+│   │  # trust / containment
+│   ├── aeb-vet.ae             # `aeb --vet` supply-chain veto
+│   ├── aeb-sandbox.ae         # `aeb --sandbox` runtime containment (Linux)
+│   ├── aeb-sbom.ae            # `aeb --resolve-only --sbom-json` dep-closure SBOM
+│   ├── aeb-trace.ae           # `aeb --trace-intent` doppelganger intent trace
+│   │  # remote agent (opt-in; built via `aeb tools/agent/.install.ae`)
+│   ├── aeb-agent.ae           # remote build agent (HTTP listener; --run-on podman)
+│   ├── aeb-remote.ae          # `aeb --use-remote-agents` dispatch client
+│   │  # helpers (lazy-built, pure-Aether)
 │   ├── encode-name.ae         # path → C-safe identifier
 │   ├── infer-type.ae          # filename suffix → build/test/dist
 │   ├── file-to-label.ae       # file path → build.begin() module label
 │   ├── resolve-dep.ae         # dep reference → file path
-│   ├── extract-deps.ae        # parse a .ae file's dep(b, "...") lines
+│   ├── extract-deps.ae        # parse a .ae file's dep(b, "...") lines (+ --prereqs)
 │   ├── scan-ae-files.ae       # walk cwd for every .*.ae build file
 │   ├── topo-sort.ae           # DFS post-order over the file dep graph
-│   ├── transform-ae.ae        # rewrites user .ae files for linking
-│   ├── gen-orchestrator.ae    # emits the single-binary orchestrator
-│   ├── resolve-imports.sh     # transitive import resolution for transform-ae
+│   ├── mvn-to-aeb.ae          # pom.xml → .build.ae migration helper
+│   ├── cargo-to-deps-ae.sh    # Cargo.toml → .crate.ae dep files (migration)
 │   └── resolver/              # Maven Resolver wrapper (→ aeb-resolve.jar)
+├── tools/container/           # aeb-ctr (compile-in-container/execute-on-host) + image
 ├── itests/                    # integration tests (real open-source projects)
 ├── README.md
 └── TODO.md
