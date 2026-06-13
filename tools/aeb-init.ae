@@ -17,9 +17,77 @@ import std.string
 import std.file
 import std.os
 import std.list
+import std.io
+import std.fs
 
 extern println(s: string)
 extern exit(code: int)
+
+// Inline POSIX-shell-on-Windows chokepoint (hardened temp-script form; mirrors
+// lib/build._sh / aeb-link / transform-ae). aeb-init is lazy-built WITHOUT
+// --lib lib (bash + aeb-cli build it bare), so it can't `import build` — hence
+// the inline copy. On Windows os.system/os.exec route through cmd.exe, which
+// can't run aeb-init's POSIX commands (mkdir -p, ln -s, test -L, readlink,
+// grep -Fx, printf >> redirect). Writing the cmd to a temp .sh and running
+// `sh <nativepath>` makes cmd.exe never parse the contents, so quotes/redirects
+// all survive. POSIX = passthrough.
+_is_windows_init() {
+    if os.platform() == "windows" { return 1 }
+    return 0
+}
+_slashes_init(s: string) {
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        ch = string.substring(rest, 0, 1)
+        rest = string.substring(rest, 1, string.length(rest))
+        if string.equals(ch, "\\") == 1 { out = string.concat(out, "/") }
+        else { out = string.concat(out, ch) }
+    }
+    return out
+}
+_hash_init(s: string) {
+    h = 5381
+    rest = s
+    while string.length(rest) > 0 {
+        c = string.char_at(rest, 0)
+        rest = string.substring(rest, 1, string.length(rest))
+        h = ((h * 33) + c) & 2147483647
+    }
+    return h
+}
+_script_path_init(cmd: string) {
+    tmp = _slashes_init(os.getenv("TMP"))
+    if string.length(tmp) == 0 { tmp = _slashes_init(os.getenv("TEMP")) }
+    if string.length(tmp) == 0 { tmp = "/tmp" }
+    name = string.concat("_aeb_init_", string.concat(string.from_int(os.getpid()),
+           string.concat("_", string.concat(string.from_int(_hash_init(cmd)), ".sh"))))
+    return string.concat(tmp, string.concat("/", name))
+}
+_sh_init(cmd: string) {
+    if _is_windows_init() == 0 { return os.system(cmd) }
+    scriptf = _script_path_init(cmd)
+    werr = io.write_file(scriptf, cmd)
+    if string.length(werr) > 0 { return os.system(cmd) }
+    rc = os.system(string.concat("sh ", scriptf))
+    _d = fs.delete(scriptf)
+    return rc
+}
+_sh_capture_init(cmd: string) {
+    if _is_windows_init() == 0 {
+        out, err = os.exec(cmd)
+        return out, err
+    }
+    scriptf = _script_path_init(cmd)
+    werr = io.write_file(scriptf, cmd)
+    if string.length(werr) > 0 {
+        out, err = os.exec(cmd)
+        return out, err
+    }
+    out, err = os.exec(string.concat("sh ", scriptf))
+    _d = fs.delete(scriptf)
+    return out, err
+}
 
 // Shipped SDK modules — the lib/<sdk> trees aeb ships and symlinks
 // into a project's .aeb/lib/ on `aeb --init`.
@@ -32,7 +100,7 @@ shipped_modules() {
 is_symlink(path: string) {
     cmd = string.concat("test -L \"", path)
     cmd = string.concat(cmd, "\" && echo yes || echo no")
-    out, eerr = os.exec(cmd)
+    out, eerr = _sh_capture_init(cmd)
     if eerr != "" { return 0 }
     if string.trim(out) == "yes" { return 1 }
     return 0
@@ -42,7 +110,7 @@ is_symlink(path: string) {
 readlink_pure(path: string) {
     cmd = string.concat("readlink \"", path)
     cmd = string.concat(cmd, "\" 2>/dev/null")
-    out, eerr = os.exec(cmd)
+    out, eerr = _sh_capture_init(cmd)
     if eerr != "" { return string.concat("", "") }
     return string.trim(out)
 }
@@ -55,7 +123,7 @@ readlink_pure(path: string) {
 finalize_gitignore() {
     if file.exists(".gitignore") == 1 {
         check_cmd = "grep -Fx '.aeb/' .gitignore 2>/dev/null && echo yes || echo no"
-        check_out, cerr = os.exec(check_cmd)
+        check_out, cerr = _sh_capture_init(check_cmd)
         if cerr == "" {
             if string.trim(check_out) == "yes" {
                 println("  .gitignore already configured")
@@ -63,7 +131,7 @@ finalize_gitignore() {
             }
         }
     }
-    os.system("printf '\\n# aeb modules\\n.aeb/\\n' >> .gitignore")
+    _sh_init("printf '\\n# aeb modules\\n.aeb/\\n' >> .gitignore")
     println("  updated .gitignore")
     return 0
 }
@@ -76,7 +144,7 @@ main() {
     aebhome = aether_args_get(1)
     aeb_lib = string.concat(".aeb/lib", "")
 
-    os.system(string.concat("mkdir -p ", aeb_lib))
+    _sh_init(string.concat("mkdir -p ", aeb_lib))
 
     // Split shipped modules on spaces into a list (pure Aether).
     mods = list.new()
@@ -118,12 +186,12 @@ main() {
             if existing == target {
                 println(string.concat("  ok: .aeb/lib/", mod))
             } else {
-                os.system(string.concat("rm \"", string.concat(link, "\"")))
+                _sh_init(string.concat("rm \"", string.concat(link, "\"")))
                 ln_cmd = string.concat("ln -s \"", target)
                 ln_cmd = string.concat(ln_cmd, "\" \"")
                 ln_cmd = string.concat(ln_cmd, link)
                 ln_cmd = string.concat(ln_cmd, "\"")
-                os.system(ln_cmd)
+                _sh_init(ln_cmd)
                 msg = string.concat("  updated: .aeb/lib/", mod)
                 msg = string.concat(msg, " -> ")
                 msg = string.concat(msg, target)
@@ -139,7 +207,7 @@ main() {
                 ln_cmd = string.concat(ln_cmd, "\" \"")
                 ln_cmd = string.concat(ln_cmd, link)
                 ln_cmd = string.concat(ln_cmd, "\"")
-                os.system(ln_cmd)
+                _sh_init(ln_cmd)
                 msg = string.concat("  linked: .aeb/lib/", mod)
                 msg = string.concat(msg, " -> ")
                 msg = string.concat(msg, target)
