@@ -531,6 +531,31 @@ work" question:
 - **So the headline question is answered: YES — aeb-agent runs in a container
   after the Windows work**, and the dogfood that builds it in-image works.
 
+### Target-repo lib-resolution in the agent's veto — FIXED (2026-06-13, main)
+
+The dispatched `aeb-test` build vetoed because the agent's 2b **veto** (not the
+inner build) ran `aetherc --emit=ast` over the target with the WRONG `--lib`
+root, so it couldn't resolve the target's `import build/java/…` → no clean AST →
+fail-closed `veto:no-ast`. Two layers, both fixed:
+1. `_agent_sdk_lib()` added (commit `1a75552`): the veto's SDK lib root must not
+   be bare `$AEB_HOME/lib` — in the container the agent's AEB_HOME is its
+   tools-only tree (`/root/.local/share/aeb`); the real SDK is
+   `/usr/local/share/aeb`. Falls back to the home `aeb --version` reports.
+2. **The actual bug** (commit `52b97a2`): `_agent_sdk_lib` probed
+   `path.join(cand,"build")` with `file.exists` — but `lib/build` is a
+   **directory**, and `file.exists` returns 0 for dirs, so it always returned ""
+   → no SDK --lib → the no-ast veto. Switched to `fs.exists` (path-agnostic, the
+   primitive aeb-link's probes use).
+- **Result, proven on the oldnuc container:** `_agent_sdk_lib` →
+  `/usr/local/share/aeb/lib`, AST emit `emit_rc=0`, and the veto makes a REAL
+  decision: `denied exec: os_run_full_raw (std/os) (veto:exec) arg=<computed>` —
+  the java build transitively shells out to javac and the DEFAULT deny-all-exec
+  policy refuses it. **That's the veto working as designed, NOT a bug.** A real
+  CI agent supplies an operator `--veto-policy`/`AEB_VETO_POLICY` that permits its
+  trusted toolchain's exec. The agent path is now correct end-to-end:
+  listen→auth→accept→prepare→emit-clean-AST→informed-verdict. The remaining knob
+  is purely operator policy, not resolution.
+
 ## 6. Pointers
 
 - Agent: `tools/aeb-agent.ae`, `lib/agent/module.ae`, `tools/agent/{.dist,
