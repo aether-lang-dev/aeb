@@ -14,8 +14,9 @@
 // (aether #688 — os.run* mangled heap-allocated argv strings) is FIXED in ae
 // 0.239.0, and a Phase-1 A/B against ../google-monorepo-sim now passes:
 // aeb-cli builds a target with IDENTICAL output + artifacts + exit code to the
-// bash trampoline. Remaining: the --sandbox prefix arm (prepend aeb-sandbox)
-// and the full-repo A/B harness (ab.sh). See mingw_a_b_plan.md.
+// bash trampoline. The --sandbox prefix arm is now WIRED too (prepend the
+// aeb-sandbox wrapper, mirroring bash's AEB_LAUNCH — see the sandbox_on branch
+// below). Remaining: the full-repo A/B harness (ab.sh). See mingw_a_b_plan.md.
 
 import aebcli
 import build
@@ -184,16 +185,48 @@ main() {
         _bc = build._sh("'${aether}' build '${src}' -o '${main_bin}' 2>/dev/null")
     }
 
-    // Assemble the argv the bash supervision tail passes:
+    // The program the supervision tail execs, and the argv it gets. Default is
+    // aeb-main directly:
     //   aeb-main <aether> <aeb_home> <root> <targets...>
-    // (Under --sandbox the bash prepends the aeb-sandbox wrapper; that arm is
-    // a follow-up — base case first per the MINGW A/B plan.)
+    //
+    // --sandbox (AEB_SANDBOX set by the directive plan from --sandbox /
+    // --sandbox-profile): prepend the aeb-sandbox wrapper, mirroring the bash
+    // AEB_LAUNCH arm — it runs the WHOLE build under Aether's spawn_sandboxed
+    // (deny-by-default LD_PRELOAD profile). The bash composes:
+    //   aeb-sandbox <aether-ABS> <home> <root> <main-bin>  <aether> <home> <root> <args...>
+    // i.e. prog=aeb-sandbox, then its 4 fixed args, then the normal aeb-main
+    // argv. AETHER is resolved to an ABSOLUTE path because the sandbox restricts
+    // the env (a bare `ae` may not PATH-resolve inside, and a failed ae/aetherc
+    // exec kills the contained build); the absolute path is exec-checked against
+    // the grants directly.
+    prog = string.concat(main_bin, "")
+    argv = list.new()
+    sandbox_on = string.length(os.getenv("AEB_SANDBOX")) > 0
+    if sandbox_on == 1 {
+        sandbox_bin = string.concat(aeb_home, "/tools/aeb-sandbox")
+        if file.exists(sandbox_bin) == 0 {
+            ssrc = string.concat(aeb_home, "/tools/aeb-sandbox.ae")
+            slib = string.concat(aeb_home, "/lib")
+            stools = string.concat(aeb_home, "/tools")
+            _sbc = build._sh("'${aether}' build '${ssrc}' --lib '${slib}' --lib '${stools}' -o '${sandbox_bin}' 2>/dev/null")
+        }
+        // Absolute aether path for the restricted-env run (mirror bash's
+        // `command -v $AETHER`); fall back to the bare name if not resolvable.
+        aether_abs, _ae = build._sh_capture("command -v '${aether}' 2>/dev/null")
+        aether_abs = string.trim(aether_abs)
+        if string.length(aether_abs) == 0 { aether_abs = string.concat(aether, "") }
+        prog = string.concat(sandbox_bin, "")
+        _s0 = list.add(argv, string.concat(aether_abs, ""))
+        _s1 = list.add(argv, string.concat(aeb_home, ""))
+        _s2 = list.add(argv, string.concat(root, ""))
+        _s3 = list.add(argv, string.concat(main_bin, ""))
+    }
+    // The normal aeb-main argv (appended after the sandbox prefix, if any).
     // Copy each string (concat "") into the argv list. os.getcwd()'s buffer and
     // the list.get'd target strings are pointers into storage that can be
     // reused before run_supervised serialises argv — a fresh copy pins the
     // bytes. (Without this, the child sees corrupted/aliased argv — observed:
     // root + targets came through as garbage pointer bytes.)
-    argv = list.new()
     _a0 = list.add(argv, string.concat(aether, ""))
     _a1 = list.add(argv, string.concat(aeb_home, ""))
     _a2 = list.add(argv, string.concat(root, ""))
@@ -214,7 +247,7 @@ main() {
     // (POSIX process groups / Windows Job Objects) — the whole bash `set -m` +
     // trap + watchdog + reap tail. env=null inherits this process's env (we
     // already setenv'd AEB_HOME + the directive-plan vars in-process).
-    code, _outcome = os.run_supervised(main_bin, argv, null, 1, 1, timeout_secs, 1)
+    code, _outcome = os.run_supervised(prog, argv, null, 1, 1, timeout_secs, 1)
     exit(code)
 }
 
