@@ -257,6 +257,11 @@ is honest about what it can't do on Windows.
   messages) printed *empty* on Windows. Fixed upstream by binding the printf
   family to the C99 `__mingw_*` impls. No aeb change — but it means the native
   entrypoint's output is actually usable on Windows now.
+- **CHANGELOG scan 2026-06-13 (aether 0.245–0.247):** the aeb-relevant item is
+  **#701 module-level globals (0.247.0)** — it un-blocks the top-level-counter
+  pattern I'd wanted for the chokepoint temp names, but my content-hash
+  workaround is fine, so it's a future nicety, not action-now. The
+  int-shift/narrowing fixes are codegen-internal, not aeb-facing.
 - aeb *already* branches by OS at its lowest layer: `aeb-link` has an
   inlined `_is_macos_link()` for the GNU-ld-only `--allow-multiple-definition`
   flag, and `lib/build` carries `_host_os()` returning `"windows"`. Both now
