@@ -264,6 +264,17 @@ _veto_ast(repo: string, target: string) {
     proj_lib = path.join(repo, ".aeb/lib")
     if file.exists(proj_lib) == 1 { list.add(lib_roots, proj_lib) }
 
+    // run_on=podman: the agent host may be toolchain-less, so the veto's
+    // aetherc --emit=ast must run IN the container too (the build already
+    // delegates — this closes the last host-aetherc dependency). The repo binds
+    // at /work; the container's own aetherc + SDK + stdlib resolve the target's
+    // imports, and decide()'s trusted origins are the CONTAINER's SDK/stdlib
+    // paths (which is where the emitted AST attributes SDK-internal calls).
+    run_on = os.getenv("AEB_AGENT_RUN_ON")
+    if string.equals(run_on, "podman") == 1 {
+        return _veto_ast_in_container(repo, target, rules)
+    }
+
     // Run the emit from INSIDE repo (the target path is relative to the
     // prepared tree, exactly as the build sees it — the build cd's into
     // workdir too). repo may be relative ("." default), so cd makes the
@@ -272,6 +283,50 @@ _veto_ast(repo: string, target: string) {
     cmd = string.concat(string.concat("cd '", repo), string.concat("' && ", emit))
     ast_json, _e = build._sh_capture(cmd)
     rc = build._sh(string.concat(cmd, " >/dev/null 2>&1"))
+    return decide(ast_json, rc, lib_roots, rules)
+}
+
+// _veto_ast_in_container(repo, target, rules) — the run_on=podman veto: emit the
+// target's AST with the CONTAINER's aetherc (the host may have none), then
+// decide() with the container's trusted SDK/stdlib origins. The repo is
+// bind-mounted at /work, aetherc is the entrypoint, and the target path is
+// relative to /work (same as the build sees it). Honors AEB_CONTAINER_ENGINE /
+// AEB_CONTAINER_SELABEL like the build phase + aeb-ctr.
+_veto_ast_in_container(repo: string, target: string, rules: ptr) {
+    image = os.getenv("AEB_AGENT_CTR_IMAGE")
+    if string.length(image) == 0 {
+        return "run_on=podman veto: no --ctr-image (fail-closed)"
+    }
+    engine = os.getenv("AEB_CONTAINER_ENGINE")
+    if string.length(engine) == 0 { engine = "podman" }
+    selabel = os.getenv("AEB_CONTAINER_SELABEL")
+    if string.length(selabel) == 0 { selabel = "Z" }
+
+    // Container-side trusted origins: where the image's aetherc attributes
+    // SDK-internal + stdlib calls. The stdlib prefix mirrors what aetherc emits
+    // (<bin>/../share/aether); the aeb SDK is /usr/local/share/aeb/lib.
+    lib_roots = list.new()
+    list.add(lib_roots, "/usr/local/share/aeb/lib")
+    list.add(lib_roots, "/usr/local/bin/../share/aether")
+    list.add(lib_roots, "/usr/local/share/aether")
+    // The prepared tree's own .aeb/lib resolves under /work in-container.
+    list.add(lib_roots, "/work/.aeb/lib")
+
+    mnt = string.concat(repo, string.concat(":/work:", selabel))
+    // podman run --rm -v repo:/work:Z -w /work --entrypoint aetherc image
+    //   --emit=ast --lib '<ctr-root>' ... '<target>'
+    emit = emit_ast_cmd("aetherc", _lib_flags(lib_roots), target)
+    // Strip the leading "'aetherc' " emit_ast_cmd prepends — the entrypoint IS
+    // aetherc, so we pass only its args. emit_ast_cmd returns
+    // "'aetherc' --emit=ast<libs> 'target'"; we want everything after "'aetherc' ".
+    args = emit
+    pfx = "'aetherc' "
+    if string.index_of(emit, pfx) == 0 {
+        args = string.substring(emit, string.length(pfx), string.length(emit))
+    }
+    base = string.concat(engine, string.concat(" run --rm -v '", string.concat(mnt, string.concat("' -w /work --entrypoint aetherc '", string.concat(image, string.concat("' ", args))))))
+    ast_json, _e = build._sh_capture(base)
+    rc = build._sh(string.concat(base, " >/dev/null 2>&1"))
     return decide(ast_json, rc, lib_roots, rules)
 }
 
