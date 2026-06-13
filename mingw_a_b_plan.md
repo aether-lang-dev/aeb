@@ -189,12 +189,20 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
    artifact set + exit code** under `aeb-cli` and the bash trampoline (only
    the wall-clock timing differs). The pure-Aether entrypoint is proven
    faithful for the base case.
-2. ~~**Phase-1 A/B on Linux**~~ **STARTED.** Single-leaf A/B (C + Aether
-   targets) passes identical. Remaining: scale to a cross-module node → a
-   whole-app build → the full `../google-monorepo-sim`, and land `ab.sh`
-   (run both, diff exit/nodes/artifacts/telemetry). Also: the `--sandbox`
-   prefix arm in aeb-cli (prepend the `aeb-sandbox` wrapper, mirroring the
-   bash `AEB_LAUNCH`).
+2. ~~**Phase-1 A/B on Linux**~~ **DONE.** `ab.sh` landed (runs bash `aeb` +
+   pure `aeb-cli` into separate scratch copies, diffs exit code + artifact
+   tree + normalised telemetry JSON). Sweep: **6/6 PASS** across C + Rust
+   targets of varying shape (c-hello, c-aether-spike-a/b, c-bootstrap-tool,
+   rust-registry-crate, rust-workspace). The `--sandbox` prefix arm IS wired
+   in aeb-cli (A/B-identical: same binary + "27 grants" line) and `--init` is
+   handled (A/B-identical 46-entry .aeb/ scaffold). aeb-cli now covers the
+   FULL bash surface: all 22 build flags (parser parity), supervised build
+   exec, --sandbox, --version, --init.
+   NB on the A/B bar: compiled binaries are compared by PRESENCE not bytes —
+   the Aether→C→gcc toolchain isn't reproducible (embeds the abs source path;
+   the same bash run twice yields different .o hashes), so byte-identity is a
+   separate reproducible-builds concern, not a facsimile one. ab.sh content-
+   compares only the text pointer-artifacts (root-path normalised).
 3. **Classpath plumbing** (Axis-2 #1) — then re-run Phase-1 (still `:` on Linux,
    so must stay identical) as a regression gate.
    **Axis-2 IN PROGRESS — the POSIX-shell-on-Windows chokepoint (branch
@@ -232,14 +240,28 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
      escape, so any EMBEDDED single quote inside the `sh -c '...'` wrap collides
      and sh aborts. Rule: inside the chokepoint, use NO inner single quotes and
      NO `;`-joined args — bare paths + repeated flags + quote-free sed.
-   - **Remaining Axis-2 — the SDK execute layer (~369 sites in `lib/*`):** the
-     orchestrator binary now runs and reaches the SDKs, which still shell out
-     raw. First hit: `lib/c`'s `_expand_sources` does
-     `os.exec("cd '${source_dir}' && ls -1 ${p}")` → cmd.exe can't `cd && ls`
-     → "no sources" → `c.program: no sources and no dep objects`. Same class:
-     route every SDK `os.system`/`os.exec` through `build._sh`/`_sh_capture`,
-     drop inner quotes. `lib/build` already HAS the chokepoint; the SDKs just
-     need to use it. This is the bulk, mechanical, one SDK at a time.
+   - **Axis-2 SDK execute layer — DONE.** The whole shell-out surface is
+     converted: lib/c, lib/rust, +28 more SDKs, lib/build's helpers, lib/cache
+     (pure fs), aeb-driver/aeb-cli/aeb-vet/aeb-trace, and the inline chokepoints
+     in aeb-link + transform-ae. The ONLY direct os.system/os.exec left in lib/*
+     is the chokepoint's own internals. ~330+ sites, every batch gated
+     byte-identical on Linux (109/109).
+   - **The chokepoint was HARDENED** to a temp-script mechanism: write the cmd
+     to a %TMP% .sh, run `sh <nativepath>`. cmd.exe only ever sees `sh C:/…/x.sh`
+     so it never parses the contents — quotes, `;`, redirects, AND
+     spaces-in-paths all survive. This turned the SDK sweep into a pure
+     os.system→build._sh swap (no per-command quote surgery). Verified on the
+     box against the hardest command shape.
+   - **BOTH Windows build modes green on winbaz:** in-process (AEB_IN_PROCESS=1)
+     AND the default per-node path (aeb-driver + make). c-hello.exe builds + runs
+     rc=0 in both. scan-ae-files (pure byte-wise sort) + topo-sort (pure stderr)
+     also de-shelled — the last core-path shell-outs.
+   - **Remaining Axis-2:** peripheral tools off the core build path (aeb-agent,
+     aeb-sandbox, mvn-to-aeb, gcheckout, aeb-init, aeb-query/sbom/remote,
+     affected-targets) still shell out raw — same chokepoint recipe when needed;
+     none block a build. Plus the bulk SDK-layer LIVE verification on Windows
+     awaits the non-C language toolchains being installed on the box (winbaz has
+     only gcc/sh/make today — see the prereq/install-prereqs feature).
 4. **Phase-2 A/B on MINGW** — iterate path translation (#2) + per-SDK (#3).
    **Status (2026-06-12): Axis-1 PROVEN ON WINDOWS; now genuinely at the
    Axis-2 boundary.** Three upstream blockers were found on the box and all
