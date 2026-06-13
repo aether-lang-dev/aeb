@@ -258,11 +258,14 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
      also de-shelled — the last core-path shell-outs.
    - **Peripheral tools — Windows-reachable ones DONE.** aeb-init (inline
      chokepoint), aeb-query + affected-targets (pure sort -u), aeb-sbom +
-     aeb-remote (build._sh_capture) all converted + A/B/suite-green. Remaining
-     raw shell-outs are off the core path and not common Windows commands:
-     aeb-agent (15, opt-in network agent), gcheckout (8, git util), aeb-sandbox
-     (7, Linux-ONLY — spawn_sandboxed refuses off Linux), mvn-to-aeb (4, migration
-     util). Convert with the same recipe if/when their Windows use arises.
+     aeb-remote (build._sh_capture), and **aeb-agent** (all 15 sites: git prep /
+     veto / build via chokepoint, rm→fs.delete, policy-bin .exe-suffixed) all
+     converted + A/B/suite-green. **aeb-agent COMPILES + smoke-runs on winbaz**
+     (682KB .exe, std.http server, --help works) — a bare-host Windows build
+     agent is real. Marked MUCH-LATER (no current Windows need): gcheckout (git
+     util), aeb-sandbox (Linux-ONLY — spawn_sandboxed refuses off Linux),
+     mvn-to-aeb (migration util). Also future: aeb-agent's podman run_on /
+     container-layering (can't run on Windows yet — bare-host path is done).
    - **Remaining Axis-2:** the bulk SDK-layer LIVE verification on Windows awaits
      the non-C language toolchains being installed on the box (winbaz has only
      gcc/sh/make today — see the prereq/install-prereqs feature, which exists to
