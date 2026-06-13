@@ -25,7 +25,7 @@ picks up there and runs to "build."
 ```
 originator                          agent
 ----------                          -----
-agent.dispatch  ───POST /dispatch──▶ auth-veto (token)         ◀── door gate (policy-class doc)
+agent.dispatch  ───POST /dispatch──▶ auth-veto (token | lease) ◀── door gate (policy-class doc)
                                      decision (accept/busy/reject) ◀── (policy-class doc)
                                      │ accept
                                      ▼
@@ -34,7 +34,7 @@ agent.dispatch  ───POST /dispatch──▶ auth-veto (token)         ◀�
                                      │ 2. checkout (git checkout hash)│   _prepare_tree
                                      │ 3. apply    (git apply patch)  │
                                      │ 4. veto     (maybe_veto_build) │   ◀── build-veto-and-sandbox.md
-                                     │ 5. build    (aeb <target>)     │
+                                     │ 5. build    (host|podman|vm)   │   ◀── aeb-agent-operating.md
                                      └────────────────────────────────┘
                 ◀──webhook (terse)── verdict  {done, pass|fail}        ── (policy-class doc)
 ```
@@ -134,11 +134,33 @@ Placed here deliberately: it scans the tree *after* the patch is applied, so
 tier A can flag "the patch introduced a secret/banned file" — "a hit on the
 patch specifically is the highest-signal case."
 
-### 5. build — `aeb '<target>'`
+### 5. build — `host` | `podman` | `vm` (selected by `--run-on`)
 
-Run the build the dispatch asked for, in the workdir. Today a bare
-`os.system("cd '${workdir}' && aeb '${target}'")`; the exit code maps to
-`pass`/`fail`.
+Run the build the dispatch asked for; the exit code maps to `pass`/`fail`.
+**Where** it runs is the agent's `--run-on` mode (set at agent start, the same
+for every dispatch; the per-dispatch `image`/`command` fields tune it). The
+operator how-to — every flag, the lease-minting and winbaz recipes — is
+[`aeb-agent-operating.md`](aeb-agent-operating.md); the rationale/trust model is
+[`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md).
+The three modes:
+
+- **`host` (default)** — `cd <workdir> && aeb <target>` on the agent host. Needs
+  the toolchain locally.
+- **`podman`** — the aeb-ctr two-phase duality (compile in a `--ctr-image`
+  toolchain container, execute on the host) so a toolchain-less host still
+  builds. The dispatch may name a per-job `image` (gated by `--allow-image`), so
+  one agent serves fine-grained jobs whose layers the host lacks. See
+  [`two-aeb-duality.md`](two-aeb-duality.md).
+- **`vm`** — ship the prepared tree to an SSH-reachable VM (`--vm-host`, an
+  ssh-config alias owning key/ProxyJump), build there, bring artifacts back.
+  Two build *verbs*: the default `aeb <target>`, or — for a **non-aeb project**
+  (build.sh/make/cmake, no `.build.ae`) — a **raw `command`** run verbatim in
+  the tree root (opt-in via `--allow-vm-command`, fail-closed; in raw mode
+  station 4's AST veto is skipped — no aeb target to emit — but Tier-A marker
+  scanning still runs). Transport auto-falls-back rsync→`tar|ssh` for a VM
+  without rsync, and `--vm-shell` wraps remote commands for a non-POSIX default
+  ssh shell (e.g. cmd.exe on a Windows VM). Proven Linux→**winbaz**: a
+  `build.sh` compiled + ran a Windows `.exe`, no rsync/aeb on the VM.
 
 **Gaps** — these are the *containment* gaps, covered in
 [`build-veto-and-sandbox.md`](build-veto-and-sandbox.md) § "Veto is policy; containment is

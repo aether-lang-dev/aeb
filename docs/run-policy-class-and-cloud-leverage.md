@@ -489,6 +489,12 @@ verification* — it is neither issuer nor verifier.
 
 ## References
 
+- [`aeb-agent-operating.md`](aeb-agent-operating.md) — the **operator how-to**:
+  standing up an agent, every flag, the two auth modes (+ `aeb-lease` minting),
+  the three run-modes, and the winbaz `build.sh` recipe. (This doc is the *why*;
+  that one is the *how*.)
+- [`agent-lifecycle.md`](agent-lifecycle.md) — the per-dispatch lifecycle
+  (fetch→checkout→apply→veto→build).
 - Paul Hammant, *"A Purpose in a Token"*, 2021-01-29 —
   https://paulhammant.com/2021/01/29/a-purpose-in-a-token/ — purpose/policy
   embedded legibly in the token, hierarchical, constrained at issuance.
