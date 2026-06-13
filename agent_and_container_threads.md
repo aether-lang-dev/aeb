@@ -400,9 +400,11 @@ fast confidence check.
    handler goes async — right now `active` is effectively 0).
 3. **The scope-tree config** — the `.ae` closure-DSL agent config (multiple
    scopes, `run_on` kinds) replacing the single CLI-flag scope.
-4. **`run_on("podman")` / `run_on("vm")`** — the agent runs its *own* builds in
-   a container (this is where threads A and B merge). The decision core already
-   carries `run_on`; only the execution backend is missing.
+4. ~~**`run_on("podman")`** — the agent runs its own builds in a container~~
+   **DONE (main 2a28dee):** aeb-agent --run-on podman --ctr-image <img>, the
+   aeb-ctr two-phase duality, airtight-proven on oldnuc (built with host gcc
+   hidden). Threads A and B merged. `run_on("vm")` still future. Remaining sub-
+   item: delegate the VETO's aetherc emit too (the last host-toolchain dep).
 5. **Cache partitioning** — per-principal / per-purpose cache namespaces so a
    fan-out doesn't cross-contaminate.
 6. **Windows agent → past bare-host** — winbaz proves the bare-host agent; next
@@ -578,6 +580,31 @@ trusted toolchain from untrusted build code. The aeb-agent dogfood install, the
 SDK-lib + stdlib veto origins, and both build modes are all fixed/proven. Open
 items now are thickenings (real token auth, async dispatch, run_on(podman) so the
 agent itself containerizes), not blockers.
+
+### run_on(podman) LANDED + AIRTIGHT-PROVEN (2026-06-13, main 2a28dee)
+
+Threads A (agent) and B (container) now MERGE in one running path: a dispatched
+build whose host LACKS the compile toolchain builds by delegating compilation
+into a podman container.
+- New `aeb-agent --run-on host|podman` + `--ctr-image <img>` (fail-closed:
+  podman without an image refuses to start). `_scope_from_env` reads run_on.
+- **Mechanism (corrected the hard way):** the first cut set the per-NODE
+  `AEB_COMPILE_CONTAINER` seam — but the orchestrator's OWN bootstrap compile is
+  done by aeb-link/aetherc directly and still needs a host toolchain (VERIFIED:
+  with host aetherc hidden the build failed at `_orchestrator.c`). So run_on=
+  podman now uses the **aeb-ctr TWO-PHASE duality**: Phase 1 `podman run …
+  --entrypoint aeb <image> --compile-only <target>` compiles the orchestrator +
+  every node IN the container (artifacts to host via :Z mount); Phase 2
+  `AEB_EXECUTE_ONLY=1 <workdir>/target/_ae_build_all <workdir>` runs on the host.
+- **AIRTIGHT PROOF on oldnuc:** with host **gcc HIDDEN** (orchestrator link needs
+  it), the dispatch still returned `status:done result:PASS`, and a 194KB
+  `_ae_build_all` landed on the host — the orchestrator was compiled+linked IN
+  the container, impossible on the host without gcc. gcc restored after.
+- **Follow-up (the last host-toolchain dependency):** the VETO's AST-emit
+  (`aetherc --emit=ast`) still runs on the agent HOST, so a *fully* toolchain-less
+  agent host needs the veto stage to delegate into the container too. The
+  build/orchestrator now delegates; the veto is the remaining host-aetherc
+  dependency. Clean next increment for "agent on a fully immutable host."
 
 ## 6. Pointers
 
