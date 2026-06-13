@@ -1,5 +1,16 @@
 # aeb-agent dogfood build (`tools/agent/.dist.ae`) is broken — AEB_COMPILE_LIB not threaded
 
+> **RESOLVED 2026-06-13 (commit on main).** Fixed via candidate (2): the default
+> `aether.program` path (`_shell_out_ae_build`) now threads `AEB_COMPILE_LIB`
+> into its `ae build` as repeated `--lib` flags (`_ae_build_lib_flags`), matching
+> what `_compile_and_link` already did. Also fixed a second bug: `.install.ae`
+> copied from `target/tools/...` but a `.dist` node lands under
+> `target/dist/tools/...`. `aeb tools/agent/.install.ae` now succeeds end-to-end
+> (binary + wrapper placed, runs). Kept below for the record.
+
+---
+
+
 **Found:** 2026-06-13, verifying the agent×container thread on oldnuc (ae 0.247)
 and reproduced on the dev box (ae 0.244). **Pre-existing — NOT a regression from
 the Windows/Axis-2 work or from 0.247.** The agent has only ever been built via
