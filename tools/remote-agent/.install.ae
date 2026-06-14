@@ -4,13 +4,14 @@
 // an agent to present to is pointless — so this is the convenient single target
 // the `make install` hint points at:
 //
-//   aeb tools/remote-agent/.install.ae    # → ~/.local/bin/{aeb-agent, aeb-lease}
+//   aeb tools/remote-agent/.install.ae    # → ~/.local/bin/{aeb-agent, aeb-lease, aeb-keygen}
 //
-// It just deps the two existing per-tool installers; aeb's DAG builds + places
-// both. (The individual targets tools/agent/.install.ae and
-// tools/lease/.install.ae still work if you want only one.) Opt-in like its
-// parts — NOT wired into `make` (a network server + a credential minter are
-// deliberate installs, not core build machinery).
+// It just deps the three existing per-tool installers; aeb's DAG builds + places
+// all of them. (The individual targets tools/agent/.install.ae,
+// tools/lease/.install.ae and tools/keygen/.install.ae still work if you want
+// only one.) Opt-in like its parts — NOT wired into `make` (a network server,
+// a credential minter, and a secret generator are deliberate installs, not core
+// build machinery).
 import build
 import build (dep)
 
@@ -20,7 +21,9 @@ main() {
     b = build.start()
     dep(b, "tools/agent/.install.ae")
     dep(b, "tools/lease/.install.ae")
-    println("remote-agent: installed aeb-agent (verifier) + aeb-lease (minter).")
+    dep(b, "tools/keygen/.install.ae")
+    println("remote-agent: installed aeb-agent (verifier) + aeb-lease (minter) + aeb-keygen (secret gen).")
+    println("  make a secret:   aeb-keygen > ~/.aeb/lease.secret && chmod 600 ~/.aeb/lease.secret")
     println("  start an agent:  aeb-agent --lease-secrets <file> --accept 'preint/*' ...")
     println("  mint a lease:    aeb-lease  --secret <file> --purpose preint/<scope> --ttl-mins 30")
     return 0

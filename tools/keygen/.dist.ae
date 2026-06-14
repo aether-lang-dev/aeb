@@ -1,0 +1,19 @@
+// Build the aeb-keygen binary WITH aeb (dogfood) — generates an aeb lease
+// signing secret ("aeb-secret-v1:<random>"). Part of the remote-agent kit
+// (you only need a lease-secret generator if you run agents), so it's OPT-IN
+// like aeb-agent / aeb-lease — NOT wired into `make`.
+//
+//   aeb tools/keygen/.dist.ae      # → target/dist/tools/keygen/bin/aeb-keygen
+//
+// Install (puts it on PATH): aeb tools/keygen/.install.ae, or the bundle
+// aeb tools/remote-agent/.install.ae (agent + lease + keygen together).
+import build
+import aether
+import aether (source, output)
+main() {
+    b = build.start()
+    aether.program(b) {
+        source("../aeb-keygen.ae")
+        output("aeb-keygen")
+    }
+}
