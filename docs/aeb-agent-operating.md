@@ -248,12 +248,15 @@ No `.build.ae`, no `aeb`, no `rsync` on the VM is required.
 | `patch_b64` | base64 of an uncommitted unified diff, `git apply`'d onto the base ("" = none) |
 | `image` | *(run_on=podman)* per-job toolchain image override; gated by `--allow-image` |
 | `command` | *(run_on=host or vm)* raw build command; gated by `--allow-vm-command` |
+| `keep_alive` | *(raw-command)* `true` = do NOT reap processes this command spawns. Default reaps the command's whole process group on return (TERM → grace → KILL) so a backgrounded server (`… &`) can't outlive the dispatch or wedge a slot. Set `true` for the serve-then-drive case (a driver that must survive the build step); the verdict then carries `"kept_alive": true` and the caller owns teardown (a follow-up `command:"pkill …"` dispatch). |
 | `mode` | provisioning mode for the per-slot tree: `patch` \| `advance` \| `autoclone`. Must be in `--provision-modes` (else 403). Absent → the agent's first offered mode. See [`agent-provisioning-modes.md`](agent-provisioning-modes.md). |
 | `repo` | *(mode=autoclone)* which approved repo to clone; must match `--autoclone-allow` (else 403) |
 | `branch` | *(mode=advance/autoclone)* the branch to track/checkout; must match `--advance-branches` / the `--autoclone-allow` entry's branch glob (else 403) |
 
 Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
-"result": pass|fail, "log": "<tail>", "artifacts": [...] }`.
+"result": pass|fail, "log": "<tail>", "artifacts": [...] }` — plus
+`"kept_alive": true` when the dispatch set `keep_alive` (a process it spawned is
+still up; the caller owns teardown).
 
 ### Firing a dispatch
 

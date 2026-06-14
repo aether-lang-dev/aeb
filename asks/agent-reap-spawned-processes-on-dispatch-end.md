@@ -1,5 +1,22 @@
 # aeb-agent should reap processes a dispatch spawns but doesn't reap
 
+> **STATUS: IMPLEMENTED** (Option 1 — reap-by-default + `keep_alive` opt-in).
+> The raw-command path (run_on=host AND run_on=vm) now runs each dispatch
+> `command` in its own process group and group-reaps survivors on return
+> (TERM → 1s grace → KILL), matching the `aeb` trampoline's discipline
+> (`_reap_wrap` in `tools/aeb-agent.ae`). A dispatch sets `"keep_alive": true`
+> to opt out (the driver-gate "serve then drive" case); the agent then leaves
+> the process up and returns `"kept_alive": true` in the verdict so the leak is
+> accountable and the caller knows to tear it down (a follow-up
+> `command:"pkill …"` dispatch, itself reaped). The macOS/Windows guide's
+> driver-gate example now shows `keep_alive: true` + teardown, resolving the
+> doc/impl contradiction below. Proven: a backgrounded `sleep` (via `&` AND via
+> a subshell) is reaped on return; with `keep_alive` it survives. Suite 109/109.
+> The `/reap` endpoint + `/ping`-lists-survivors refinements (richer than the
+> verdict flag) remain a possible follow-up but were not needed to close the
+> footgun. CIDR-style refinements N/A here.
+
+
 **Filed by**: aether-ui (using `aeb-agent --run-on host` on a Mac mini, and
 `--run-on vm` on winbaz, to build + drive its native GUI backends).
 **Severity**: not blocking (workaround: `pkill` on the host) — but it wedged the

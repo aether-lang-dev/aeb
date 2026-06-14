@@ -747,6 +747,33 @@ os_getpid_safe() {
     return os.getpid()
 }
 
+// _reap_wrap(inner) — wrap a shell command so anything it backgrounds is REAPED
+// when it returns, matching the `aeb` trampoline's own discipline (see aeb
+// lines ~560-626). The footgun this closes: a raw dispatch command that ends in
+// `… &` (the driver-gate pattern the macOS/Windows guide itself recommends —
+// stand up a server, then drive it) used to leave that server running on the
+// host indefinitely, holding ports and wedging the single build slot. Now the
+// inner command runs as a BACKGROUNDED JOB in its OWN process group (`set -m`
+// gives pid==pgid), we capture its rc, then group-kill survivors: TERM → 1s
+// grace → KILL. No-op when the command leaked nothing. The inner command's
+// exit code is preserved as the wrapper's exit code (the verdict is unchanged).
+//
+// Opt-out is keep_alive (handled by the caller, which simply doesn't wrap) —
+// for the legitimate long-lived-server case the reap would otherwise kill.
+// POSIX job-control + negative-PID group kill works on both macOS (the Mac
+// agent) and the Linux VM shells. Keep it a single bash -c string so `set -m`
+// and `wait` see the same shell.
+_reap_wrap(inner: string) {
+    w = "set -m; { "
+    w = string.concat(w, inner)
+    w = string.concat(w, " ; } & __ap=$!; wait $__ap; __arc=$?; ")
+    w = string.concat(w, "kill -TERM -$__ap 2>/dev/null; ")
+    w = string.concat(w, "__ag=0; while [ $__ag -lt 10 ]; do kill -0 -$__ap 2>/dev/null || break; sleep 0.1; __ag=$((__ag+1)); done; ")
+    w = string.concat(w, "kill -KILL -$__ap 2>/dev/null; ")
+    w = string.concat(w, "exit $__arc")
+    return w
+}
+
 // _run_on_vm(workdir, target, log_path) — run the whole build on an SSH-reachable
 // VM node and bring the result back. The agent host need not have a toolchain at
 // all (mirrors run_on=podman, one indirection further out): agent → ssh (often
@@ -844,7 +871,7 @@ _vm_fetch_file(vm: string, remote: string, local: string, use_rsync: int, log_pa
     return build._sh(string.concat(f, " 2>> '${log_path}'"))
 }
 
-_run_on_vm(workdir: string, target: string, log_path: string, raw_cmd: string) {
+_run_on_vm(workdir: string, target: string, log_path: string, raw_cmd: string, keep_alive: int) {
     vm = os.getenv("AEB_AGENT_VM_HOST")
     if string.length(vm) == 0 {
         _w = io.write_file(log_path, "run_on=vm: no --vm-host configured (fail-closed)\n")
@@ -874,8 +901,15 @@ _run_on_vm(workdir: string, target: string, log_path: string, raw_cmd: string) {
     if string.length(raw_cmd) > 0 {
         // Raw foreign build (build.sh / make / cmake …). cd into the tree, run
         // the command verbatim. Its exit code IS the verdict; aeb parses nothing.
+        // Reap-by-default on the VM too (a backgrounded server leaked there is
+        // just as wedging — it holds the slot for the whole dispatch and lingers
+        // on the VM). Wrap the remote verb in the same process-group reap unless
+        // keep_alive. _reap_wrap nests inside the `cd … && …` so the group spans
+        // exactly what the command spawns on the VM.
         println("agent: run_on=vm raw command: ${raw_cmd}")
-        runc = _vm_remote(vm, string.concat("cd ", string.concat(vmdir, string.concat(" && ", raw_cmd))))
+        vm_inner = string.concat("cd ", string.concat(vmdir, string.concat(" && ", raw_cmd)))
+        if keep_alive == 0 { vm_inner = _reap_wrap(vm_inner) }
+        runc = _vm_remote(vm, vm_inner)
     } else {
         // Default: the VM's own aeb resolves its AEB_HOME/toolchain; point
         // AEB_ARTIFACTS_JSON at a VM-side path we fetch back in step 3.
@@ -1083,6 +1117,19 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         }
         println("agent: raw-command guid=${guid} -> ${dispatch_command}")
     }
+    // keep_alive: opt OUT of dispatch-end process reaping. By default a raw
+    // command is run in its own process group and group-reaped when it returns
+    // (TERM→grace→KILL), so a backgrounded server (`… &`) can't outlive the
+    // dispatch and wedge the build slot — closing the footgun the driver-gate
+    // guide created. A dispatch that LEGITIMATELY needs a server to survive
+    // (the AetherUIDriver "serve then drive" pattern) sets "keep_alive": true;
+    // the agent then runs the command unreaped and reports it left a process up
+    // (so the leak is intentional + accountable, not silent). LOCAL, not env.
+    keep_alive = 0
+    ka = _json_field(body, "keep_alive")
+    if string.equals(ka, "true") == 1 { keep_alive = 1 }
+    if string.equals(ka, "1") == 1 { keep_alive = 1 }
+    if keep_alive == 1 { println("agent: keep_alive guid=${guid} — dispatch-spawned processes will NOT be reaped (caller owns teardown)") }
 
     // --- Prepare (wire ops, the agent's own lifecycle — NOT build grammar):
     //   1. git fetch origin <ref> && git checkout <hash>  (fetch-base)
@@ -1199,7 +1246,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
             // Pass the per-dispatch command as a LOCAL (dispatch_command), NOT via
             // global env — concurrent dispatches (per-slot trees) would race on a
             // shared env var. "" => default aeb <target>.
-            rc = _run_on_vm(workdir, target, log_path, dispatch_command)
+            rc = _run_on_vm(workdir, target, log_path, dispatch_command, keep_alive)
         } else {
             // run_on=host. Default verb is `aeb <target>`; but a raw command (the
             // dispatch's local "command" field, gated by --allow-vm-command) runs
@@ -1209,8 +1256,16 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
             // Uses the LOCAL dispatch_command (thread-safe under concurrency).
             if string.length(dispatch_command) > 0 {
                 println("agent: run_on=host raw command: ${dispatch_command}")
-                cmd = "cd '${workdir}' && ${dispatch_command} > '${log_path}' 2>&1"
-                rc = build._sh(cmd)
+                // Reap-by-default: run the command in its own process group and
+                // group-reap survivors when it returns, UNLESS keep_alive. The
+                // inner verb still redirects to the log; the reap wrapper owns
+                // job-control around it. (See _reap_wrap + the keep_alive note.)
+                inner = "cd '${workdir}' && ${dispatch_command} > '${log_path}' 2>&1"
+                if keep_alive == 1 {
+                    rc = build._sh(inner)
+                } else {
+                    rc = build._sh(_reap_wrap(inner))
+                }
             } else {
                 cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
                 rc = build._sh(cmd)
@@ -1255,7 +1310,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     println("agent: DONE guid=${guid} result=${result} (rc=${rc})")
     http.response_set_status(res, 200)
     http.response_set_header(res, "Content-Type", "application/json")
-    http.response_set_body(res, _dispatch_reply_rich(guid, "done", result, artifacts_body, log_tail))
+    http.response_set_body(res, _dispatch_reply_rich(guid, "done", result, artifacts_body, log_tail, keep_alive))
     return 0
 }
 
@@ -1285,12 +1340,18 @@ _tail_capture(path: string, n: int) {
 // artifacts_body is aeb's raw {"artifacts":[...]} file content (or "" if the
 // build wrote none). We parse it and graft its "artifacts" array onto our
 // reply; a parse failure / absent file degrades to an empty array.
-_dispatch_reply_rich(guid: string, status: string, result: string, artifacts_body: string, log: string) {
+_dispatch_reply_rich(guid: string, status: string, result: string, artifacts_body: string, log: string, kept_alive: int) {
     reply_obj = json.create_object()
     _s1 = json.object_set(reply_obj, "guid", json.create_string(guid))
     _s2 = json.object_set(reply_obj, "status", json.create_string(status))
     _s3 = json.object_set(reply_obj, "result", json.create_string(result))
     _s4 = json.object_set(reply_obj, "log", json.create_string(log))
+    // kept_alive: true = this dispatch opted out of reaping, so a process it
+    // spawned may still be running on the host. Surfaced so the leak is
+    // ACCOUNTABLE (the ask's requirement) — the caller sees it must tear the
+    // process down (a follow-up command:"pkill …" / "kill …" dispatch). Absent
+    // / false on a normal reaped dispatch.
+    if kept_alive == 1 { _sk = json.object_set(reply_obj, "kept_alive", json.create_string("true")) }
 
     // Lift the artifacts array out of aeb's wrapper object, if present.
     arts = json.create_array()
