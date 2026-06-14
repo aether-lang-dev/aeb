@@ -6,9 +6,15 @@ them, returning a structured verdict. It is the "lease a machine to build *this*
 no commit as a result" capability: ephemeral, fail-closed, and — with lease
 auth — scoped to a purpose and a time window.
 
-This is the **operator how-to**: how to stand one up, every flag, the auth
-modes, and the three run-modes (with the winbaz `build.sh` recipe). For *why*
-the model is shaped this way (policy class, purpose-in-the-token, the
+This is the **operator how-to**: how to stand one up, every flag, and the agent's
+**three orthogonal mode axes** —
+- **auth** (lease tokens, required),
+- **capacity** (`--max-jobs N` build slots; `503 busy` when full),
+- **`--run-on`** *where* a build runs (host | podman | vm), and
+- **`--provision-modes`** *how each slot's tree is sourced* (patch | advance |
+  autoclone) — its own doc, [`agent-provisioning-modes.md`](agent-provisioning-modes.md).
+
+For *why* the model is shaped this way (policy class, purpose-in-the-token, the
 sovereign-peer mesh) read
 [`run-policy-class-and-cloud-leverage.md`](run-policy-class-and-cloud-leverage.md);
 for the per-dispatch *lifecycle* (fetch→checkout→apply→veto→build) read
@@ -242,6 +248,9 @@ No `.build.ae`, no `aeb`, no `rsync` on the VM is required.
 | `patch_b64` | base64 of an uncommitted unified diff, `git apply`'d onto the base ("" = none) |
 | `image` | *(run_on=podman)* per-job toolchain image override; gated by `--allow-image` |
 | `command` | *(run_on=host or vm)* raw build command; gated by `--allow-vm-command` |
+| `mode` | provisioning mode for the per-slot tree: `patch` \| `advance` \| `autoclone`. Must be in `--provision-modes` (else 403). Absent → the agent's first offered mode. See [`agent-provisioning-modes.md`](agent-provisioning-modes.md). |
+| `repo` | *(mode=autoclone)* which approved repo to clone; must match `--autoclone-allow` (else 403) |
+| `branch` | *(mode=advance/autoclone)* the branch to track/checkout; must match `--advance-branches` / the `--autoclone-allow` entry's branch glob (else 403) |
 
 Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 "result": pass|fail, "log": "<tail>", "artifacts": [...] }`.
@@ -280,6 +289,12 @@ Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 --vm-dir DIR          remote build dir on the VM (default /tmp/aeb-vm-build)
 --vm-shell PFX        wrap VM commands as PFX "<cmd>" for a non-POSIX default ssh shell (e.g. cmd.exe)
 --allow-vm-command    honour a dispatch's "command" on --run-on host OR vm (run build.sh/make); off by default
+
+# Provisioning modes (per-slot tree lifecycle — see agent-provisioning-modes.md)
+--provision-modes M[,M]   modes this agent OFFERS: patch (pre-cloned, no-fetch) | advance (pre-cloned, branch-track) | autoclone (clone from allow-list). Default patch.
+--advance-branches GLOB[,GLOB]  for advance: which branches may be tracked (fail-closed; empty = none)
+--autoclone-allow R[#B][,…]     for autoclone: approved <repo>[#<branch>] (fail-closed; empty = none)
+--scrub-after                   for autoclone: delete the per-slot clone after each job (ephemeral builds)
 ```
 
 (`aeb-agent --help` prints this list. `aeb-lease --help` covers the mint tool.)
