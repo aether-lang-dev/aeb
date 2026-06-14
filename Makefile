@@ -105,6 +105,24 @@ install: $(INSTALL_TOOLS)
 	 echo "  runtime:  $(SHAREDIR)/"; \
 	 echo "  version:  aeb 0.0.0-dev+$$SRCH (git $$GITD)"; \
 	 echo "  (remote build agent NOT installed — opt in with: aeb tools/agent/.install.ae)"
+	@# If this ran under sudo into a PER-USER prefix, the files just landed
+	@# root-owned — which then breaks the NON-sudo `aeb tools/agent/.install.ae`
+	@# (it cp's into $(SHAREDIR) as the normal user → "Permission denied"). Hand
+	@# the installed tree back to the invoking user. Guarded: only when actually
+	@# under sudo ($$SUDO_USER set, not root) AND the prefix is under that user's
+	@# home (don't touch a real system prefix like /usr/local). Group via
+	@# `id -gn` so it's correct on macOS (staff) and Linux (user's own group).
+	@if [ -n "$$SUDO_USER" ] && [ "$$SUDO_USER" != "root" ]; then \
+	    uhome=$$(eval echo "~$$SUDO_USER"); \
+	    case "$(SHAREDIR)" in \
+	      "$$uhome"/*) \
+	        ugrp=$$(id -gn "$$SUDO_USER" 2>/dev/null || echo "$$SUDO_USER"); \
+	        chown -R "$$SUDO_USER:$$ugrp" "$(SHAREDIR)" "$(BINDIR)/aeb" 2>/dev/null && \
+	          echo "  (ran under sudo → chowned $(SHAREDIR) + wrapper back to $$SUDO_USER:$$ugrp," && \
+	          echo "   so the non-sudo 'aeb tools/agent/.install.ae' can write there)"; ;; \
+	      *) ;; \
+	    esac; \
+	 fi
 
 # NB: there is deliberately NO `make install-agent`. If aeb builds the
 # agent, aeb installs it too — `make` stays out of the remote-agent path
