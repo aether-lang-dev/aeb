@@ -1,5 +1,15 @@
 # rust SDK: vendored `crate_vendored` path-dep not merged into the generated Cargo.toml on a clean build
 
+> **STATUS: RESOLVED** (commit 54d6b56, 2026-06-14). Root cause was NOT in the
+> rust SDK's merge (that logic is correct) but in `_read_dep_artifact`: the
+> orchestrator rewrites ctx["deps"] to bare dirs, so the reader couldn't
+> recover the vendored node's `jni.crate` buildtype and defaulted to `build`,
+> missing `target/jni.crate/<dir>`. Fix: cross-buildtype fallback — when the
+> exact path misses and the dep is a bare dir, `ls target/*/<dir>/<artifact>`
+> and read the first hit. Verified end-to-end: a clean in-container
+> `aeb rust/components/vowelbase/.build.ae` produces libvowelbase.so with the
+> jni dep linked (Java_..._printString symbol present). Suite 109/109.
+
 **Filed by**: aeb Claude, 2026-06-14, climbing the agent-driven-container ladder
 against ../google-monorepo-sim. Surfaced because a per-job container forces a
 CLEAN build (no checked-in `target/`/`Cargo.toml` to lean on), which the host
