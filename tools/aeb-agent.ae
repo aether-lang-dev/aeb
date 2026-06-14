@@ -31,7 +31,7 @@ import std.list
 import std.fs
 
 import agent (_decision, dispatch_reply_json, ping_json, ping_json_ex, _json_field,
-              _parse_tokens, _token_ok, _bearer_strip, _veto_run_rules,
+              _parse_tokens, _bearer_strip, _veto_run_rules,
               _image_match, _lease_verify, _lease_verify_any, _lease_field)
 import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.io
@@ -73,15 +73,6 @@ _scope_from_env() {
     return s
 }
 
-// Re-read the tokens file per request (skeleton-simple; gives free
-// reload). Returns the token set, or null when no --tokens was given.
-_load_tokens() {
-    tf = os.getenv("AEB_AGENT_TOKENS")
-    if string.length(tf) == 0 { return null }
-    if file.exists(tf) == 0 { return null }
-    content, _e = io.read_file(tf)
-    return _parse_tokens(content)
-}
 
 // _presented_token(req) — pull the bearer from X-AEB-Token (preferred) or
 // Authorization, stripping a "Bearer " prefix. "" if neither present.
@@ -133,37 +124,26 @@ _ip_allowed(req: ptr) {
 
 // _authed_for(req, purpose) — the auth gate (fail-closed), shared by /dispatch
 // and /ping. Returns "" when the request is authorized for `purpose`, else a
-// non-empty REASON to refuse. TWO modes, mutually exclusive:
+// non-empty REASON to refuse.
 //
-//   LEASE mode (--lease-secrets given, AEB_AGENT_LEASE_SECRETS set): the
-//     presented token must be a valid ae1.<purpose>.<expiry>.<sig> lease —
-//     signature checks against ANY secret in the file (one per line), not
-//     expired, and its embedded purpose COVERS the requested purpose. This is
-//     the real auth: unforgeable, expiring, purpose-bound. The agent only
-//     VERIFIES (the lessor mints). Multiple secrets = zero-downtime ROTATION
-//     (accept old+new during the overlap); NOT a roles mechanism. See lib/agent
-//     _lease_verify_any + the trust-model doc.
-//   LEGACY mode (--tokens given, no --lease-secrets): the flat shared-secret
-//     bearer set — the presented token must appear in the file. No expiry, no
-//     purpose binding. The interim stand-in, kept for back-compat.
+// LEASE auth (--lease-secrets, AEB_AGENT_LEASE_SECRETS set): the presented token
+// must be a valid ae1.<purpose>.<expiry>.<sig> lease — signature checks against
+// ANY secret in the file (one per line, multiple = zero-downtime ROTATION), not
+// expired, and its embedded purpose COVERS the requested purpose. Unforgeable,
+// expiring, purpose-bound. The agent only VERIFIES (the lessor mints). See
+// lib/agent _lease_verify_any + the trust-model doc.
 //
-// With NEITHER configured the agent is fail-closed (refuses all). `purpose` is
-// the dispatch's purpose; for /ping (no build) pass the agent's own accept
-// scope so a lease probe confirms "my lease is good for what this agent does".
+// With no --lease-secrets the agent is fail-closed (refuses all). `purpose` is
+// the dispatch's purpose; for /ping (no build) pass the token's own purpose so a
+// lease probe gates on signature+expiry, not coverage.
 _authed_for(req: ptr, purpose: string) {
     presented = _presented_token(req)
     // AEB_AGENT_LEASE_SECRETS holds the WHOLE --lease-secrets file (one secret
     // per non-blank line). _lease_verify_any accepts a token signed by ANY of
     // them — the rotation primitive (accept old+new during overlap).
     secrets = os.getenv("AEB_AGENT_LEASE_SECRETS")
-    if string.length(secrets) > 0 {
-        return _lease_verify_any(secrets, presented, os.now_unix_ms(), purpose)
-    }
-    // Legacy flat-tokens mode.
-    toks = _load_tokens()
-    if toks == null { return "auth: no --tokens/--lease-secrets configured (fail-closed)" }
-    if _token_ok(toks, presented) == 1 { return "" }
-    return "auth: token not in --tokens set"
+    if string.length(secrets) == 0 { return "auth: no --lease-secrets configured (fail-closed)" }
+    return _lease_verify_any(secrets, presented, os.now_unix_ms(), purpose)
 }
 
 // _authed(req) — back-compat boolean wrapper for the purpose-less /ping probe.
@@ -771,13 +751,11 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     }
 
     // --- Auth gate (fail-closed) — BEFORE the scope decision. ---
-    // LEASE mode (--lease-secrets): the presented token must be a valid
-    //   ae1.<purpose>.<expiry>.<sig> lease whose purpose COVERS this dispatch's
-    //   purpose, not expired, signature valid. Purpose-bound auth, not just
-    //   "you hold a secret". LEGACY mode (--tokens): flat shared-secret set.
-    // Either way: no creds configured / bad token => refuse. The reason is
-    // logged (it names WHY: expired vs forged vs purpose-mismatch) but NOT
-    // returned on the wire (an attacker learns only "rejected").
+    // The presented token must be a valid ae1.<purpose>.<expiry>.<sig> lease
+    // whose purpose COVERS this dispatch's purpose, not expired, signature valid
+    // (against any --lease-secrets). No creds configured / bad token => refuse.
+    // The reason is logged (names WHY: expired vs forged vs purpose-mismatch) but
+    // NOT returned on the wire (an attacker learns only "rejected").
     auth_err = _authed_for(req, purpose)
     if string.length(auth_err) > 0 {
         println("agent: REFUSE guid=${guid} (${auth_err})")
@@ -1111,7 +1089,6 @@ main() {
     max_jobs = 0
     workdir = "."
     repo_dir = ""
-    tokens_file = ""
     lease_secrets_file = ""
     run_on = "host"
     ctr_image = ""
@@ -1137,14 +1114,14 @@ main() {
         if string.equals(a, "--max-jobs") == 1 { i = i + 1; max_jobs = _atoi(aether_args_get(i)) }
         if string.equals(a, "--workdir") == 1 { i = i + 1; workdir = aether_args_get(i) }
         if string.equals(a, "--repo") == 1 { i = i + 1; repo_dir = aether_args_get(i) }
-        if string.equals(a, "--tokens") == 1 { i = i + 1; tokens_file = aether_args_get(i) }
         // --lease-secrets FILE: enable LEASE auth (HMAC-signed, expiring,
         // purpose-bound tokens). The file holds ONE OR MORE signing secrets, one
         // per non-blank line (read from a file so they're never on the command
         // line / in ps). A token signed by ANY listed secret is accepted —
         // multiple lines = zero-downtime rotation (accept old+new, then drop
-        // old). Supersedes --tokens. The lessor mints with one of these secrets;
-        // the agent only verifies. See lib/agent _lease_verify_any.
+        // old). REQUIRED — without it the agent is fail-closed (refuses all).
+        // The lessor mints with one of these secrets; the agent only verifies.
+        // See lib/agent _lease_verify_any.
         if string.equals(a, "--lease-secrets") == 1 { i = i + 1; lease_secrets_file = aether_args_get(i) }
         // --run-on host|podman: where the agent runs the build it accepts.
         // "podman" delegates each compile step into --ctr-image via the
@@ -1187,7 +1164,6 @@ main() {
     if max_jobs > 0 { _e2 = os.setenv("AEB_AGENT_MAX_JOBS", string.from_int(max_jobs)) }
     _e3 = os.setenv("AEB_AGENT_WORKDIR", workdir)
     _e3b = os.setenv("AEB_AGENT_REPO", repo_dir)
-    if string.length(tokens_file) > 0 { _e4 = os.setenv("AEB_AGENT_TOKENS", tokens_file) }
     // Lease auth: read the WHOLE secrets file (one-or-more secrets, one per
     // line) and publish it verbatim. Its presence flips _authed_for into lease
     // mode; _lease_verify_any accepts a token signed by any listed secret.
@@ -1197,6 +1173,8 @@ main() {
         ls_raw, ls_err = io.read_file(lease_secrets_file)
         if string.length(ls_err) > 0 {
             println("aeb-agent: --lease-secrets file UNREADABLE: ${lease_secrets_file} (${ls_err}); refusing to start.")
+            println("aeb-agent:   Check it exists + is readable; for a container bind mount on SELinux")
+            println("aeb-agent:   (Bazzite/Fedora) mount it :Z, e.g.  -v host/secrets:${lease_secrets_file}:ro,Z")
             exit(2)
         }
         // Count non-blank/non-comment lines (the actual secrets); refuse to
@@ -1235,34 +1213,15 @@ main() {
     if string.length(vm_dir) > 0 { _e8 = os.setenv("AEB_AGENT_VM_DIR", vm_dir) }
     if string.length(vm_shell) > 0 { _e9 = os.setenv("AEB_AGENT_VM_SHELL", vm_shell) }
 
-    // Fail-closed auth posture announcement. Distinguish the three
-    // operator-visible states so a MISCONFIGURATION (unreadable mount)
-    // doesn't masquerade as intended fail-closed:
-    //   - no --tokens          → intended: no auth configured
-    //   - --tokens, unreadable → likely a bad mount / permissions /
-    //     SELinux (on Fedora-atomic e.g. Bazzite, a bind mount needs :Z)
-    //   - --tokens, N tokens   → armed
+    // Fail-closed auth posture. The --lease-secrets read above already
+    // exit(2)'d on an unreadable/empty file (a misconfiguration must not
+    // masquerade as intended fail-closed), so by here it's either armed or
+    // never-given.
     if string.length(lease_secrets) > 0 {
         // Lease mode armed. Show the secret COUNT (never the bytes).
         println("aeb-agent: LEASE auth armed (HMAC-signed, expiring, purpose-bound tokens) — ${lease_secret_count} secret(s) from ${lease_secrets_file}")
-        if string.length(tokens_file) > 0 {
-            println("aeb-agent:   (--tokens ignored while --lease-secrets is set)")
-        }
     } else {
-    if string.length(tokens_file) == 0 {
-        println("aeb-agent: no --tokens/--lease-secrets given; REFUSING ALL dispatches (fail-closed). Pass --tokens <file> or --lease-secrets <file>.")
-    } else {
-        probe, perr = io.read_file(tokens_file)
-        if string.length(perr) > 0 {
-            println("aeb-agent: --tokens file UNREADABLE: ${tokens_file} (${perr})")
-            println("aeb-agent:   REFUSING ALL dispatches. Check the file exists, is readable, and — for a")
-            println("aeb-agent:   container bind mount on SELinux (Bazzite/Fedora) — was mounted with :Z, e.g.")
-            println("aeb-agent:   -v host/agent.tokens:${tokens_file}:ro,Z")
-        } else {
-            ntok = map.size(_parse_tokens(probe))
-            println("aeb-agent: --tokens loaded ${ntok} token(s) from ${tokens_file}")
-        }
-    }
+        println("aeb-agent: no --lease-secrets given; REFUSING ALL dispatches (fail-closed). Pass --lease-secrets <file>.")
     }
 
     // Probe the toolchain versions ONCE at startup (shelling out per /ping would
@@ -1305,9 +1264,9 @@ _usage() {
     println("  --accept GLOB   purpose scope to accept (default 'preint/*')")
     println("  --workdir DIR   directory the agent runs builds in (default '.')")
     println("  --max-jobs N    concurrent job cap (default unbounded)")
-    println("  --tokens FILE   flat bearer-token file (legacy auth); WITHOUT --tokens/--lease-secrets the agent refuses ALL (fail-closed)")
-    println("  --lease-secrets FILE  enable LEASE auth: HMAC-signed, expiring, purpose-bound tokens (ae1.<purpose>.<expiry>.<sig>).")
-    println("                  Holds ONE OR MORE signing secrets, one per line (multiple = zero-downtime rotation). Supersedes --tokens.")
+    println("  --lease-secrets FILE  LEASE auth (REQUIRED — without it the agent refuses ALL, fail-closed):")
+    println("                  HMAC-signed, expiring, purpose-bound tokens (ae1.<purpose>.<expiry>.<sig>). Holds ONE OR")
+    println("                  MORE signing secrets, one per line (multiple = zero-downtime rotation). The lessor mints; the agent verifies.")
     println("  --scope NAME    scope label for display (default 'preint')")
     println("  --run-on KIND   host (default) | podman | vm — where builds run")
     println("  --ctr-image IMG toolchain image for --run-on podman (e.g. aeb-toolchain:slim); required then")

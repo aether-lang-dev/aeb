@@ -6,7 +6,7 @@
 import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _decision, dispatch_request_json, dispatch_request_json_ex, dispatch_reply_json,
               _json_field, run_on, max_jobs, accept_scope,
-              _parse_tokens, _token_ok, _bearer_strip, ping_json, ping_json_ex,
+              _parse_tokens, _bearer_strip, ping_json, ping_json_ex,
               _parse_pool, _pool_url_of, _pool_token_of,
               _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
               _image_match,
@@ -109,22 +109,18 @@ main() {
 
     _eq("missing field => empty", _json_field(rep, "nope"), "")
 
-    // --- naive token auth ---
-    tf = "# comment line\ns3cr3t-alice\n\ns3cr3t-ci\n  plain-token  \n"
+    // --- _parse_tokens: generic line-set parser (used to count --lease-secrets) ---
+    tf = "# comment line\nsecret-alpha\n\nsecret-bravo\n  trimmed-secret  \n"
     toks = _parse_tokens(tf)
-    _assert("known token alice", _token_ok(toks, "s3cr3t-alice"))
-    _assert("known token ci", _token_ok(toks, "s3cr3t-ci"))
-    _assert("known token trimmed", _token_ok(toks, "plain-token"))
-    _assert("comment line not a token", 1 - _token_ok(toks, "# comment line"))
-    _assert("unknown token rejected", 1 - _token_ok(toks, "nope"))
-    _assert("empty presented rejected", 1 - _token_ok(toks, ""))
+    _assert("parse: 3 non-comment/blank lines", map.size(toks) == 3)
+    _assert("parse: keeps secret-alpha", map.has(toks, "secret-alpha") == 1)
+    _assert("parse: trims surrounding whitespace", map.has(toks, "trimmed-secret") == 1)
+    _assert("parse: drops the comment line", 1 - map.has(toks, "# comment line"))
 
-    // _bearer_strip: handles both "Bearer X" and a raw value.
+    // _bearer_strip: handles both "Bearer X" and a raw value (token extraction).
     _eq("bearer strip prefix", _bearer_strip("Bearer s3cr3t-alice"), "s3cr3t-alice")
     _eq("bearer strip raw value", _bearer_strip("s3cr3t-ci"), "s3cr3t-ci")
     _eq("bearer strip trims", _bearer_strip("  Bearer  s3cr3t-ci  "), "s3cr3t-ci")
-    _assert("stripped-then-checked end to end",
-        _token_ok(toks, _bearer_strip("Bearer s3cr3t-alice")))
 
     // --- ping_json identity + capability descriptor ---
     pj = ping_json("linux", "preint/*", "false", "2", "required")

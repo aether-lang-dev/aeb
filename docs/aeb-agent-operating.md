@@ -34,23 +34,15 @@ for the per-dispatch *lifecycle* (fetch→checkout→apply→veto→build) read
 | `POST /dispatch` | required | the build request (see [the wire](#the-dispatch-wire)) |
 
 The agent is **fail-closed**: with no auth configured it refuses *all* dispatches
-(and `/ping`). Pick exactly one auth mode below.
+(and `/ping`). Auth is lease tokens (`--lease-secrets`), below.
 
 ---
 
-## Auth — two modes
+## Auth — lease tokens (`--lease-secrets FILE`, required)
 
-### Legacy: `--tokens FILE`
-
-A flat file of bearer tokens, one per line (`#` comments ignored). A presented
-`X-AEB-Token` (or `Authorization: Bearer …`) must be in the set. No expiry, no
-purpose binding — it authenticates "you hold the secret," nothing more. The
-interim stand-in.
-
-### Lease (recommended): `--lease-secrets FILE`
-
-HMAC-signed, **expiring**, **purpose-bound** tokens — the real model. A lease is
-one bearer string:
+There is **one** auth mode, and it is **required** — without `--lease-secrets`
+the agent is fail-closed (refuses all). HMAC-signed, **expiring**,
+**purpose-bound** tokens. A lease is one bearer string:
 
 ```
 ae1.<purpose>.<expiry-unix-ms>.<hmac_sha256_hex>
@@ -254,8 +246,7 @@ Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 --max-jobs N          concurrent job cap (default unbounded)
 --scope NAME          scope label for display (default 'preint')
 
-# Auth (pick one; without either, refuses ALL — fail-closed)
---tokens FILE         flat bearer-token file (legacy)
+# Auth (REQUIRED; without it the agent refuses ALL — fail-closed)
 --lease-secrets FILE  HMAC lease auth (signed/expiring/purpose-bound); one secret per line (multiple = rotation)
 
 # Run mode

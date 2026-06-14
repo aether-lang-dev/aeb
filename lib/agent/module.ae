@@ -251,9 +251,10 @@ _decision(scope_map: ptr, purpose: string, active: int) {
 // on/off today. Scope stays the agent's --accept; a token only gates
 // "may dispatch at all." Do NOT mistake this for the designed model.
 
-// _parse_tokens(content) — the set of tokens from a token-file's text.
-// One token per non-blank, non-comment line; surrounding whitespace
-// trimmed. Returns a map (token -> "1") used as a set.
+// _parse_tokens(content) — a generic line-set parser: one entry per non-blank,
+// non-"#"-comment line, surrounding whitespace trimmed, returned as a set-map
+// (line -> "1"). Used by the agent to COUNT the secrets in a --lease-secrets
+// file (dedup + ignore comments/blanks); the line-set shape is incidental.
 _parse_tokens(content: string) {
     toks = map.new()
     rest = content
@@ -335,14 +336,6 @@ _parse_pool(content: string) {
         }
     }
     return out
-}
-
-// _token_ok(toks, presented) — 1 if the presented token is in the set
-// AND is non-empty. An empty presented token is never ok.
-_token_ok(toks: ptr, presented: string) {
-    if string.length(presented) == 0 { return 0 }
-    if map.has(toks, presented) == 1 { return 1 }
-    return 0
 }
 
 // _bearer_strip(header_value) — pull the token out of an
