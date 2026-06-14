@@ -11,7 +11,7 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
               _image_match,
               _lease_mint, _lease_verify, _lease_verify_any, _lease_field, _lease_sign,
-              _lease_purpose_valid,
+              _lease_purpose_valid, _looks_like_token, _secrets_have_token,
               _csv_contains, _mode_offered, _branch_allowed, _autoclone_allowed)
 import std.string
 import std.list
@@ -341,6 +341,21 @@ main() {
         _autoclone_allowed("https://x/r.git", "https://evil/r.git", "main") == 0)
     _assert("autoclone empty allow fail-closed",
         _autoclone_allowed("", "https://x/r.git", "main") == 0)
+
+    // --- token-in-secret-slot footgun guard ---
+    _assert("looks_like_token: a real token", _looks_like_token("ae1.preint/macos.1781.df1f") == 1)
+    _assert("looks_like_token: trims leading ws", _looks_like_token("  ae1.x.1.y") == 1)
+    _assert("looks_like_token: opaque secret is NOT a token", _looks_like_token("df1f18759213d6bc566314ec33c114ee") == 0)
+    _assert("looks_like_token: hex-only secret", _looks_like_token("a3f9c0e1b2d4") == 0)
+    _assert("looks_like_token: empty", _looks_like_token("") == 0)
+    _assert("looks_like_token: 'ae1' without dot is not a token", _looks_like_token("ae1secretish") == 0)
+    // _secrets_have_token: any non-comment line that's a token
+    _assert("secrets_have_token: good multi-line set is clean",
+        _secrets_have_token("# rotation\nsecret-alpha\nsecret-bravo\n") == 0)
+    _assert("secrets_have_token: a token line is caught",
+        _secrets_have_token("secret-alpha\nae1.preint/x.1.sig\n") == 1)
+    _assert("secrets_have_token: comment-only token ignored (it's a comment)",
+        _secrets_have_token("# ae1.example.1.x\nreal-secret\n") == 0)
 
     println("agent scope + wire + token + ping + pool + veto + lease + provision tests done")
 }

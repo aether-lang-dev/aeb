@@ -466,6 +466,42 @@ _bearer_strip(header_value: string) {
 // Aether forbids top-level executable statements.
 _lease_tag() { return "ae1" }
 
+// _looks_like_token(s) — 1 if `s` looks like a minted lease TOKEN
+// ("ae1.<purpose>.<expiry>.<sig>"), not a signing SECRET. A signing secret is
+// opaque high-entropy bytes; a value starting with the "ae1." tag is almost
+// certainly a token pasted into the secret slot by mistake (the footgun:
+// `aeb-lease … > lease.secret` overwrites the key with a token). Both the minter
+// and the agent reject it loudly. Pure.
+_looks_like_token(s: string) {
+    pfx = string.concat(_lease_tag(), ".")   // "ae1."
+    t = string.trim(s)
+    if string.length(t) < string.length(pfx) { return 0 }
+    if string.equals(string.substring(t, 0, string.length(pfx)), pfx) == 1 { return 1 }
+    return 0
+}
+
+// _secrets_have_token(text) — 1 if ANY non-blank, non-"#" line of a
+// --lease-secrets file looks like a minted token ("ae1.…") rather than an opaque
+// signing secret. Catches the footgun of pasting a token into the secret file.
+// Pure; mirrors _parse_tokens' line walk.
+_secrets_have_token(text: string) {
+    rest = text
+    line = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 { line = rest; rest = "" }
+        else { line = string.substring(rest, 0, nl); rest = string.substring(rest, nl + 1, string.length(rest)) }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            first = string.substring(line, 0, 1)
+            if string.equals(first, "#") == 0 {
+                if _looks_like_token(line) == 1 { return 1 }
+            }
+        }
+    }
+    return 0
+}
+
 // _lease_field(token, i) — the i-th "."-separated field of a lease token
 // (0=tag,1=purpose,2=expiry,3=sig). "" if absent. Pure.
 _lease_field(token: string, idx: int) {

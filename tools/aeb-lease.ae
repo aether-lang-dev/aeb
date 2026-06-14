@@ -18,7 +18,7 @@ import std.os
 import std.string
 import std.io
 
-import agent (_lease_mint, _lease_purpose_valid)
+import agent (_lease_mint, _lease_purpose_valid, _looks_like_token)
 
 extern println(s: string)
 extern exit(code: int)
@@ -67,6 +67,15 @@ main() {
     if string.length(serr) > 0 { println("aeb-lease: cannot read --secret file: ${secret_file} (${serr})"); exit(2) }
     secret = string.trim(secret_raw)
     if string.length(secret) == 0 { println("aeb-lease: --secret file is empty: ${secret_file}"); exit(2) }
+    // Footgun guard: a --secret that's actually a minted TOKEN ("ae1.…") means
+    // a token was pasted into the secret slot (e.g. `aeb-lease … > lease.secret`
+    // clobbered the key). The signing secret must be opaque high-entropy bytes.
+    if _looks_like_token(secret) == 1 {
+        println("aeb-lease: --secret file ${secret_file} contains a LEASE TOKEN (ae1.…), not a signing secret.")
+        println("aeb-lease:   The secret is the opaque key that mints+verifies tokens; a token is its OUTPUT.")
+        println("aeb-lease:   Generate a real secret:  openssl rand -hex 32 > ${secret_file}")
+        exit(2)
+    }
 
     // expiry = now + ttl, in unix-ms. ttl_mins * 60_000.
     ttl_ms = ttl_mins * 60000

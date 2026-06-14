@@ -33,7 +33,7 @@ import std.fs
 import agent (_scope_accepts, dispatch_reply_json, ping_json, ping_json_ex, _json_field,
               _parse_tokens, _bearer_strip, _veto_run_rules,
               _image_match, _lease_verify, _lease_verify_any, _lease_field,
-              _mode_offered, _branch_allowed, _autoclone_allowed)
+              _mode_offered, _branch_allowed, _autoclone_allowed, _secrets_have_token)
 import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.io
 import std.file
@@ -1459,6 +1459,14 @@ main() {
         lease_secret_count = map.size(_parse_tokens(ls_raw))
         if lease_secret_count == 0 {
             println("aeb-agent: --lease-secrets file has no secrets (blank/comments only): ${lease_secrets_file}; refusing to start.")
+            exit(2)
+        }
+        // Footgun guard: a line that's a minted TOKEN ("ae1.…") means a token was
+        // pasted where the opaque signing secret belongs. Refuse loudly.
+        if _secrets_have_token(ls_raw) == 1 {
+            println("aeb-agent: --lease-secrets file ${lease_secrets_file} contains a LEASE TOKEN (ae1.…), not a signing secret.")
+            println("aeb-agent:   The secret is the opaque key that verifies tokens; a token is its OUTPUT. Refusing to start.")
+            println("aeb-agent:   Generate a real secret:  openssl rand -hex 32 > ${lease_secrets_file}")
             exit(2)
         }
         lease_secrets = ls_raw
