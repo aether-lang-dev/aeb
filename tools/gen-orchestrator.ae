@@ -127,10 +127,11 @@ main() {
         file = aether_args_get(i)
         fname = encode_name(file)
         label = file_to_label(file)
+        // The displayed word IS the literal type from the .<type>.ae filename
+        // — no inference, no compile/test/dist relabel. .build.ae→build,
+        // .install.ae→install, .essais.ae→essais. (The route IS the filename.)
         type = infer_type(file)
-        type_word = "compile"
-        if type == "test" { type_word = "test" }
-        if type == "dist" { type_word = "dist" }
+        type_word = type
         // Per-node selector gate (slice A): run this node iff no
         // selector was given (all-in-one) or it names this label.
         println("    _run = 0")

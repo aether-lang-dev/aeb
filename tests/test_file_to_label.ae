@@ -14,7 +14,7 @@ import std.string
 
 extern println(s: string)
 
-import aeblabel (extract_tag, file_to_label)
+import aeblabel (extract_tag, file_to_label, infer_type)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -27,42 +27,36 @@ _assert_eq(label: string, actual: string, expected: string) {
 }
 
 main() {
-    // --- extract_tag: basics ---
-    _assert_eq("tag: canonical .build.ae",      extract_tag("ae/svnserver/.build.ae"),      "")
-    _assert_eq("tag: canonical .tests.ae",      extract_tag("ae/svnserver/.tests.ae"),      "")
-    _assert_eq("tag: canonical .dist.ae",       extract_tag("ae/svnserver/.dist.ae"),       "")
-    _assert_eq("tag: .build-seed.ae",            extract_tag("ae/svnserver/.build-seed.ae"), "seed")
-    _assert_eq("tag: .tests-int.ae",             extract_tag("ae/x/.tests-int.ae"),          "int")
-    _assert_eq("tag: .dist-fat.ae",              extract_tag("ae/x/.dist-fat.ae"),           "fat")
-    _assert_eq("tag: multi-word .build-foo-bar", extract_tag("ae/x/.build-foo-bar.ae"),      "foo-bar")
-    _assert_eq("tag: bare .build.ae no dir",     extract_tag(".build.ae"),                    "")
-    _assert_eq("tag: bare .build-seed.ae no dir",extract_tag(".build-seed.ae"),               "seed")
-    _assert_eq("tag: not a build file",          extract_tag("ae/x/main.ae"),                "")
-    _assert_eq("tag: no .ae extension",          extract_tag("ae/x/.build"),                  "")
-    _assert_eq("tag: empty",                     extract_tag(""),                              "")
+    // --- extract_tag: DEPRECATED — tags are gone, always "" ---
+    _assert_eq("tag: deprecated always empty (.build.ae)",     extract_tag("ae/svnserver/.build.ae"),      "")
+    _assert_eq("tag: deprecated always empty (.build-seed.ae)",extract_tag("ae/svnserver/.build-seed.ae"), "")
+    _assert_eq("tag: deprecated always empty (.tests-int.ae)", extract_tag("ae/x/.tests-int.ae"),          "")
+    _assert_eq("tag: deprecated always empty (empty)",         extract_tag(""),                            "")
 
-    // --- file_to_label: canonical names match historical behaviour ---
-    _assert_eq("label: .build.ae", file_to_label("ae/svnserver/.build.ae"), "ae/svnserver")
+    // --- infer_type: the WHOLE .<name>.ae segment IS the type, verbatim ---
+    _assert_eq("type: .build.ae",          infer_type("ae/svnserver/.build.ae"),          "build")
+    _assert_eq("type: .tests.ae (alias)",  infer_type("ae/svnserver/.tests.ae"),          "test")
+    _assert_eq("type: .dist.ae",           infer_type("ae/svnserver/.dist.ae"),           "dist")
+    _assert_eq("type: .install.ae",        infer_type("tools/remote-agent/.install.ae"),  "install")
+    _assert_eq("type: .bidi-codegen.ae (dashes kept)", infer_type("py/.bidi-codegen.ae"), "bidi-codegen")
+    _assert_eq("type: .quantum-signal.ae", infer_type("foo/.quantum-signal.ae"),          "quantum-signal")
+    _assert_eq("type: .essais.ae (French)",infer_type("foo/.essais.ae"),                  "essais")
+    _assert_eq("type: bare dir → build",   infer_type("ae/x"),                            "build")
+    _assert_eq("type: non-build-file → build", infer_type("ae/x/main.ae"),                "build")
+
+    // --- file_to_label: <type>:<dir> for non-build, bare <dir> for build ---
+    _assert_eq("label: .build.ae (unprefixed)", file_to_label("ae/svnserver/.build.ae"), "ae/svnserver")
     _assert_eq("label: .tests.ae", file_to_label("ae/svnserver/.tests.ae"), "test:ae/svnserver")
     _assert_eq("label: .dist.ae",  file_to_label("ae/svnserver/.dist.ae"),  "dist:ae/svnserver")
+    _assert_eq("label: .install.ae", file_to_label("tools/remote-agent/.install.ae"), "install:tools/remote-agent")
+    _assert_eq("label: .bidi-codegen.ae", file_to_label("py/.bidi-codegen.ae"), "bidi-codegen:py")
     _assert_eq("label: top-level .build.ae", file_to_label(".build.ae"),    ".")
     _assert_eq("label: deep path",            file_to_label("a/b/c/d/.build.ae"), "a/b/c/d")
 
-    // --- file_to_label: tagged variants ---
-    _assert_eq("label: .build-seed.ae",  file_to_label("ae/svnserver/.build-seed.ae"),
-        "ae/svnserver:seed")
-    _assert_eq("label: .tests-int.ae",   file_to_label("ae/x/.tests-int.ae"),
-        "test:ae/x:int")
-    _assert_eq("label: .dist-fat.ae",    file_to_label("ae/x/.dist-fat.ae"),
-        "dist:ae/x:fat")
-    _assert_eq("label: .build-foo-bar.ae",file_to_label("ae/x/.build-foo-bar.ae"),
-        "ae/x:foo-bar")
-
-    // --- the porter's exact failing case from round 218#4 ---
-    _assert_eq("porter: .build.ae",
-        file_to_label("ae/svnserver/.build.ae"), "ae/svnserver")
-    _assert_eq("porter: .build-seed.ae",
-        file_to_label("ae/svnserver/.build-seed.ae"), "ae/svnserver:seed")
+    // --- co-located variants are just different-named TYPES (no tags) ---
+    // ae/svnserver/.build.ae and ae/svnserver/.seed.ae are types build + seed.
+    _assert_eq("colocated: .seed.ae is type 'seed'", file_to_label("ae/svnserver/.seed.ae"), "seed:ae/svnserver")
+    _assert_eq("colocated: distinct from .build.ae", file_to_label("ae/svnserver/.build.ae"), "ae/svnserver")
 
     println("file_to_label tests done")
 }

@@ -41,8 +41,29 @@ session(root_path: string) {
     return s
 }
 
+// _label_buildtype(label) — the `target/<buildtype>/` segment for a label.
+// The label is "[<type>:]<dir>". A leading "<type>:" prefix names the type
+// LITERALLY (install→install, bidi-codegen→bidi-codegen, …); no prefix = the
+// default "build". The one alias: type "test" → dir "tests" (singular word,
+// plural dir, for back-compat). Mirrors infer_type/file_to_label/_dep_target_dir
+// so writer + reader agree (the addressing contract, docs/filename-is-the-route).
+_label_buildtype(label: string) {
+    colon = string.index_of(label, ":")
+    if colon < 0 { return "build" }
+    ty = string.substring(label, 0, colon)
+    if string.equals(ty, "test") == 1 { return "tests" }
+    return ty
+}
+
+// _label_dir(label) — the <dir> for a label, stripping any leading "<type>:".
+_label_dir(label: string) {
+    colon = string.index_of(label, ":")
+    if colon < 0 { return label }
+    return string.substring(label, colon + 1, string.length(label))
+}
+
 // Begin a module build. Returns module context, or 0 if already done.
-// module_dir can be "test:path" for co-located test modules.
+// module_dir can be "test:path" / "install:path" / … for typed modules.
 begin(s: ptr, module_dir: string) {
     visited, _ = map.get(s, "visited")
     if map.has(visited, module_dir) == 1 {
@@ -61,36 +82,11 @@ begin(s: ptr, module_dir: string) {
     // there, which is correct (no DAG, nothing to query).
     _es = map.put(ctx, "_session", s)
 
-    // Determine the buildtype segment (build/tests/dist) and the dir. The
-    // buildtype is the FIRST path segment of target/ — uniform across all
-    // types (docs/filename-is-the-route.md). It's carried by the label's
-    // test:/dist: prefix (build = no prefix), which is a pure function of the
-    // build-file name (.tests.ae → tests etc.). The route IS the filename.
-    label_core = module_dir
-    fs_dir = label_core
-    buildtype = "build"
-    test_prefix = string.index_of(label_core, "test:")
-    if test_prefix == 0 {
-        fs_dir = string.substring(label_core, 5, string.length(label_core))
-        buildtype = "tests"
-    }
-    // Handle "dist:" prefix for packaging targets
-    dist_prefix = string.index_of(label_core, "dist:")
-    if dist_prefix == 0 {
-        fs_dir = string.substring(label_core, 5, string.length(label_core))
-        buildtype = "dist"
-    }
-    // Strip the optional ":tag" suffix used to disambiguate multiple
-    // .build*.ae files in the same directory (e.g. .build-seed.ae →
-    // label "ae/myserver:seed"). The tag exists for visited-set
-    // dedup and human-readable display only — paths on disk
-    // (source_dir, target_dir) never include it. The label itself
-    // (module_dir) keeps the tag so println() output stays
-    // distinguishable.
-    colon = string.index_of(fs_dir, ":")
-    if colon >= 0 {
-        fs_dir = string.substring(fs_dir, 0, colon)
-    }
+    // Determine the buildtype segment + dir from the label's LITERAL "<type>:"
+    // prefix (any type, not just test/dist; build = no prefix). target/<type>/.
+    // The route IS the filename (docs/filename-is-the-route.md).
+    buildtype = _label_buildtype(module_dir)
+    fs_dir = _label_dir(module_dir)
 
     mod_name = fs_dir
     slash = string.index_of(fs_dir, "/")
@@ -1162,19 +1158,21 @@ _strip_lang(dep_path: string) {
 _dep_target_dir(root: string, dep_module: string) {
     buildtype = "build"
     dir = dep_module
-    // If dep_module ends in "/.<type>.ae" (or ".<type>-tag.ae"), split it.
+    // A dep names a build-file path ".../.<type>.ae" or a bare dir. If it's a
+    // build file, the WHOLE ".<type>.ae" segment IS the type (verbatim, no
+    // '-'-split). Mirrors infer_type + _label_buildtype: test→dir "tests",
+    // everything else→dir = the type literally; bare dir → build.
     slash = _last_slash(dep_module)
     base = dep_module
     if slash >= 0 { base = string.substring(dep_module, slash + 1, string.length(dep_module)) }
     if string.index_of(base, ".") == 0 {
         if string.ends_with(base, ".ae") == 1 {
-            // base = ".<type>[-tag].ae" → extract <type>
-            stem = string.substring(base, 1, string.length(base) - 3)  // drop leading '.' + '.ae'
-            dash = string.index_of(stem, "-")
-            ty = stem
-            if dash >= 0 { ty = string.substring(stem, 0, dash) }
-            if string.length(ty) > 0 { buildtype = ty }
-            // dir = everything before the basename
+            stem = string.substring(base, 1, string.length(base) - 3)  // ".<type>.ae" → "<type>"
+            if string.length(stem) > 0 {
+                buildtype = stem
+                if string.equals(stem, "test") == 1 { buildtype = "tests" }
+                if string.equals(stem, "tests") == 1 { buildtype = "tests" }
+            }
             if slash >= 0 { dir = string.substring(dep_module, 0, slash) } else { dir = "." }
         }
     }
@@ -2270,28 +2268,11 @@ _parse_aeocha_report(text: string) {
 // of fs_dir + tgt_dir). Used by the orchestrator to find the
 // right .aeb_cache marker for each module after running.
 _label_to_target_dir(root: string, module_dir: string) {
-    // target/<buildtype>/<dir> — mirrors build.begin exactly so writer and
-    // finder agree (the addressing contract). Buildtype from the label's
-    // test:/dist: prefix (build = none). See docs/filename-is-the-route.md.
-    label_core = module_dir
-    fs_dir = label_core
-    buildtype = "build"
-    test_pre = string.index_of(label_core, "test:")
-    if test_pre == 0 {
-        fs_dir = string.substring(label_core, 5, string.length(label_core))
-        buildtype = "tests"
-    }
-    dist_pre = string.index_of(label_core, "dist:")
-    if dist_pre == 0 {
-        fs_dir = string.substring(label_core, 5, string.length(label_core))
-        buildtype = "dist"
-    }
-    colon = string.index_of(fs_dir, ":")
-    if colon >= 0 {
-        fs_dir = string.substring(fs_dir, 0, colon)
-    }
-    target_base = path.join(path.join(root, "target"), buildtype)
-    return path.join(target_base, fs_dir)
+    // target/<buildtype>/<dir> — mirrors build.begin exactly (same _label_*
+    // helpers) so writer and finder agree (the addressing contract). Buildtype
+    // is the label's LITERAL "<type>:" prefix (any type; build = none).
+    target_base = path.join(path.join(root, "target"), _label_buildtype(module_dir))
+    return path.join(target_base, _label_dir(module_dir))
 }
 
 // _format_telemetry_line(label, type, wall_ms, cache, test_passed,
@@ -2310,14 +2291,10 @@ _label_to_target_dir(root: string, module_dir: string) {
 // out of T total, where T = passed + failed). Cache and test-result
 // are independent — a test row can have both [hit] and 17/17 PASS.
 // _label_display(label) — the clean human label for a telemetry/summary
-// row: strip the test:/dist: type prefix (the type is shown in its own
-// column). "test:javatests/velar" → "javatests/velar". The :tag suffix is
-// KEPT (it distinguishes co-located build files in display).
+// row: strip the LITERAL "<type>:" prefix (the type is shown in its own column).
+// "test:javatests/velar" → "javatests/velar"; "install:tools/x" → "tools/x".
 _label_display(label: string) {
-    s = label
-    if string.index_of(s, "test:") == 0 { s = string.substring(s, 5, string.length(s)) }
-    if string.index_of(s, "dist:") == 0 { s = string.substring(s, 5, string.length(s)) }
-    return s
+    return _label_dir(label)
 }
 
 _format_telemetry_line(label: string, type_word: string, wall_ms: int, cache: string, test_passed: int, test_failed: int, has_test_result: int) {

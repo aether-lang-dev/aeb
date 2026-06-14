@@ -1,13 +1,19 @@
 # target/<buildFileName>/<dir> — the filename IS the route
 
-Status: **design / proposal that SUPERSEDES the routing role of the
-//aeb:output_subdir + //aeb:classify directives.** Captures an idea that
-arrived after those shipped (commits 56bac7f, 239c6f9) and is cleaner than
-all of it: make a node's `target/` location a **total, mechanical function of
-its build-file name** — no inference, no `test:` prefix, no structured
-comment. Read alongside `docs/label-is-the-addressing-contract.md` (which
-established *why* routing must be label/filename-derivable); this doc proposes
-the simplest thing that satisfies that contract.
+Status: **IMPLEMENTED (2026-06-14).** The whole `.<type>.ae` segment is the type,
+verbatim — `infer_type`/`file_to_label`/`build.begin`/`_dep_target_dir` all take
+the literal name; `.compile.ae`→`target/compile/`, `.bidi-codegen.ae`→
+`target/bidi-codegen/`, `.essais.ae`→`target/essais/` (French & all). The
+`-tag`/`:tag` subsystem is GONE (co-located variants are just different-named
+types, e.g. `.build.ae` + `.seed.ae`); `extract_tag` is a deprecated always-""
+stub. The one legacy alias kept: `.tests.ae`→type `test` (singular word, plural
+`target/tests/` dir). Proven end-to-end: a `.compile.ae` binary lands in
+`target/compile/<dir>/` and a dependent resolves it there.
+
+This SUPERSEDES the routing role of the //aeb:output_subdir + //aeb:classify
+directives and the old 3-bucket infer (everything-not-tests/dist → "build" →
+shown as "compile"). Read alongside `docs/label-is-the-addressing-contract.md`
+(which established *why* routing must be label/filename-derivable).
 
 ## The rule, in one line
 

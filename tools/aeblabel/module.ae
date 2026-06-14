@@ -27,22 +27,33 @@
 
 import std.string
 
-// Classify a build file by filename suffix: "test" / "dist" /
-// "build" (the default when no suffix matches).
+// The build file's type IS the WHOLE `.<type>.ae` segment, verbatim — the route
+// is the filename (docs/filename-is-the-route.md). No inference into a fixed set,
+// no `-`-split, no tags: the literal name between the leading '.' and trailing
+// '.ae' is the type, dashes and all. Any name routes to itself:
+//   .build.ae→build, .install.ae→install, .essais.ae→essais (French & all),
+//   .bidi-codegen.ae→bidi-codegen, .quantum-signal.ae→quantum-signal.
+// Co-located variants are just different-named types (.build.ae + .seed.ae),
+// naturally distinct — no tag mechanism needed.
+// A bare dir / non-".<name>.ae" file → "build" (depend on its build output).
+//
+// LEGACY ALIAS — the one historical segment≠word case, kept for back-compat:
+//   .tests.ae → "test"  (plural filename, singular long-standing word).
 infer_type(file: string) {
-    if string.ends_with(file, ".tests.ae") == 1 {
-        return string.concat("test", "")
+    if string.ends_with(file, ".tests.ae") == 1 { return "test" }
+    base = file
+    sl = dirname_pure(file)
+    if string.equals(sl, ".") == 0 {
+        base = string.substring(file, string.length(sl) + 1, string.length(file))
     }
-    if string.ends_with(file, ".dist.ae") == 1 {
-        return string.concat("dist", "")
+    if string.index_of(base, ".") == 0 {
+        if string.ends_with(base, ".ae") == 1 {
+            // the whole stem IS the type — verbatim, no '-' split.
+            stem = string.substring(base, 1, string.length(base) - 3)  // drop leading '.' + trailing '.ae'
+            if string.length(stem) > 0 { return stem }
+        }
     }
-    if string.index_of(file, ".tests-") >= 0 {
-        return string.concat("test", "")
-    }
-    if string.index_of(file, ".dist-") >= 0 {
-        return string.concat("dist", "")
-    }
-    return string.concat("build", "")
+    return "build"
 }
 
 // dirname: last '/'-bounded prefix, or "." if no slash. Pure — no
@@ -84,56 +95,27 @@ basename_pure(path: string) {
     return string.substring(path, last + 1, n)
 }
 
-// Extract the tag suffix from a .build*.ae / .tests*.ae / .dist*.ae
-// filename. Returns "" for the canonical .{type}.ae (no tag), or the
-// tag part otherwise — the tag may itself contain dashes.
-//
-//   .build.ae         → ""
-//   .build-seed.ae    → "seed"
-//   .build-foo-bar.ae → "foo-bar"
-//   .tests-int.ae     → "int"
-//   .dist-fat.ae      → "fat"
+// DEPRECATED — tags are gone. The whole `.<name>.ae` segment is the type now,
+// so co-located variants are different-named types (.build.ae + .seed.ae), not
+// a base+tag. Always returns "". Kept only so existing importers don't break;
+// new code should not call it.
 extract_tag(file: string) {
-    base = basename_pure(file)
-    n = string.length(base)
-    // Strip trailing ".ae"
-    if n < 4 { return string.concat("", "") }
-    if string.ends_with(base, ".ae") == 0 { return string.concat("", "") }
-    stem = string.substring(base, 0, n - 3)
-    // Strip leading "."
-    sn = string.length(stem)
-    if sn == 0 { return string.concat("", "") }
-    first = string.substring(stem, 0, 1)
-    if string.equals(first, ".") == 0 { return string.concat("", "") }
-    body = string.substring(stem, 1, sn)
-    // body is now "build" / "build-seed" / "tests-int" / "dist" / etc.
-    // Look for first '-'; everything after it is the tag.
-    bn = string.length(body)
-    j = 0
-    while j < bn {
-        ch = string.substring(body, j, j + 1)
-        if string.equals(ch, "-") == 1 {
-            return string.substring(body, j + 1, bn)
-        }
-        j = j + 1
-    }
     return string.concat("", "")
 }
 
-// Derive the full build.begin() label for a build file path.
+// Derive the build.begin() label for a build file path:
+//   <type>:<dir>   for any NON-"build" type  (test:foo, dist:foo, install:foo,
+//                  bidi-codegen:itests/selenium/py, quantum-signal:foo, …)
+//   <dir>          for the "build" type (the unprefixed default — keeps every
+//                  existing .build.ae label unchanged).
+// The type is the WHOLE literal segment (infer_type); no tag suffix. The reader
+// (_dep_target_dir) and the writer (build.begin) both strip a leading "<type>:"
+// generically, so any name round-trips to target/<type>/<dir>/.
 file_to_label(file: string) {
     type = infer_type(file)
     dir = dirname_pure(file)
-    tag = extract_tag(file)
-    suffix = string.concat("", "")
-    if string.length(tag) > 0 {
-        suffix = string.concat(":", tag)
+    if string.equals(type, "build") == 1 {
+        return dir
     }
-    if type == "test" {
-        return string.concat(string.concat("test:", dir), suffix)
-    }
-    if type == "dist" {
-        return string.concat(string.concat("dist:", dir), suffix)
-    }
-    return string.concat(dir, suffix)
+    return string.concat(string.concat(type, ":"), dir)
 }

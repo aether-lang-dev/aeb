@@ -80,13 +80,15 @@ main() {
         _format_telemetry_line(long_label, "compile", 100, "miss", 0, 0, 0),
         "  compile: ae/path/to/some/very/deep/module:with-tag 0.10s [miss]")
 
-    // --- render_telemetry: full block ---
+    // --- render_telemetry: full block. Types are LITERAL now (build/seed/test);
+    //     no tags — co-located variants are different-named types. The label
+    //     column shows the dir with any "<type>:" prefix stripped (_label_display).
     records = list.new()
-    list.add(records, _record("ae/svnserver",     "compile", 1210, "miss"))
-    list.add(records, _record("ae/svnserver:seed","compile", 10,   "hit"))
-    list.add(records, _record("ae/wc",            "test",    3030, "n/a"))
+    list.add(records, _record("ae/svnserver",      "build", 1210, "miss"))
+    list.add(records, _record("seed:ae/svnserver", "seed",  10,   "hit"))
+    list.add(records, _record("ae/wc",             "test",  3030, "n/a"))
 
-    expected_block = "[telemetry]\n  compile: ae/svnserver                     1.21s [miss]\n  compile: ae/svnserver:seed                0.01s [hit]\n  test:    ae/wc                            3.03s [n/a]\ntotal: 4.25s wall"
+    expected_block = "[telemetry]\n  build:   ae/svnserver                     1.21s [miss]\n  seed:    ae/svnserver                     0.01s [hit]\n  test:    ae/wc                            3.03s [n/a]\ntotal: 4.25s wall"
     _assert_eq("render: 3-record session", render_telemetry(records, 4250), expected_block)
 
     // --- empty records list (build with no targets) ---

@@ -219,10 +219,11 @@ main() {
         node, _ = list.get(nodes, i)
         i = i + 1
         label = file_to_label(node)
+        // The displayed word IS the literal type from the .<type>.ae filename
+        // — no inference, no compile/test/dist relabel. .build.ae→build,
+        // .install.ae→install, .essais.ae→essais. (The route IS the filename.)
         type = infer_type(node)
-        type_word = "compile"
-        if type == "test" { type_word = "test" }
-        if type == "dist" { type_word = "dist" }
+        type_word = type
 
         node_failed = 0
         rcmark = path.join(rc_dir, string.concat(_san(node), ".rc"))
