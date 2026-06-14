@@ -168,7 +168,8 @@ _check_preclone(base: string, n: int, offered: string) {
     missing = ""
     i = 0
     while i < n {
-        tree = path.join(base, string.from_int(i))
+        // Match the actual build path: capacity 1 => <base>; >1 => <base>/<i>.
+        tree = _slot_tree(base, string.from_int(i), n)
         if fs.exists(path.join(tree, ".git")) == 0 {
             missing = string.concat(missing, string.concat(" ", tree))
         }
@@ -177,11 +178,13 @@ _check_preclone(base: string, n: int, offered: string) {
     return string.trim(missing)
 }
 
-// _slot_tree(base_dir, idx) — the per-slot build tree under base_dir. With one
-// slot (idx "0", capacity 1) we COULD use base_dir itself for back-compat, but
-// numbering uniformly (<base>/0, <base>/1, …) keeps the model simple and lets an
-// operator pre-clone N trees predictably. idx "" → base_dir (defensive).
-_slot_tree(base_dir: string, idx: string) {
+// _slot_tree(base_dir, idx, cap) — the per-slot build tree under base_dir.
+// CAPACITY 1 (the common single-builder case — one Mac, one tree): build
+// DIRECTLY in base_dir, so `--workdir ~/proj` just works (no numbered subdir to
+// pre-create). CAPACITY >1: each slot gets <base>/<i> so concurrent builds don't
+// clobber. idx "" → base_dir (defensive).
+_slot_tree(base_dir: string, idx: string, cap: int) {
+    if cap <= 1 { return base_dir }
     if string.length(idx) == 0 { return base_dir }
     return path.join(base_dir, idx)
 }
@@ -960,17 +963,18 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         return 0
     }
 
-    // accept → prepare the tree, then run aeb <target>. Each slot builds in its
-    // OWN tree <workdir>/<i> (and <repo>/<i>), so N concurrent builds don't
-    // clobber each other (the shared-tree caveat). The claimed slot's index
-    // names the tree. (See docs/agent-provisioning-modes.md.)
+    // accept → prepare the tree, then run aeb <target>. With capacity >1 each
+    // slot builds in its OWN tree <workdir>/<i> (no clobbering); with capacity 1
+    // the single build uses <workdir> directly (the common one-builder case —
+    // `--workdir ~/proj` just works). (See docs/agent-provisioning-modes.md.)
     slot_idx = _slot_index(claimed_slot)
+    slot_cap = _slot_capacity()
     base_workdir = os.getenv("AEB_AGENT_WORKDIR")
     if string.length(base_workdir) == 0 { base_workdir = "." }
     base_repo = os.getenv("AEB_AGENT_REPO")
     if string.length(base_repo) == 0 { base_repo = base_workdir }
-    workdir = _slot_tree(base_workdir, slot_idx)
-    repo = _slot_tree(base_repo, slot_idx)
+    workdir = _slot_tree(base_workdir, slot_idx, slot_cap)
+    repo = _slot_tree(base_repo, slot_idx, slot_cap)
     println("agent: ACCEPT guid=${guid} purpose=${purpose} target=${target} slot=${slot_idx} tree=${workdir}")
 
     // --- Provisioning mode (per-slot tree lifecycle). The dispatch REQUESTS a
