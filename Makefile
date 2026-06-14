@@ -72,6 +72,19 @@ install: $(INSTALL_TOOLS)
 	@# correct). The source ships in $(SHAREDIR)/tools; build it with
 	@#   aeb tools/agentbuild/.build.ae         (dogfood, once aeb works)
 	@# or  ae build tools/aeb-agent.ae --lib lib -o <bin>
+	@# Self-heal a tree poisoned by a past `sudo make install`. The prefix
+	@# is per-user (~/.local), so sudo is never needed here — but if someone
+	@# did it once, the rebuilt tool binaries in THIS checkout were left
+	@# root-owned. A later non-sudo run then can't overwrite them and the
+	@# linker dies cryptically ("ld: can't write output file: tools/aeb-cli").
+	@# Removing the stale binary fixes it: `rm` needs write on the *directory*
+	@# (ours), not the file — so this works as the normal user even on a
+	@# root-owned file, and the loop below rebuilds it clean. Any tools/<x>
+	@# that exists, is a regular file, and isn't writable by us is a casualty.
+	@for bin in tools/*; do \
+	    case "$$bin" in *.ae) continue;; esac; \
+	    [ -f "$$bin" ] && [ ! -w "$$bin" ] && { rm -f "$$bin" && echo "  reclaim $$bin (was not writable — stale from a prior sudo install?)"; }; \
+	done; true
 	@for src in tools/*.ae; do \
 	    case "$$src" in tools/aeb-agent.ae|tools/aeb-lease.ae|tools/aeb-keygen.ae) echo "  skip    $$src (opt-in: install with the remote-agent kit)"; continue;; esac; \
 	    bin="$${src%.ae}"; \
