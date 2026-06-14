@@ -30,7 +30,7 @@ import std.map
 import std.list
 import std.fs
 
-import agent (_decision, dispatch_reply_json, ping_json, ping_json_ex, _json_field,
+import agent (_scope_accepts, dispatch_reply_json, ping_json, ping_json_ex, _json_field,
               _parse_tokens, _bearer_strip, _veto_run_rules,
               _image_match, _lease_verify, _lease_verify_any, _lease_field)
 import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
@@ -71,6 +71,87 @@ _scope_from_env() {
     _g = list.add(globs, glob)
     _a = map.put(s, "accept_scope", globs)
     return s
+}
+
+// --- Build-slot gate: N capacity slots via atomic lock-dirs --------------
+//
+// CONCURRENCY: the HTTP server runs handlers on a worker-thread pool, so two
+// dispatches genuinely race. We serialize with atomic `mkdir` (POSIX-atomic:
+// exactly one caller wins a create, the rest get EEXIST) — race-safe across
+// threads AND processes, no app-level mutex (Aether has none; the idiomatic
+// actor-owned-state version awaits a synchronous actor `call`, filed as
+// github.com/aether-lang-org/aether/issues/736; lockdir ships now).
+//
+// CAPACITY (--max-jobs N, AEB_AGENT_MAX_JOBS): N slots → up to N concurrent
+// builds; a dispatch claims the first free slot-<i>, else `busy`. A big box
+// (64 cores) declares a large N; a NUC/Mac, 1.
+//
+// CAVEAT — true capacity is 1 with one shared --workdir: _prepare_tree does
+// `git reset --hard && clean -ffdx` IN PLACE, so two builds in one tree clobber
+// each other. So the safe default is 1. N>1 is only correct once each slot
+// builds in its OWN checkout (per-slot workdir isolation — a TODO); until then
+// an operator setting N>1 is opting into shared-tree risk (we warn at startup).
+
+// _slot_root() — the per-agent lock directory (keyed by port so co-located
+// agents don't share slots). Under TMPDIR/tmp.
+_slot_root() {
+    base = os.getenv("TMPDIR")
+    if string.length(base) == 0 { base = "/tmp" }
+    port = os.getenv("AEB_AGENT_PORT")
+    if string.length(port) == 0 { port = "0" }
+    return path.join(base, string.concat("aeb-agent-slots-", port))
+}
+
+// _slot_capacity() — N from AEB_AGENT_MAX_JOBS; default + floor 1.
+_slot_capacity() {
+    mj = os.getenv("AEB_AGENT_MAX_JOBS")
+    if string.length(mj) == 0 { return 1 }
+    n = _atoi(mj)
+    if n < 1 { return 1 }
+    return n
+}
+
+// _slot_claim() — atomically claim the first free slot. Returns the claimed
+// lock-dir path, or "" if all N are taken (=> busy). The mkdir is the claim:
+// fs.create_dir is a single mkdir(2) that FAILS if the dir exists (unlike
+// mkdir_p), so the first thread to create slot-<i> owns it.
+_slot_claim() {
+    root = _slot_root()
+    _mk = fs.mkdir_p(root)   // ensure the parent exists (idempotent)
+    cap = _slot_capacity()
+    i = 0
+    while i < cap {
+        slot = path.join(root, string.concat("slot-", string.from_int(i)))
+        err = fs.create_dir(slot)
+        if string.length(err) == 0 { return slot }   // we won this slot
+        i = i + 1
+    }
+    return ""   // all slots taken
+}
+
+// _slot_release(slot) — free a claimed slot (best-effort). "" = nothing to do.
+_slot_release(slot: string) {
+    if string.length(slot) == 0 { return 0 }
+    _d = fs.delete_dir(slot)
+    return 0
+}
+
+// _slot_clear_all() — remove the whole slot root at startup, so a crash that
+// leaked lock-dirs doesn't wedge the agent permanently "busy". (The OTP answer
+// is a supervisor restarting the slot-owner with clean state; here, a fresh
+// start IS the reset.)
+_slot_clear_all() {
+    root = _slot_root()
+    // delete each slot-<i> for a generous range, then the root. delete_dir only
+    // removes empty dirs; slots are empty marker dirs, so this suffices.
+    i = 0
+    while i < 256 {
+        slot = path.join(root, string.concat("slot-", string.from_int(i)))
+        if fs.exists(slot) == 1 { _d = fs.delete_dir(slot) }
+        i = i + 1
+    }
+    _dr = fs.delete_dir(root)
+    return 0
 }
 
 
@@ -766,17 +847,21 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     }
 
     scope = _scope_from_env()
-    decision = _decision(scope, purpose, 0)
-
-    if string.equals(decision, "reject") == 1 {
+    // Scope-accept only (reject if out of scope). The busy decision is now the
+    // real slot claim below — NOT _decision's old active=0 placeholder.
+    if _scope_accepts(scope, purpose) == 0 {
         println("agent: REJECT guid=${guid} purpose=${purpose} (out of scope)")
         http.response_set_status(res, 403)
         http.response_set_header(res, "Content-Type", "application/json")
         http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
         return 0
     }
-    if string.equals(decision, "busy") == 1 {
-        println("agent: BUSY guid=${guid} (no free slot)")
+    // Claim a build slot (atomic, race-safe). All N taken => busy. EVERY exit
+    // path below MUST _slot_release(claimed_slot) before returning — a leaked
+    // slot wedges capacity. (Startup clears stale slots after a crash.)
+    claimed_slot = _slot_claim()
+    if string.length(claimed_slot) == 0 {
+        println("agent: BUSY guid=${guid} (all ${_slot_capacity()} build slot(s) in use)")
         http.response_set_status(res, 503)
         http.response_set_header(res, "Content-Type", "application/json")
         http.response_set_body(res, dispatch_reply_json(guid, "busy", ""))
@@ -806,6 +891,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     if string.length(dispatch_image) > 0 {
         if _image_allowed(dispatch_image) == 0 {
             println("agent: REJECT guid=${guid} image=${dispatch_image} (not in --allow-image; fail-closed)")
+            _rs = _slot_release(claimed_slot)
             http.response_set_status(res, 403)
             http.response_set_header(res, "Content-Type", "application/json")
             http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
@@ -831,6 +917,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         allow_cmd = os.getenv("AEB_AGENT_ALLOW_VM_COMMAND")
         if string.equals(allow_cmd, "1") == 0 {
             println("agent: REJECT guid=${guid} (dispatch carries a raw command but agent lacks --allow-vm-command; fail-closed)")
+            _rs = _slot_release(claimed_slot)
             http.response_set_status(res, 403)
             http.response_set_header(res, "Content-Type", "application/json")
             http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
@@ -852,6 +939,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     prep_err = _prepare_tree(guid, repo, gref, ghash, patch_b64)
     if string.length(prep_err) > 0 {
         println("agent: PREP-FAILED guid=${guid} (${prep_err})")
+        _rs = _slot_release(claimed_slot)
         http.response_set_status(res, 409)
         http.response_set_header(res, "Content-Type", "application/json")
         http.response_set_body(res, dispatch_reply_json(guid, "prep-failed", ""))
@@ -878,6 +966,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     }
     if string.length(veto) > 0 {
         println("agent: VETOED guid=${guid} (${veto})")
+        _rs = _slot_release(claimed_slot)
         http.response_set_status(res, 422)
         http.response_set_header(res, "Content-Type", "application/json")
         http.response_set_body(res, dispatch_reply_json(guid, "vetoed", ""))
@@ -989,6 +1078,9 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     if string.length(dispatch_command) > 0 {
         _rvc = os.setenv("AEB_AGENT_VM_COMMAND", saved_vm_command)
     }
+    // Release the build slot — the build is done (this is the success path; all
+    // earlier short-circuits released already). Frees capacity for the next.
+    _rsd = _slot_release(claimed_slot)
 
     println("agent: DONE guid=${guid} result=${result} (rc=${rc})")
     http.response_set_status(res, 200)
@@ -1086,7 +1178,7 @@ main() {
     host = "127.0.0.1"
     scope_name = "preint"
     accept_glob = "preint/*"
-    max_jobs = 0
+    max_jobs = 1
     workdir = "."
     repo_dir = ""
     lease_secrets_file = ""
@@ -1161,7 +1253,11 @@ main() {
 
     // Publish the single scope's config to the env the handler reads.
     _e1 = os.setenv("AEB_AGENT_ACCEPT", accept_glob)
-    if max_jobs > 0 { _e2 = os.setenv("AEB_AGENT_MAX_JOBS", string.from_int(max_jobs)) }
+    // Capacity (--max-jobs) — the number of build slots. Default 1 (one shared
+    // --workdir can host only one build safely). Always published so the slot
+    // gate sees it. PORT keys the slot lock-root (co-located agents don't share).
+    _e2 = os.setenv("AEB_AGENT_MAX_JOBS", string.from_int(max_jobs))
+    _e2p = os.setenv("AEB_AGENT_PORT", string.from_int(port))
     _e3 = os.setenv("AEB_AGENT_WORKDIR", workdir)
     _e3b = os.setenv("AEB_AGENT_REPO", repo_dir)
     // Lease auth: read the WHOLE secrets file (one-or-more secrets, one per
@@ -1232,6 +1328,19 @@ main() {
     _tv = _probe_aether_version()
     if string.length(_tv) > 0 { _etv = os.setenv("AEB_AGENT_AETHER_VERSION", _tv) }
 
+    // Clear any slot lock-dirs leaked by a previous crash — a fresh start IS the
+    // capacity reset (the OTP answer would be a supervisor restart). Safe: the
+    // agent isn't serving yet, so no live build owns a slot.
+    _sc = _slot_clear_all()
+    // N>1 with one shared --workdir is unsafe (concurrent builds clobber the
+    // tree via _prepare_tree's reset/clean) — warn but allow (operator's call;
+    // real per-slot isolation is a TODO).
+    if max_jobs > 1 {
+        println("aeb-agent: WARNING --max-jobs ${max_jobs} > 1 with one shared --workdir: concurrent builds")
+        println("aeb-agent:   share + clobber the same tree (git reset/clean in place). Safe only once each")
+        println("aeb-agent:   slot builds in its own checkout (per-slot isolation — not yet implemented).")
+    }
+
     raw = http.server_create(port)
     if raw == 0 { println("aeb-agent: FAIL server_create"); exit(1) }
     http.server_set_host(raw, host)
@@ -1239,9 +1348,7 @@ main() {
     http.server_get(raw, "/ping", handle_ping, 0)
     http.server_get(raw, "/health", handle_health, 0)
 
-    mj_disp = "unbounded"
-    if max_jobs > 0 { mj_disp = string.from_int(max_jobs) }
-    println("aeb-agent: listening on ${host}:${port} scope=${scope_name} accept=${accept_glob} max_jobs=${mj_disp} workdir=${workdir}")
+    println("aeb-agent: listening on ${host}:${port} scope=${scope_name} accept=${accept_glob} slots=${max_jobs} workdir=${workdir}")
     println("aeb-agent: toolchain — ${_av} / ${_tv}")
 
     // Distinct name: `a` was the arg-loop string above; reusing it for the
@@ -1263,7 +1370,8 @@ _usage() {
     println("  --port N        listen port (default 9440)")
     println("  --accept GLOB   purpose scope to accept (default 'preint/*')")
     println("  --workdir DIR   directory the agent runs builds in (default '.')")
-    println("  --max-jobs N    concurrent job cap (default unbounded)")
+    println("  --max-jobs N    build-slot capacity — N concurrent builds; over-capacity dispatches get 'busy' (default 1).")
+    println("                  N>1 needs per-slot workdir isolation (TODO); >1 on one shared --workdir clobbers the tree.")
     println("  --lease-secrets FILE  LEASE auth (REQUIRED — without it the agent refuses ALL, fail-closed):")
     println("                  HMAC-signed, expiring, purpose-bound tokens (ae1.<purpose>.<expiry>.<sig>). Holds ONE OR")
     println("                  MORE signing secrets, one per line (multiple = zero-downtime rotation). The lessor mints; the agent verifies.")

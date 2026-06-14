@@ -38,6 +38,30 @@ The agent is **fail-closed**: with no auth configured it refuses *all* dispatche
 
 ---
 
+## Capacity & serialization (`--max-jobs N`)
+
+The agent serves **N build slots** (`--max-jobs N`, default **1**). Each accepted
+dispatch atomically claims a free slot; when all N are taken, further dispatches
+get **`503 busy`** (status `busy`) — the originator can fall back or retry. The
+slot is released on every exit path (done / failed / vetoed / prep-failed), and a
+prior crash's leaked slots are cleared at startup.
+
+The slot is an atomic lock-dir (`mkdir`-based — race-safe across the server's
+worker threads *and* across processes; co-located agents key their slots by port).
+The idiomatic actor-owned-state version awaits a synchronous actor `call`
+([aether#736](https://github.com/aether-lang-org/aether/issues/736)); the lock-dir
+ships now and is crash-robust.
+
+> **N > 1 needs per-slot tree isolation (not yet built).** One agent has one
+> `--workdir`, and `_prepare_tree` does `git reset --hard && clean -ffdx` **in
+> place** — so two concurrent builds in the same tree clobber each other. The safe
+> capacity for one workdir is **1**. `--max-jobs >1` is allowed (the agent warns
+> at startup) but only correct once each slot builds in its own checkout. For more
+> concurrency today, run **multiple agents** (separate `--workdir` + `--port`),
+> e.g. a big box hosting several one-slot agents.
+
+---
+
 ## Auth — lease tokens (`--lease-secrets FILE`, required)
 
 There is **one** auth mode, and it is **required** — without `--lease-secrets`
@@ -243,7 +267,7 @@ Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 --accept GLOB         purpose scope to accept (default 'preint/*')
 --workdir DIR         directory the agent runs builds in (default '.')
 --repo DIR            git repo to fetch/checkout/apply into (default = --workdir)
---max-jobs N          concurrent job cap (default unbounded)
+--max-jobs N          build-slot capacity: N concurrent builds, over-capacity dispatches get 503 busy (default 1; >1 needs per-slot tree isolation — TODO)
 --scope NAME          scope label for display (default 'preint')
 
 # Auth (REQUIRED; without it the agent refuses ALL — fail-closed)
