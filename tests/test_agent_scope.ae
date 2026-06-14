@@ -10,7 +10,7 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _parse_pool, _pool_url_of, _pool_token_of,
               _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
               _image_match,
-              _lease_mint, _lease_verify, _lease_field, _lease_sign,
+              _lease_mint, _lease_verify, _lease_verify_any, _lease_field, _lease_sign,
               _lease_purpose_valid)
 import std.string
 import std.list
@@ -287,6 +287,34 @@ main() {
     _assert("reject: '*' mid-path (only trailing /* allowed)", string.length(_lease_purpose_valid("preint/*/rust")) > 0)
     // The rejection names the offending character where applicable.
     _assert("reject reason names the space", string.index_of(_lease_purpose_valid("a b"), "' '") >= 0)
+
+    // --- _lease_verify_any: a SET of secrets (rotation) ---
+    sA = "secret-alpha"
+    sB = "secret-bravo"
+    tokA = _lease_mint(sA, "preint/*", future)   // signed by alpha
+    tokB = _lease_mint(sB, "preint/*", future)   // signed by bravo
+    twoset = "secret-alpha\nsecret-bravo\n"
+    // a token signed by EITHER listed secret verifies under the set
+    _eq("verify_any accepts alpha-signed", _lease_verify_any(twoset, tokA, now, "preint/x"), "")
+    _eq("verify_any accepts bravo-signed", _lease_verify_any(twoset, tokB, now, "preint/x"), "")
+    // a token signed by a secret NOT in the set is rejected (bad signature)
+    tokC = _lease_mint("secret-charlie", "preint/*", future)
+    _assert("verify_any rejects unknown-key token",
+        string.length(_lease_verify_any(twoset, tokC, now, "preint/x")) > 0)
+    // comments + blank lines in the set are ignored; alpha still works
+    setcmt = "# rotation: old then new\n\nsecret-alpha\n# secret-bravo retired\n"
+    _eq("verify_any ignores comments/blanks", _lease_verify_any(setcmt, tokA, now, "preint/x"), "")
+    // an effectively-empty set fails closed
+    _assert("verify_any empty set => fail-closed",
+        string.length(_lease_verify_any("# only a comment\n", tokA, now, "preint/x")) > 0)
+    // REASON SELECTION: a token correctly signed (alpha) but EXPIRED reports
+    // 'expired', not the bad-signature noise from the other (bravo) secret.
+    tokAexp = _lease_mint(sA, "preint/*", past)
+    rexp = _lease_verify_any(twoset, tokAexp, now, "preint/x")
+    _assert("verify_any: signed-but-expired reports expiry, not bad-sig",
+        string.index_of(rexp, "expired") >= 0)
+    // single-secret set behaves exactly like _lease_verify
+    _eq("verify_any single-secret == verify", _lease_verify_any("secret-alpha\n", tokA, now, "preint/x"), "")
 
     println("agent scope + wire + token + ping + pool + veto + lease tests done")
 }

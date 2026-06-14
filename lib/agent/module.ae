@@ -507,6 +507,52 @@ _lease_verify(secret: string, token: string, now_ms: long, req_purpose: string) 
     return ""
 }
 
+// _lease_verify_any(secrets_text, token, now_ms, req_purpose) — verify against a
+// SET of signing secrets (one per non-blank, non-"#" line of secrets_text).
+// Accepts iff the token verifies under ANY secret; this is the zero-downtime
+// ROTATION primitive (accept old+new during the overlap, then drop old). A list
+// is NOT a roles mechanism — a secret is a key, not a role; any accepted secret
+// can mint any purpose. Keep the list small (rotation overlap), since an unknown
+// token costs one HMAC per secret.
+//
+// Reason selection on total failure: a "bad signature" just means "not THIS
+// key", so when a token's signature DOES match some secret but it still fails
+// (expired / wrong-purpose / malformed), surface THAT reason — it's the real
+// verdict — in preference to the bad-signature noise from the other keys. If it
+// fails signature under every secret, report bad-signature (genuinely forged or
+// an unknown/retired key).
+_lease_verify_any(secrets_text: string, token: string, now_ms: long, req_purpose: string) {
+    // Pre-token-shape checks don't depend on the secret — do them once.
+    if string.length(token) == 0 { return "lease: empty token" }
+    sig_fail = ""           // a bad-signature reason seen (fallback)
+    nonsig_fail = ""        // a signature-matched-but-other-failure reason (preferred)
+    any_secret = 0
+    rest = secrets_text
+    line = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 { line = rest; rest = "" }
+        else { line = string.substring(rest, 0, nl); rest = string.substring(rest, nl + 1, string.length(rest)) }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            first = string.substring(line, 0, 1)
+            if string.equals(first, "#") == 0 {
+                any_secret = 1
+                r = _lease_verify(line, token, now_ms, req_purpose)
+                if string.length(r) == 0 { return "" }   // verified under this secret
+                // Classify the failure: signature mismatch is "wrong key";
+                // anything else means this key DID sign it but it's otherwise bad.
+                if string.index_of(r, "bad signature") >= 0 { sig_fail = r }
+                else { nonsig_fail = r }
+            }
+        }
+    }
+    if any_secret == 0 { return "lease: no signing secret (fail-closed)" }
+    if string.length(nonsig_fail) > 0 { return nonsig_fail }
+    if string.length(sig_fail) > 0 { return sig_fail }
+    return "lease: bad signature (forged or wrong secret)"
+}
+
 // --- Wire payloads (pure builders; tested) ---
 
 // dispatch_request_json — the fire payload the originator POSTs to the

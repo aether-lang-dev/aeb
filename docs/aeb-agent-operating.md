@@ -47,7 +47,7 @@ A flat file of bearer tokens, one per line (`#` comments ignored). A presented
 purpose binding — it authenticates "you hold the secret," nothing more. The
 interim stand-in.
 
-### Lease (recommended): `--lease-secret FILE`
+### Lease (recommended): `--lease-secrets FILE`
 
 HMAC-signed, **expiring**, **purpose-bound** tokens — the real model. A lease is
 one bearer string:
@@ -67,8 +67,14 @@ aeb-lease --secret /etc/aeb/lease.secret --purpose 'preint/*' --ttl-mins 30
 # → ae1.preint/*.1781376938918.e93854ad54d80...    (hand this to the requester)
 ```
 
-- The secret is read from a **file** (never the command line), the same on both
-  sides. `--lease-secret` supersedes `--tokens`.
+- The secret is read from a **file** (never the command line). `--lease-secrets`
+  holds **one or more** secrets, one per non-blank line (`#` comments ignored).
+- **Zero-downtime rotation:** a token signed by **any** listed secret is
+  accepted. To rotate without killing live leases: add the new secret as a
+  second line → switch minters to it → once all old-secret leases have expired
+  (≤ max TTL), drop the old line. (A list is for *rotation*, **not roles** — a
+  secret is a key, not a role; any accepted secret can mint any purpose. Keep the
+  list short: an unknown token costs one HMAC per secret.)
 - **Purpose binding** uses the scope glob: a `preint/*` lease covers
   `preint/rust`, but a `preint/rust` lease does **not** cover `ci/main`. A leaked
   lease can't be replayed outside its purpose.
@@ -102,7 +108,7 @@ installed locally. Nothing else to configure.
 ```bash
 aeb-agent --port 9440 --accept 'preint/*' \
           --workdir ~/checkout --repo ~/checkout \
-          --lease-secret /etc/aeb/lease.secret
+          --lease-secrets /etc/aeb/lease.secret
 ```
 
 **Raw command on host** — like the vm path, a **non-aeb project** (build.sh /
@@ -117,7 +123,7 @@ dedicated native builder, e.g. a **Mac mini doing AppKit builds** of aether-ui:
 aeb-agent --host 0.0.0.0 --port 9440 --accept 'preint/*' \
           --workdir ~/aether-ui --repo ~/aether-ui \
           --run-on host --allow-vm-command \
-          --lease-secret ~/.aeb/lease.secret
+          --lease-secrets ~/.aeb/lease.secret
 ```
 ```jsonc
 // Requester's dispatch — "command" runs in ~/aether-ui on the Mac:
@@ -148,7 +154,7 @@ dispatch.
 aeb-agent --port 9440 --accept 'preint/*' \
           --workdir ~/checkout --repo ~/checkout \
           --run-on podman --ctr-image aeb-tc:slim --allow-image 'aeb-tc:*' \
-          --lease-secret /etc/aeb/lease.secret
+          --lease-secrets /etc/aeb/lease.secret
 ```
 
 ### `vm` — build on an SSH-reachable VM
@@ -190,7 +196,7 @@ aeb-agent --port 9440 --accept 'preint/*' \
           --run-on vm --vm-host winbaz \
           --vm-shell 'C:\msys64\usr\bin\bash.exe -lc' \
           --allow-vm-command \
-          --lease-secret /etc/aeb/lease.secret
+          --lease-secrets /etc/aeb/lease.secret
 ```
 ```jsonc
 // Requester's dispatch (the "command" carries the build). Note: bash -lc does
@@ -250,7 +256,7 @@ Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 
 # Auth (pick one; without either, refuses ALL — fail-closed)
 --tokens FILE         flat bearer-token file (legacy)
---lease-secret FILE   HMAC lease auth (signed/expiring/purpose-bound); supersedes --tokens
+--lease-secrets FILE  HMAC lease auth (signed/expiring/purpose-bound); one secret per line (multiple = rotation)
 
 # Run mode
 --run-on KIND         host (default) | podman | vm
