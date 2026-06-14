@@ -195,6 +195,90 @@ _scope_accepts(scope_map: ptr, purpose: string) {
     return 0
 }
 
+// --- Provisioning modes (per-slot tree lifecycle; launch-constrained) ------
+// See docs/agent-provisioning-modes.md. The agent OFFERS a set of modes at
+// launch; a dispatch REQUESTS one; the agent serves / busies / rejects. Pure
+// membership + allow-list helpers here; the tool wires them to the slot/tree.
+
+// _csv_split(csv) — list of trimmed, non-empty comma-separated items. Pure.
+_csv_split(csv: string) {
+    out = list.new()
+    rest = csv
+    item = ""
+    while string.length(rest) > 0 {
+        c = string.index_of(rest, ",")
+        if c < 0 { item = rest; rest = "" }
+        else { item = string.substring(rest, 0, c); rest = string.substring(rest, c + 1, string.length(rest)) }
+        item = string.trim(item)
+        if string.length(item) > 0 { _a = list.add(out, item) }
+    }
+    return out
+}
+
+// _csv_contains(csv, want) — 1 if `want` is an exact (trimmed) member. Pure.
+_csv_contains(csv: string, want: string) {
+    items = _csv_split(csv)
+    i = 0
+    n = list.size(items)
+    while i < n {
+        it, _ = list.get(items, i)
+        if string.equals(it, want) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// _mode_offered(offered_csv, mode) — 1 if `mode` is in the agent's offered set.
+// Empty offered set defaults to "patch" only (the safe default).
+_mode_offered(offered_csv: string, mode: string) {
+    off = offered_csv
+    if string.length(off) == 0 { off = "patch" }
+    return _csv_contains(off, mode)
+}
+
+// _branch_allowed(allow_csv, branch) — 1 if `branch` matches any glob in the
+// allow-list (reuses the scope glob: "release/*" covers "release/1.2"). Empty
+// allow-list => 0 (fail-closed: advance offered but no branch permitted).
+_branch_allowed(allow_csv: string, branch: string) {
+    if string.length(branch) == 0 { return 0 }
+    globs = _csv_split(allow_csv)
+    i = 0
+    n = list.size(globs)
+    while i < n {
+        g, _ = list.get(globs, i)
+        if _scope_glob_match(g, branch) == 1 { return 1 }
+        i = i + 1
+    }
+    return 0
+}
+
+// _autoclone_allowed(allow_csv, repo, branch) — 1 if (repo, branch) is permitted
+// by the autoclone allow-list. Each entry is "<repo>" (any branch) or
+// "<repo>#<branchglob>" (branch must glob-match). Empty allow-list => 0
+// (fail-closed). Pure.
+_autoclone_allowed(allow_csv: string, repo: string, branch: string) {
+    if string.length(repo) == 0 { return 0 }
+    entries = _csv_split(allow_csv)
+    i = 0
+    n = list.size(entries)
+    while i < n {
+        e, _ = list.get(entries, i)
+        hash = string.index_of(e, "#")
+        if hash < 0 {
+            // repo-only entry: any branch allowed for this repo.
+            if string.equals(e, repo) == 1 { return 1 }
+        } else {
+            e_repo = string.substring(e, 0, hash)
+            e_brnch = string.substring(e, hash + 1, string.length(e))
+            if string.equals(e_repo, repo) == 1 {
+                if _scope_glob_match(e_brnch, branch) == 1 { return 1 }
+            }
+        }
+        i = i + 1
+    }
+    return 0
+}
+
 // _has_free_slot(active, max_jobs_str) — capacity check. `active` is the
 // count of in-flight jobs in this scope; max_jobs_str is the scope's
 // declared cap ("" or "0" = unbounded). Returns 1 if a slot is free.

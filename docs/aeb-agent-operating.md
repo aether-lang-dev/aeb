@@ -52,13 +52,12 @@ The idiomatic actor-owned-state version awaits a synchronous actor `call`
 ([aether#736](https://github.com/aether-lang-org/aether/issues/736)); the lock-dir
 ships now and is crash-robust.
 
-> **N > 1 needs per-slot tree isolation (not yet built).** One agent has one
-> `--workdir`, and `_prepare_tree` does `git reset --hard && clean -ffdx` **in
-> place** — so two concurrent builds in the same tree clobber each other. The safe
-> capacity for one workdir is **1**. `--max-jobs >1` is allowed (the agent warns
-> at startup) but only correct once each slot builds in its own checkout. For more
-> concurrency today, run **multiple agents** (separate `--workdir` + `--port`),
-> e.g. a big box hosting several one-slot agents.
+**Per-slot tree isolation:** slot `i` builds in **`<workdir>/<i>`** (its own
+checkout), so `--max-jobs N` runs N genuinely-concurrent builds with no tree
+clobbering. How each `<workdir>/<i>` is provisioned (pre-cloned, branch-tracking,
+or auto-cloned) is the **provisioning mode** — see
+[`agent-provisioning-modes.md`](agent-provisioning-modes.md) and
+`--provision-modes`. A 64-core box can declare a large N; a NUC/Mac, 1.
 
 ---
 
@@ -267,7 +266,7 @@ Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 --accept GLOB         purpose scope to accept (default 'preint/*')
 --workdir DIR         directory the agent runs builds in (default '.')
 --repo DIR            git repo to fetch/checkout/apply into (default = --workdir)
---max-jobs N          build-slot capacity: N concurrent builds, over-capacity dispatches get 503 busy (default 1; >1 needs per-slot tree isolation — TODO)
+--max-jobs N          build-slot capacity: N concurrent builds, over-capacity dispatches get 503 busy (default 1; each slot builds in <workdir>/<i>; see --provision-modes)
 --scope NAME          scope label for display (default 'preint')
 
 # Auth (REQUIRED; without it the agent refuses ALL — fail-closed)

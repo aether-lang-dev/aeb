@@ -11,7 +11,8 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
               _image_match,
               _lease_mint, _lease_verify, _lease_verify_any, _lease_field, _lease_sign,
-              _lease_purpose_valid)
+              _lease_purpose_valid,
+              _csv_contains, _mode_offered, _branch_allowed, _autoclone_allowed)
 import std.string
 import std.list
 import std.map
@@ -312,7 +313,36 @@ main() {
     // single-secret set behaves exactly like _lease_verify
     _eq("verify_any single-secret == verify", _lease_verify_any("secret-alpha\n", tokA, now, "preint/x"), "")
 
-    println("agent scope + wire + token + ping + pool + veto + lease tests done")
+    // --- provisioning-mode helpers ---
+    _assert("csv_contains hit", _csv_contains("patch,advance", "advance") == 1)
+    _assert("csv_contains miss", _csv_contains("patch,advance", "autoclone") == 0)
+    _assert("csv_contains trims", _csv_contains("patch , advance", "advance") == 1)
+    // _mode_offered: empty offered defaults to patch only
+    _assert("mode_offered default patch", _mode_offered("", "patch") == 1)
+    _assert("mode_offered default rejects advance", _mode_offered("", "advance") == 0)
+    _assert("mode_offered explicit set", _mode_offered("patch,autoclone", "autoclone") == 1)
+    _assert("mode_offered not in set", _mode_offered("patch", "advance") == 0)
+    // _branch_allowed: glob over branch names, empty allow-list = fail-closed
+    _assert("branch_allowed exact", _branch_allowed("main", "main") == 1)
+    _assert("branch_allowed glob", _branch_allowed("release/*", "release/1.2") == 1)
+    _assert("branch_allowed reject", _branch_allowed("main", "feature/x") == 0)
+    _assert("branch_allowed empty list fail-closed", _branch_allowed("", "main") == 0)
+    _assert("branch_allowed empty branch fail-closed", _branch_allowed("main", "") == 0)
+    // _autoclone_allowed: <repo> (any branch) or <repo>#<branchglob>
+    _assert("autoclone repo-only any branch",
+        _autoclone_allowed("https://x/r.git", "https://x/r.git", "anything") == 1)
+    _assert("autoclone repo#branch match",
+        _autoclone_allowed("https://x/r.git#main", "https://x/r.git", "main") == 1)
+    _assert("autoclone repo#branchglob match",
+        _autoclone_allowed("https://x/r.git#release/*", "https://x/r.git", "release/9") == 1)
+    _assert("autoclone wrong branch rejected",
+        _autoclone_allowed("https://x/r.git#main", "https://x/r.git", "dev") == 0)
+    _assert("autoclone wrong repo rejected",
+        _autoclone_allowed("https://x/r.git", "https://evil/r.git", "main") == 0)
+    _assert("autoclone empty allow fail-closed",
+        _autoclone_allowed("", "https://x/r.git", "main") == 0)
+
+    println("agent scope + wire + token + ping + pool + veto + lease + provision tests done")
 }
 
 // tiny local helpers (the test file is self-contained)
