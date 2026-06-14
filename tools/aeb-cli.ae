@@ -192,6 +192,40 @@ main() {
         j = j + 1
     }
 
+    // --- Remote offload: --use-remote-agents routes to aeb-remote instead of
+    // building locally (mirrors the bash arm at aeb ~438). The directive plan
+    // has just set AEB_USE_REMOTE_AGENTS (it's classified bool); when set we
+    // lazy-build tools/aeb-remote (needs --lib lib) and hand off the ORIGINAL
+    // argv — aeb-remote re-parses the whole command itself (leases from the
+    // --agents pool, names git HEAD as base, sends `git diff HEAD` as the
+    // patch, dispatches, folds the remote verdict). This EXITS — it never falls
+    // through to the local aeb-main launch below. Active path now that we run
+    // aeb-agent for real, so it's the first handoff ported past --init/--sandbox.
+    if string.length(os.getenv("AEB_USE_REMOTE_AGENTS")) > 0 {
+        aether_r = os.getenv("AETHER")
+        if string.length(aether_r) == 0 { aether_r = "ae" }
+        remote_bin = string.concat(aeb_home, "/tools/aeb-remote")
+        if file.exists(remote_bin) == 0 {
+            rsrc = string.concat(aeb_home, "/tools/aeb-remote.ae")
+            rlib = string.concat(aeb_home, "/lib")
+            _rbc = build._sh("'${aether_r}' build '${rsrc}' --lib '${rlib}' -o '${remote_bin}' 2>/dev/null")
+        }
+        // Pass the original argv (arg 1 onward) verbatim — aeb-remote owns its
+        // own flag parsing, exactly like `exec aeb-remote "$@"` in bash.
+        rargv = list.new()
+        ri = 1
+        while ri < argc {
+            _rar = list.add(rargv, aether_args_get(ri))
+            ri = ri + 1
+        }
+        // No process-group/timeout supervision wrapper here: aeb-remote is a
+        // short-lived dispatch client (it talks HTTP to the agent, which owns
+        // the build's lifecycle + reaping), not a local build subtree. Run it
+        // and exit with its code. new_process_group/forward_signals on, no reap.
+        rcode, _ro = os.run_supervised(remote_bin, rargv, null, 1, 1, 0, 0)
+        exit(rcode)
+    }
+
     // Resolve the launch the supervision tail execs.
     aether = os.getenv("AETHER")
     if string.length(aether) == 0 { aether = "ae" }
