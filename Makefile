@@ -104,7 +104,8 @@ install: $(INSTALL_TOOLS)
 	 echo "  wrapper:  $(BINDIR)/aeb"; \
 	 echo "  runtime:  $(SHAREDIR)/"; \
 	 echo "  version:  aeb 0.0.0-dev+$$SRCH (git $$GITD)"; \
-	 echo "  (remote build agent NOT installed — opt in with: aeb tools/agent/.install.ae)"
+	 echo "  (remote build agent NOT installed — opt in with: aeb tools/agent/.install.ae)"; \
+	 echo "  (lease-token minter NOT installed   — opt in with: aeb tools/lease/.install.ae)"
 	@# If this ran under sudo into a PER-USER prefix, the files just landed
 	@# root-owned — which then breaks the NON-sudo `aeb tools/agent/.install.ae`
 	@# (it cp's into $(SHAREDIR) as the normal user → "Permission denied"). Hand
