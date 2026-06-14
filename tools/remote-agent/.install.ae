@@ -1,0 +1,27 @@
+// Install BOTH the remote-build-agent capability in one step: the agent (the
+// verifier/listener) AND aeb-lease (the lessor-side token minter). They're a
+// pair — an agent without a way to mint leases is unusable, and minting without
+// an agent to present to is pointless — so this is the convenient single target
+// the `make install` hint points at:
+//
+//   aeb tools/remote-agent/.install.ae    # → ~/.local/bin/{aeb-agent, aeb-lease}
+//
+// It just deps the two existing per-tool installers; aeb's DAG builds + places
+// both. (The individual targets tools/agent/.install.ae and
+// tools/lease/.install.ae still work if you want only one.) Opt-in like its
+// parts — NOT wired into `make` (a network server + a credential minter are
+// deliberate installs, not core build machinery).
+import build
+import build (dep)
+
+extern println(s: string)
+
+main() {
+    b = build.start()
+    dep(b, "tools/agent/.install.ae")
+    dep(b, "tools/lease/.install.ae")
+    println("remote-agent: installed aeb-agent (verifier) + aeb-lease (minter).")
+    println("  start an agent:  aeb-agent --lease-secrets <file> --accept 'preint/*' ...")
+    println("  mint a lease:    aeb-lease  --secret <file> --purpose preint/<scope> --ttl-mins 30")
+    return 0
+}
