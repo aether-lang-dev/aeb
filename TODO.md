@@ -124,7 +124,11 @@ macOS, WSL, Git-Bash), with no native Windows/PowerShell story.
 entrypoint that does everything the trampoline does today, so bash is no
 longer on the critical path.
 
-**Decision (2026-06-10): hedge — keep the bash trampoline for now**, but the
+**Status (2026-06-14): the pure-Aether entry point is LIVE for the core path
++ --sandbox / --init / --use-remote-agents (see DONE list below); the bash
+trampoline is still the installed `aeb` on every OS (no cutover yet).** The
+remaining work is a short list of exec-handoffs + the cutover, not a missing
+primitive. Earlier decision (2026-06-10) was "hedge — keep bash for now"; the
 upstream blocker has since cleared. The flag-parsing / env-setup /
 lazy-build-dispatch bulk ports cleanly; the one piece bash did well for free
 was the *build-supervision tail* (own process group via `set -m`, forward
@@ -181,30 +185,36 @@ synonym match:` echo, and the coordinate/timeout/missing-arg/missing-synonym
 errors with correct exit codes). It also does `--version` (AEB_STAMP parsed via
 the pure `stamp_field`, incl. multi-word values), `AEB_HOME` resolution (env
 override else `_dirname(argv[0])` — native, no `dirname` shell-out), and the
-podman `DOCKER_HOST` autodetect (POSIX-gated). Today it resolves the full
-launch and prints the plan (a useful dry-run); the FINAL wiring is the
-supervised exec of aeb-main.
+podman `DOCKER_HOST` autodetect (POSIX-gated).
+
+**DONE (shipped on main) — the entry point's core path is live:**
+- **The supervision tail** — execs aeb-main under
+  `os.run_supervised(prog, argv, env, 1, 1, timeout, 1)` (own process group,
+  INT/TERM forward, `--timeout` TERM→KILL → exit 124, group-reap). One call,
+  the whole tail. CROSS-PLATFORM (POSIX groups / Windows Job Objects). Phase-1
+  A/B passes identical to bash (commit `12e4471`). `tools/aeb-cli.ae:270`.
+- **`--sandbox` arm** — prepends the `aeb-sandbox` wrapper (commit `873f5c4`).
+- **`--init` mode** — lazy-builds + execs aeb-init (commit `9327eae`).
+- **Abs-path + file-existence** for the synonym relpath (file-check + the
+  `aeb synonym match:` echo) is in the executor.
+- **`--use-remote-agents` → aeb-remote** — lazy-build + hand off original argv
+  (commit `17b773f`). Ported first because we now run aeb-agent for real.
 
 **What remains for the entrypoint:**
-- **The supervision tail** — exec aeb-main as `aether aeb_home root targets…`
-  under `os.run_supervised(prog, argv, env, 1, 1, timeout, 1)` (own process
-  group, INT/TERM forward, `--timeout` TERM→KILL → exit 124, group-reap) — one
-  call, the whole tail. CROSS-PLATFORM (POSIX groups / Windows Job Objects), so
-  the Windows arm has full parity (no taskkill degrade). Toolchain is on 0.235
-  (have the primitive). Reference: `../aether/examples/applications/
-  build-supervisor.ae`. The launch shape is `aeb-main <aether> <home> <root>
-  <targets…>` (plus an `aeb-sandbox <aether> <home> <root> <main-bin>` prefix
-  under `--sandbox`), built from the directive plan aeb-cli already resolves.
+- **The other exec handoffs** — `gcheckout` / `--watch` / `--resolve-only` /
+  `--trace-intent` each lazy-build their helper tool and exec it. (`--init` and
+  `--use-remote-agents` are done; these four follow the same shape.) Note
+  `--resolve-only` / `--trace-intent` also have a *gate* in bash (emit SBOM /
+  trace, DON'T build) — port that branch too.
 - **Abs-path + file-existence** for the `--agents` / `--veto-policy` /
-  `--sandbox-profile` values (parse_argv leaves these as plain `env`
-  directives; the bash also `cd`s to resolve them absolute and checks the file
+  `--sandbox-profile` VALUES (parse_argv leaves these as plain `env`
+  directives; the bash `cd`s to resolve them absolute and checks the file
   exists — move that into the executor, using native `_dirname`/`_path_join`).
-- **The exec handoffs** — `--init` / `gcheckout` / `--watch` /
-  `--resolve-only` / `--trace-intent` / `--use-remote-agents` each lazy-build
-  their helper tool and exec it; and the lazy-build-of-helper-tools dispatch
-  generally (first-run compile of aeb-main, aeb-link, etc.).
 - **Cutover** — once the above land, replace the bash `aeb` with a thin shim
-  that just execs the compiled `aeb-cli` (or a per-OS launcher).
+  that just execs the compiled `aeb-cli` (or a per-OS launcher). Recommend
+  flag-gating first (`AEB_NATIVE_CLI=1` opts in) to dogfood before flipping the
+  default. Native-Windows still gated on aether#681 (`${...}` interpolation),
+  but POSIX cutover is unblocked.
 
 Why it's worth doing:
 - **Portability.** A compiled entrypoint runs anywhere Aether targets,
