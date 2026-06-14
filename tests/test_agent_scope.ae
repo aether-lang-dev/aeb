@@ -6,7 +6,7 @@
 import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _decision, dispatch_request_json, dispatch_request_json_ex, dispatch_reply_json,
               _json_field, run_on, max_jobs, accept_scope,
-              _parse_tokens, _token_ok, _bearer_strip, ping_json,
+              _parse_tokens, _token_ok, _bearer_strip, ping_json, ping_json_ex,
               _parse_pool, _pool_url_of, _pool_token_of,
               _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
               _image_match,
@@ -136,6 +136,20 @@ main() {
     // empty max_jobs renders 0 (unbounded)
     pj0 = ping_json("linux", "*", "false", "", "open")
     _assert("ping empty max_jobs -> 0", string.index_of(pj0, "\"max_jobs\":0") >= 0)
+    // base ping_json omits the optional version fields
+    _eq("ping omits aeb_version when base form", _json_field(pj, "aeb_version"), "")
+    _eq("ping omits aether_version when base form", _json_field(pj, "aether_version"), "")
+
+    // --- ping_json_ex: toolchain versions for the originator ---
+    pjv = ping_json_ex("macos", "preint/*", "false", "1", "required",
+                       "aeb 0.0.0-dev+abc123 (git v0.160)", "Aether Compiler v0.256.0")
+    _eq("ex aeb_version", _json_field(pjv, "aeb_version"), "aeb 0.0.0-dev+abc123 (git v0.160)")
+    _eq("ex aether_version", _json_field(pjv, "aether_version"), "Aether Compiler v0.256.0")
+    _eq("ex still carries platform", _json_field(pjv, "platform"), "macos")
+    // empty versions are omitted (probe-failure degrades cleanly)
+    pjv0 = ping_json_ex("linux", "*", "false", "", "open", "", "")
+    _eq("ex omits empty aeb_version", _json_field(pjv0, "aeb_version"), "")
+    _eq("ex omits empty aether_version", _json_field(pjv0, "aether_version"), "")
 
     // --- agent pool parsing (the --agents file) ---
     pool = "# my agents\nhttp://192.168.0.57:9440 - ping-secret-123\n\nhttp://mac.local:9440 - mac-tok\nhttp://nostoken:9440\n"

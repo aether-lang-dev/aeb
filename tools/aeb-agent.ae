@@ -30,7 +30,7 @@ import std.map
 import std.list
 import std.fs
 
-import agent (_decision, dispatch_reply_json, ping_json, _json_field,
+import agent (_decision, dispatch_reply_json, ping_json, ping_json_ex, _json_field,
               _parse_tokens, _token_ok, _bearer_strip, _veto_run_rules,
               _image_match, _lease_verify, _lease_field)
 import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
@@ -199,10 +199,14 @@ handle_ping(req: ptr, res: ptr, ud: ptr) {
     accept = os.getenv("AEB_AGENT_ACCEPT")
     if string.length(accept) == 0 { accept = "preint/*" }
     mj = os.getenv("AEB_AGENT_MAX_JOBS")
+    // Toolchain versions (probed once at startup, cached in env) so an
+    // originator sees WHICH aeb/aether would build a dispatch before committing.
+    aebv = os.getenv("AEB_AGENT_AEB_VERSION")
+    aev = os.getenv("AEB_AGENT_AETHER_VERSION")
     // auth is always "required" here — /ping only succeeds when authed,
     // and the agent is fail-closed, so a reachable authed ping implies
     // tokens are configured.
-    body = ping_json(os.platform(), accept, "false", mj, "required")
+    body = ping_json_ex(os.platform(), accept, "false", mj, "required", aebv, aev)
     http.response_set_status(res, 200)
     http.response_set_header(res, "Content-Type", "application/json")
     http.response_set_body(res, body)
@@ -460,6 +464,38 @@ _agent_ae() {
     e = os.getenv("AEB_AGENT_AE")
     if string.length(e) > 0 { return e }
     return "ae"
+}
+
+// _agent_aeb() — the `aeb` binary (override AEB_AGENT_AEB, else on PATH).
+_agent_aeb() {
+    e = os.getenv("AEB_AGENT_AEB")
+    if string.length(e) > 0 { return e }
+    return "aeb"
+}
+
+// _first_line(text) — the first line, trimmed. "" if empty. Pure.
+_first_line(text: string) {
+    nl = string.index_of(text, "\n")
+    if nl < 0 { return string.trim(text) }
+    return string.trim(string.substring(text, 0, nl))
+}
+
+// _probe_aeb_version() / _probe_aether_version() — the version strings the
+// /ping capability descriptor reports, so an originator can see WHICH toolchain
+// would build a dispatch BEFORE committing it (load-bearing for a mixed-version
+// fleet — e.g. an agent whose Aether is too old for a feature the build uses).
+//   aeb: the first line of `aeb --version` ("aeb 0.0.0-dev+<sha> (git …)").
+//   aether: the first line of `aetherc --version` ("Aether Compiler vX.Y.Z") —
+//     the LIVE compiler the agent would actually build with (NOT the older
+//     "tools built ae …" line `aeb --version` also prints; those can differ).
+// "" if the probe fails (binary absent). Run once at startup, cached in env.
+_probe_aeb_version() {
+    out, _e = build._sh_capture(string.concat(_agent_aeb(), " --version 2>/dev/null"))
+    return _first_line(out)
+}
+_probe_aether_version() {
+    out, _e = build._sh_capture(string.concat(_agent_aetherc(), " --version 2>/dev/null"))
+    return _first_line(out)
 }
 
 // _agent_sdk_lib() — the aeb SDK `lib/` dir the veto's `aetherc --emit=ast`
@@ -1218,6 +1254,14 @@ main() {
     }
     }
 
+    // Probe the toolchain versions ONCE at startup (shelling out per /ping would
+    // be wasteful) and cache in env for handle_ping to report. An originator's
+    // /ping then sees which aeb/aether this agent would build with.
+    _av = _probe_aeb_version()
+    if string.length(_av) > 0 { _eav = os.setenv("AEB_AGENT_AEB_VERSION", _av) }
+    _tv = _probe_aether_version()
+    if string.length(_tv) > 0 { _etv = os.setenv("AEB_AGENT_AETHER_VERSION", _tv) }
+
     raw = http.server_create(port)
     if raw == 0 { println("aeb-agent: FAIL server_create"); exit(1) }
     http.server_set_host(raw, host)
@@ -1228,6 +1272,7 @@ main() {
     mj_disp = "unbounded"
     if max_jobs > 0 { mj_disp = string.from_int(max_jobs) }
     println("aeb-agent: listening on ${host}:${port} scope=${scope_name} accept=${accept_glob} max_jobs=${mj_disp} workdir=${workdir}")
+    println("aeb-agent: toolchain — ${_av} / ${_tv}")
 
     // Distinct name: `a` was the arg-loop string above; reusing it for the
     // actor handle is a const-char*-vs-actor* type conflict that a strict

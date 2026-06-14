@@ -530,6 +530,18 @@ dispatch_request_json_ex(guid: string, target: string, purpose: string,
 // committing a dispatch. `busy` and `auth` are pre-rendered strings
 // ("true"/"false", "required"/"open"). Pure.
 ping_json(platform: string, accept: string, busy: string, max_jobs: string, auth: string) {
+    return ping_json_ex(platform, accept, busy, max_jobs, auth, "", "")
+}
+
+// ping_json_ex — adds the toolchain version fields an originator wants BEFORE
+// dispatching: `aeb_version` (first line of `aeb --version`) and
+// `aether_version` (first line of `aetherc --version` — the LIVE compiler the
+// agent would build with). Both emitted only when non-empty, so a probe failure
+// just omits the field (the originator sees "" via _json_field). Lets a caller
+// confirm an agent's toolchain is new enough for a build's feature needs across
+// a mixed-version fleet.
+ping_json_ex(platform: string, accept: string, busy: string, max_jobs: string, auth: string,
+             aeb_version: string, aether_version: string) {
     out = "{\"agent\":\"aeb-agent\""
     out = string.concat(out, ",\"platform\":\"")
     out = string.concat(out, platform)
@@ -543,7 +555,18 @@ ping_json(platform: string, accept: string, busy: string, max_jobs: string, auth
     out = string.concat(out, mj)
     out = string.concat(out, ",\"auth\":\"")
     out = string.concat(out, auth)
-    out = string.concat(out, "\"}")
+    out = string.concat(out, "\"")
+    if string.length(aeb_version) > 0 {
+        out = string.concat(out, ",\"aeb_version\":\"")
+        out = string.concat(out, aeb_version)
+        out = string.concat(out, "\"")
+    }
+    if string.length(aether_version) > 0 {
+        out = string.concat(out, ",\"aether_version\":\"")
+        out = string.concat(out, aether_version)
+        out = string.concat(out, "\"")
+    }
+    out = string.concat(out, "}")
     return out
 }
 

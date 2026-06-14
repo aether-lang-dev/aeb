@@ -30,7 +30,7 @@ for the per-dispatch *lifecycle* (fetch→checkout→apply→veto→build) read
 | Endpoint | Auth | Purpose |
 |---|---|---|
 | `GET /health` | open | dumb liveness (`ok`) — no auth, reveals nothing |
-| `GET /ping`   | required | identity + capability descriptor (platform, accept-scope, busy) — an authorized prober confirms it's really an aeb-agent before dispatching |
+| `GET /ping`   | required | identity + capability descriptor (`platform`, `accept`, `busy`, `max_jobs`, `auth`, **`aeb_version`**, **`aether_version`**) — an authorized prober confirms it's really an aeb-agent, and learns *which toolchain it would build with*, before dispatching. `aether_version` is the **live** `aetherc` (what it builds with now); useful to gate a build whose feature needs a minimum Aether across a mixed-version fleet. |
 | `POST /dispatch` | required | the build request (see [the wire](#the-dispatch-wire)) |
 
 The agent is **fail-closed**: with no auth configured it refuses *all* dispatches
