@@ -1195,6 +1195,38 @@ _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
         content, _rerr = io.read_file(p)
         return content
     }
+    // Cross-buildtype fallback. _dep_target_dir derives the buildtype from a
+    // trailing ".<type>.ae" on dep_module — but by the time a builder reads
+    // its deps, the orchestrator has rewritten ctx["deps"] to BARE DIRS (the
+    // ".<type>.ae" suffix is gone), so a dep whose producer wrote under a
+    // NON-"build" type (e.g. a vendored crate node `.jni.crate.ae` →
+    // target/jni.crate/<dir>) is looked up under the wrong, defaulted
+    // target/build/<dir> and missed. When the dep is a bare dir (no type to
+    // recover) and the exact path missed, glob target/*/<dir>/<artifact> and
+    // take the first hit. Artifact names are specific, so a cross-type match is
+    // the right one; this fixes any cross-buildtype artifact read, not just rust.
+    base = dep_module
+    slash = _last_slash(dep_module)
+    if slash >= 0 { base = string.substring(dep_module, slash + 1, string.length(dep_module)) }
+    is_build_file = 0
+    if string.index_of(base, ".") == 0 {
+        if string.ends_with(base, ".ae") == 1 { is_build_file = 1 }
+    }
+    if is_build_file == 0 {
+        // target/*/<dir>/<artifact> — one wildcard segment (the buildtype). Use
+        // a shell glob via _sh_capture (fs.glob's mid-path `*` is unreliable
+        // here); `ls` the candidates, take the first existing one.
+        tdir = path.join(root, "target")
+        glob = path.join(path.join(tdir, "*"), path.join(dep_module, artifact))
+        hit_raw, _herr = _sh_capture("ls -1 ${glob} 2>/dev/null | head -1")
+        hit = string.trim(hit_raw)
+        if string.length(hit) > 0 {
+            if file.exists(hit) == 1 {
+                content2, _rerr2 = io.read_file(hit)
+                return content2
+            }
+        }
+    }
     return ""
 }
 
