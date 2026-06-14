@@ -607,6 +607,12 @@ _lease_verify(secret: string, token: string, now_ms: long, req_purpose: string) 
     want = _lease_sign(secret, purpose, expiry)
     if string.length(want) == 0 { return "lease: cannot verify (openssl unavailable)" }
     if string.equals(sig, want) == 0 { return "lease: bad signature (forged or wrong secret)" }
+    // 1b. Canonical purpose — defense-in-depth: the verifier re-applies the
+    //     mint-time grammar so a patched/rogue minter (holding the secret) can't
+    //     smuggle a non-canonical purpose (uppercase/spaces/dots/unicode) past
+    //     the trust boundary. "Constrained at issuance" AND at verification.
+    pgrm = _lease_purpose_valid(purpose)
+    if string.length(pgrm) > 0 { return "lease: non-canonical purpose (${pgrm})" }
     // 2. Expiry: reject at/after the deadline. string.to_long is overflow-safe
     //    (unix-ms ~1.7e12 exceeds int32); a non-numeric expiry => fail-closed.
     exp_ms, exp_err = string.to_long(expiry)

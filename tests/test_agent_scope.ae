@@ -247,6 +247,19 @@ main() {
     _assert("preint/rust token does NOT cover ci/main (purpose-bound)",
         1 - _streq(_lease_verify(secret, narrow, now, "ci/main"), ""))
 
+    // DEFENSE-IN-DEPTH: a VALIDLY-SIGNED but NON-CANONICAL purpose (as a rogue/
+    // patched minter could produce) is rejected at VERIFY, not just at mint. The
+    // verifier re-applies the grammar at the trust boundary.
+    rogue_upper = _lease_mint(secret, "preint/Rust", future)   // uppercase R
+    _assert("verify rejects signed non-canonical purpose (uppercase)",
+        1 - _streq(_lease_verify(secret, rogue_upper, now, "preint/Rust"), ""))
+    rogue_space = _lease_mint(secret, "preint/my rust", future)  // space
+    _assert("verify rejects signed non-canonical purpose (space)",
+        1 - _streq(_lease_verify(secret, rogue_space, now, "preint/my rust"), ""))
+    // a canonical purpose with a trailing /* scope still verifies fine.
+    scoped = _lease_mint(secret, "preint/macos/*", future)
+    _eq("verify accepts canonical /* scope", _lease_verify(secret, scoped, now, "preint/macos/x"), "")
+
     // No secret configured => fail-closed.
     _assert("empty secret => fail-closed",
         1 - _streq(_lease_verify("", good, now, "preint/phammant/rust"), ""))
