@@ -18,7 +18,7 @@ import std.os
 import std.string
 import std.io
 
-import agent (_lease_mint, _lease_purpose_valid, _looks_like_token, _secret_strength_ok)
+import agent (_lease_mint, _lease_purpose_valid, _looks_like_token, _secret_strength_ok, _secret_key_material)
 
 extern println(s: string)
 extern exit(code: int)
@@ -69,26 +69,35 @@ main() {
     if string.length(secret) == 0 { println("aeb-lease: --secret file is empty: ${secret_file}"); exit(2) }
     // Footgun guard: a --secret that's actually a minted TOKEN ("ae1.…") means
     // a token was pasted into the secret slot (e.g. `aeb-lease … > lease.secret`
-    // clobbered the key). The signing secret must be opaque high-entropy bytes.
+    // clobbered the key). The signing secret must be an aeb-secret-v1 envelope.
     if _looks_like_token(secret) == 1 {
         println("aeb-lease: --secret file ${secret_file} contains a LEASE TOKEN (ae1.…), not a signing secret.")
         println("aeb-lease:   The secret is the opaque key that mints+verifies tokens; a token is its OUTPUT.")
-        println("aeb-lease:   Generate a real secret:  openssl rand -hex 32 > ${secret_file}")
+        println("aeb-lease:   Generate a real secret:  aeb-keygen > ${secret_file}")
         exit(2)
     }
-    // Entropy floor (hard): a too-short / hand-typed secret ('St4ndrdT1ng...')
-    // is guessable. The verifier runs the SAME test, so refusing here is safe —
-    // a real generated secret (openssl rand -hex 32 = 64 chars) always passes.
-    if _secret_strength_ok(secret) == 0 {
-        println("aeb-lease: --secret in ${secret_file} is too weak (< 32 chars) — guessable.")
-        println("aeb-lease:   Generate a strong secret:  openssl rand -hex 32 > ${secret_file}")
+    // Require the aeb-secret-v1 envelope (greppable marker) and key on the
+    // material AFTER it — so a bare blob isn't a usable aeb secret, and the
+    // marker is discoverable by a security sweep. Crypto unchanged.
+    keymat = _secret_key_material(secret)
+    if string.length(keymat) == 0 {
+        println("aeb-lease: --secret in ${secret_file} is missing the 'aeb-secret-v1:' marker — not an aeb secret.")
+        println("aeb-lease:   Generate one:  aeb-keygen > ${secret_file}   (writes aeb-secret-v1:<random>)")
+        exit(2)
+    }
+    // Entropy floor (hard) on the KEY MATERIAL: a too-short / hand-typed key is
+    // guessable. The verifier keys on the same material, so refusing here is
+    // safe — a generated secret (aeb-keygen = 64 hex chars) always passes.
+    if _secret_strength_ok(keymat) == 0 {
+        println("aeb-lease: --secret material in ${secret_file} is too weak (< 32 chars) — guessable.")
+        println("aeb-lease:   Generate a strong secret:  aeb-keygen > ${secret_file}")
         exit(2)
     }
 
-    // expiry = now + ttl, in unix-ms. ttl_mins * 60_000.
+    // expiry = now + ttl, in unix-ms. ttl_mins * 60_000. Sign with the MATERIAL.
     ttl_ms = ttl_mins * 60000
     expiry = os.now_unix_ms() + ttl_ms
-    token = _lease_mint(secret, purpose, string.from_long(expiry))
+    token = _lease_mint(keymat, purpose, string.from_long(expiry))
     if string.length(token) == 0 { println("aeb-lease: mint failed (openssl unavailable?)"); exit(1) }
     println(token)
     exit(0)

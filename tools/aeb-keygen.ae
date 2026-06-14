@@ -1,0 +1,37 @@
+// aeb-keygen — generate an aeb lease signing SECRET (the long-lived master key
+// the agent verifies with and the lessor mints with). Prints ONE line to stdout:
+//
+//   aeb-secret-v1:<base64 of 32 CSPRNG bytes>
+//
+// The "aeb-secret-v1:" marker makes the secret greppable for a security sweep
+// (`grep -rl 'aeb-secret-v1:' /`) and lets aeb REFUSE a bare blob; it's metadata,
+// the HMAC keys on the material after it (crypto unchanged). 32 bytes = 256-bit
+// key; base64 is ~44 ASCII chars (over the entropy floor). Self-checks before
+// emitting — the same strength test the agent/minter run, so output always
+// passes (the "generator runs the same test" contract).
+//
+//   aeb-keygen > ~/.aeb/lease.secret && chmod 600 ~/.aeb/lease.secret
+//
+// Then: aeb-agent --lease-secrets <that file> ; aeb-lease --secret <that file> …
+
+import std.cryptography
+import std.string
+import agent (_secret_marker, _secret_key_material, _secret_strength_ok, _looks_like_token)
+
+extern println(s: string)
+extern exit(code: int)
+
+main() {
+    raw, n, err = cryptography.random_bytes(32)
+    if string.length(err) > 0 { println("aeb-keygen: CSPRNG failed: ${err}"); exit(1) }
+    material, b64err = cryptography.base64_encode(raw, n)
+    if string.length(b64err) > 0 { println("aeb-keygen: base64 failed: ${b64err}"); exit(1) }
+    secret = string.concat(_secret_marker(), material)
+    // Self-check against the SAME gates the agent/minter enforce, so generated
+    // output is guaranteed usable (and we'd catch a future floor/marker change).
+    if string.length(_secret_key_material(secret)) == 0 { println("aeb-keygen: internal: missing marker"); exit(1) }
+    if _secret_strength_ok(material) == 0 { println("aeb-keygen: internal: material below entropy floor"); exit(1) }
+    if _looks_like_token(secret) == 1 { println("aeb-keygen: internal: looks like a token"); exit(1) }
+    println(secret)
+    exit(0)
+}

@@ -13,6 +13,7 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _lease_mint, _lease_verify, _lease_verify_any, _lease_field, _lease_sign,
               _lease_purpose_valid, _looks_like_token, _secrets_have_token,
               _secret_strength_ok, _secrets_weak_line,
+              _secret_marker, _secret_key_material, _secrets_no_marker_line,
               _csv_contains, _mode_offered, _branch_allowed, _autoclone_allowed)
 import std.string
 import std.list
@@ -214,17 +215,20 @@ main() {
 
     // --- Lease tokens: HMAC-signed, purpose-bound, expiring -------------
     // Fixed clock + fixed secret so tests are deterministic (no wall clock).
-    secret = "shhh-lessor-secret-xyz"
+    // `secret` is the ENVELOPE (what the agent verifies with); `mat` is the key
+    // material (what the lessor mints with) — mirrors the real tools.
+    secret = "aeb-secret-v1:shhh-lessor-secret-material-xyz-32+"
+    mat = _secret_key_material(secret)
     now = 1000000000000  // a fixed "now" in unix-ms
     future = "1000000600000"  // now + 10 min
     past   = "999999990000"   // now - ~10s
 
     // A well-formed lease for preint/phammant/rust, not expired, verifies ("").
-    good = _lease_mint(secret, "preint/phammant/rust", future)
+    good = _lease_mint(mat, "preint/phammant/rust", future)
     _eq("valid lease verifies", _lease_verify(secret, good, now, "preint/phammant/rust"), "")
 
     // Tamper: flip the purpose in the token but keep the old signature => bad sig.
-    forged = _lease_mint(secret, "preint/phammant/rust", future)
+    forged = _lease_mint(mat, "preint/phammant/rust", future)
     // rebuild with a DIFFERENT purpose but splice the ORIGINAL sig back on.
     orig_sig = _lease_field(good, 3)
     tampered = "ae1.ci/aether/main.${future}.${orig_sig}"
@@ -236,29 +240,29 @@ main() {
         1 - _streq(_lease_verify("not-the-secret", good, now, "preint/phammant/rust"), ""))
 
     // Expired lease => rejected (even though signature is valid).
-    expired = _lease_mint(secret, "preint/phammant/rust", past)
+    expired = _lease_mint(mat, "preint/phammant/rust", past)
     _assert("expired lease => rejected",
         1 - _streq(_lease_verify(secret, expired, now, "preint/phammant/rust"), ""))
 
     // Purpose binding: a token for preint/* COVERS preint/rust (glob).
-    broad = _lease_mint(secret, "preint/*", future)
+    broad = _lease_mint(mat, "preint/*", future)
     _eq("preint/* token covers preint/rust", _lease_verify(secret, broad, now, "preint/rust"), "")
     // ...but a token for preint/rust does NOT cover a different purpose.
-    narrow = _lease_mint(secret, "preint/rust", future)
+    narrow = _lease_mint(mat, "preint/rust", future)
     _assert("preint/rust token does NOT cover ci/main (purpose-bound)",
         1 - _streq(_lease_verify(secret, narrow, now, "ci/main"), ""))
 
     // DEFENSE-IN-DEPTH: a VALIDLY-SIGNED but NON-CANONICAL purpose (as a rogue/
     // patched minter could produce) is rejected at VERIFY, not just at mint. The
     // verifier re-applies the grammar at the trust boundary.
-    rogue_upper = _lease_mint(secret, "preint/Rust", future)   // uppercase R
+    rogue_upper = _lease_mint(mat, "preint/Rust", future)   // uppercase R
     _assert("verify rejects signed non-canonical purpose (uppercase)",
         1 - _streq(_lease_verify(secret, rogue_upper, now, "preint/Rust"), ""))
-    rogue_space = _lease_mint(secret, "preint/my rust", future)  // space
+    rogue_space = _lease_mint(mat, "preint/my rust", future)  // space
     _assert("verify rejects signed non-canonical purpose (space)",
         1 - _streq(_lease_verify(secret, rogue_space, now, "preint/my rust"), ""))
     // a canonical purpose with a trailing /* scope still verifies fine.
-    scoped = _lease_mint(secret, "preint/macos/*", future)
+    scoped = _lease_mint(mat, "preint/macos/*", future)
     _eq("verify accepts canonical /* scope", _lease_verify(secret, scoped, now, "preint/macos/x"), "")
 
     // No secret configured => fail-closed.
@@ -300,20 +304,21 @@ main() {
     _assert("reject reason names the space", string.index_of(_lease_purpose_valid("a b"), "' '") >= 0)
 
     // --- _lease_verify_any: a SET of secrets (rotation) ---
-    sA = "secret-alpha"
-    sB = "secret-bravo"
+    // mint with key MATERIAL; the set lines are ENVELOPES (agent-side form).
+    sA = "secret-alpha-material-long-enough"
+    sB = "secret-bravo-material-long-enough"
     tokA = _lease_mint(sA, "preint/*", future)   // signed by alpha
     tokB = _lease_mint(sB, "preint/*", future)   // signed by bravo
-    twoset = "secret-alpha\nsecret-bravo\n"
+    twoset = "aeb-secret-v1:secret-alpha-material-long-enough\naeb-secret-v1:secret-bravo-material-long-enough\n"
     // a token signed by EITHER listed secret verifies under the set
     _eq("verify_any accepts alpha-signed", _lease_verify_any(twoset, tokA, now, "preint/x"), "")
     _eq("verify_any accepts bravo-signed", _lease_verify_any(twoset, tokB, now, "preint/x"), "")
     // a token signed by a secret NOT in the set is rejected (bad signature)
-    tokC = _lease_mint("secret-charlie", "preint/*", future)
+    tokC = _lease_mint("secret-charlie-material-long-enough", "preint/*", future)
     _assert("verify_any rejects unknown-key token",
         string.length(_lease_verify_any(twoset, tokC, now, "preint/x")) > 0)
     // comments + blank lines in the set are ignored; alpha still works
-    setcmt = "# rotation: old then new\n\nsecret-alpha\n# secret-bravo retired\n"
+    setcmt = "# rotation: old then new\n\naeb-secret-v1:secret-alpha-material-long-enough\n# bravo retired\n"
     _eq("verify_any ignores comments/blanks", _lease_verify_any(setcmt, tokA, now, "preint/x"), "")
     // an effectively-empty set fails closed
     _assert("verify_any empty set => fail-closed",
@@ -325,7 +330,8 @@ main() {
     _assert("verify_any: signed-but-expired reports expiry, not bad-sig",
         string.index_of(rexp, "expired") >= 0)
     // single-secret set behaves exactly like _lease_verify
-    _eq("verify_any single-secret == verify", _lease_verify_any("secret-alpha\n", tokA, now, "preint/x"), "")
+    _eq("verify_any single-secret == verify",
+        _lease_verify_any("aeb-secret-v1:secret-alpha-material-long-enough\n", tokA, now, "preint/x"), "")
 
     // --- provisioning-mode helpers ---
     _assert("csv_contains hit", _csv_contains("patch,advance", "advance") == 1)
@@ -382,13 +388,35 @@ main() {
     _assert("strength: empty too weak", _secret_strength_ok("") == 0)
     _assert("strength: exactly 32 chars ok", _secret_strength_ok("01234567890123456789012345678901") == 1)
     _assert("strength: 31 chars too weak", _secret_strength_ok("0123456789012345678901234567890") == 0)
-    // _secrets_weak_line: names the first weak line, "" if all strong
+    // _secrets_weak_line: checks the key MATERIAL (after the marker); names the
+    // first weak line, "" if all strong.
     _eq("weak_line: all strong → empty",
-        _secrets_weak_line("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\n7J0B3XoMFljVw52kSQjLwfUmJ86vFuNi\n"), "")
-    _eq("weak_line: catches the weak one",
-        _secrets_weak_line("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\npassword123\n"), "password123")
+        _secrets_weak_line("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\naeb-secret-v1:7J0B3XoMFljVw52kSQjLwfUmJ86vFuNi\n"), "")
+    _eq("weak_line: catches the weak material",
+        _secrets_weak_line("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\naeb-secret-v1:password123\n"), "aeb-secret-v1:password123")
     _eq("weak_line: comments skipped",
-        _secrets_weak_line("# short comment\n99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\n"), "")
+        _secrets_weak_line("# short comment\naeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\n"), "")
+
+    // --- secret envelope: marker + key-material extraction ---
+    _eq("marker is aeb-secret-v1:", _secret_marker(), "aeb-secret-v1:")
+    _eq("key_material strips the marker",
+        _secret_key_material("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae"),
+        "99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae")
+    _eq("key_material: no marker → empty (not an aeb secret)",
+        _secret_key_material("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae"), "")
+    _eq("key_material: trims surrounding ws", _secret_key_material("  aeb-secret-v1:abcd  "), "abcd")
+    // a verify with a markerless secret is refused (envelope required)
+    enveloped = string.concat("aeb-secret-v1:", "supersecret-256bit-key-material-xyz")
+    tok = _lease_mint(_secret_key_material(enveloped), "preint/x", future)
+    _eq("verify keys on material under the envelope",
+        _lease_verify(enveloped, tok, now, "preint/x"), "")
+    _assert("verify refuses a markerless secret",
+        1 - _streq(_lease_verify("supersecret-256bit-key-material-xyz", tok, now, "preint/x"), ""))
+    // _secrets_no_marker_line: flags a line lacking the marker
+    _eq("no_marker_line: all enveloped → empty",
+        _secrets_no_marker_line("aeb-secret-v1:keymat-one-long-enough-32chars-yes\n"), "")
+    _eq("no_marker_line: catches a bare line",
+        _secrets_no_marker_line("aeb-secret-v1:good-material-long-enough-32chars\nbare-blob-no-marker\n"), "bare-blob-no-marker")
 
     println("agent scope + wire + token + ping + pool + veto + lease + provision tests done")
 }

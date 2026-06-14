@@ -76,7 +76,7 @@ install: $(INSTALL_TOOLS)
 	    case "$$src" in tools/aeb-agent.ae|tools/aeb-lease.ae) echo "  skip    $$src (opt-in: build the agent/lease tools as a separate step)"; continue;; esac; \
 	    bin="$${src%.ae}"; \
 	    extra=""; \
-	    case "$$src" in tools/aeb-main.ae|tools/aeb-cli.ae|tools/aeb-driver.ae|tools/aeb-remote.ae|tools/aeb-vet.ae|tools/aeb-sandbox.ae|tools/aeb-sbom.ae|tools/aeb-trace.ae) extra="--lib lib";; esac; \
+	    case "$$src" in tools/aeb-main.ae|tools/aeb-cli.ae|tools/aeb-driver.ae|tools/aeb-remote.ae|tools/aeb-vet.ae|tools/aeb-sandbox.ae|tools/aeb-sbom.ae|tools/aeb-trace.ae|tools/aeb-keygen.ae) extra="--lib lib";; esac; \
 	    echo "  rebuild $$bin"; \
 	    $(AETHER) build "$$src" -o "$$bin" $(AEFLAGS) $$extra >/dev/null || { echo "install: failed to build $$src" >&2; exit 1; }; \
 	done

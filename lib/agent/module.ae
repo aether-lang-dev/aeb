@@ -480,6 +480,25 @@ _looks_like_token(s: string) {
     return 0
 }
 
+// _secret_marker() — the required prefix on every aeb signing-secret file/line.
+// A secret is stored as "aeb-secret-v1:<hex>". The marker makes secrets
+// GREPPABLE for a security sweep (`grep -rl 'aeb-secret-v1:' /`) and lets aeb
+// REFUSE a bare blob that isn't a recognized aeb secret. It is METADATA ONLY —
+// the HMAC keys on the <hex> after it, so the marker adds nothing to (and takes
+// nothing from) the cryptography; it's an operational/discoverability envelope.
+_secret_marker() { return "aeb-secret-v1:" }
+
+// _secret_key_material(line) — the HMAC key bytes from a secret envelope:
+// the part AFTER the "aeb-secret-v1:" marker. Returns "" if the line lacks the
+// marker (→ not a usable aeb secret; callers refuse). Trimmed. Pure.
+_secret_key_material(line: string) {
+    m = _secret_marker()
+    t = string.trim(line)
+    if string.length(t) < string.length(m) { return "" }
+    if string.equals(string.substring(t, 0, string.length(m)), m) == 0 { return "" }
+    return string.trim(string.substring(t, string.length(m), string.length(t)))
+}
+
 // _secret_strength_ok(s) — does a signing secret look high-entropy enough to
 // HMAC with? BEST-EFFORT, deliberately swappable for something better later.
 // Today: a LENGTH FLOOR (>= 32 chars). Rationale (measured): `openssl rand -hex
@@ -496,9 +515,31 @@ _secret_strength_ok(s: string) {
     return 1
 }
 
-// _secrets_weak_line(text) — the first non-blank, non-"#" secret line that
-// FAILS the entropy floor (_secret_strength_ok), or "" if all are strong. The
-// agent refuses to start with a weak secret line. Pure; mirrors the line walk.
+// _secrets_no_marker_line(text) — the first non-blank, non-"#" line that lacks
+// the "aeb-secret-v1:" envelope marker, or "" if all lines are enveloped. The
+// agent refuses to start if any secret isn't a recognized aeb secret. Pure.
+_secrets_no_marker_line(text: string) {
+    rest = text
+    line = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 { line = rest; rest = "" }
+        else { line = string.substring(rest, 0, nl); rest = string.substring(rest, nl + 1, string.length(rest)) }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            first = string.substring(line, 0, 1)
+            if string.equals(first, "#") == 0 {
+                if string.length(_secret_key_material(line)) == 0 { return line }
+            }
+        }
+    }
+    return ""
+}
+
+// _secrets_weak_line(text) — the first non-blank, non-"#" secret line whose KEY
+// MATERIAL (after the marker) FAILS the entropy floor, or "" if all are strong.
+// Pure; mirrors the line walk. Run after _secrets_no_marker_line (so material is
+// present).
 _secrets_weak_line(text: string) {
     rest = text
     line = ""
@@ -510,7 +551,7 @@ _secrets_weak_line(text: string) {
         if string.length(line) > 0 {
             first = string.substring(line, 0, 1)
             if string.equals(first, "#") == 0 {
-                if _secret_strength_ok(line) == 0 { return line }
+                if _secret_strength_ok(_secret_key_material(line)) == 0 { return line }
             }
         }
     }
@@ -632,6 +673,12 @@ _lease_mint(secret: string, purpose: string, expiry: string) {
 _lease_verify(secret: string, token: string, now_ms: long, req_purpose: string) {
     if string.length(secret) == 0 { return "lease: no signing secret (fail-closed)" }
     if string.length(token) == 0 { return "lease: empty token" }
+    // Unwrap the secret envelope: HMAC keys on the material AFTER the
+    // "aeb-secret-v1:" marker. A secret without the marker is not a recognized
+    // aeb secret — refuse (a bare blob copied into place won't work in situ).
+    keymat = _secret_key_material(secret)
+    if string.length(keymat) == 0 { return "lease: secret lacks the aeb-secret-v1: marker (not an aeb secret)" }
+    secret = keymat
     tag = _lease_field(token, 0)
     if string.equals(tag, _lease_tag()) == 0 { return "lease: not an ae1 token" }
     purpose = _lease_field(token, 1)
