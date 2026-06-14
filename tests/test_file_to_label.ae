@@ -35,7 +35,9 @@ main() {
 
     // --- infer_type: the WHOLE .<name>.ae segment IS the type, verbatim ---
     _assert_eq("type: .build.ae",          infer_type("ae/svnserver/.build.ae"),          "build")
-    _assert_eq("type: .tests.ae (alias)",  infer_type("ae/svnserver/.tests.ae"),          "test")
+    _assert_eq("type: .tests.ae (literal, no alias)",  infer_type("ae/svnserver/.tests.ae"), "tests")
+    _assert_eq("type: .test.ae (singular, equally literal)", infer_type("ae/x/.test.ae"),   "test")
+    _assert_eq("type: .tes.ae (typo, still literal)",  infer_type("ae/x/.tes.ae"),           "tes")
     _assert_eq("type: .dist.ae",           infer_type("ae/svnserver/.dist.ae"),           "dist")
     _assert_eq("type: .install.ae",        infer_type("tools/remote-agent/.install.ae"),  "install")
     _assert_eq("type: .bidi-codegen.ae (dashes kept)", infer_type("py/.bidi-codegen.ae"), "bidi-codegen")
@@ -46,7 +48,7 @@ main() {
 
     // --- file_to_label: <type>:<dir> for non-build, bare <dir> for build ---
     _assert_eq("label: .build.ae (unprefixed)", file_to_label("ae/svnserver/.build.ae"), "ae/svnserver")
-    _assert_eq("label: .tests.ae", file_to_label("ae/svnserver/.tests.ae"), "test:ae/svnserver")
+    _assert_eq("label: .tests.ae (literal type prefix)", file_to_label("ae/svnserver/.tests.ae"), "tests:ae/svnserver")
     _assert_eq("label: .dist.ae",  file_to_label("ae/svnserver/.dist.ae"),  "dist:ae/svnserver")
     _assert_eq("label: .install.ae", file_to_label("tools/remote-agent/.install.ae"), "install:tools/remote-agent")
     _assert_eq("label: .bidi-codegen.ae", file_to_label("py/.bidi-codegen.ae"), "bidi-codegen:py")

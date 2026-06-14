@@ -43,16 +43,14 @@ session(root_path: string) {
 
 // _label_buildtype(label) — the `target/<buildtype>/` segment for a label.
 // The label is "[<type>:]<dir>". A leading "<type>:" prefix names the type
-// LITERALLY (install→install, bidi-codegen→bidi-codegen, …); no prefix = the
-// default "build". The one alias: type "test" → dir "tests" (singular word,
-// plural dir, for back-compat). Mirrors infer_type/file_to_label/_dep_target_dir
-// so writer + reader agree (the addressing contract, docs/filename-is-the-route).
+// LITERALLY (install→install, tests→tests, bidi-codegen→bidi-codegen, …); no
+// prefix = the default "build". NO spelling normalization — the type IS the
+// segment. Mirrors infer_type/file_to_label/_dep_target_dir so writer + reader
+// agree (the addressing contract, docs/filename-is-the-route).
 _label_buildtype(label: string) {
     colon = string.index_of(label, ":")
     if colon < 0 { return "build" }
-    ty = string.substring(label, 0, colon)
-    if string.equals(ty, "test") == 1 { return "tests" }
-    return ty
+    return string.substring(label, 0, colon)
 }
 
 // _label_dir(label) — the <dir> for a label, stripping any leading "<type>:".
@@ -1160,8 +1158,8 @@ _dep_target_dir(root: string, dep_module: string) {
     dir = dep_module
     // A dep names a build-file path ".../.<type>.ae" or a bare dir. If it's a
     // build file, the WHOLE ".<type>.ae" segment IS the type (verbatim, no
-    // '-'-split). Mirrors infer_type + _label_buildtype: test→dir "tests",
-    // everything else→dir = the type literally; bare dir → build.
+    // '-'-split, no spelling normalization). Mirrors infer_type + _label_buildtype:
+    // dir = the type literally; bare dir → build.
     slash = _last_slash(dep_module)
     base = dep_module
     if slash >= 0 { base = string.substring(dep_module, slash + 1, string.length(dep_module)) }
@@ -1169,9 +1167,7 @@ _dep_target_dir(root: string, dep_module: string) {
         if string.ends_with(base, ".ae") == 1 {
             stem = string.substring(base, 1, string.length(base) - 3)  // ".<type>.ae" → "<type>"
             if string.length(stem) > 0 {
-                buildtype = stem
-                if string.equals(stem, "test") == 1 { buildtype = "tests" }
-                if string.equals(stem, "tests") == 1 { buildtype = "tests" }
+                buildtype = stem   // literal — no spelling normalization
             }
             if slash >= 0 { dir = string.substring(dep_module, 0, slash) } else { dir = "." }
         }
@@ -2525,7 +2521,10 @@ render_tests_json(records: ptr) {
     while i < n {
         rec, _ = list.get(records, i)
         type_word, _ = map.get(rec, "type")
-        if string.equals(type_word, "test") == 1 {
+        // Include a node in the tests JSON iff it HAS test results (markers were
+        // read), not because its type is spelled "test". Any *_test-verb node
+        // qualifies whatever its filename.
+        if map.has(rec, "test_passed") == 1 {
             label, _ = map.get(rec, "label")
             wm_s, _ = map.get(rec, "wall_ms")
             cache, _ = map.get(rec, "cache")

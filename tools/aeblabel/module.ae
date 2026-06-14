@@ -37,10 +37,10 @@ import std.string
 // naturally distinct — no tag mechanism needed.
 // A bare dir / non-".<name>.ae" file → "build" (depend on its build output).
 //
-// LEGACY ALIAS — the one historical segment≠word case, kept for back-compat:
-//   .tests.ae → "test"  (plural filename, singular long-standing word).
+// NO bias toward any spelling: .tes.ae→tes, .test.ae→test, .tests.ae→tests are
+// all equally literal. Whether a testing thing is named singular or plural is
+// the QA team's call when they name the file, not aeb's to normalize.
 infer_type(file: string) {
-    if string.ends_with(file, ".tests.ae") == 1 { return "test" }
     base = file
     sl = dirname_pure(file)
     if string.equals(sl, ".") == 0 {

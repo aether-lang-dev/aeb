@@ -240,13 +240,14 @@ main() {
         _rt = map.put(rec, "type", string.copy(type_word))
         td = build._label_to_target_dir(root, label)
         _rcc = map.put(rec, "cache", build._read_cache_outcome(td))
-        if type == "test" {
-            tp, tf, thr = build._read_test_result(td)
-            if thr == 1 {
-                _rp = map.put(rec, "test_passed", string.from_int(tp))
-                _rf = map.put(rec, "test_failed", string.from_int(tf))
-                if tf > 0 { node_failed = 1 }
-            }
+        // Test results are gated on the MARKER EXISTING, not on the type name —
+        // any node whose build wrote pass/fail markers (via *_test SDK verbs)
+        // gets the row, whatever its filename. No "type == test" inference.
+        tp, tf, thr = build._read_test_result(td)
+        if thr == 1 {
+            _rp = map.put(rec, "test_passed", string.from_int(tp))
+            _rf = map.put(rec, "test_failed", string.from_int(tf))
+            if tf > 0 { node_failed = 1 }
             tfn = build._read_test_failures(td)
             if string.length(tfn) > 0 { _rn = map.put(rec, "test_failed_names", tfn) }
         }

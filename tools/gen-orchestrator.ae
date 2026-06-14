@@ -162,25 +162,20 @@ main() {
         println("    map.put(_rec, \"wall_ms\", string.from_int((_end - _start) / 1000000))")
         println("    _td = build._label_to_target_dir(_root, \"${label}\")")
         println("    map.put(_rec, \"cache\", build._read_cache_outcome(_td))")
-        if type == "test" {
-            // Read test-result marker for test rows. SDKs that
-            // don't yet record results leave the marker absent;
-            // _read_test_result returns has_results=0 and the
-            // renderer falls back to the no-trailer line shape.
-            println("    _tp, _tf, _thr = build._read_test_result(_td)")
-            println("    if _thr == 1 {")
-            println("        map.put(_rec, \"test_passed\", string.from_int(_tp))")
-            println("        map.put(_rec, \"test_failed\", string.from_int(_tf))")
-            println("    }")
-            // Read failed-test names marker — present when an SDK
-            // (currently aether.driver_test via Aeocha report) wrote
-            // per-test detail. Absent for SDKs without per-test
-            // granularity; renderer skips the indented detail block.
-            println("    _tfn = build._read_test_failures(_td)")
-            println("    if string.length(_tfn) > 0 {")
-            println("        map.put(_rec, \"test_failed_names\", _tfn)")
-            println("    }")
-        }
+        // Read the test-result marker for EVERY node — gated at runtime on the
+        // marker existing (_thr), NOT on the type name. A node whose build wrote
+        // pass/fail markers (via a *_test SDK verb) gets the row whatever its
+        // filename; one that didn't leaves _thr=0 and renders the plain line.
+        // No "type == test" inference.
+        println("    _tp, _tf, _thr = build._read_test_result(_td)")
+        println("    if _thr == 1 {")
+        println("        map.put(_rec, \"test_passed\", string.from_int(_tp))")
+        println("        map.put(_rec, \"test_failed\", string.from_int(_tf))")
+        println("    }")
+        println("    _tfn = build._read_test_failures(_td)")
+        println("    if string.length(_tfn) > 0 {")
+        println("        map.put(_rec, \"test_failed_names\", _tfn)")
+        println("    }")
         println("    list.add(_records, _rec)")
         println("    }")
         i = i + 1
