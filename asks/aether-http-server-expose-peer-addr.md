@@ -1,7 +1,18 @@
 # Aether `std/http` server: expose the TCP peer address to handlers (`http_request_remote_addr`)
 
-**Upstream issue:** *(not yet filed — local ask; raise on
-`github.com/aether-lang-org/aether` Issues when ready)*
+> **STATUS: RESOLVED upstream in Aether v0.256.0** (CHANGELOG `## [0.256.0]`).
+> Shipped `http.request_remote_addr(req) -> string` (trusted `getpeername`
+> peer IP, distinct from spoofable X-Forwarded-For) — exactly this ask — PLUS a
+> sibling batch: `request_remote_port`, `request_local_addr`, `request_local_port`,
+> `request_scheme`, `request_is_tls`, `request_http_version` (the changelog cites
+> "the aeb-agent ask's follow-up triage"). All populated in the dispatcher hot
+> path, one extra `getsockname` per request, IPv4+IPv6 via `sockaddr_storage`.
+> **Consumed:** aeb-agent now has `--allow-from <ip>[,...]` — an exact-IP source
+> allow-list checked before auth, fail-closed, using `http_request_remote_addr`
+> (the trusted peer addr). See `docs/aeb-agent-operating.md` § security posture.
+
+**Upstream issue:** resolved in v0.256.0 (never needed a separate filing — the
+Aether maintainers picked it up from triage).
 
 **Filed by:** the `aeb-agent` work (this repo). aeb-agent is an auth-gated HTTP
 build server; we wanted an **in-agent source-IP allow-list** (`--allow-from

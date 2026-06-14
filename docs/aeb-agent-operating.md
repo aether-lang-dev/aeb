@@ -233,6 +233,7 @@ Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 
 ```
 --host H              bind address (default 127.0.0.1; 0.0.0.0 to be reachable off-box)
+--allow-from IPS      comma-list of exact source IPs allowed to dispatch (before auth, fail-closed; unset = no restriction)
 --port N              listen port (default 9440)
 --accept GLOB         purpose scope to accept (default 'preint/*')
 --workdir DIR         directory the agent runs builds in (default '.')
@@ -267,6 +268,16 @@ Verdict (response): `{ "guid", "status": done|rejected|busy|vetoed|prep-failed,
 - **Arbitrary execution is opt-in:** `--allow-vm-command` (run any command on the
   VM) and `--allow-image` (pull any matching image) are both off by default. A
   leased agent can't be coerced into either.
+- **Source-IP allow-list (`--allow-from`):** a comma-list of exact IPs, checked
+  **before** auth against the **trusted** TCP peer address
+  (`getpeername`, Aether ≥0.256 — *not* the spoofable `X-Forwarded-For` header,
+  so it's a real control). An off-list peer gets 403 on `/dispatch` *and* `/ping`
+  (it can't even fingerprint the agent). Fail-closed: a configured list with an
+  unreadable peer addr refuses. Defense-in-depth **under** auth, not a
+  replacement — bind narrowly (`--host` loopback/one NIC) and/or use a host
+  firewall too; for SSH-tunnelled access the peer is `127.0.0.1`, so `--allow-from
+  127.0.0.1` pins it to the tunnel. (Exact IPs only today; CIDR is a later
+  thickening.)
 - **The build is still unsandboxed** on the run target (the containment layer —
   `spawn_sandboxed` / the container backstop — is design; see
   [`build-veto-and-sandbox.md`](build-veto-and-sandbox.md)). Lease auth bounds

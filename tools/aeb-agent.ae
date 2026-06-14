@@ -43,6 +43,10 @@ extern println(s: string)
 extern exit(code: int)
 extern http_server_start_raw(server: ptr) -> int
 extern http_get_header(req: ptr, name: string) -> string
+// The trusted TCP peer address (getpeername) is http.request_remote_addr (the
+// std.http wrapper, Aether >=0.256) — distinct from the spoofable
+// X-Forwarded-For header. Drives the --allow-from source-IP gate. No local
+// extern: std.http already exports it.
 
 // Config travels to the (state-less, can't-close-over-locals) route
 // handler through the process env, set by main() before the server
@@ -87,6 +91,44 @@ _presented_token(req: ptr) {
         p = _bearer_strip(http_get_header(req, "Authorization"))
     }
     return p
+}
+
+// _ip_allowed(req) — the source-IP gate, checked BEFORE auth (cheapest gate
+// first; an off-list peer never reaches token verification). Uses the TRUSTED
+// TCP peer address (getpeername via http_request_remote_addr, Aether >=0.256),
+// NOT the spoofable X-Forwarded-For header — so it's a real access control, not
+// theater. Defense-in-depth UNDER auth, not a replacement for it.
+//
+//   --allow-from <ip>[,<ip>...]  (AEB_AGENT_ALLOW_FROM): an exact-IP allow-list.
+//   Unset → no IP restriction (bind-address still governs reachability).
+//   Set → the peer's IP must EXACTLY match a listed IP, else reject. Fail-closed:
+//   if the peer address can't be read (""), a configured list REFUSES (can't
+//   verify ⇒ deny). Exact IPs only (no CIDR yet); matches v4 dotted-quad / v6
+//   inet_ntop form as returned by the accessor.
+// Returns 1 (allowed) / 0 (refused).
+_ip_allowed(req: ptr) {
+    allow = os.getenv("AEB_AGENT_ALLOW_FROM")
+    if string.length(allow) == 0 { return 1 }   // no list → no IP restriction
+    peer = http.request_remote_addr(req)
+    if string.length(peer) == 0 { return 0 }     // list set but no addr → fail-closed
+    // exact match against any comma-separated entry (trimmed).
+    rest = allow
+    while string.length(rest) > 0 {
+        comma = string.index_of(rest, ",")
+        item = ""
+        if comma < 0 {
+            item = rest
+            rest = ""
+        } else {
+            item = string.substring(rest, 0, comma)
+            rest = string.substring(rest, comma + 1, string.length(rest))
+        }
+        item = string.trim(item)
+        if string.length(item) > 0 {
+            if string.equals(item, peer) == 1 { return 1 }
+        }
+    }
+    return 0
 }
 
 // _authed_for(req, purpose) — the auth gate (fail-closed), shared by /dispatch
@@ -140,6 +182,14 @@ _authed(req: ptr) {
 // (an unauthenticated prober can't even fingerprint the agent). The
 // dumb unauthenticated liveness check stays at /health.
 handle_ping(req: ptr, res: ptr, ud: ptr) {
+    // Source-IP gate first (same as /dispatch): an off-list prober can't even
+    // fingerprint the agent via /ping. Returns the same opaque 403/401 either way.
+    if _ip_allowed(req) == 0 {
+        http.response_set_status(res, 403)
+        http.response_set_header(res, "Content-Type", "application/json")
+        http.response_set_body(res, "{\"error\":\"forbidden\"}")
+        return 0
+    }
     if _authed(req) == 0 {
         http.response_set_status(res, 401)
         http.response_set_header(res, "Content-Type", "application/json")
@@ -669,6 +719,17 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     purpose = _json_field(body, "purpose")
     if string.length(purpose) == 0 { purpose = "preint" }
 
+    // --- Source-IP gate (--allow-from) — BEFORE auth (cheapest gate first;
+    //     an off-list peer never reaches token verification). Trusted peer
+    //     address, fail-closed. No --allow-from → no restriction. ---
+    if _ip_allowed(req) == 0 {
+        println("agent: REFUSE guid=${guid} (source IP ${http.request_remote_addr(req)} not in --allow-from)")
+        http.response_set_status(res, 403)
+        http.response_set_header(res, "Content-Type", "application/json")
+        http.response_set_body(res, dispatch_reply_json(guid, "rejected", ""))
+        return 0
+    }
+
     // --- Auth gate (fail-closed) — BEFORE the scope decision. ---
     // LEASE mode (--lease-secret): the presented token must be a valid
     //   ae1.<purpose>.<expiry>.<sig> lease whose purpose COVERS this dispatch's
@@ -1019,6 +1080,7 @@ main() {
     vm_host = ""
     vm_dir = ""
     vm_shell = ""
+    allow_from = ""
 
     i = 1
     while i < argc {
@@ -1068,6 +1130,10 @@ main() {
         // <target>). Arbitrary command execution on the VM, so fail-closed:
         // without this flag a dispatch carrying a command is rejected.
         if string.equals(a, "--allow-vm-command") == 1 { allow_vm_command = 1 }
+        // --allow-from <ip>[,<ip>...]: source-IP allow-list (exact IPs), checked
+        // before auth against the trusted TCP peer address. Unset = no IP
+        // restriction. Defense-in-depth under auth; needs Aether >=0.256.
+        if string.equals(a, "--allow-from") == 1 { i = i + 1; allow_from = aether_args_get(i) }
         i = i + 1
     }
     // --repo defaults to --workdir (the agent's clone IS the build dir
@@ -1117,6 +1183,7 @@ main() {
     if string.length(ctr_image) > 0 { _e6 = os.setenv("AEB_AGENT_CTR_IMAGE", ctr_image) }
     if string.length(allow_image) > 0 { _e6b = os.setenv("AEB_AGENT_ALLOW_IMAGE", allow_image) }
     if allow_vm_command == 1 { _e6c = os.setenv("AEB_AGENT_ALLOW_VM_COMMAND", "1") }
+    if string.length(allow_from) > 0 { _e6d = os.setenv("AEB_AGENT_ALLOW_FROM", allow_from) }
     if string.length(vm_host) > 0 { _e7 = os.setenv("AEB_AGENT_VM_HOST", vm_host) }
     if string.length(vm_dir) > 0 { _e8 = os.setenv("AEB_AGENT_VM_DIR", vm_dir) }
     if string.length(vm_shell) > 0 { _e9 = os.setenv("AEB_AGENT_VM_SHELL", vm_shell) }
@@ -1176,6 +1243,8 @@ _usage() {
     println("")
     println("Usage: aeb-agent [options]")
     println("  --host H        bind address (default 127.0.0.1; use 0.0.0.0 to be reachable off-box)")
+    println("  --allow-from IPS  comma-list of exact source IPs allowed to dispatch (checked before auth,")
+    println("                  fail-closed; unset = no IP restriction). Defense-in-depth under auth.")
     println("  --port N        listen port (default 9440)")
     println("  --accept GLOB   purpose scope to accept (default 'preint/*')")
     println("  --workdir DIR   directory the agent runs builds in (default '.')")
