@@ -12,6 +12,7 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _image_match,
               _lease_mint, _lease_verify, _lease_verify_any, _lease_field, _lease_sign,
               _lease_purpose_valid, _looks_like_token, _secrets_have_token,
+              _secret_strength_ok, _secrets_weak_line,
               _csv_contains, _mode_offered, _branch_allowed, _autoclone_allowed)
 import std.string
 import std.list
@@ -369,6 +370,25 @@ main() {
         _secrets_have_token("secret-alpha\nae1.preint/x.1.sig\n") == 1)
     _assert("secrets_have_token: comment-only token ignored (it's a comment)",
         _secrets_have_token("# ae1.example.1.x\nreal-secret\n") == 0)
+
+    // --- secret strength (entropy floor; swappable best-effort = length >= 32) ---
+    _assert("strength: openssl rand -hex 32 (64 chars) ok",
+        _secret_strength_ok("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae") == 1)
+    _assert("strength: rand -base64 24 (32 chars) ok",
+        _secret_strength_ok("7J0B3XoMFljVw52kSQjLwfUmJ86vFuNi") == 1)
+    _assert("strength: lazy 'St4ndrdT1ngTh3yC4nRmbr' (22) too weak",
+        _secret_strength_ok("St4ndrdT1ngTh3yC4nRmbr") == 0)
+    _assert("strength: 'password123' too weak", _secret_strength_ok("password123") == 0)
+    _assert("strength: empty too weak", _secret_strength_ok("") == 0)
+    _assert("strength: exactly 32 chars ok", _secret_strength_ok("01234567890123456789012345678901") == 1)
+    _assert("strength: 31 chars too weak", _secret_strength_ok("0123456789012345678901234567890") == 0)
+    // _secrets_weak_line: names the first weak line, "" if all strong
+    _eq("weak_line: all strong → empty",
+        _secrets_weak_line("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\n7J0B3XoMFljVw52kSQjLwfUmJ86vFuNi\n"), "")
+    _eq("weak_line: catches the weak one",
+        _secrets_weak_line("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\npassword123\n"), "password123")
+    _eq("weak_line: comments skipped",
+        _secrets_weak_line("# short comment\n99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\n"), "")
 
     println("agent scope + wire + token + ping + pool + veto + lease + provision tests done")
 }

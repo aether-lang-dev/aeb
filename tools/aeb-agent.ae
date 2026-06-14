@@ -33,7 +33,8 @@ import std.fs
 import agent (_scope_accepts, dispatch_reply_json, ping_json, ping_json_ex, _json_field,
               _parse_tokens, _bearer_strip, _veto_run_rules,
               _image_match, _lease_verify, _lease_verify_any, _lease_field,
-              _mode_offered, _branch_allowed, _autoclone_allowed, _secrets_have_token)
+              _mode_offered, _branch_allowed, _autoclone_allowed, _secrets_have_token,
+              _secrets_weak_line)
 import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.io
 import std.file
@@ -1467,6 +1468,14 @@ main() {
             println("aeb-agent: --lease-secrets file ${lease_secrets_file} contains a LEASE TOKEN (ae1.…), not a signing secret.")
             println("aeb-agent:   The secret is the opaque key that verifies tokens; a token is its OUTPUT. Refusing to start.")
             println("aeb-agent:   Generate a real secret:  openssl rand -hex 32 > ${lease_secrets_file}")
+            exit(2)
+        }
+        // Entropy floor (hard): refuse any weak (< 32-char) secret line — it's
+        // guessable. The minter runs the SAME test, so every real secret passes.
+        weak = _secrets_weak_line(ls_raw)
+        if string.length(weak) > 0 {
+            println("aeb-agent: --lease-secrets file ${lease_secrets_file} has a WEAK secret (< 32 chars) — guessable. Refusing to start.")
+            println("aeb-agent:   Generate strong secrets:  openssl rand -hex 32")
             exit(2)
         }
         lease_secrets = ls_raw

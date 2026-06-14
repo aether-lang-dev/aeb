@@ -480,6 +480,43 @@ _looks_like_token(s: string) {
     return 0
 }
 
+// _secret_strength_ok(s) — does a signing secret look high-entropy enough to
+// HMAC with? BEST-EFFORT, deliberately swappable for something better later.
+// Today: a LENGTH FLOOR (>= 32 chars). Rationale (measured): `openssl rand -hex
+// 32` is 64 chars and `rand -base64 24` is 32 — both pass; lazy hand-typed
+// secrets ('St4ndrdT1ngTh3yC4nRmbr'=22, 'password123'=11) fall short. (A
+// distinct-char-ratio test is WRONG here: hex secrets have only 16 distinct
+// chars, lower-ratio than a weak mixed-case string — length is the honest
+// signal.) Both the GENERATOR (issue-time) and the verifier run this SAME test,
+// so a false-positive is harmless — the generator just re-rolls — which is what
+// lets the verifier HARD-refuse a weak secret with confidence. Returns 1 ok / 0 weak.
+_secret_strength_ok(s: string) {
+    t = string.trim(s)
+    if string.length(t) < 32 { return 0 }
+    return 1
+}
+
+// _secrets_weak_line(text) — the first non-blank, non-"#" secret line that
+// FAILS the entropy floor (_secret_strength_ok), or "" if all are strong. The
+// agent refuses to start with a weak secret line. Pure; mirrors the line walk.
+_secrets_weak_line(text: string) {
+    rest = text
+    line = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 { line = rest; rest = "" }
+        else { line = string.substring(rest, 0, nl); rest = string.substring(rest, nl + 1, string.length(rest)) }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            first = string.substring(line, 0, 1)
+            if string.equals(first, "#") == 0 {
+                if _secret_strength_ok(line) == 0 { return line }
+            }
+        }
+    }
+    return ""
+}
+
 // _secrets_have_token(text) — 1 if ANY non-blank, non-"#" line of a
 // --lease-secrets file looks like a minted token ("ae1.…") rather than an opaque
 // signing secret. Catches the footgun of pasting a token into the secret file.
