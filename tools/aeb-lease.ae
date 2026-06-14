@@ -18,7 +18,7 @@ import std.os
 import std.string
 import std.io
 
-import agent (_lease_mint)
+import agent (_lease_mint, _lease_purpose_valid)
 
 extern println(s: string)
 extern exit(code: int)
@@ -30,7 +30,8 @@ _usage() {
     println("")
     println("Usage: aeb-lease --secret <file> --purpose <p> [--ttl-mins N]")
     println("  --secret FILE   file holding the shared signing secret (matches the agent's --lease-secret)")
-    println("  --purpose P     the lease purpose, embedded + signed (e.g. preint/phammant/rust)")
+    println("  --purpose P     the lease purpose, embedded + signed. Canonical slash-path:")
+    println("                  lowercase a-z, 0-9, '-', '_', '/'; optional trailing '/*' (e.g. preint/phammant/rust, ci/aether/main, preint/macos/*).")
     println("  --ttl-mins N    minutes until the lease expires (default 30)")
     println("")
     println("Prints the token (ae1.<purpose>.<expiry-ms>.<sig>) to stdout. The agent VERIFIES it; only the secret holder can mint.")
@@ -53,9 +54,14 @@ main() {
     }
     if string.length(secret_file) == 0 { println("aeb-lease: --secret <file> required"); exit(2) }
     if string.length(purpose) == 0 { println("aeb-lease: --purpose <p> required"); exit(2) }
-    // The purpose is signed verbatim; "." would break the field split.
-    if string.index_of(purpose, ".") >= 0 {
-        println("aeb-lease: --purpose must not contain '.' (canonical purposes use '/')"); exit(2)
+    // Enforce the CANONICAL purpose grammar at issuance ("A Purpose in a Token",
+    // 2021: constrained-at-issuance, legible everywhere). Rejects spaces,
+    // uppercase, ".", unicode, empty segments — anything that would make the
+    // purpose ambiguous when read back across systems (or break the "."-split
+    // token structure). Fail-closed: a malformed purpose never gets minted.
+    pv = _lease_purpose_valid(purpose)
+    if string.length(pv) > 0 {
+        println("aeb-lease: invalid --purpose: ${pv}"); exit(2)
     }
     secret_raw, serr = io.read_file(secret_file)
     if string.length(serr) > 0 { println("aeb-lease: cannot read --secret file: ${secret_file} (${serr})"); exit(2) }

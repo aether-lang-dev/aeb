@@ -10,7 +10,8 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _parse_pool, _pool_url_of, _pool_token_of,
               _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
               _image_match,
-              _lease_mint, _lease_verify, _lease_field, _lease_sign)
+              _lease_mint, _lease_verify, _lease_field, _lease_sign,
+              _lease_purpose_valid)
 import std.string
 import std.list
 import std.map
@@ -264,6 +265,28 @@ main() {
     _eq("sign is deterministic",
         _lease_sign(secret, "preint/rust", future),
         _lease_sign(secret, "preint/rust", future))
+
+    // --- _lease_purpose_valid: canonical purpose grammar (mint-time gate) ---
+    // Valid canonical slash-paths return "".
+    _eq("valid: preint/phammant/rust", _lease_purpose_valid("preint/phammant/rust"), "")
+    _eq("valid: ci/aether/main", _lease_purpose_valid("ci/aether/main"), "")
+    _eq("valid: single segment", _lease_purpose_valid("preint"), "")
+    _eq("valid: trailing /* scope", _lease_purpose_valid("preint/phammant/*"), "")
+    _eq("valid: feature-x (hyphen+digit)", _lease_purpose_valid("preint/feature-x9"), "")
+    _eq("valid: under_score", _lease_purpose_valid("ci/v1_builds"), "")
+    // Rejections (non-empty reason).
+    _assert("reject: empty purpose", string.length(_lease_purpose_valid("")) > 0)
+    _assert("reject: bare '*' too broad", string.length(_lease_purpose_valid("*")) > 0)
+    _assert("reject: a space", string.length(_lease_purpose_valid("preint/my build")) > 0)
+    _assert("reject: uppercase", string.length(_lease_purpose_valid("preint/Rust")) > 0)
+    _assert("reject: a dot", string.length(_lease_purpose_valid("ci/aether/main.0")) > 0)
+    _assert("reject: empty middle segment", string.length(_lease_purpose_valid("preint//rust")) > 0)
+    _assert("reject: trailing slash", string.length(_lease_purpose_valid("preint/rust/")) > 0)
+    _assert("reject: leading slash", string.length(_lease_purpose_valid("/preint")) > 0)
+    _assert("reject: unicode é", string.length(_lease_purpose_valid("preint/café")) > 0)
+    _assert("reject: '*' mid-path (only trailing /* allowed)", string.length(_lease_purpose_valid("preint/*/rust")) > 0)
+    // The rejection names the offending character where applicable.
+    _assert("reject reason names the space", string.index_of(_lease_purpose_valid("a b"), "' '") >= 0)
 
     println("agent scope + wire + token + ping + pool + veto + lease tests done")
 }

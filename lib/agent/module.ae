@@ -405,6 +405,53 @@ _lease_field(token: string, idx: int) {
     return string.substring(rest, 0, dot)
 }
 
+// _lease_purpose_valid(purpose) — enforce the CANONICAL purpose grammar at
+// MINT time ("constrained at issuance", per "A Purpose in a Token", 2021). A
+// purpose lives legibly in the middle of the token AND is inside the signed
+// bytes — so it must be unambiguous across every system that reads it back. The
+// grammar is the slash-path the codebase already uses (preint/phammant/rust,
+// ci/aether/main): one or more "/"-separated segments, each [a-z0-9_-]+, with
+// an optional trailing "/*" minting scope (covers preint/phammant/anything).
+//   NO uppercase, NO spaces, NO ".", NO unicode/control chars, no empty segments.
+// Returns "" if valid, else a human-readable reason naming the problem. Pure;
+// the agent never mints, so this gates the LESSOR (aeb-lease). The flip side of
+// "agents resolve the unbounded stuff": the token vocabulary must be canonical.
+_lease_purpose_valid(purpose: string) {
+    n = string.length(purpose)
+    if n == 0 { return "empty purpose" }
+    // Strip an optional trailing "/*" scope, then validate the body as a path.
+    body = purpose
+    if n >= 2 {
+        if string.equals(string.substring(purpose, n - 2, n), "/*") == 1 {
+            body = string.substring(purpose, 0, n - 2)
+            if string.length(body) == 0 { return "purpose '*' alone is not a scope (use 'preint/*')" }
+        }
+    }
+    // A bare "*" (match-anything) is intentionally NOT mintable — too broad for
+    // a lease; the operator's --accept can be "*", but a TOKEN must name a scope.
+    if string.equals(purpose, "*") == 1 { return "purpose '*' is too broad to mint; name a scope (e.g. preint/*)" }
+    // Walk the body: segments split on "/", each [a-z0-9_-]+ and non-empty.
+    seg_len = 0
+    i = 0
+    bn = string.length(body)
+    allowed = "abcdefghijklmnopqrstuvwxyz0123456789-_"
+    while i < bn {
+        c = string.substring(body, i, i + 1)
+        if string.equals(c, "/") == 1 {
+            if seg_len == 0 { return "purpose has an empty path segment (got '${purpose}')" }
+            seg_len = 0
+        } else {
+            if string.index_of(allowed, c) < 0 {
+                return "purpose char '${c}' not allowed (canonical: lowercase a-z, 0-9, '-', '_', '/', optional trailing '/*'; got '${purpose}')"
+            }
+            seg_len = seg_len + 1
+        }
+        i = i + 1
+    }
+    if seg_len == 0 { return "purpose ends with an empty segment (trailing '/'? got '${purpose}')" }
+    return ""
+}
+
 // _lease_signed_prefix(purpose, expiry) — the exact bytes the HMAC covers.
 _lease_signed_prefix(purpose: string, expiry: string) {
     return string.concat(_lease_tag(), string.concat(".", string.concat(purpose, string.concat(".", expiry))))

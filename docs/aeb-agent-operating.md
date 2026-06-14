@@ -72,6 +72,13 @@ aeb-lease --secret /etc/aeb/lease.secret --purpose 'preint/*' --ttl-mins 30
 - **Purpose binding** uses the scope glob: a `preint/*` lease covers
   `preint/rust`, but a `preint/rust` lease does **not** cover `ci/main`. A leaked
   lease can't be replayed outside its purpose.
+- **Canonical purpose grammar (enforced at mint):** a `--purpose` must be a
+  lowercase slash-path — segments of `[a-z0-9_-]+` separated by `/`, with an
+  optional trailing `/*` scope (`preint/phammant/rust`, `ci/aether/main`,
+  `preint/macos/*`). `aeb-lease` rejects spaces, uppercase, `.`, unicode, empty
+  segments, and a bare `*` — fail-closed, naming the offending character. The
+  purpose is *inside the signed bytes*, so it must read back unambiguously across
+  every system ("a purpose in a token", constrained at issuance).
 - **Revocation** today = rotate the secret (kills every outstanding lease).
 - Refusal reasons (expired / bad-signature / wrong-purpose) are logged but **not**
   returned on the wire — a caller learns only `rejected`.
