@@ -203,8 +203,16 @@ main() {
             cmd = string.concat(cmd, "' > '")
             cmd = string.concat(cmd, log)
             cmd = string.concat(cmd, "' 2>&1")
+            // Time the node + write a per-node duration marker (ms), so the
+            // record-build pass below can report per-node wall (the orchestrator
+            // times in-process; the driver reconstructs from markers — this is
+            // the timing equivalent of the .rc marker). See msmark read below.
+            _n_start = clock_ns()
             rc1 = build._sh(cmd)
+            _n_end = clock_ns()
             _we = io.write_file(rcmark, string.from_int(rc1))
+            msmark = path.join(rc_dir, string.concat(_san(node), ".ms"))
+            _wm = io.write_file(msmark, string.from_int((_n_end - _n_start) / 1000000))
         }
     }
 
@@ -238,6 +246,14 @@ main() {
         rec = map.new()
         _rl = map.put(rec, "label", string.copy(label))
         _rt = map.put(rec, "type", string.copy(type_word))
+        // Per-node wall from the .ms marker the node-run wrote (driver
+        // reconstructs from markers; absent → 0, e.g. the make path which
+        // doesn't yet write one — a follow-up). Without this the row shows 0.00s.
+        msmark = path.join(rc_dir, string.concat(_san(node), ".ms"))
+        if file.exists(msmark) == 1 {
+            mstxt, _mse = io.read_file(msmark)
+            _rw = map.put(rec, "wall_ms", string.trim(mstxt))
+        }
         td = build._label_to_target_dir(root, label)
         _rcc = map.put(rec, "cache", build._read_cache_outcome(td))
         // Test results are gated on the MARKER EXISTING, not on the type name —
