@@ -24,6 +24,17 @@
 //                      strip_components, format (when not inferable
 //                      from URL).
 //
+//   fetch.git(b)     — the go-get-alike: `git clone --branch <ref>` a repo
+//                      into a pinned working tree, verify HEAD == commit(...)
+//                      (the reproducibility pin; FAILS LOUD on drift, the git
+//                      analogue of sha256), and publish the tree dir so a
+//                      consumer can build a `.name.ae` UNDER it. Required:
+//                      repo, into. Optional: ref (branch/tag), commit (pin —
+//                      strongly recommended), depth (shallow). Shells out to
+//                      `git` (same as the agent's autoclone); no libgit dep.
+//                      Proven: pull ../zsync pinned → build cmd/zsync/.build.ae
+//                      under the fetched tree → runnable zsync binary.
+//
 // Caching: sha256-verified fetches are content-addressed by
 // definition. The MVP uses local mtime-skip plus a re-verify on
 // every run; the natural extension is to key `lib/cache` by sha256
@@ -88,6 +99,51 @@ format(_ctx: ptr, fmt: string) {
     _e = map.put(_ctx, "fetch_format", fmt)
 }
 
+// --- fetch.git setters (the go-get-alike: pull a repo, pinned) ---
+
+// repo("https://github.com/u/r.git" | "git@github.com:u/r.git") — the
+// git remote to clone. Required for fetch.git. Any URL `git clone`
+// accepts (https, ssh, file://, a local path). Last call wins.
+repo(_ctx: ptr, u: string) {
+    _e = map.put(_ctx, "fetch_repo", u)
+}
+
+// ref("main" | "v1.2.3" | "trunk") — the branch or tag to clone
+// (`git clone --branch <ref>`). Optional; defaults to the remote's
+// default branch. A branch ref is a MOVING target — pin it with
+// commit(...) for reproducibility (fetch.git verifies HEAD == that sha
+// after checkout, and FAILS loud on drift).
+ref(_ctx: ptr, r: string) {
+    _e = map.put(_ctx, "fetch_ref", r)
+}
+
+// commit("a1b2c3...") — the exact commit sha the clone MUST resolve to
+// (full or unambiguous-prefix hex). This is the reproducibility pin: a
+// `git clone --branch main` of a moving branch is verified against this
+// after checkout, mirroring sha256(...) for archives. Strongly
+// recommended; omit only for a deliberately-floating "track HEAD" fetch.
+commit(_ctx: ptr, sha: string) {
+    _e = map.put(_ctx, "fetch_commit", sha)
+}
+
+// into("vendor/zsync") — destination working-tree dir for fetch.git.
+// Relative to source_dir; absolute passes through. The repo is cloned
+// here (created if missing). Downstream targets address `.name.ae`
+// files UNDER this dir. Required for fetch.git.
+into(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "fetch_into", dir)
+}
+
+// depth(1) — shallow-clone depth (`git clone --depth N`). Optional;
+// 0/unset = full history. depth(1) is the common case (you want the
+// tree at one ref, not its history) — but a depth-1 clone of a branch
+// can't always be verified against an arbitrary older commit() sha, so
+// fetch.git only enforces the pin when the sha is reachable. Mirrors the
+// agent's `git clone --depth 1` provisioning.
+depth(_ctx: ptr, n: int) {
+    _e = map.put(_ctx, "fetch_depth", string.from_int(n))
+}
+
 // --- Pure command builders ---
 
 // fetch_curl_cmd — `curl -fsSL <url> -o <dest>`. `-f` so HTTP 404
@@ -128,6 +184,49 @@ tar_extract_cmd(archive_path: string, dest_dir: string, flags: string, strip: in
 // `-o` overwrite without prompting. Pure.
 zip_extract_cmd(archive_path: string, dest_dir: string) {
     return "unzip -q -o '${archive_path}' -d '${dest_dir}'"
+}
+
+// git_clone_cmd — `git clone [--depth N] [--branch <ref>] <repo> <dir>`.
+// Mirrors the agent's autoclone provisioning (tools/aeb-agent.ae ~428),
+// but parameterised by ref + depth. Pure. `--branch` accepts a tag OR a
+// branch name; omitted when ref is "". `--depth` omitted when depth<=0.
+git_clone_cmd(repo_url: string, ref_str: string, into_dir: string, depth: int) {
+    cmd = "git clone"
+    if depth > 0 {
+        cmd = string.concat(cmd, " --depth ${depth}")
+    }
+    if string.length(ref_str) > 0 {
+        cmd = string.concat(cmd, " --branch '${ref_str}'")
+    }
+    return string.concat(cmd, " '${repo_url}' '${into_dir}'")
+}
+
+// git_head_sha_cmd — print the resolved HEAD commit of a cloned tree.
+// Used to verify the pin (commit(...)) after checkout. Pure.
+git_head_sha_cmd(into_dir: string) {
+    return "git -C '${into_dir}' rev-parse HEAD"
+}
+
+// git_checkout_cmd — pin a clone to an exact commit (`git checkout <sha>`).
+// Run when commit(...) is set AND the cloned HEAD doesn't already match —
+// covers the case where ref() named a branch but the user pinned a sha on
+// it. Needs the sha to be reachable in the clone (full clone, or the sha
+// is the branch tip of a shallow one). Pure.
+git_checkout_cmd(into_dir: string, sha: string) {
+    return "git -C '${into_dir}' checkout --quiet '${sha}'"
+}
+
+// _sha_matches(have, want) —1 if `have` (full HEAD sha) satisfies the
+// `want` pin: equal, or `want` is a prefix of `have` (allows pinning by
+// an unambiguous short sha). "" want ⇒ no pin ⇒ always matches.
+_sha_matches(have: string, want: string) {
+    if string.length(want) == 0 { return 1 }
+    if string.equals(have, want) == 1 { return 1 }
+    wl = string.length(want)
+    if string.length(have) >= wl {
+        if string.equals(string.substring(have, 0, wl), want) == 1 { return 1 }
+    }
+    return 0
 }
 
 // _infer_archive_flags(url) — return the tar flags string ("xzf",
@@ -409,5 +508,127 @@ builder archive(ctx: ptr) {
         return rc_ex
     }
     build._write_artifact(ctx, "fetched_archive_dir", ex_abs)
+    return 0
+}
+
+// fetch.git(b) — the go-get-alike: `git clone --branch <ref>` a repo into a
+// pinned working tree, verify HEAD == commit(...) (the reproducibility pin),
+// and publish the tree dir so downstream targets can build a `.name.ae` UNDER
+// it. Shells out to `git` (same as the agent's autoclone provisioning); no
+// libgit dependency.
+//
+// Setter contract: repo (required), into (required), ref (optional branch/tag),
+// commit (optional but STRONGLY recommended pin), depth (optional shallow).
+//
+// Lifecycle:
+//   1. Verify repo + into present.
+//   2. If `into` already a git tree whose HEAD satisfies commit() → up-to-date,
+//      skip (idempotent re-run, like archive's existing-dir skip).
+//   3. Otherwise clone (fresh; a stale/partial tree is removed first), checkout
+//      the commit pin if HEAD doesn't already match it, then verify HEAD ==
+//      commit() and FAIL LOUD on drift (the git analogue of sha256 mismatch).
+//   4. Record `fetched_git_dir` → the resolved tree path for downstream deps.
+//
+// To then BUILD a target inside the fetched tree, a consumer points an
+// ordinary target at `<into>/path/.name.ae` (or, once build.pkg_dep lands,
+// declares the fetch + the target in one verb — see
+// asks/ae-add-implicating-an-aeb-target.md).
+builder git(ctx: ptr) {
+    mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    build._mkdirs(target_dir)
+
+    if _builder == null {
+        println("${mod_dir}: fetch.git: empty builder block — declare repo(...), into(...), [ref(...), commit(...)]")
+        return 1
+    }
+    if map.has(_builder, "fetch_repo") == 0 {
+        println("${mod_dir}: fetch.git: missing repo(...)")
+        return 1
+    }
+    if map.has(_builder, "fetch_into") == 0 {
+        println("${mod_dir}: fetch.git: missing into(...)")
+        return 1
+    }
+
+    repo_url, _ = map.get(_builder, "fetch_repo")
+    into_rel, _ = map.get(_builder, "fetch_into")
+    into_abs = _resolve_path(source_dir, into_rel)
+
+    ref_str = ""
+    if map.has(_builder, "fetch_ref") == 1 {
+        ref_str, _ = map.get(_builder, "fetch_ref")
+    }
+    commit_str = ""
+    if map.has(_builder, "fetch_commit") == 1 {
+        commit_str, _ = map.get(_builder, "fetch_commit")
+    }
+    depth = 0
+    if map.has(_builder, "fetch_depth") == 1 {
+        depth_s, _ = map.get(_builder, "fetch_depth")
+        depth, _ = string.to_int(depth_s)
+    }
+
+    if string.length(commit_str) == 0 {
+        println("${mod_dir}: fetch.git: WARNING ${repo_url} has no commit(...) pin — fetch is NON-reproducible (tracks ${ref_str} HEAD)")
+    }
+
+    // Up-to-date check: an existing clone whose HEAD satisfies the pin.
+    git_dir = path.join(into_abs, ".git")
+    if file.exists(git_dir) == 1 {
+        head_raw, head_err = build._sh_capture(git_head_sha_cmd(into_abs))
+        head = string.trim(head_raw)
+        if string.length(head_err) == 0 {
+            if _sha_matches(head, commit_str) == 1 {
+                println("${mod_dir}: fetch.git up-to-date ${into_rel} @ ${head}")
+                build._write_artifact(ctx, "fetched_git_dir", into_abs)
+                return 0
+            }
+            println("${mod_dir}: fetch.git: ${into_rel} HEAD ${head} != pin ${commit_str} — re-cloning")
+        }
+        // Stale or unreadable tree: remove so the clone below is fresh.
+        build._sh("rm -rf '${into_abs}'")
+    } else {
+        if file.exists(into_abs) == 1 {
+            // `into` exists but isn't a git tree — refuse to clobber blindly.
+            println("${mod_dir}: fetch.git: ${into_rel} exists and is not a git working tree — remove it or pick another into(...)")
+            return 1
+        }
+    }
+
+    build._mkdirs(path.dirname(into_abs))
+    println("${mod_dir}: cloning ${repo_url} (ref=${ref_str}) → ${into_rel}")
+    rc_cl = build._sh(git_clone_cmd(repo_url, ref_str, into_abs, depth))
+    if rc_cl != 0 {
+        println("${mod_dir}: fetch.git: git clone failed for ${repo_url}")
+        build.fail(ctx, "fetch.git: git clone failed for ${repo_url}")
+        return rc_cl
+    }
+
+    // Pin enforcement: checkout the exact commit if HEAD doesn't match it.
+    if string.length(commit_str) > 0 {
+        head_raw2, _he2 = build._sh_capture(git_head_sha_cmd(into_abs))
+        head2 = string.trim(head_raw2)
+        if _sha_matches(head2, commit_str) == 0 {
+            rc_co = build._sh(git_checkout_cmd(into_abs, commit_str))
+            if rc_co != 0 {
+                println("${mod_dir}: fetch.git: commit ${commit_str} not reachable in clone (shallow? bump depth() or drop the pin)")
+                build.fail(ctx, "fetch.git: commit ${commit_str} not reachable in clone of ${repo_url}")
+                return 1
+            }
+        }
+        // Re-read and verify — the git analogue of sha256 verification.
+        head_raw3, _he3 = build._sh_capture(git_head_sha_cmd(into_abs))
+        head3 = string.trim(head_raw3)
+        if _sha_matches(head3, commit_str) == 0 {
+            println("${mod_dir}: fetch.git: PIN MISMATCH — clone resolved to ${head3}, expected ${commit_str}")
+            build.fail(ctx, "fetch.git: PIN MISMATCH for ${repo_url} — got ${head3}, expected ${commit_str}")
+            return 1
+        }
+        println("${mod_dir}: fetch.git ${into_rel} pinned @ ${head3}")
+    }
+
+    build._write_artifact(ctx, "fetched_git_dir", into_abs)
     return 0
 }

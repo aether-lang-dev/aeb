@@ -91,12 +91,37 @@ zsync-as-transport plan needs.
    buildable targets without cloning-and-grepping — a small `aeb --targets`
    (list the `.name.ae` synonyms a tree exposes), analogous to `aeb --prereqs`.
 
+## Status: the FETCH half is now IMPLEMENTED (`fetch.git`)
+
+**2026-06-15** — the "pull from git + build a `.name.ae` under it" motion is
+**built and proven**. `lib/fetch` gained a `fetch.git(b)` builder (the go-get-
+alike): `git clone --branch <ref>` into a pinned working tree, then verify
+`HEAD == commit(...)` and **FAIL LOUD on drift** (the git analogue of `sha256`).
+Setters: `repo` (req), `into` (req), `ref` (branch/tag), `commit` (pin — strongly
+recommended), `depth` (shallow). Shells out to `git` (same as the agent's
+autoclone — no libgit dep), per Paul's call that shelling out is reasonable.
+
+Proven end-to-end: `fetch.git` pulls `../zsync` pinned to a sha → builds
+`cmd/zsync/.build.ae` **under the fetched tree** → runnable `zsync` binary. The
+bad-pin path correctly fails the build (`exit 1`, `build.fail`). Idempotent
+re-run skips the re-clone (HEAD-satisfies-pin check). Artifact published as
+`fetched_git_dir`. See `lib/fetch/module.ae` (`builder git`, `git_clone_cmd`,
+`_sha_matches`).
+
+**What remains is the BRIDGE half** — `build.pkg_dep` — which composes
+`fetch.git` + target resolution into ONE verb so a consumer writes
+`build.pkg_dep(b, "github.com/u/repo@ver", "path:name")` instead of a manual
+`fetch.git` + a hand-pointed target. Today you wire the two by hand (fetch into a
+dir, then point an ordinary target at `<into>/path/.name.ae` — which is exactly
+what the proof did). That manual form already works; `pkg_dep` is the ergonomics.
+
 ## Recommendation
 
 Don't overload `ae add` (keep Aether's package manager import-only, aeb-free).
-Add an **aeb-side `build.pkg_dep`** (fetch-pinned + resolve a named target in the
-fetched tree → its `.so`/artifact on the link line) — that gives "go-get + build
-a `.so` dep" with the license boundary intact, reusing `lib/fetch`,
+The fetch primitive now exists (`fetch.git`). The remaining step is an
+**aeb-side `build.pkg_dep`** (drive `fetch.git` + resolve a named target in the
+fetched tree → its `.so`/artifact on the link line) — giving "go-get + build a
+`.so` dep" in one verb, with the license boundary intact, reusing `fetch.git`,
 `--prereqs`, and `shared_library_deps_including_transitive` wholesale. The
 zsync `.so` transport is the first consumer; the per-job-image agent DAG (Rungs
 3-5) is the second — it'd span fetched packages for free.
