@@ -1,5 +1,19 @@
 # Agent-driven container builds — the ladder
 
+**To a developer, this is Remote Build Execution (RBE):** a thin client (a
+Chromebook with no toolchains) names a target, the build runs *somewhere else*
+on a box that has the right compiler, and the result comes back. That's the
+experience we demonstrated — dispatch from the Chromebook, `result:pass`
+returns, no toolchain ever installed locally.
+
+The *contract* differs from hyperscale RBE, deliberately (see
+[`aeb-vs-bazel.md`](aeb-vs-bazel.md)): aeb's executors are **sovereign, trusted,
+lease-gated `aeb-agent`s**, not a fungible/untrusted worker pool, and dispatch
+is **node-granular** (one `.build.ae` per request) rather than action-granular
+(one compiler invocation). The distinguishing twist is the **per-job toolchain
+container**: the image is chosen *per dispatch* from the build's declared
+`prereq`s, not a single fixed worker image.
+
 Running status of the initiative: **one root-level `aeb-agent` on an immutable
 host that, per HTTP dispatch, summons a per-job toolchain container, builds one
 node of a (polyglot) repo in it, and drops the container.** The proving ground

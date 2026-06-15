@@ -5,10 +5,14 @@
 ### Added
 
 - **Agent-driven per-job container builds (`run_on=podman`
-  `--all-in-container`).** One root-level `aeb-agent` on an immutable host now
-  builds a node of a (polyglot) repo in a per-job toolchain container summoned
-  for that dispatch and dropped (`--rm`) after — the host needs only podman, no
-  toolchains. A dispatch names the toolchain image (`"image"` field, gated by
+  `--all-in-container`) — Remote Build Execution (RBE).** To a developer this is
+  RBE: a thin client dispatches a build, it runs on a remote executor with the
+  right toolchain, the result returns — no local toolchain. One root-level
+  `aeb-agent` on an immutable host now builds a node of a (polyglot) repo in a
+  per-job toolchain container summoned for that dispatch and dropped (`--rm`)
+  after — the host needs only podman, no toolchains. (aeb's executors are
+  sovereign lease-gated agents, node-granular — same DX, different contract from
+  hyperscale RBE; see `docs/aeb-vs-bazel.md`.) A dispatch names the toolchain image (`"image"` field, gated by
   `--allow-image`); the agent verifies the lease, vetoes, then runs the build
   in that image. The existing compile-in-container/execute-on-host duality runs
   per-node steps on the host (right when the host has runtimes to execute

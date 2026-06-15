@@ -131,7 +131,14 @@ Wingerd middle ground"):
   hyperscale feature. aeb's analogue is the **agent grid** (sovereign
   `aeb-agent` + dispatch, [`agent-lifecycle.md`](agent-lifecycle.md)) —
   related shape, different contract (a fleet of trusted peers, not a
-  fungible RBE worker pool). **[different]**
+  fungible RBE worker pool). The developer *experience* is RBE — a thin
+  client dispatches, the build runs on a box with the toolchain, the
+  result returns — and the per-job-container path (`--run-on podman`,
+  toolchain image chosen per dispatch from the build's `prereq`s) is
+  demonstrated end-to-end in [`agent-container-ladder.md`](agent-container-ladder.md).
+  What stays *different* from hyperscale RBE: trusted sovereign agents
+  vs. a fungible/untrusted worker pool, and node-granular dispatch (one
+  `.build.ae`) vs. action-granular (one compiler call). **[different]**
 
 ### DX / ecosystem gaps (real, unglamorous)
 

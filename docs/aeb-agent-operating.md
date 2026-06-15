@@ -6,6 +6,15 @@ them, returning a structured verdict. It is the "lease a machine to build *this*
 no commit as a result" capability: ephemeral, fail-closed, and — with lease
 auth — scoped to a purpose and a time window.
 
+To a developer this is **Remote Build Execution (RBE)**: a thin client
+dispatches a build to a remote executor that runs it (optionally in a per-job
+toolchain container — `--run-on podman`) and returns the result, no local
+toolchain required. aeb's executors are sovereign, trusted, lease-gated agents
+rather than a fungible RBE worker pool, and dispatch is node-granular — same
+developer experience, different contract (see
+[`aeb-vs-bazel.md`](aeb-vs-bazel.md) and the
+[container ladder](agent-container-ladder.md)).
+
 This is the **operator how-to**: how to stand one up, every flag, and the agent's
 **three orthogonal mode axes** —
 - **auth** (lease tokens, required),

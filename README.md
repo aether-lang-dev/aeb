@@ -1362,7 +1362,7 @@ aeb/
 │   ├── aeb-sbom.ae            # `aeb --resolve-only --sbom-json` dep-closure SBOM
 │   ├── aeb-trace.ae           # `aeb --trace-intent` doppelganger intent trace
 │   │  # remote agent (opt-in; built via `aeb tools/agent/.install.ae`)
-│   ├── aeb-agent.ae           # remote build agent (HTTP listener; --run-on podman)
+│   ├── aeb-agent.ae           # remote build agent — RBE executor (HTTP listener; per-job toolchain container via --run-on podman)
 │   ├── aeb-remote.ae          # `aeb --use-remote-agents` dispatch client
 │   │  # helpers (lazy-built, pure-Aether)
 │   ├── encode-name.ae         # path → C-safe identifier
