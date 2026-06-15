@@ -295,6 +295,21 @@ dep(ctx: ptr, path_str: string) {
         _e = list.add(npm_deps, pkg_spec)
         return 0
     }
+    // git: coordinate — the go-get-alike. MUST be checked BEFORE the maven ':'
+    // test below, since a git coordinate is full of colons (the `git:` prefix,
+    // the `dir:name` synonym). Fetches the repo (pinned), resolves the synonym
+    // to a `.ae` target in the fetched tree, and registers THAT resolved local
+    // path as an ordinary dep — so the rest of the build treats it like any
+    // local dep. See asks/dep-git-coordinate.md.
+    git_prefix = string.index_of(path_str, "git:")
+    if git_prefix == 0 {
+        resolved = _git_dep(ctx, path_str)
+        if string.length(resolved) > 0 {
+            deps, _ = map.get(ctx, "deps")
+            _eg = list.add(deps, resolved)
+        }
+        return 0
+    }
     colon = string.index_of(path_str, ":")
     if colon >= 0 {
         maven_deps, _ = map.get(ctx, "maven_deps")
@@ -303,6 +318,264 @@ dep(ctx: ptr, path_str: string) {
         deps, _ = map.get(ctx, "deps")
         _e2 = list.add(deps, path_str)
     }
+}
+
+// pkg_dep(ctx, "github.com/u/repo@ref", "dir:name") — the two-arg verb surface
+// of the same go-get-alike resolver `dep("git:...")` drives. Readable form with
+// no overloaded punctuation: repo@ref as arg 1, the synonym (optionally with a
+// "=sha" pin appended, or pass the sha in repo@ref via @sha) as arg 2. Folds the
+// two args into the single coordinate `_git_dep` parses, then registers the
+// resolved local path as a dep. See asks/ae-add-implicating-an-aeb-target.md.
+pkg_dep(ctx: ptr, repo_ref: string, target: string) {
+    coord = string.concat("git:", string.concat(repo_ref, string.concat("#", target)))
+    resolved = _git_dep(ctx, coord)
+    if string.length(resolved) > 0 {
+        deps, _ = map.get(ctx, "deps")
+        _ep = list.add(deps, resolved)
+    }
+    return 0
+}
+
+// --- git-coordinate parsing (pure; testable) ---
+//
+// Coordinate grammar:  git:<repo>[@<ref>]#<dir:name>[=<sha>]
+//   repo     everything between "git:" and the first '@' (or '#' if no '@')
+//   ref      between '@' and '#'            ("" if absent → default branch)
+//   synonym  between '#' and '=' (or end)   the dir:name target to build
+//   sha      after '='                      ("" if absent → UNPINNED, warns)
+// Each accessor is independent so they compose without threading a struct.
+
+// _git_strip(coord) — drop the leading "git:" scheme.
+_git_strip(coord: string) {
+    if string.index_of(coord, "git:") == 0 {
+        return string.substring(coord, 4, string.length(coord))
+    }
+    return string.concat(coord, "")
+}
+
+// _git_sha(coord) — the commit pin after '=', or "" when unpinned.
+_git_sha(coord: string) {
+    eq = string.index_of(coord, "=")
+    if eq < 0 { return string.concat("", "") }
+    return string.substring(coord, eq + 1, string.length(coord))
+}
+
+// _git_synonym(coord) — the dir:name target between '#' and '=' (or end).
+_git_synonym(coord: string) {
+    hash = string.index_of(coord, "#")
+    if hash < 0 { return string.concat("", "") }
+    after_ = string.substring(coord, hash + 1, string.length(coord))
+    eq = string.index_of(after_, "=")
+    if eq < 0 { return after_ }
+    return string.substring(after_, 0, eq)
+}
+
+// _git_repo_ref(coord) — the "repo[@ref]" part before '#' (scheme stripped).
+_git_repo_ref(coord: string) {
+    body = _git_strip(coord)
+    hash = string.index_of(body, "#")
+    if hash < 0 { return body }
+    return string.substring(body, 0, hash)
+}
+
+// _git_repo(coord) — the bare repo URL (before '@'). Note: ssh remotes like
+// git@github.com:u/r.git contain '@' AND ':'; for those the user should give
+// the ref explicitly, and we split on the LAST '@' so the user@host '@' is kept
+// with the repo. Common https case has at most one '@' (the ref one).
+_git_repo(coord: string) {
+    rr = _git_repo_ref(coord)
+    at = _last_index_of(rr, "@")
+    if at < 0 { return rr }
+    return string.substring(rr, 0, at)
+}
+
+// _git_ref(coord) — the branch/tag after the (last) '@', or "" for default.
+_git_ref(coord: string) {
+    rr = _git_repo_ref(coord)
+    at = _last_index_of(rr, "@")
+    if at < 0 { return string.concat("", "") }
+    return string.substring(rr, at + 1, string.length(rr))
+}
+
+// _last_index_of(s, needle) — index of the last occurrence of a 1-char needle,
+// or -1. (std.string has index_of for first; we need last for the ssh @ case.)
+_last_index_of(s: string, needle: string) {
+    n = string.length(s)
+    i = n - 1
+    while i >= 0 {
+        if string.equals(string.substring(s, i, i + 1), needle) == 1 {
+            return i
+        }
+        i = i - 1
+    }
+    return 0 - 1
+}
+
+// _git_pkg_slug(repo, ref_or_sha) — a content-addressed-ish dir name for the
+// fetched tree under target/_pkg/, derived from the repo path tail + ref/sha.
+// e.g. ("github.com/aether-lang-org/zsync-port", "a298837") ->
+// "zsync-port@a298837". Pure; keeps fetched trees out of the source tree.
+_git_pkg_slug(repo: string, pin: string) {
+    tail = repo
+    sl = _last_slash(repo)
+    if sl >= 0 {
+        tail = string.substring(repo, sl + 1, string.length(repo))
+    }
+    // strip a trailing ".git"
+    if string.length(tail) > 4 {
+        suf = string.substring(tail, string.length(tail) - 4, string.length(tail))
+        if string.equals(suf, ".git") == 1 {
+            tail = string.substring(tail, 0, string.length(tail) - 4)
+        }
+    }
+    p = pin
+    if string.length(p) == 0 { p = "HEAD" }
+    // Slug separator is '-' not '@': the slug becomes a dir name that aeb's
+    // label→symbol encoder (gen-orchestrator encode_name) turns into a C
+    // identifier, and '@' is not in its handled set (/ - .). '-' IS (→ _H_).
+    return string.concat(tail, string.concat("-", p))
+}
+
+// _git_synonym_relpath(synonym) — "dir:name" -> "dir/.name.ae"; ":name" or
+// "name" -> "./.name.ae". Mirrors tools/aebcli synonym_relpath (inlined here
+// because lib/build can't import the tools layer). The `.name.ae` literal-type
+// rule: a repo exposes buildable targets as `.name.ae` files (its public
+// surface — see asks/dep-git-coordinate.md).
+_git_synonym_relpath(synonym: string) {
+    colon = string.index_of(synonym, ":")
+    if colon < 0 {
+        // bare "name" — treat as ":name" anchored at the tree root
+        return string.concat("./.", string.concat(synonym, ".ae"))
+    }
+    d = string.substring(synonym, 0, colon)
+    nm = string.substring(synonym, colon + 1, string.length(synonym))
+    if string.length(d) == 0 {
+        return string.concat("./.", string.concat(nm, ".ae"))
+    }
+    return string.concat(d, string.concat("/.", string.concat(nm, ".ae")))
+}
+
+// _git_dep(ctx, coord) — the go-get-alike runtime resolver. Parses the git
+// coordinate, clones the repo (pinned) into target/_pkg/<slug>/ under the repo
+// root, verifies HEAD == the sha pin (fails loud on drift), resolves the
+// synonym to a `.ae` target path inside the fetched tree, and RETURNS that
+// path (root-relative) for dep() to register. Returns "" on any failure (after
+// calling fail() so the build is marked failed).
+//
+// Shells out to `git` directly (mirrors fetch.git + the agent's autoclone) —
+// lib/build is the base layer and can't import lib/fetch, so the few git
+// commands are issued here via _sh/_sh_capture.
+_git_dep(ctx: ptr, coord: string) {
+    repo = _git_repo(coord)
+    ref = _git_ref(coord)
+    sha = _git_sha(coord)
+    synonym = _git_synonym(coord)
+
+    if string.length(repo) == 0 {
+        println("dep(git:): missing repo in '${coord}'")
+        fail(ctx, "dep(git:): missing repo in '${coord}'")
+        return string.concat("", "")
+    }
+    if string.length(synonym) == 0 {
+        println("dep(git:): missing #target synonym in '${coord}' (e.g. #cmd/zsync:zsync)")
+        fail(ctx, "dep(git:): missing #target in '${coord}'")
+        return string.concat("", "")
+    }
+    if string.length(sha) == 0 {
+        println("dep(git:): WARNING '${repo}' has no =<sha> pin — NON-reproducible, tracks ${ref} HEAD (supply-chain risk)")
+    }
+
+    root = _get(ctx, "root")
+    pin_for_slug = sha
+    if string.length(sha) == 0 {
+        pin_for_slug = string.concat(ref, "")
+    }
+    slug = _git_pkg_slug(repo, pin_for_slug)
+    pkg_root = string.concat(root, string.concat("/target/_pkg/", slug))
+
+    // Up-to-date: existing clone whose HEAD satisfies the pin → reuse.
+    git_marker = string.concat(pkg_root, "/.git")
+    have = 0
+    if file.exists(git_marker) == 1 {
+        head_raw, head_err = _sh_capture("git -C '${pkg_root}' rev-parse HEAD")
+        head = string.trim(head_raw)
+        if string.length(head_err) == 0 {
+            if _git_sha_matches(head, sha) == 1 {
+                have = 1
+            }
+        }
+        if have == 0 {
+            _r = _sh("rm -rf '${pkg_root}'")
+        }
+    }
+
+    if have == 0 {
+        _mkdirs(_dirname_of(pkg_root))
+        clone = "git clone --depth 1"
+        if string.length(ref) > 0 {
+            clone = string.concat(clone, " --branch '${ref}'")
+        }
+        clone = string.concat(clone, " '${repo}' '${pkg_root}'")
+        println("dep(git:): cloning ${repo} (ref=${ref}) → target/_pkg/${slug}")
+        rc = _sh(clone)
+        if rc != 0 {
+            println("dep(git:): git clone failed for ${repo}")
+            fail(ctx, "dep(git:): git clone failed for ${repo}")
+            return string.concat("", "")
+        }
+        // Pin enforcement (the git analogue of sha256 verify).
+        if string.length(sha) > 0 {
+            head_raw2, _e2 = _sh_capture("git -C '${pkg_root}' rev-parse HEAD")
+            head2 = string.trim(head_raw2)
+            if _git_sha_matches(head2, sha) == 0 {
+                // --depth 1 of a branch may not contain an arbitrary sha; deepen + checkout.
+                _r2 = _sh("git -C '${pkg_root}' fetch --unshallow 2>/dev/null; git -C '${pkg_root}' checkout --quiet '${sha}'")
+                head_raw3, _e3 = _sh_capture("git -C '${pkg_root}' rev-parse HEAD")
+                head3 = string.trim(head_raw3)
+                if _git_sha_matches(head3, sha) == 0 {
+                    println("dep(git:): PIN MISMATCH for ${repo} — got ${head3}, expected ${sha}")
+                    fail(ctx, "dep(git:): PIN MISMATCH for ${repo} — got ${head3}, expected ${sha}")
+                    return string.concat("", "")
+                }
+            }
+        }
+    }
+
+    // Resolve the synonym to a .ae path INSIDE the fetched tree, root-relative.
+    rel = _git_synonym_relpath(synonym)
+    // strip a leading "./" so it joins cleanly
+    if string.length(rel) >= 2 {
+        if string.equals(string.substring(rel, 0, 2), "./") == 1 {
+            rel = string.substring(rel, 2, string.length(rel))
+        }
+    }
+    target_ae = string.concat(pkg_root, string.concat("/", rel))
+    if file.exists(target_ae) == 0 {
+        println("dep(git:): target '${synonym}' → ${rel} not found in fetched ${repo} (expose a .name.ae file)")
+        fail(ctx, "dep(git:): target ${synonym} not found in ${repo}")
+        return string.concat("", "")
+    }
+    // Return root-relative so the orchestrator/artifact-lookup treat it as local.
+    return string.concat("target/_pkg/", string.concat(slug, string.concat("/", rel)))
+}
+
+// _git_sha_matches(have, want) — 1 if have satisfies the want pin (equal, or
+// want is a prefix of have for short-sha pins). "" want ⇒ always matches.
+_git_sha_matches(have: string, want: string) {
+    if string.length(want) == 0 { return 1 }
+    if string.equals(have, want) == 1 { return 1 }
+    wl = string.length(want)
+    if string.length(have) >= wl {
+        if string.equals(string.substring(have, 0, wl), want) == 1 { return 1 }
+    }
+    return 0
+}
+
+// _dirname_of(p) — everything before the last '/', or "." if none.
+_dirname_of(p: string) {
+    sl = _last_slash(p)
+    if sl < 0 { return string.concat(".", "") }
+    return string.substring(p, 0, sl)
 }
 
 // prereq(ctx, "<toolchain>:<version>") — declare a system-toolchain

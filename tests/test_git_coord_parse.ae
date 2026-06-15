@@ -1,0 +1,65 @@
+// Tests for the git-coordinate parser in lib/build — the pure accessors that
+// decompose  git:<repo>[@ref]#<dir:name>[=sha]  into its four axes, plus the
+// synonym→relpath and slug helpers. Locks down asks/dep-git-coordinate.md's
+// grammar: @ref finds, =sha verifies, #synonym names; '-' slug separator (not
+// '@', which aeb's symbol encoder can't handle).
+
+import build (_git_repo, _git_ref, _git_synonym, _git_sha, _git_synonym_relpath, _git_pkg_slug, _git_sha_matches)
+import std.string
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+_ok(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+main() {
+    // Full coordinate: repo + ref + synonym + sha
+    full = "git:github.com/aether-lang-org/zsync-port@main#cmd/zsync:zsync=a298837195fe60df567c66ff4922e0e5baceee6a"
+    _eq("full repo",    _git_repo(full),    "github.com/aether-lang-org/zsync-port")
+    _eq("full ref",     _git_ref(full),     "main")
+    _eq("full synonym", _git_synonym(full), "cmd/zsync:zsync")
+    _eq("full sha",     _git_sha(full),     "a298837195fe60df567c66ff4922e0e5baceee6a")
+
+    // Tag ref + no sha (unpinned-by-sha)
+    tag = "git:github.com/u/repo@0.7.1#cmd/fileserver:fileserver"
+    _eq("tag repo",     _git_repo(tag),     "github.com/u/repo")
+    _eq("tag ref",      _git_ref(tag),      "0.7.1")
+    _eq("tag synonym",  _git_synonym(tag),  "cmd/fileserver:fileserver")
+    _eq("tag sha empty",_git_sha(tag),      "")
+
+    // No ref (default branch), with sha
+    noref = "git:github.com/u/repo#lib:core=abc123"
+    _eq("noref repo",   _git_repo(noref),   "github.com/u/repo")
+    _eq("noref ref empty", _git_ref(noref), "")
+    _eq("noref synonym",_git_synonym(noref),"lib:core")
+    _eq("noref sha",    _git_sha(noref),    "abc123")
+
+    // file:// remote (the offline test form) — '/' in repo, ref after @
+    fileurl = "git:file:///home/paul/scm/zsync@main#cmd/zsync:zsync=0cdc40d"
+    _eq("file repo",    _git_repo(fileurl), "file:///home/paul/scm/zsync")
+    _eq("file ref",     _git_ref(fileurl),  "main")
+    _eq("file synonym", _git_synonym(fileurl), "cmd/zsync:zsync")
+    _eq("file sha",     _git_sha(fileurl),  "0cdc40d")
+
+    // synonym → .name.ae relpath
+    _eq("relpath dir:name", _git_synonym_relpath("cmd/zsync:zsync"), "cmd/zsync/.zsync.ae")
+    _eq("relpath :name",    _git_synonym_relpath(":zsync"),          "./.zsync.ae")
+    _eq("relpath bare",     _git_synonym_relpath("zsync"),           "./.zsync.ae")
+
+    // slug uses '-' (NOT '@' — symbol-encoder can't handle @), strips .git
+    _eq("slug sha",  _git_pkg_slug("github.com/u/zsync-port", "a298837"), "zsync-port-a298837")
+    _eq("slug .git", _git_pkg_slug("github.com/u/repo.git", "main"),       "repo-main")
+    _eq("slug HEAD", _git_pkg_slug("github.com/u/repo", ""),               "repo-HEAD")
+
+    // sha-prefix pin matching
+    _ok("sha exact",   _git_sha_matches("a298837abc", "a298837abc"))
+    _ok("sha prefix",  _git_sha_matches("a298837abcdef", "a298837"))
+    _ok("sha empty-want", _git_sha_matches("anything", ""))
+    _ok("sha no-match", 1 - _git_sha_matches("a298837", "deadbeef"))
+}

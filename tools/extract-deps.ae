@@ -96,7 +96,145 @@ _dir_of(p: string) {
 // so the dep never built, and (b) never matched its node key in the
 // scan-mode topo-sort, so ordering was unenforced. Both are the aeb
 // dep DAG silently dropping an edge — see the .dist.ae→.build.ae case.
+// --- git: coordinate handling (fetch-at-extract, model A) ---
+//
+// A `dep(b, "git:<repo>[@ref]#<dir:name>[=sha]")` is resolved STATICALLY here
+// by cloning the repo (pinned) into target/_pkg/<slug>/ and returning the
+// root-relative path to the synonym's `.name.ae` inside it — so the dep DAG
+// the orchestrator builds points at a real on-disk .ae. The runtime
+// build._git_dep does the SAME clone (idempotent: an existing pinned tree is
+// reused), so extraction and runtime agree on the path. Grammar + slug logic
+// mirror lib/build/module.ae's _git_* helpers. See asks/dep-git-coordinate.md.
+
+_xd_last_at(s: string) {
+    n = string.length(s)
+    i = n - 1
+    while i >= 0 {
+        if string.equals(string.substring(s, i, i + 1), "@") == 1 { return i }
+        i = i - 1
+    }
+    return 0 - 1
+}
+
+_xd_last_slash(s: string) {
+    n = string.length(s)
+    i = n - 1
+    while i >= 0 {
+        if string.equals(string.substring(s, i, i + 1), "/") == 1 { return i }
+        i = i - 1
+    }
+    return 0 - 1
+}
+
+// Resolve a "git:" coordinate to its root-relative .ae path, cloning on demand.
+resolve_git_dep(coord: string) {
+    body = string.substring(coord, 4, string.length(coord))      // strip "git:"
+    sha = ""
+    eq = string.index_of(body, "=")
+    if eq >= 0 {
+        sha = string.substring(body, eq + 1, string.length(body))
+        body = string.substring(body, 0, eq)
+    }
+    synonym = ""
+    hash = string.index_of(body, "#")
+    if hash >= 0 {
+        synonym = string.substring(body, hash + 1, string.length(body))
+        body = string.substring(body, 0, hash)
+    }
+    // body is now repo[@ref]
+    repo = body
+    ref = ""
+    at = _xd_last_at(body)
+    if at >= 0 {
+        repo = string.substring(body, 0, at)
+        ref = string.substring(body, at + 1, string.length(body))
+    }
+    if string.length(repo) == 0 { return string.concat("", "") }
+    if string.length(synonym) == 0 { return string.concat("", "") }
+
+    // slug = <repo-tail-without-.git>@<sha-or-ref-or-HEAD>
+    tail = repo
+    sl = _xd_last_slash(repo)
+    if sl >= 0 { tail = string.substring(repo, sl + 1, string.length(repo)) }
+    if string.length(tail) > 4 {
+        suf = string.substring(tail, string.length(tail) - 4, string.length(tail))
+        if string.equals(suf, ".git") == 1 { tail = string.substring(tail, 0, string.length(tail) - 4) }
+    }
+    pin = sha
+    if string.length(pin) == 0 { pin = ref }
+    if string.length(pin) == 0 { pin = "HEAD" }
+    // '-' separator (not '@'): the slug is a dir name aeb encodes into a C
+    // symbol; '@' isn't in encode_name's handled set, '-' is (→ _H_).
+    slug = string.concat(tail, string.concat("-", pin))
+    pkg_root = string.concat("target/_pkg/", slug)
+
+    // Clone if not already present at the right pin (idempotent reuse).
+    git_marker = string.concat(pkg_root, "/.git")
+    need_clone = 1
+    if file.exists(git_marker) == 1 {
+        head, _he = os.exec(string.concat("git -C '", string.concat(pkg_root, "' rev-parse HEAD")))
+        head = string.trim(head)
+        if string.length(sha) == 0 {
+            need_clone = 0
+        } else {
+            hl = string.length(sha)
+            if string.length(head) >= hl {
+                if string.equals(string.substring(head, 0, hl), sha) == 1 { need_clone = 0 }
+            }
+        }
+        if need_clone == 1 { _r = os.exec(string.concat("rm -rf '", string.concat(pkg_root, "'"))) }
+    }
+    if need_clone == 1 {
+        _m = os.exec("mkdir -p target/_pkg")
+        clone = "git clone --depth 1"
+        if string.length(ref) > 0 { clone = string.concat(clone, string.concat(" --branch '", string.concat(ref, "'"))) }
+        clone = string.concat(clone, string.concat(" '", string.concat(repo, string.concat("' '", string.concat(pkg_root, "'")))))
+        _c, _ce = os.exec(clone)
+        if string.length(sha) > 0 {
+            // Pin: deepen + checkout, then VERIFY (the clone happens here, so the
+            // supply-chain pin must be enforced here — fail loud on drift).
+            _co = os.exec(string.concat("git -C '", string.concat(pkg_root, string.concat("' fetch --unshallow 2>/dev/null; git -C '", string.concat(pkg_root, string.concat("' checkout --quiet '", string.concat(sha, "'")))))))
+            vhead, _ve = os.exec(string.concat("git -C '", string.concat(pkg_root, "' rev-parse HEAD")))
+            vhead = string.trim(vhead)
+            ok = 0
+            hl2 = string.length(sha)
+            if string.length(vhead) >= hl2 {
+                if string.equals(string.substring(vhead, 0, hl2), sha) == 1 { ok = 1 }
+            }
+            if ok == 0 {
+                // Diagnostic to STDERR (stdout is the dep-list channel — a
+                // println here would be parsed as bogus dep tokens). Remove the
+                // bad tree so a re-run can't false-pass it; return "" so the dep
+                // resolves to nothing and the build fails attributably.
+                _em = os.exec(string.concat("echo 'extract-deps: dep(git:) PIN MISMATCH for ", string.concat(repo, string.concat(" got ", string.concat(vhead, string.concat(" expected ", string.concat(sha, "' 1>&2")))))))
+                _rm = os.exec(string.concat("rm -rf '", string.concat(pkg_root, "'")))
+                return string.concat("", "")
+            }
+        }
+    }
+
+    // synonym "dir:name" -> "<pkg_root>/dir/.name.ae"
+    rel = ""
+    c = string.index_of(synonym, ":")
+    if c < 0 {
+        rel = string.concat(".", string.concat(synonym, ".ae"))
+    } else {
+        d = string.substring(synonym, 0, c)
+        nm = string.substring(synonym, c + 1, string.length(synonym))
+        if string.length(d) == 0 {
+            rel = string.concat(".", string.concat(nm, ".ae"))
+        } else {
+            rel = string.concat(d, string.concat("/.", string.concat(nm, ".ae")))
+        }
+    }
+    return string.concat(pkg_root, string.concat("/", rel))
+}
+
 resolve_dep_rel(dep: string, base_dir: string) {
+    // git: coordinate — fetch + resolve to a real on-disk path.
+    if string.index_of(dep, "git:") == 0 {
+        return resolve_git_dep(dep)
+    }
     resolved = resolve_dep(dep)
     if file.exists(resolved) == 1 {
         return resolved
@@ -212,12 +350,16 @@ main() {
             } else {
                 dep = string.substring(tail, 0, close)
                 resolved = resolve_dep_rel(dep, base_dir)
-                if map.has(seen, resolved) == 0 {
-                    if string.length(out) > 0 {
-                        out = string.concat(out, " ")
+                // A "" result means a git: dep failed to resolve (e.g. PIN
+                // MISMATCH) — emit nothing; the missing edge fails the build.
+                if string.length(resolved) > 0 {
+                    if map.has(seen, resolved) == 0 {
+                        if string.length(out) > 0 {
+                            out = string.concat(out, " ")
+                        }
+                        out = string.concat(out, resolved)
+                        _e_s = map.put(seen, resolved, "1")
                     }
-                    out = string.concat(out, resolved)
-                    _e_s = map.put(seen, resolved, "1")
                 }
                 rest = string.substring(tail, close + 1, string.length(tail))
             }

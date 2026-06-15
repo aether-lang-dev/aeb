@@ -2,8 +2,24 @@
 
 **Filed by**: aeb Claude, 2026-06-15, after building `fetch.git` (the
 clone-pinned-tree primitive, committed `6ab0bfa`) and Paul asking whether
-`dep()` itself should accept the same go-get form. Design note — resolution
-model settled in conversation; parser + rooting not yet implemented.
+`dep()` itself should accept the same go-get form.
+
+**STATUS: IMPLEMENTED (2026-06-15).** `dep(b, "git:…")` and the
+`build.pkg_dep(b, repo@ref, dir:name)` verb both land. The static extractor
+(`tools/extract-deps`) resolves a `git:` coordinate by cloning into
+`target/_pkg/<slug>/` (model **A**, fetch-at-extract) and emitting the
+root-relative `.name.ae` path, so the dep DAG points at a real on-disk target;
+the runtime `build._git_dep` does the same clone idempotently. PIN MISMATCH is
+enforced at BOTH layers and fails the build loud (exit 1). Slug separator is
+`-` not `@` (aeb's `encode_name` symbol encoder handles `/ - .` but not `@`).
+Parser unit-tested in `tests/test_git_coord_parse.ae` (26 assertions; suite
+110/110). Proven end-to-end against `../zsync` (which added `cmd/zsync/.zsync.ae`
+to be addressable): clone → pin-verify → synonym→`.zsync.ae` → registered as a
+dep. **Known last-mile gap:** a fetched Aether *program* built as a transitive
+`--emit=lib` dep hits the pre-existing `aether-program-dev-tree-include-threading`
+/ transitive-regen limitation (`fileio.buf_as_string` undefined) — the SAME tree
+builds clean as a ROOT target; this is orthogonal to the resolver. The rest of
+this note is the design as settled; it matches what shipped.
 
 `fetch.git` already exists and is proven (clone `--branch <ref>`, verify
 `HEAD == commit(...)`, fail loud on drift, publish `fetched_git_dir`). This note
