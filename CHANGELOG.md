@@ -4,6 +4,46 @@
 
 ### Added
 
+- **Agent-driven per-job container builds (`run_on=podman`
+  `--all-in-container`).** One root-level `aeb-agent` on an immutable host now
+  builds a node of a (polyglot) repo in a per-job toolchain container summoned
+  for that dispatch and dropped (`--rm`) after — the host needs only podman, no
+  toolchains. A dispatch names the toolchain image (`"image"` field, gated by
+  `--allow-image`); the agent verifies the lease, vetoes, then runs the build
+  in that image. The existing compile-in-container/execute-on-host duality runs
+  per-node steps on the host (right when the host has runtimes to execute
+  against, e.g. host-Python); the new `--all-in-container` flag instead runs the
+  WHOLE build in one `podman run` of the image — required for a toolchain that
+  lives ONLY in the image (a rust `cargo` / go / javac build on a toolchain-less
+  host). Proven end-to-end against `google-monorepo-sim` on bazzite: a dispatch
+  for the rust node (`aeb-tc:rust-1.75`) returns `result:pass` with
+  `libvowelbase.so` carrying its JNI symbol. See
+  `docs/agent-container-ladder.md` for the climb and
+  `docs/aeb-agent-operating.md` for operation.
+- **Cross-buildtype dep-artifact reads (`lib/build` `_read_dep_artifact`).** A
+  dep whose producer wrote under a non-`build` buildtype (e.g. a vendored rust
+  crate node `.<name>.crate.ae` → `target/<type>/<dir>`) is now found even after
+  the orchestrator rewrites the dep list to bare dirs: when the exact-type path
+  misses, fall back to `target/*/<dir>/<artifact>`. Fixes a clean build dropping
+  a vendored crate's path-dep from the generated `Cargo.toml` (`cargo` then
+  failing on the missing crate) — surfaced because an ephemeral container forces
+  a clean build that a stale local `target/` had masked.
+- **`aeb-keygen` on PATH via the remote-agent kit.** `aeb tools/remote-agent/.install.ae`
+  now installs `aeb-keygen` alongside `aeb-agent` + `aeb-lease`, so the
+  lease-secret generator is reachable (it produces the required
+  `aeb-secret-v1:` envelope; a bare `openssl rand` is refused at agent startup).
+- **Agent reaps dispatch-spawned processes (`keep_alive` opt-out).** The
+  raw-command path (`run_on=host`/`vm`) now runs each dispatch command in its own
+  process group and reaps survivors on return (TERM→grace→KILL) — a backgrounded
+  server can no longer outlive its dispatch or wedge the build slot. A dispatch
+  that needs a long-lived server (the driver-gate "serve then drive" case) sets
+  `"keep_alive": true`; the verdict then reports `"kept_alive": true` so the
+  caller owns teardown.
+- **`make install` self-heals a tree poisoned by a prior `sudo make install`.**
+  Before the rebuild loop, any root-owned `tools/*` binary (left by a past sudo
+  run into the per-user `~/.local` prefix) is reclaimed, instead of the next
+  non-sudo install dying cryptically at the linker (`ld: can't write output
+  file`).
 - **Remote build cache — shared filesystem backend.** `lib/cache` now
   consults a shared remote *behind* the local store, transparently (no
   SDK changes — every SDK already calls `cache.get`/`put`). On a local
