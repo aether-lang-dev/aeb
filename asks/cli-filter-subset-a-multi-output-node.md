@@ -1,129 +1,169 @@
-# `#filter` — subset a single build node that emits many artifacts
+# `target_filter(name) { … }` — a selector-gated DSL block for subsetting a multi-output descriptor
 
-**Filed by**: aeb Claude, 2026-06-15, after seeing `../aether-ui/.all.ae` build
-**30 binaries in one node**. Design note — captures a forward direction, motivated
-by a concrete pain, not a request to implement right now.
+**Filed by**: aeb Claude, 2026-06-15, after `../aether-ui/.all.ae` (one node, **30
+binaries**) surfaced the want, and Paul proposed making the filter a
+*first-class DSL block* rather than a runtime env-var gate. Design note —
+forward direction, not a request to implement now. **Supersedes** the earlier
+`--filter`/`AEB_FILTER` SDK-gate sketch in this file: declaring the subset in the
+descriptor is the better layer (no SDK builder needs to change).
 
 ## The pain (concrete)
 
-`../aether-ui/.all.ae` is a single `.ae` file whose `main()` loops over a static
-list of `(source, output)` pairs and calls `build_app(...)` — an
-`aether.program(b) {…}` — once per app. **One file → one aeb node → 30
-binaries**, built sequentially. Its own header comment names the cost:
+`../aether-ui/.all.ae` is one `.ae` file whose `main()` loops over a static list
+of `(source, output)` pairs and calls `build_app(...)` — an `aether.program(b)
+{…}` — once per app. **One file → one aeb node → 30 binaries**, built
+sequentially. Its header comment names the cost:
 
-> "this is a single node that builds N binaries sequentially, so there's no
-> per-app caching or `aeb <one-app>` addressing — but it's the whole fleet in one
-> command... If per-target caching ever bites, split into N tiny `.build.ae`'s."
+> "no per-app caching or `aeb <one-app>` addressing... If per-target caching ever
+> bites, split into N tiny `.build.ae`'s."
 
-So the author already saw the tension and listed **two** options:
-1. Keep the one fat descriptor (what they have) — no addressing, no subsetting.
-2. Explode into N `.name.ae` files — addressable + cached, but 30 near-identical
-   files duplicating the same 50-line backend block (and the comment explains
-   why the block *can't* be factored: `_ctx` is auto-injected, not a nameable
-   variable a helper can close over).
+— and notes the shared 50-line backend block **can't be factored into a helper**
+(`_ctx` is auto-injected, not a nameable variable a fn can close over). So the
+two options the author saw are: keep the fat descriptor (no addressing), or
+explode into 30 near-identical files (massive duplication). `target_filter` is
+the third: keep the descriptor, **declare per-target selection boundaries inside
+it**.
 
-There's a **third option neither listed**: keep the one descriptor, but let the
-invocation **subset which outputs it produces**. That's `#filter`.
+## The idea (Paul's form)
 
-## What `#filter` is
-
-A CLI fragment on the target token that narrows a multi-output node to the
-artifacts whose declared `output(...)` name matches a glob — without touching
-the descriptor:
+A `target_filter(name) { … }` block whose body runs **only when a CLI selector
+picks `name`** — and `all` (i.e. no selector) makes every block's path true:
 
 ```
-aeb .all.ae#filter=calculator        # build only the `calculator` binary
-aeb .all.ae#filter='svg_*'           # only the SVG-transpiler CLIs
-aeb .all.ae#filter='aevg_*,analog_*' # the AeVG fleet + clocks
-aeb .all.ae                          # (no fragment) → all 30, as today
+target_filter("app1") { build_binary("app1") }
+target_filter("app2") { build_binary("app2") }
 ```
 
-Read it as: "build this node, but only the slice of it I named." The `#` keeps it
-**on the target**, distinct from a global `--flag` — it scopes *that one target*,
-which is exactly the Bazel `//pkg:*` / `--test_filter` ergonomic a developer
-expects. (We already overload `:` for synonyms and `//` is reserved in the
-`pkg-dep` design; `#` is free and reads as "fragment of".)
+```
+aeb .all.ae app1        → only app1's block body runs
+aeb .all.ae 'svg_*'     → every block whose name globs svg_* runs
+aeb .all.ae app1 app2   → both
+aeb .all.ae             → no selector ⇒ `all` is true ⇒ every block runs (today's behaviour)
+```
 
-## Why `--scan` doesn't already cover this
+## Why this beats the env-var SDK gate (the superseded sketch)
 
-`--scan <glob>` subsets across **files** — it picks which `.*.ae` build files
-participate in a tree walk (`tools/aeb-main.ae` ~754, `AEB_SCAN`). It filters by
-*basename of the build file*. It cannot reach **inside** one file that emits many
-artifacts in a loop. `.all.ae` is one file, one node — `--scan` sees it as
-atomic. `#filter` is the intra-node complement: same node, fewer outputs.
+The earlier idea gated *inside* each SDK builder (`builder program`,
+`tinygo_lib`, …) by reading `AEB_FILTER` after `out_name` resolves — which makes
+every SDK complicit in filtering. `target_filter` gates **before the block body
+runs at all**, in pure DSL. **No SDK builder changes.** The descriptor owns its
+own subset boundaries — exactly where the knowledge lives. It's the same
+config-is-code stance as zsync's `serverdsl` (selection *is* a closure, not a
+parsed manifest).
 
-| mechanism | granularity | subsets by |
-|---|---|---|
-| `--scan '<glob>'` | which build *files* run | build-file basename |
-| `#filter=<glob>` | which *outputs* of one node build | declared `output(...)` name |
+## It fits the existing closure mechanism exactly
 
-## Where it hooks (small, localized)
-
-Every SDK builder resolves a declared output name before the expensive compile:
-
-- `lib/aether/module.ae` `builder program(ctx)` ~2073-2079 — `out_name` from
-  `map.get(_builder, "output")`.
-- same pattern in `tinygo_lib` (~2001) and the `shared_lib`/sidecar builders.
-
-The gate is one check, right after `out_name` is known and **before**
-`_build_binary` / the gcc link:
+A `builder foo(b, ...) {…}` block is already a fn with `_ctx`/`_builder`
+injected, whose body runs immediately. `target_filter` is just that, with a guard:
 
 ```
-filter = os.getenv("AEB_FILTER")
-if string.length(filter) > 0 {
-    if build._glob_match(out_name, filter) == 0 {
-        return 0            // declared but skipped — no compile, no artifact churn
+// lib/build (or a small lib/target SDK)
+builder target_filter(b: ptr, name: string) {
+    if _target_selected(name) == 1 {
+        // the injected block body executes here — same _ctx/_builder plumbing
+        // that aether.driver_test's nested blocks already use.
     }
+    // not selected → body skipped: nothing built, no artifact, cheap return.
+}
+
+// Selector source: bare CLI tokens after the target, comma/space joined into
+// AEB_TARGETS (one flag_spec row, mirrors --scan → AEB_SCAN). Empty ⇒ `all`.
+_target_selected(name: string) {
+    sel = os.getenv("AEB_TARGETS")
+    if string.length(sel) == 0 { return 1 }      // no selector → all true
+    return _glob_csv_match(name, sel)            // exact OR glob, comma-set
 }
 ```
 
-Because the loop in `main()` calls the builder once per app and each call
-re-reads the gate, a non-matching app is a cheap early `return 0`. Matching apps
-build exactly as today. No descriptor change, no new SDK verb — purely a
-runtime narrowing.
+Mirrors the existing `_compile_enabled()` / `_execute_enabled()` env-gate idiom
+in `lib/build/module.ae` (~491) — same shape, different axis.
 
-Plumbing: add `--filter <glob>` (or parse the `#filter=` fragment off the target
-token in `tools/aebcli` `classify_target`/`parse_argv`) → `AEB_FILTER`, same
-shape as `--scan → AEB_SCAN`. A small comma-split lets `#filter='a,b'` mean a set.
+## "Both / either" — the block is body-agnostic (Paul's call)
+
+`target_filter` does **not** care what its body is. Two sanctioned usages, author
+picks per descriptor:
+
+**(a) Guard inside the loop** — zero duplication, keeps `.all.ae`'s one backend
+block. The selector wraps each iteration:
+
+```
+main() {
+    b = build.start()
+    apps = [ ("example_calculator.ae","calculator"), ("example_canvas.ae","canvas"), … ]
+    for (src, out) in apps {
+        target_filter(out) {            // gate this iteration by output name
+            build_app(b, root, os_name, src, out)
+        }
+    }
+}
+// aeb .all.ae calculator → only that iteration's body runs.
+```
+
+**(b) N explicit standalone blocks** — most readable/greppable; legal because
+`target_filter`'s body is itself a closure with its own injected `_ctx`, so it
+can directly contain an `aether.program(b){…}` (the factoring `.all.ae`'s comment
+said a *helper* couldn't do — a block body can):
+
+```
+target_filter("calculator") {
+    aether.program(b) { source("example_calculator.ae"); output("calculator"); /* …backend… */ }
+}
+target_filter("canvas") {
+    aether.program(b) { source("example_canvas.ae"); output("canvas"); /* …backend… */ }
+}
+```
+
+Form (b) re-duplicates the backend per app; form (a) does not. Both are valid —
+the verb is the same; document both, recommend (a) for fat fleets like
+aether-ui, (b) where each target genuinely differs.
+
+## Match rule (Paul's call): exact-or-glob, comma/space sets
+
+`app1` exact; `svg_*` globs; multiple tokens / commas form a set. Reuses a small
+`_glob_csv_match`. Same expressiveness as the `--scan` glob users already know.
 
 ## Design questions to settle
 
-1. **Fragment syntax vs flag.** `.all.ae#filter=glob` (on-target, scopes one
-   target) vs `--filter glob` (global, applies to whatever's building). The
-   fragment is more precise when multiple targets are on the line; the flag is
-   simpler to plumb (reuses the `flag_spec` table wholesale). **Recommend:
-   ship the `--filter` flag first** (trivial, reuses `--scan`'s machinery), add
-   the `#`-fragment parse as sugar later if multi-target lines want it.
-2. **Match against output name or source?** Output name (`calculator`) reads
-   best for `.all.ae`. Could also allow matching the source path. Keep it to
-   `output(...)` for v1 — that's the user-facing handle.
-3. **`--filter` with no match.** Build nothing + a clear note
-   (`no output matched '<glob>'`), exit 0 — mirrors `--scan`'s empty-glob arm
-   (`tools/aeb-main.ae` ~685). Never silent.
-4. **Interaction with caching.** Orthogonal: a filtered build still caches the
-   outputs it *did* build; it just doesn't visit the others. (Doesn't *give*
-   `.all.ae` per-app caching across runs — that needs the N-file split — but it
-   does give per-app **addressing**, which is the more common want: "rebuild just
-   calculator while I iterate.")
-5. **`--list`/`--targets` companion.** To filter, you must know the names — pairs
-   naturally with the `aeb --targets` lister proposed in
-   `ae-add-implicating-an-aeb-target.md` (list a tree's declared outputs).
+1. **Selector plumbing.** Bare tokens after the target (`aeb .all.ae app1 svg_*`)
+   → `AEB_TARGETS`. Distinguishing a *selector* from a *second target* (another
+   `.ae` path) is easy: selectors are bare words, targets contain `/`, `:` or end
+   `.ae`. The CLI already classifies tokens (`tools/aebcli classify_target`).
+2. **No-match behaviour.** Build nothing + a clear note (`no target matched
+   '<sel>'`), exit 0 — mirrors `--scan`'s empty arm (`tools/aeb-main.ae` ~685).
+   Never silent.
+3. **`all` as an explicit keyword?** `aeb .all.ae all` could be an explicit
+   synonym for "no selector" (nice for scripts/CI that always pass an arg).
+   Cheap: treat the literal token `all` as ⇒ select-everything.
+4. **Caching.** Orthogonal: filtered build still caches what it *did* build. Form
+   (a) doesn't grant cross-run per-app caching (that needs the N-file split), but
+   it grants per-app **addressing** — "rebuild just calculator while I iterate" —
+   which is the more common want.
+5. **`aeb --targets` companion.** To select, you must know the names. Pairs with
+   the tree-target lister proposed in `ae-add-implicating-an-aeb-target.md`: a
+   `target_filter(name)` block is exactly the thing `--targets` would enumerate
+   (its `name` arg is the declared handle), so the lister falls out for free.
+6. **Where it lives.** Could be `build.target_filter` (no new import) or a tiny
+   `lib/target` SDK (`target.filter`). Recommend `build.target_filter` — it's
+   build-graph machinery, not a language toolchain.
 
 ## Recommendation
 
-Add a `--filter <glob>` flag (→ `AEB_FILTER`, one row in `flag_spec`, comma-split
-for sets) and a single `_glob_match` gate in each SDK builder right after
-`out_name` resolves. ~15 lines of plumbing + one gate per builder. It gives
-`.all.ae`-style fat descriptors **per-output addressing** (`aeb .all.ae --filter
-calculator`) without forcing the 30-file explosion the author was avoiding —
-the third option that was missing. The `#filter=` on-target fragment is a later
-sugar once the flag proves out.
+Add `target_filter(b, name) { … }` as a selector-gated block in `lib/build`
+(guard mirrors `_compile_enabled`; selector from bare CLI tokens → `AEB_TARGETS`;
+exact-or-glob comma-set match), body-agnostic so it wraps either a loop iteration
+(zero-dup, recommended for fleets) or a standalone `aether.program`. ~25 lines of
+DSL + CLI plumbing, **no SDK builder touched**. Gives `.all.ae`-style fat
+descriptors per-target addressing (`aeb .all.ae calculator`) without the 30-file
+explosion — and the `name` handles double as what `aeb --targets` would list.
 
 ## Cross-ref
 
 - `../aether-ui/.all.ae` (the motivating 30-output node; do NOT edit — sibling
-  Claude is actively working there)
-- `tools/aebcli/module.ae` (`classify_target`, `parse_argv`, `flag_spec` — where
-  `--filter`/`#filter` parses), `tools/aeb-main.ae` (~754, the `AEB_SCAN` arm to
-  mirror), `lib/aether/module.ae` (`builder program` ~2073, the gate site)
-- `ae-add-implicating-an-aeb-target.md` (the `aeb --targets` lister this pairs with)
+  Claude is active there)
+- `lib/build/module.ae` (`_compile_enabled`/`_execute_enabled` ~491, the
+  env-gate idiom to mirror; home for `target_filter`)
+- `lib/aether/module.ae` (`builder driver_test` ~2200 — nested-closure body
+  plumbing `target_filter` reuses; `output(...)` ~25, the declared name)
+- `tools/aebcli/module.ae` (`classify_target`, `parse_argv` — selector-vs-target
+  token discrimination), `tools/aeb-main.ae` (~685/~754, the `--scan` arm to mirror)
+- `ae-add-implicating-an-aeb-target.md` (`aeb --targets` lister these blocks feed)
