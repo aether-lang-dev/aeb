@@ -53,7 +53,7 @@ fixed along the way live in `asks/` (linked below). Update this as rungs land.
 | 0 | Raw `podman run` (hand-driven) | the layered toolchain image compiles the source | ✅ done |
 | 1 | Real `aeb` in-container | `aeb <target>` in the image assembles the dep closure → artifact | ✅ green |
 | 2 | Agent over HTTP (`run_on=podman`) | the **agent** drives the per-job container: auth → scope → veto → image-override → build | ✅ **green** |
-| 3 | Requester token→image loop | `aeb --prereqs <target>` → map each token to its image → dispatch per node | ◻ next |
+| 3 | Requester token→image loop | `aeb --prereqs <target>` → map each token to its image → dispatch per node | 🟡 code done (`7ae2435`), live-gated |
 | 4 | Multi-image cross-language pipeline | rust `.so` → (artifact threaded) → jdk node compiles against it, each in its own image | ◻ |
 | 5 | 4-toolchain capstone | `directed_graph_build_systems_are_cool` (jdk+kotlin+go+rust) driven entirely from `--prereqs` | ◻ |
 
