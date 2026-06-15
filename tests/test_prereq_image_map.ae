@@ -1,0 +1,36 @@
+// Tests for the requester-side prereq→image mapping (ladder Rung 3): the pure
+// transform from a prereq toolchain token to its toolchain image, and the
+// dominant-token pick for the whole-target dispatch cut. Convention per
+// docs/agent-container-ladder.md: "<lang>:<ver>" -> "aeb-tc:<lang>-<ver>".
+
+import agent (prereq_to_image, dominant_prereq)
+import std.string
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+main() {
+    // prereq_to_image: <lang>:<ver> -> aeb-tc:<lang>-<ver>
+    _eq("rust",   prereq_to_image("rust:1.75"),   "aeb-tc:rust-1.75")
+    _eq("jdk",    prereq_to_image("jdk:21"),       "aeb-tc:jdk-21")
+    _eq("go",     prereq_to_image("go:1.22"),      "aeb-tc:go-1.22")
+    _eq("python", prereq_to_image("python:3.12"),  "aeb-tc:python-3.12")
+    _eq("kotlin", prereq_to_image("kotlin:2.0"),   "aeb-tc:kotlin-2.0")
+    // no version -> aeb-tc:<token>
+    _eq("noversion", prereq_to_image("rust"),      "aeb-tc:rust")
+
+    // dominant_prereq: first token of a whitespace set wins (first-declared)
+    _eq("dom single",  dominant_prereq("rust:1.75"),               "rust:1.75")
+    _eq("dom space",   dominant_prereq("rust:1.75 jdk:21 go:1.22"), "rust:1.75")
+    _eq("dom newline", dominant_prereq("jdk:21\nkotlin:2.0"),       "jdk:21")
+    _eq("dom trimmed", dominant_prereq("  go:1.22  jdk:21 "),       "go:1.22")
+    _eq("dom empty",   dominant_prereq(""),                          "")
+    _eq("dom ws-only", dominant_prereq("   "),                       "")
+
+    // end-to-end: dominant token of a set, then its image
+    _eq("set->image", prereq_to_image(dominant_prereq("jdk:21 rust:1.75")), "aeb-tc:jdk-21")
+}

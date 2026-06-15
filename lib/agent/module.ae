@@ -178,6 +178,43 @@ _image_match(glob: string, image: string) {
     return 0
 }
 
+// prereq_to_image(token) — map a prereq toolchain token to its toolchain
+// image, the requester-side half of the per-job-image protocol (ladder Rung 3).
+// Convention (docs/agent-container-ladder.md): "<lang>:<ver>" -> "aeb-tc:<lang>-<ver>"
+//   "rust:1.75" -> "aeb-tc:rust-1.75"   "jdk:21" -> "aeb-tc:jdk-21"
+//   "go:1.22"   -> "aeb-tc:go-1.22"     "python:3.12" -> "aeb-tc:python-3.12"
+// A token without ':' (no version) -> "aeb-tc:<token>". Pure. The agent gates
+// the result via --allow-image; an operator override (AEB_IMAGE_MAP) is applied
+// by the requesting tool BEFORE falling back to this default derivation.
+prereq_to_image(token: string) {
+    colon = string.index_of(token, ":")
+    if colon < 0 {
+        return string.concat("aeb-tc:", token)
+    }
+    lang = string.substring(token, 0, colon)
+    ver = string.substring(token, colon + 1, string.length(token))
+    return string.concat("aeb-tc:", string.concat(lang, string.concat("-", ver)))
+}
+
+// dominant_prereq(tokens_ws) — pick ONE prereq token from a whitespace-
+// separated set (the whole-target Rung-3 cut: one image for the target). The
+// FIRST token wins — extract-deps emits prereqs in first-seen dep order, so the
+// target's own declared toolchain leads. "" set -> "". Pure.
+dominant_prereq(tokens_ws: string) {
+    t = string.trim(tokens_ws)
+    if string.length(t) == 0 { return string.concat("", "") }
+    // first whitespace-delimited token
+    sp = string.index_of(t, " ")
+    nl = string.index_of(t, "\n")
+    cut = sp
+    if nl >= 0 {
+        if cut < 0 { cut = nl }
+        else { if nl < cut { cut = nl } }
+    }
+    if cut < 0 { return string.concat(t, "") }
+    return string.substring(t, 0, cut)
+}
+
 // _scope_accepts(scope_map, purpose) — 1 if any of the scope's
 // accept_scope globs match the purpose. A scope with NO accept_scope
 // declared accepts everything (open by default in the skeleton).

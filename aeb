@@ -16,6 +16,11 @@ set -eo pipefail
 AETHER="${AETHER:-ae}"
 AEB_HOME="$(cd "$(dirname "$0")" && pwd)"
 export AEB_HOME
+# Absolute path to THIS trampoline, so a tool that needs to re-invoke aeb
+# (e.g. aeb-remote running `aeb --prereqs <target>` to derive a toolchain
+# image, ladder Rung 3) hits the same aeb, not a different one on PATH.
+AEB_SELF="$AEB_HOME/$(basename "$0")"
+export AEB_SELF
 ROOT="$(pwd)"
 
 # --- --version: aeb provenance (from AEB_STAMP) + underlying ae ---

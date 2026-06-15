@@ -30,7 +30,7 @@ import std.string
 import std.io
 import std.http.client
 
-import agent (_lease_node, dispatch_request_json, dispatch_request_json_ex, _json_field, _gen_guid)
+import agent (_lease_node, dispatch_request_json, dispatch_request_json_ex, _json_field, _gen_guid, prereq_to_image, dominant_prereq)
 import std.json
 
 extern println(s: string)
@@ -97,6 +97,30 @@ main() {
     ep = string.substring(leased, 0, tabi)
     tok = string.substring(leased, tabi + 1, string.length(leased))
 
+    // --- 3b. derive the toolchain IMAGE from the target's prereqs (Rung 3). ---
+    // Run `aeb --prereqs <target>` locally, take the dominant (first-declared)
+    // toolchain token, and map it to its image (aeb-tc:<lang>-<ver>). The agent
+    // gates the result via --allow-image. AEB_IMAGE override forces a specific
+    // image (escape hatch / testing); AEB_NO_IMAGE=1 disables derivation (the
+    // agent picks its default, pre-Rung-3 behaviour). Whole-target cut: one
+    // image for the build; per-node fan-out is Rung 4.
+    image = ""
+    forced = os.getenv("AEB_IMAGE")
+    if string.length(forced) > 0 {
+        image = forced
+    } else {
+        if string.equals(os.getenv("AEB_NO_IMAGE"), "1") == 0 {
+            aeb_self = os.getenv("AEB_SELF")
+            if string.length(aeb_self) == 0 { aeb_self = "aeb" }
+            prereqs_ws = _capture("${aeb_self} --prereqs ${target} 2>/dev/null")
+            domtok = dominant_prereq(prereqs_ws)
+            if string.length(domtok) > 0 {
+                image = prereq_to_image(domtok)
+                println("aeb --use-remote-agents: prereq ${domtok} → image ${image}")
+            }
+        }
+    }
+
     // --- 4. dispatch (base + patch). ---
     guid = _gen_guid()
     pdisp = "no-patch"
@@ -108,7 +132,7 @@ main() {
     // on the VM in the tree root instead of `aeb <target>` (requires the agent
     // to be started with --allow-vm-command). "" → default aeb <target> path.
     vm_command = os.getenv("AEB_VM_COMMAND")
-    req_body = dispatch_request_json_ex(guid, target, purpose, gref, ghash, patch_b64, "", vm_command)
+    req_body = dispatch_request_json_ex(guid, target, purpose, gref, ghash, patch_b64, image, vm_command)
     if string.length(vm_command) > 0 {
         println("aeb --use-remote-agents: run_on=vm raw command: ${vm_command}")
     }
