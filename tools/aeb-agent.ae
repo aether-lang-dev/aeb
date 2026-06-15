@@ -1230,16 +1230,34 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
         selabel = os.getenv("AEB_CONTAINER_SELABEL")
         if string.length(selabel) == 0 { selabel = "Z" }
         mnt = string.concat(workdir, string.concat(":/work:", selabel))
-        println("agent: run_on=podman — phase 1 compile-only in ${ctr_image}")
-        // Phase 1: compile (orchestrator + all nodes) IN the container.
-        p1 = string.concat(engine, string.concat(" run --rm -v '", string.concat(mnt, string.concat("' -w /work --entrypoint aeb '", string.concat(ctr_image, string.concat("' --compile-only '", string.concat(target, "'")))))))
-        p1 = string.concat(p1, " > '${log_path}' 2>&1")
-        rc = build._sh(p1)
-        if rc == 0 {
-            // Phase 2: run the host-native orchestrator (execute-only) on the host.
-            orch = string.concat(workdir, "/target/_ae_build_all")
-            p2 = string.concat("AEB_EXECUTE_ONLY=1 '", string.concat(orch, string.concat("' '", string.concat(workdir, "' >> '${log_path}' 2>&1"))))
-            rc = build._sh(p2)
+        // --all-in-container: run the WHOLE build (orchestrator + every node
+        // step) in ONE `podman run`, instead of the two-phase
+        // compile-in-container / execute-on-host duality. Required when the
+        // toolchain lives ONLY in the image and the host can't run any node step
+        // — e.g. a rust cdylib whose `cargo build` (a compile step run as a host
+        // _sh, NOT through the AEB_COMPILE_CONTAINER seam) would hit
+        // `cargo: command not found` on a toolchain-less host. This is exactly
+        // the hand-proven Rung-1 path (`aeb <target>` in the image → .so via the
+        // bind mount). The duality (phase split) stays the default — it's right
+        // when the host HAS runtimes to execute/test against (host-Python etc.).
+        // See asks/run-on-podman-all-in-container-mode-for-pure-compile-toolchains.md.
+        if string.equals(os.getenv("AEB_AGENT_ALL_IN_CONTAINER"), "1") == 1 {
+            println("agent: run_on=podman — all-in-container build in ${ctr_image}")
+            allc = string.concat(engine, string.concat(" run --rm -v '", string.concat(mnt, string.concat("' -w /work --entrypoint aeb '", string.concat(ctr_image, string.concat("' '", string.concat(target, "'")))))))
+            allc = string.concat(allc, " > '${log_path}' 2>&1")
+            rc = build._sh(allc)
+        } else {
+            println("agent: run_on=podman — phase 1 compile-only in ${ctr_image}")
+            // Phase 1: compile (orchestrator + all nodes) IN the container.
+            p1 = string.concat(engine, string.concat(" run --rm -v '", string.concat(mnt, string.concat("' -w /work --entrypoint aeb '", string.concat(ctr_image, string.concat("' --compile-only '", string.concat(target, "'")))))))
+            p1 = string.concat(p1, " > '${log_path}' 2>&1")
+            rc = build._sh(p1)
+            if rc == 0 {
+                // Phase 2: run the host-native orchestrator (execute-only) on the host.
+                orch = string.concat(workdir, "/target/_ae_build_all")
+                p2 = string.concat("AEB_EXECUTE_ONLY=1 '", string.concat(orch, string.concat("' '", string.concat(workdir, "' >> '${log_path}' 2>&1"))))
+                rc = build._sh(p2)
+            }
         }
     } else {
         if string.equals(run_on, "vm") == 1 {
@@ -1416,6 +1434,7 @@ main() {
     run_on = "host"
     ctr_image = ""
     allow_image = ""
+    all_in_container = 0
     allow_vm_command = 0
     vm_host = ""
     vm_dir = ""
@@ -1476,6 +1495,12 @@ main() {
         // <target>). Arbitrary command execution on the VM, so fail-closed:
         // without this flag a dispatch carrying a command is rejected.
         if string.equals(a, "--allow-vm-command") == 1 { allow_vm_command = 1 }
+        // --all-in-container (run_on=podman): run the WHOLE build in one
+        // `podman run` of the per-job image, instead of the compile-in-container
+        // / execute-on-host duality. For a toolchain-only-in-image build (rust
+        // cargo, go, ...) where the host can't run node steps. Default off (the
+        // duality stays default — right when the host has runtimes to execute).
+        if string.equals(a, "--all-in-container") == 1 { all_in_container = 1 }
         // --allow-from <ip>[,<ip>...]: source-IP allow-list (exact IPs), checked
         // before auth against the trusted TCP peer address. Unset = no IP
         // restriction. Defense-in-depth under auth; needs Aether >=0.256.
@@ -1572,6 +1597,7 @@ main() {
     if string.length(ctr_image) > 0 { _e6 = os.setenv("AEB_AGENT_CTR_IMAGE", ctr_image) }
     if string.length(allow_image) > 0 { _e6b = os.setenv("AEB_AGENT_ALLOW_IMAGE", allow_image) }
     if allow_vm_command == 1 { _e6c = os.setenv("AEB_AGENT_ALLOW_VM_COMMAND", "1") }
+    if all_in_container == 1 { _e6d = os.setenv("AEB_AGENT_ALL_IN_CONTAINER", "1") }
     if string.length(allow_from) > 0 { _e6d = os.setenv("AEB_AGENT_ALLOW_FROM", allow_from) }
     // Provisioning-mode config (the handler reconstructs per dispatch).
     if string.length(provision_modes) > 0 { _ep1 = os.setenv("AEB_AGENT_PROVISION_MODES", provision_modes) }
@@ -1662,6 +1688,9 @@ _usage() {
     println("  --ctr-image IMG toolchain image for --run-on podman (e.g. aeb-toolchain:slim); required then")
     println("  --allow-image GLOB  let a dispatch's \"image\" field override --ctr-image if it matches")
     println("                  (trailing '*' = prefix, '*' = any). Without it, only --ctr-image runs.")
+    println("  --all-in-container  (--run-on podman) build the WHOLE target in one container run")
+    println("                  instead of compile-in-container/execute-on-host. For toolchain-")
+    println("                  only-in-image builds (rust cargo, go, ...) on a toolchain-less host.")
     println("  --vm-host HOST  ssh target/alias for --run-on vm (its config may ProxyJump); required then")
     println("  --vm-dir DIR    remote build dir on the VM (--run-on vm; default /tmp/aeb-vm-build)")
     println("  --vm-shell PFX  wrap VM commands as PFX \"<cmd>\" for a non-POSIX default ssh shell, e.g.")
