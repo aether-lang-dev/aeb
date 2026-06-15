@@ -1,5 +1,15 @@
 # run_on=podman needs an all-in-container mode for pure-compile toolchains (rust/go/...)
 
+> **STATUS: RESOLVED** (commit cd92fe9, 2026-06-14/15). Added `--all-in-container`
+> to aeb-agent: when set, run_on=podman does ONE `podman run --rm <image> aeb
+> <target>` (whole build in the per-job image) instead of the phase split. The
+> duality stays default. Proven GREEN end-to-end: a real HTTP dispatch to
+> `aeb-agent --run-on podman --all-in-container --ctr-image aeb-tc:rust-1.75`
+> for the rust node returned `status:done result:pass`, with libvowelbase.so
+> (4.4MB) carrying the Java_components_vowelbase_VowelBase_printString JNI symbol
+> (jni dep merged+linked). Agent trace: ACCEPT → image-override aeb-tc:rust-1.75
+> → all-in-container build → DONE result=pass. Option 1 from below was taken.
+
 **Filed by**: aeb Claude, 2026-06-14, Rung 2 of the agent-driven-container ladder
 — a real HTTP dispatch to `aeb-agent --run-on podman` for google-monorepo-sim's
 rust node, image `aeb-tc:rust-1.75`, on bazzite.
