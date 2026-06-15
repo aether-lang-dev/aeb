@@ -14,6 +14,28 @@ is **node-granular** (one `.build.ae` per request) rather than action-granular
 container**: the image is chosen *per dispatch* from the build's declared
 `prereq`s, not a single fixed worker image.
 
+## Two RBE shapes — both supported
+
+RBE covers two distinct "build remotely, report back" cases, and `aeb-agent`
+does both. They differ in *where the source of truth lives* and *whether a
+commit results*:
+
+| | Shape 1 — **committed build** | Shape 2 — **patch-on-base** |
+|---|---|---|
+| Dispatch carries | `ref` + `hash` (or `mode:advance` + `branch`) | `ref`/`hash` (the BASE) + `patch_b64` (the delta) |
+| Mode | `advance` (track a branch HEAD) / `autoclone` (clone repo#branch fresh) | `patch` |
+| Source of truth | **git** — a real commit anyone can clone | **the dispatch** — the patch is never committed |
+| Use case | CI: "build commit `abc123` / branch HEAD" | dev pre-integration: "build my dirty tree on `main`, is it green?" |
+| Result | the built artifacts / verdict | the verdict — **no commit, no trace left** |
+
+Shape 2 is aeb's headline case (the operating doc's "lease a machine to build
+*this*, no commit as a result"): build an uncommitted patch on a pinned base, on
+a real toolchain box, and report green/red — leaving nothing behind. Hyperscale
+RBE is almost entirely Shape 1; aeb does Shape 1 too but leads with Shape 2. The
+field present is the tell: `ref`+`hash` alone → Shape 1; add `patch_b64` →
+Shape 2. (See [`agent-provisioning-modes.md`](agent-provisioning-modes.md) for
+the `patch`/`advance`/`autoclone` lifecycle axis.)
+
 Running status of the initiative: **one root-level `aeb-agent` on an immutable
 host that, per HTTP dispatch, summons a per-job toolchain container, builds one
 node of a (polyglot) repo in it, and drops the container.** The proving ground
