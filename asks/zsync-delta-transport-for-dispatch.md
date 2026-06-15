@@ -95,20 +95,35 @@ own interface as if it were aeb's. The `.so` carries its license with it; aeb's
 tree never holds Artistic *source*. (This mirrors how the zsync port itself
 already links a small C shim `rcksum/fileio.c` — same pattern, one layer out.)
 
-### The REAL prerequisite is an Aether `.so` export, not the license
+### The `.so` capability EXISTS — the task is small + mechanical
 
-The catch is technical, not legal. zsync is **pure Aether**, and the port
-currently builds **executables** (`build/zsync`, `build/fileserver`), not a
-shared library. For aeb to LINK a zsync `.so`, the Aether toolchain must emit a
-**`c-shared`-style `.so`** from the zsync modules, exporting a stable C-ABI
-surface for the client (seed + `.zsync` URL → fetch changed blocks) and the
-server (generate/serve a `.zsync` over the agent's existing HTTP listener).
-Open question: does aetherc support a `c-shared`/exported-symbol `.so` build?
-(Cf. the tinygo sidecar, where `c-shared` was wasm-only in TinyGo and we used
-standard `go` instead — the analogous Aether question must be answered first.)
-If aetherc can't yet emit such a `.so`, the binary-shell-out path is the clean
-interim, and "aetherc `--emit=c-shared` for a stable-ABI `.so`" becomes its own
-upstream ask.
+Earlier worry resolved: **aetherc already emits shared libraries.**
+`aetherc --emit=<exe|lib|both>` — "lib produces .so/.dylib" — plus
+`--emit-header` for the C embedding header and `--emit-main` for a thin shim.
+So "can Aether produce a `.so` aeb can link?" is **yes**, today. (No `c-shared`
+tinygo-style gap here.)
+
+What's actually missing is just build targets + a stable export surface in the
+zsync port — it currently builds **executables only** (`make bins` →
+`fileserver`, `server_dsl_example`; no `.so`). Verified green on Aether 0.257:
+`make test` = 94/94, several byte-parity-gated vs the original Go (not bit-rotted).
+
+The client/server split maps to two libs:
+- **client** = `zsync/control.ae` (parse `.zsync`) + `zsync/download.ae` (HTTP
+  range fetch of changed blocks) → `libzsync_client.so`
+- **server** = `cmd/fileserver.ae` / `cmd/serverdsl.ae` (serve file + `.zsync`
+  over HTTP) → `libzsync_server.so`
+
+So the work (in the **zsync** repo, keeping it aeb-free and Artistic-2.0) is:
+1. add a `make libs` target: `aetherc --emit=lib <client modules> -o
+   build/libzsync_client.so` (+ `--emit-header`), same for the server;
+2. if the current functions aren't a clean C-ABI, add a thin `extern`-exported
+   wrapper `.ae` exposing the two entry points (client: seed + `.zsync` URL →
+   fetch; server: path → serve file + `.zsync`).
+Then **aeb links those `.so`s** (Artistic §7/§8 — fine; keep the notices). This
+is the explicit motivation: pull zsync's client + server `.so` into aeb to use
+as the delta transport described above — that is WHY the port was made `.so`-able
+in the first place.
 
 ## Prerequisite
 
