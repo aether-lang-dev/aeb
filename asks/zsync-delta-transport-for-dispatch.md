@@ -66,18 +66,49 @@ Mirror the existing rsync|tar selection in `_vm_push`, adding `zsync`:
   hint, defaulting as today (rsync if available, else tar); zsync chosen when
   the slot has a usable seed version and the source exposes a `.zsync`.
 
-## The LICENSE boundary (load-bearing — do not muddy)
+## The LICENSE boundary — linking a `.so` is fine; vendoring source is not
 
-**zsync is Artistic-2.0; aeb is MIT.** The port deliberately keeps ITSELF free
-of any aeb/aeocha dependency so it can stay Artistic and land in Aether's stdlib
-(`aether/std/http/zsync`). aeb must therefore **INVOKE zsync as an external tool
-/ HTTP protocol** — the same way it shells out to `git`, `cargo`, `rsync` — and
-must **NOT vendor or import zsync source** (that would pull Artistic code into an
-MIT tree). Concretely: aeb depends on the zsync *binary* (or the
-`std.http.zsync` API once it lands in Aether, under Aether's own license terms),
-not on `../zsync`'s sources. This is the same arms-length relationship aeb has
-with every other external tool, so it's clean — but it must be stated, because
-inverting it would relicense-contaminate aeb.
+**zsync is Artistic-2.0; aeb is MIT.** Artistic-2.0 is NOT copyleft — it
+explicitly permits linking/embedding into a differently-licensed larger work:
+
+> (7) "You may **aggregate** the Package … with other packages and Distribute
+> the resulting aggregation … licensing fees for **other components** in the
+> aggregation are permitted."
+> (8) "You are permitted to **link** … Standard Versions with other works, to
+> **embed the Package in a larger work of your own** … and Distribute the result
+> without restriction, provided the result does not expose a direct interface to
+> the Package."
+
+So the **cleanest design is: aeb links/loads a prebuilt zsync `.so`** (client +
+server), or shells out to the zsync binary — NOT vendor zsync `.ae` source into
+aeb's tree. The distinction:
+
+| approach | effect | verdict |
+|---|---|---|
+| vendor zsync `.ae` SOURCE into aeb | Artistic source files in an MIT tree — muddies provenance | avoid |
+| aeb **links a prebuilt zsync `.so`** | clause (7)/(8): aggregation/linking OK; zsync keeps its notices, aeb stays MIT | **preferred** |
+| aeb shells out to the zsync binary | arms-length, also clean | fine fallback |
+
+Conditions to honour (all easy): don't charge a licensing fee for zsync itself,
+keep zsync's copyright notices alongside the `.so`, and don't re-expose zsync's
+own interface as if it were aeb's. The `.so` carries its license with it; aeb's
+tree never holds Artistic *source*. (This mirrors how the zsync port itself
+already links a small C shim `rcksum/fileio.c` — same pattern, one layer out.)
+
+### The REAL prerequisite is an Aether `.so` export, not the license
+
+The catch is technical, not legal. zsync is **pure Aether**, and the port
+currently builds **executables** (`build/zsync`, `build/fileserver`), not a
+shared library. For aeb to LINK a zsync `.so`, the Aether toolchain must emit a
+**`c-shared`-style `.so`** from the zsync modules, exporting a stable C-ABI
+surface for the client (seed + `.zsync` URL → fetch changed blocks) and the
+server (generate/serve a `.zsync` over the agent's existing HTTP listener).
+Open question: does aetherc support a `c-shared`/exported-symbol `.so` build?
+(Cf. the tinygo sidecar, where `c-shared` was wasm-only in TinyGo and we used
+standard `go` instead — the analogous Aether question must be answered first.)
+If aetherc can't yet emit such a `.so`, the binary-shell-out path is the clean
+interim, and "aetherc `--emit=c-shared` for a stable-ABI `.so`" becomes its own
+upstream ask.
 
 ## Prerequisite
 
