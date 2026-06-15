@@ -1,0 +1,88 @@
+name: CI
+
+# Build the Aether toolchain from source, then run aeb's unit test suite
+# (tests/run.sh) on every push to main and every PR. This is the quality
+# gate the repo was missing: until now only `autotag.yml` ran, so nothing
+# verified that the SDKs, tools, and cache wiring actually compile and pass
+# their assertions. The suite is fast and needs no language toolchains
+# beyond a JDK (test_java_cache probes `javac -version`); every other
+# cache/SDK test tolerates an absent toolchain by design.
+#
+# aeb is written in Aether, so CI must first obtain `ae`. We build it from
+# the aether repo (aether-lang-org/aether) with its own supported
+# `install.sh` — the same path a developer uses — pinned by the
+# `aether_ref` input (default: main, which carries the fixes aeb depends
+# on). aether's CI build recipe (ubuntu-22.04 + gcc/make/bc/pkg-config/
+# libgtk-4-dev) is mirrored here so the toolchain build is a proven path.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      aether_ref:
+        description: "aether git ref to build (branch, tag, or sha)"
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-tests:
+    name: Unit tests (Linux / ${{ github.event.inputs.aether_ref || 'main' }})
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout aeb
+        uses: actions/checkout@v4
+
+      # JDK so test_java_cache's _jdk_version() (`javac -version`) is
+      # non-empty; harmless for every other test.
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Install Aether build deps
+        run: |
+          set -eux
+          sudo apt-get update
+          # Same dep set as aether's own CI (.github/workflows/ci.yml).
+          sudo apt-get install -y gcc make bc pkg-config libgtk-4-dev
+
+      - name: Checkout aether toolchain source
+        uses: actions/checkout@v4
+        with:
+          repository: aether-lang-org/aether
+          ref: ${{ github.event.inputs.aether_ref || 'main' }}
+          path: aether-src
+          fetch-depth: 0   # install.sh derives its version via git describe
+
+      - name: Build & install Aether
+        run: |
+          set -eux
+          cd aether-src
+          # install.sh builds (make) and installs to ~/.aether, registering
+          # the version + `current` symlink; it skips editor extensions when
+          # no editor is present (CI runner).
+          ./install.sh
+          # Put the `ae` launcher on PATH for subsequent steps.
+          echo "$HOME/.aether/bin" >> "$GITHUB_PATH"
+
+      - name: Verify toolchain
+        run: |
+          set -eux
+          ae --version
+          # Fail fast if a fresh compile is broken before running the suite.
+          printf 'main() {\n  println("ci toolchain ok")\n}\n' > "$RUNNER_TEMP/probe.ae"
+          ae build "$RUNNER_TEMP/probe.ae" -o "$RUNNER_TEMP/probe"
+          "$RUNNER_TEMP/probe"
+
+      - name: Run aeb unit test suite
+        run: ./tests/run.sh
