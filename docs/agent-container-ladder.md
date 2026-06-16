@@ -53,7 +53,7 @@ fixed along the way live in `asks/` (linked below). Update this as rungs land.
 | 0 | Raw `podman run` (hand-driven) | the layered toolchain image compiles the source | ✅ done |
 | 1 | Real `aeb` in-container | `aeb <target>` in the image assembles the dep closure → artifact | ✅ green |
 | 2 | Agent over HTTP (`run_on=podman`) | the **agent** drives the per-job container: auth → scope → veto → image-override → build | ✅ **green** |
-| 3 | Requester token→image loop | `aeb --prereqs <target>` → map each token to its image → dispatch per node | ✅ **green** — wire live-proven (agent `ACCEPT` + `image-override -> aeb-tc:rust-1.75`); build then hits the separate whole-workdir veto |
+| 3 | Requester token→image loop | `aeb --prereqs <target>` → map each token to its image → dispatch per node | ✅ **GREEN (build passes)** — `prereq rust:1.75 → image aeb-tc:rust-1.75` → lease → dispatch → veto-pass → build in-container → `remote build PASSED` rc=0 (2026-06-16) |
 | 4 | Multi-image cross-language pipeline | rust `.so` → (artifact threaded) → jdk node compiles against it, each in its own image | ◻ |
 | 5 | 4-toolchain capstone | `directed_graph_build_systems_are_cool` (jdk+kotlin+go+rust) driven entirely from `--prereqs` | ◻ |
 
@@ -108,9 +108,14 @@ straight from the dev box, start with `--host 0.0.0.0 --allow-from <dev-ip>`
   built (verified on disk) but the verdict's `artifacts[]` array is empty over
   the wire — that list is populated phase-2/host-side. Minor; revisit if the
   requester (Rung 3) needs the manifest in the reply.
-- **Veto is whole-workdir-scoped, not dep-closure-scoped.** A stray
-  `binding.gyp` (ffi-napi) in the workdir vetoed an unrelated rust build. Worth
-  scoping the Tier-A scan to the target's dep closure.
+- **Veto scope — FIXED (pragmatic), perfectionist TODO open.** A stray
+  `binding.gyp` (ffi-napi) in the workdir used to veto an unrelated rust build
+  (whole-workdir scan). Fixed 2026-06-16 (`9a7ae92`): tree/file-scope rules now
+  scan the target's CONTAINING DIRECTORY subtree (`_veto_scan_root`), not the
+  whole worktree — this is what made Rung 3 build-green. TODO(perfectionist)
+  left in code: replace the subtree heuristic with the exact transitive `.ae`
+  dep closure (extract-deps BFS), which also catches deps OUTSIDE the target's
+  dir. See `lib/agent` `_veto_scan_root` + `docs/build-veto-and-sandbox.md`.
 - **Image GC.** Per-job `--rm` drops containers; nothing prunes images. A
   long-lived agent needs an image-GC policy (prune dangling after compose, LRU
   cap).
