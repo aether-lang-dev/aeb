@@ -7,6 +7,41 @@ token→image dispatch) against the live bazzite agent.
 itself is implemented + unit-tested (commit `7ae2435`); this is the lease
 TRANSPORT, orthogonal to the feature.
 
+## RESOLVED (2026-06-16)
+
+Two root causes, both in the requester, NEITHER in the std.http client (a
+standalone probe replicating `_ping_node`'s GET returned `err=[]`, `status=200`,
+full body — the client GET was fine all along):
+
+1. **Pool-separator parse bug.** `_pool_url_of`/`_pool_token_of` only accepted
+   `" - "` (space-dash-space); a TAB-separated pool line (the natural
+   `printf '%s\t%s'` form, which the live test + `aeb-remote`'s own pool writing
+   use) fell through → `_pool_url_of` returned the WHOLE line (token mashed into
+   the URL) and `_pool_token_of` returned `""`. `_ping_node` then GET'd
+   `http://…\tae1…/ping` → unreachable → silent "no leasable agent". Fixed:
+   `_pool_sep_index` + new `_pool_sep_len` accept tab OR " - " (tab wins when
+   both present, so a token containing " - " isn't mis-split); the historic
+   hardcoded `+3` offset is now `_pool_sep_len`-driven. Unit-tested
+   (`tests/test_agent_scope.ae`, tab + mixed cases; suite 111/111).
+
+2. **Dispatch purpose-coverage.** After the parse fix, lease succeeded but the
+   dispatch got 401: `aeb-remote` dispatched with a hardcoded bare `"preint"`,
+   but the leased token's purpose is `preint/phammant/rust`, and the agent
+   checks token-purpose-COVERS-request — a *specific* token does NOT cover a
+   *broader* request. Fixed: `aeb-remote` now dispatches with the leased token's
+   OWN purpose (`_lease_field(tok, 1)`), which coverage trivially admits and the
+   agent's `accept: preint/*` scope still matches.
+
+**Live result:** with both fixes, a real `aeb-remote rust/.../.build.ae` from
+this host: `prereq rust:1.75 → image aeb-tc:rust-1.75` → lease → dispatch → agent
+`ACCEPT` + `image-override -> aeb-tc:rust-1.75` → (then VETOED on an unrelated
+`binding.gyp` in `libs/javascript/npm_vendored/`, the SEPARATE whole-workdir-veto
+issue in docs/agent-container-ladder.md — NOT this bug). So **Rung 3's
+token→image→dispatch wire is proven live end to end**; the remaining gate is the
+veto-scope issue, tracked separately. The second blocker from the original
+filing (agent workdir had no `origin`) was also fixed operator-side (origin set
+to the gms github repo).
+
 ## Symptom
 
 `aeb-remote <target>` (fresh build, has the Rung-3 `--prereqs`/`AEB_SELF` code)

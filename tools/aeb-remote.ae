@@ -30,7 +30,7 @@ import std.string
 import std.io
 import std.http.client
 
-import agent (_lease_node, dispatch_request_json, dispatch_request_json_ex, _json_field, _gen_guid, prereq_to_image, dominant_prereq)
+import agent (_lease_node, dispatch_request_json, dispatch_request_json_ex, _json_field, _gen_guid, prereq_to_image, dominant_prereq, _lease_field)
 import std.json
 
 extern println(s: string)
@@ -86,9 +86,16 @@ main() {
     // Empty diff (clean tree) → no patch; the agent just builds the base.
     patch_b64 = _capture("git diff HEAD 2>/dev/null | base64 -w0 2>/dev/null")
 
-    // --- 3. lease a node from the pool for purpose 'preint'. ---
-    purpose = "preint"
-    leased = _lease_node(pool_content, purpose, "", "")
+    // --- 3. lease a node from the pool. ---
+    // The LEASE/ping probe gates on the agent's accept scope (preint/*), so we
+    // probe with the broad family root "preint". The DISPATCH, however, must
+    // carry a purpose the leased TOKEN covers — a token leased for
+    // "preint/phammant/rust" does NOT cover a bare "preint" request (coverage is
+    // hierarchical: specific token covers requests UNDER it, not broader ones).
+    // So after leasing we dispatch with the token's OWN embedded purpose, which
+    // coverage trivially admits AND the agent's accept scope still matches.
+    lease_purpose = "preint"
+    leased = _lease_node(pool_content, lease_purpose, "", "")
     if string.length(leased) == 0 {
         println("aeb --use-remote-agents: no leasable agent in pool (all busy/unreachable/unauthorized)")
         exit(1)
@@ -96,6 +103,10 @@ main() {
     tabi = string.index_of(leased, "\t")
     ep = string.substring(leased, 0, tabi)
     tok = string.substring(leased, tabi + 1, string.length(leased))
+
+    // Dispatch purpose = the leased token's own purpose (coverage holds).
+    purpose = _lease_field(tok, 1)
+    if string.length(purpose) == 0 { purpose = lease_purpose }
 
     // --- 3b. derive the toolchain IMAGE from the target's prereqs (Rung 3). ---
     // Run `aeb --prereqs <target>` locally, take the dominant (first-declared)

@@ -166,6 +166,23 @@ main() {
     _eq("pool line2 token empty", _pool_token_of(l2), "")
     _assert("pool skips comments + blanks", 1)
 
+    // TAB separator (the natural scripted form: printf '%s\t%s'). The historic
+    // bug: only " - " was accepted, so a tab-separated line returned the WHOLE
+    // line as the URL (token mashed in) + an empty token → silent lease failure.
+    tpool = "http://192.168.0.57:9440\tae1.preint.123.deadbeef\nhttp://mac.local:9440\tmac-tok\n"
+    tlines = _parse_pool(tpool)
+    _assert("tab pool: 2 lines", list.size(tlines) == 2)
+    tl0, _ = list.get(tlines, 0)
+    _eq("tab line0 url",   _pool_url_of(tl0),   "http://192.168.0.57:9440")
+    _eq("tab line0 token", _pool_token_of(tl0), "ae1.preint.123.deadbeef")
+    tl1, _ = list.get(tlines, 1)
+    _eq("tab line1 url",   _pool_url_of(tl1),   "http://mac.local:9440")
+    _eq("tab line1 token", _pool_token_of(tl1), "mac-tok")
+    // A token containing " - " is NOT mis-split when a tab is present (tab wins).
+    mixed = "http://h:9440\tab1 - cd"
+    _eq("tab beats dash url",   _pool_url_of(mixed),   "http://h:9440")
+    _eq("tab beats dash token", _pool_token_of(mixed), "ab1 - cd")
+
     // --- Tier-A veto: pure rule helpers (docs/build-veto-and-sandbox.md) ---
     // _veto_rule_field: tab-split field extraction.
     row = "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id"

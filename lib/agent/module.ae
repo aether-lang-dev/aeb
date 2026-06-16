@@ -409,12 +409,33 @@ _parse_tokens(content: string) {
 // node that is reachable + accepts the purpose + not busy (probed via
 // /ping), falling through to the next on busy/unreachable/reject.
 
-// _pool_url_of(line) / _pool_token_of(line) — split a pool line on the
-// first " - " (space-dash-space) separator. URL is the part before;
-// token the part after (trimmed), or "" if there's no separator. Pure.
+// _pool_url_of(line) / _pool_token_of(line) — split a pool line into URL +
+// token. Accepts EITHER separator: a TAB ("\t") or " - " (space-dash-space).
+// Tab is the natural choice when scripting a pool file (printf '%s\t%s'); the
+// " - " form is the human-written documented one. URL is the part before the
+// FIRST separator found, token the part after (trimmed), or "" if neither is
+// present. Pure.
+//
+// _pool_sep_index returns the separator's start index (-1 if none).
+// _pool_sep_len returns how many chars that separator occupies (1 for tab,
+// 3 for " - "), so the token slice skips the right amount — the historic bug
+// was a hardcoded +3 that only matched " - ".
 _pool_sep_index(line: string) {
-    // find " - " (the documented separator); -1 if absent.
-    return string.index_of(line, " - ")
+    tab = string.index_of(line, "\t")
+    dash = string.index_of(line, " - ")
+    if tab < 0 { return dash }
+    if dash < 0 { return tab }
+    // both present — the earlier one wins
+    if tab < dash { return tab }
+    return dash
+}
+
+_pool_sep_len(line: string) {
+    idx = _pool_sep_index(line)
+    if idx < 0 { return 0 }
+    // tab is 1 char, " - " is 3. Disambiguate by the char AT idx.
+    if string.equals(string.substring(line, idx, idx + 1), "\t") == 1 { return 1 }
+    return 3
 }
 
 _pool_url_of(line: string) {
@@ -428,7 +449,8 @@ _pool_token_of(line: string) {
     t = string.trim(line)
     idx = _pool_sep_index(t)
     if idx < 0 { return "" }
-    return string.trim(string.substring(t, idx + 3, string.length(t)))
+    seplen = _pool_sep_len(t)
+    return string.trim(string.substring(t, idx + seplen, string.length(t)))
 }
 
 // _parse_pool(content) — newline-split a pool file into a list of
