@@ -8,7 +8,7 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _json_field, run_on, max_jobs, accept_scope,
               _parse_tokens, _bearer_strip, ping_json, ping_json_ex,
               _parse_pool, _pool_url_of, _pool_token_of,
-              _veto_rule_field, _veto_scan_cmd, _veto_default_rules,
+              _veto_rule_field, _veto_scan_cmd, _veto_default_rules, _veto_scan_root,
               _image_match,
               _lease_mint, _lease_verify, _lease_verify_any, _lease_field, _lease_sign,
               _lease_purpose_valid, _looks_like_token, _secrets_have_token,
@@ -18,6 +18,7 @@ import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
 import std.string
 import std.list
 import std.map
+import std.fs
 
 extern println(s: string)
 
@@ -212,6 +213,27 @@ main() {
         "grep -qE '^(\\+\\+\\+ |diff --git ).*\\.github/' '/tmp/p.diff' 2>/dev/null")
     // patchpath with NO patch → "" (skip).
     _eq("veto cmd patchpath no patch", _veto_scan_cmd("patchpath", "x", "/srv/repo", ""), "")
+
+    // _veto_scan_root: narrow tree/file scans to the target's dir subtree, so an
+    // unrelated sibling subtree (libs/javascript binding.gyp) doesn't veto a rust
+    // build. Pure-logic branches return `repo` (no filesystem narrowing) for the
+    // cases where narrowing isn't safe/meaningful:
+    _eq("scan-root empty target → repo",   _veto_scan_root("/srv/repo", ""), "/srv/repo")
+    _eq("scan-root non-.ae target → repo", _veto_scan_root("/srv/repo", "rust/components"), "/srv/repo")
+    _eq("scan-root bare .build.ae → repo", _veto_scan_root("/srv/repo", ".build.ae"), "/srv/repo")
+    _eq("scan-root ./.build.ae → repo",    _veto_scan_root("/srv/repo", "./.build.ae"), "/srv/repo")
+    // Positive: a real existing dir narrows to repo/<dir>. /tmp always exists, so
+    // repo="/" + target="tmp/x/.build.ae" → "/tmp/x" IF it exists; build it.
+    _mk = fs.mkdir_p("/tmp/aeb_veto_scope_test/sub")
+    _eq("scan-root real dir narrows",
+        _veto_scan_root("/tmp/aeb_veto_scope_test", "sub/.build.ae"),
+        "/tmp/aeb_veto_scope_test/sub")
+    // Nonexistent target dir → fail-safe back to repo (never narrow to a path
+    // that isn't there, which would scan nothing).
+    _eq("scan-root missing dir → repo",
+        _veto_scan_root("/tmp/aeb_veto_scope_test", "nope/.build.ae"),
+        "/tmp/aeb_veto_scope_test")
+    _cl = fs.delete("/tmp/aeb_veto_scope_test/sub")
 
     // _veto_default_rules: the built-in list is non-empty and well-formed
     // (every row has the 4 tab fields).

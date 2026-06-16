@@ -38,6 +38,7 @@ import std.list
 import std.map
 import std.path
 import std.file
+import std.dir
 import std.cryptography
 
 // --- Originator-side DSL setters (live on _builder) ---
@@ -1329,13 +1330,57 @@ _veto_tree_size_cap(repo: string) {
     return ""
 }
 
-// _veto_run_rules(repo, patch_path) — run every rule; first hit vetoes and
-// returns its reason. "" = allow. The ONE I/O function here (os.system per
-// rule). Rules + reasons come from _veto_rules_from_env (pure).
-_veto_run_rules(repo: string, patch_path: string) {
-    // Tree-size cap first (cheapest decisive check; opt-in via env).
+// _veto_scan_root(repo, target) — the directory tree/file-scope rules scan.
+//
+// PRAGMATIC dep-closure scoping (2026-06-16): instead of the WHOLE worktree,
+// scan only the target's CONTAINING DIRECTORY subtree (e.g. a target
+// `rust/components/vowelbase/.build.ae` → scan `repo/rust/components/vowelbase`).
+// This kills the documented false positive where a stray `binding.gyp` in an
+// UNRELATED sibling subtree (`libs/javascript/npm_vendored/`) vetoed a rust
+// build that never touches it. aeb deps are overwhelmingly co-located by
+// subtree, so the target's dir is a good approximation of its dep closure.
+//
+// TODO(perfectionist): this is a SUBTREE heuristic, not the exact dep closure.
+// A dep that lives OUTSIDE the target's directory (e.g. the target deps
+// `../shared/lib/.build.ae`) is NOT scanned, so a build-grammar escape there is
+// missed. The correct fix is to compute the target's transitive `.ae` closure
+// (extract-deps BFS) and scan exactly the dirs of those files — catches deps
+// anywhere while still excluding unrelated subtrees. That needs the agent to
+// run a closure pass before the veto; deferred to keep this change small. See
+// docs/build-veto-and-sandbox.md + docs/agent-container-ladder.md (the
+// "Veto is whole-workdir-scoped, not dep-closure-scoped" note).
+//
+// Falls back to `repo` (whole tree) when: target is empty, isn't an .ae path,
+// or its derived dir doesn't exist — i.e. the heuristic NEVER narrows away from
+// a real path it can't resolve (fail-safe toward the broader scan). Pure except
+// the dir.exists probe.
+_veto_scan_root(repo: string, target: string) {
+    if string.length(target) == 0 { return repo }
+    if string.ends_with(target, ".ae") == 0 { return repo }
+    tdir = path.dirname(target)
+    // bare ".build.ae" (no dir) → target dir IS the repo root; no narrowing.
+    if string.length(tdir) == 0 { return repo }
+    if string.equals(tdir, ".") == 1 { return repo }
+    root = path.join(repo, tdir)
+    // dir.exists (NOT file.exists — the scan root is a DIRECTORY; file.exists
+    // returns 0 for a dir, which would always fail-safe back to repo).
+    if dir.exists(root) == 0 { return repo }
+    return root
+}
+
+// _veto_run_rules(repo, target, patch_path) — run every rule; first hit vetoes
+// and returns its reason. "" = allow. The ONE I/O function here (os.system per
+// rule). Rules + reasons come from _veto_rules_from_env (pure). tree/file-scope
+// rules scan the target's dep-closure SUBTREE (_veto_scan_root), not the whole
+// worktree; patch-scope rules are unaffected (they scan the patch, which is
+// already the highest-signal slice).
+_veto_run_rules(repo: string, target: string, patch_path: string) {
+    // Tree-size cap first (cheapest decisive check; opt-in via env). Sized over
+    // the WHOLE repo (an oversize tree is a tree-hygiene signal regardless of
+    // which target builds), not the narrowed scan root.
     szveto = _veto_tree_size_cap(repo)
     if string.length(szveto) > 0 { return szveto }
+    scan_root = _veto_scan_root(repo, target)
     rules = _veto_rules_from_env()
     i = 0
     n = list.size(rules)
@@ -1345,7 +1390,7 @@ _veto_run_rules(repo: string, patch_path: string) {
         scope = _veto_rule_field(row, 1)
         pattern = _veto_rule_field(row, 2)
         reason = _veto_rule_field(row, 3)
-        cmd = _veto_scan_cmd(scope, pattern, repo, patch_path)
+        cmd = _veto_scan_cmd(scope, pattern, scan_root, patch_path)
         if string.length(cmd) > 0 {
             if build._sh(cmd) == 0 {
                 // reason + the rule id, so the operator log is actionable.

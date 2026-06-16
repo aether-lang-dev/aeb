@@ -470,8 +470,11 @@ _patch_path_for(guid: string, patch_b64: string) {
 // highest-signal target — the untrusted delta introduced the hit). patch_path is
 // the decoded patch left by _prepare_tree ("" when the dispatch carried none).
 _maybe_veto_build(repo: string, target: string, purpose: string, patch_path: string, image: string) {
-    // Tier A (cheap, text): secret/banned markers over the tree + patch.
-    a = _veto_run_rules(repo, patch_path)
+    // Tier A (cheap, text): secret/banned markers over the target's dep-closure
+    // subtree + patch. Scoping the tree/file scan to the target's subtree (not
+    // the whole worktree) avoids vetoing on an UNRELATED sibling subtree — e.g.
+    // a stray binding.gyp in libs/javascript when building a rust target.
+    a = _veto_run_rules(repo, target, patch_path)
     if string.length(a) > 0 { return a }
     // Layer 2b (AST): the same lib/veto gate `aeb --vet` runs — over the
     // prepared tree's target .ae. extern/exec/net/banned, origin-scoped,
