@@ -4,6 +4,68 @@
 
 ### Added
 
+- **`fetch.git(b)` — the go-get-alike (clone a pinned repo, build a target under
+  it).** A new `lib/fetch` builder that `git clone --branch <ref>`s a repo into a
+  pinned working tree, verifies `HEAD == commit(...)`, and **FAILS LOUD on drift**
+  (the git analogue of `fetch`'s `sha256` pin). Shells out to `git` (no libgit
+  dep), same as the agent's autoclone. Setters: `repo` (req), `into` (req),
+  `ref` (branch/tag), `commit` (the reproducibility pin — strongly recommended;
+  unpinned warns), `depth` (shallow). Idempotent re-run skips the re-clone when
+  an existing tree's HEAD satisfies the pin; publishes `fetched_git_dir`. Proven
+  end-to-end: pulls `../zsync` pinned → builds `cmd/zsync/.build.ae` under the
+  fetched tree → runnable `zsync` binary; bad-pin path fails the build (exit 1).
+  See `asks/aeb-build-fetch-and-emit-lib-for-zsync-so.md`.
+
+- **`dep(b, "git:…")` + `build.pkg_dep` — a git coordinate as a first-class dep.**
+  The go-get-alike inside `dep()`: `git:<repo>[@ref]#<dir:name>[=sha]`. The
+  `git:` classifier branch fires BEFORE the maven `:` test (a coordinate is
+  colon-heavy). Two surfaces, one resolver: `dep("git:…")` (terse, joins the
+  `npm:`/maven: family) and `build.pkg_dep(b, "repo@ref", "dir:name")` (readable
+  two-arg verb). Resolution is fetch-at-extract (model A): `tools/extract-deps`
+  clones the pinned repo into `target/_pkg/<slug>/` and emits the root-relative
+  `.name.ae` path, so the dep DAG points at a real on-disk target; the runtime
+  `build._git_dep` does the same clone idempotently. The synonym resolves via the
+  existing `.name.ae` literal-type rule (`cmd/zsync:zsync` →
+  `cmd/zsync/.zsync.ae`) rooted at the fetched tree — so a repo's `.name.ae` files
+  are its explicit buildable-target surface. **Supply-chain:** `=sha` is the
+  contract (per the `tj-actions` March-2025 tag-repoint class); PIN MISMATCH is
+  enforced at BOTH the extract and runtime layers and fails the build (exit 1).
+  Slug uses `-` not `@` (aeb's `encode_name` symbol encoder handles `/ - .` but
+  not `@`). Parser unit-tested (`tests/test_git_coord_parse.ae`, 26 assertions).
+  Proven against `../zsync`. See `asks/dep-git-coordinate.md`,
+  `asks/ae-add-implicating-an-aeb-target.md`.
+
+- **Ladder Rung 3 — requester `--prereqs → image → dispatch` (RBE per-job-image,
+  live-green).** `aeb-remote` (the `--use-remote-agents` requester) now runs
+  `aeb --prereqs <target>`, picks the dominant toolchain token, and maps it to
+  its image via the convention `<lang>:<ver>` → `aeb-tc:<lang>-<ver>`, passing
+  that into the dispatch's `image` field (the agent gates it via
+  `--allow-image`). Whole-target cut (one image per build; per-node fan-out is
+  Rung 4). New pure helpers `prereq_to_image` + `dominant_prereq` in `lib/agent`
+  (`tests/test_prereq_image_map.ae`, 13 assertions); `AEB_IMAGE` forces an image,
+  `AEB_NO_IMAGE=1` disables derivation; the trampoline exports `AEB_SELF` so the
+  `--prereqs` re-invocation hits the same aeb. Proven live end to end on bazzite:
+  `prereq rust:1.75 → image aeb-tc:rust-1.75` → lease → dispatch → veto-pass →
+  build in the `aeb-tc:rust-1.75` container → `remote build PASSED` rc=0. See
+  `docs/agent-container-ladder.md`.
+
+- **`aether.program` per-node `lib(dir)` setter — extra aetherc `--lib` search
+  dir.** The Aether-side twin of `include_dir` (gcc `-I`). A node whose source
+  `import`s sibling modules from a repo subdir OTHER than its source dir / root
+  can now add that dir to aetherc's module search path:
+  `lib("${root}/aevg")`. Works on BOTH compile paths — the default `ae build`
+  shell-out and the manual `aetherc`+gcc path (the `no_closure_regen`/
+  `extra_source` case) — appending repeated `--lib <dir>` AFTER the env-derived
+  `AEB_COMPILE_LIB`, so a node only ADDS to the search path, never loses it.
+  Relative → source_dir, absolute passthrough (include_dir's rule); folded into
+  the link cache key (a changed sibling module on the lib path invalidates);
+  container compile path rewrites the dirs `root/…→/work/…`. `program_test`/
+  `driver_test` get it free (same `_build_binary` path). Unblocks moving a
+  project's app *sources* into per-app dirs that import shared sibling modules
+  (the aether-ui aevg migration). Pure helpers unit-tested
+  (`tests/test_aether_lib_dirs.ae`, 9 assertions). See
+  `asks/aether-program-per-node-lib-search-path.md`.
+
 - **Agent-driven per-job container builds (`run_on=podman`
   `--all-in-container`) — Remote Build Execution (RBE).** To a developer this is
   RBE: a thin client dispatches a build, it runs on a remote executor with the
@@ -225,6 +287,32 @@
   flagged as thickenings).
 
 ### Fixed
+
+- **Agent lease transport + dispatch purpose (the Rung-3 live blockers).** Two
+  requester-side bugs (NOT the std.http client, which a probe proved returns 200)
+  blocked any live `aeb --use-remote-agents` dispatch: (1) the pool parser
+  (`lib/agent` `_pool_url_of`/`_pool_token_of`) only accepted `" - "` as the
+  url↔token separator, so a TAB-separated pool line (the natural `printf
+  '%s\t%s'` form) returned the whole line as the URL and an empty token →
+  `_ping_node` GET'd a garbage URL → silent "no leasable agent". Now accepts tab
+  OR `" - "` (tab wins when both present; the hardcoded `+3` offset is
+  length-driven). (2) `aeb-remote` dispatched a hardcoded bare `"preint"` purpose,
+  but the leased token's purpose is `preint/phammant/rust` and the agent checks
+  token-COVERS-request (a specific token can't cover a broader request) → 401;
+  now dispatches with the token's OWN purpose (`_lease_field(tok, 1)`).
+  Unit-tested in `tests/test_agent_scope.ae` (tab + mixed-separator cases).
+
+- **Agent Tier-A veto scoped to the target's dep-closure subtree (no more
+  whole-workdir false positives).** A stray `binding.gyp` in an unrelated sibling
+  subtree (`libs/javascript/npm_vendored/`) used to veto a rust build that never
+  touches it. `tree`/`file`-scope rules now scan `_veto_scan_root(repo, target)`
+  — the target's containing-directory subtree — instead of the whole worktree
+  (aeb deps are overwhelmingly co-located by subtree). Fail-safe: empty/non-`.ae`/
+  bare/`.`/missing-dir targets fall back to the whole repo (never narrows to a
+  path it can't resolve). Patch-scope + tree-size-cap rules unchanged. A
+  `TODO(perfectionist)` in code notes the exact transitive-`.ae`-closure
+  (extract-deps BFS) as the eventual replacement. This is what took Rung 3 from
+  wire-green to **build-green**. Unit-tested (`_veto_scan_root`, 6 cases).
 
 - **Silent-green follow-up: don't trust the node fn's implicit return.**
   The first cut of the silent-green fix captured `_rc = <node>(s)` and
