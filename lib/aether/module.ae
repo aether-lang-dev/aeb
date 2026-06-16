@@ -266,6 +266,27 @@ include_dir(_ctx: ptr, dir: string) {
     _e2 = list.add(dirs, dir)
 }
 
+// lib(dir) — add an aetherc `--lib` module-search directory for THIS node's
+// Aether compile. The Aether-side twin of include_dir (which is gcc `-I`).
+//
+// A node whose source `import`s sibling modules that live in a repo subdir
+// OTHER than the source dir or repo root needs this: the orchestrator's
+// AEB_COMPILE_LIB path is `<aeb_lib>:<repo_root>`, so an app at
+// `aevg/apps/rubiks_cube/rubiks_cube.ae` importing `vg`/`vg_live` from `aevg/`
+// can't resolve them. `lib("${root}/aevg")` adds that dir to the search path.
+//
+// Appended AFTER the env-derived AEB_COMPILE_LIB flags, so a node can only ADD
+// to the orchestrator's path, never lose it. Relative dirs resolve against
+// source_dir; absolute pass through (same rule as include_dir / extra_source).
+// Repeatable. Folded into the link cache key so a changed lib path invalidates.
+lib(_ctx: ptr, dir: string) {
+    if map.has(_ctx, "lib") == 0 {
+        _e1 = map.put(_ctx, "lib", list.new())
+    }
+    dirs, _ = map.get(_ctx, "lib")
+    _e2 = list.add(dirs, dir)
+}
+
 // regen(ae_path) — declare an Aether source whose paired
 // `_generated.c` should be (re)built via `aetherc --emit=lib` before
 // linking. Path is module-relative (resolved against source_dir).
@@ -762,6 +783,37 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
                 jf = jf + 1
             }
         }
+
+        // Per-node lib() dirs: hash the dir path AND the .ae modules directly
+        // inside (so a changed sibling module on the lib path busts the key —
+        // the transitive-import scan resolves against source_dir/ancestors, not
+        // these extra lib dirs, so it wouldn't otherwise see them). Mirrors the
+        // include_dir contribution above.
+        if map.has(builder_map, "lib") == 1 {
+            lib_dirs = _node_lib_dirs(builder_map, source_dir)
+            nld = list.size(lib_dirs)
+            ldi = 0
+            while ldi < nld {
+                ldd, _ = list.get(lib_dirs, ldi)
+                ldi = ldi + 1
+                list.add(parts, string.concat("libdir:", ldd))
+                lmatches, _gle = fs.glob(string.concat(ldd, "/*.ae"))
+                if lmatches != null {
+                    lmc = dir_list_count(lmatches)
+                    lmi = 0
+                    while lmi < lmc {
+                        lmf = dir_list_get(lmatches, lmi)
+                        lmi = lmi + 1
+                        lh, lhe = cache.hash_file(lmf)
+                        if string.length(lhe) == 0 {
+                            list.add(parts, string.concat("libfile:", string.concat(lmf, "")))
+                            list.add(parts, string.concat("libfile-hash:", lh))
+                        }
+                    }
+                    dir_list_free(lmatches)
+                }
+            }
+        }
     }
 
     // Shared-lib deps (cross-language outputs, e.g. Rust cdylibs).
@@ -846,6 +898,47 @@ _resolved_user_include_dirs(builder_map: ptr, source_dir: string) {
             }
         }
         list.add(out, rd)
+        i = i + 1
+    }
+    return out
+}
+
+// _node_lib_dirs(builder_map, source_dir) — the node's lib() dirs, resolved
+// (relative → source_dir, absolute passthrough), as a list. Mirrors the
+// include_dir collector above. Used both for the aetherc --lib flags and the
+// cache key (so a changed lib path invalidates the link).
+_node_lib_dirs(builder_map: ptr, source_dir: string) {
+    out = list.new()
+    if builder_map == null { return out }
+    if map.has(builder_map, "lib") == 0 { return out }
+    dirs, _ = map.get(builder_map, "lib")
+    n = list.size(dirs)
+    i = 0
+    while i < n {
+        d, _ = list.get(dirs, i)
+        rd = d
+        if string.length(d) > 0 {
+            if string.equals(string.substring(d, 0, 1), "/") == 0 {
+                rd = path.join(source_dir, d)
+            }
+        }
+        list.add(out, rd)
+        i = i + 1
+    }
+    return out
+}
+
+// _node_lib_flags(builder_map, source_dir) — the repeated " --lib <dir>"
+// fragment for the node's lib() dirs (resolved). "" when none. Repeated flags
+// (not a joined value) keep it Windows-shell-safe, matching _ae_build_lib_flags.
+_node_lib_flags(builder_map: ptr, source_dir: string) {
+    dirs = _node_lib_dirs(builder_map, source_dir)
+    out = ""
+    n = list.size(dirs)
+    i = 0
+    while i < n {
+        d, _ = list.get(dirs, i)
+        out = string.concat(out, string.concat(" --lib ", d))
         i = i + 1
     }
     return out
@@ -990,8 +1083,9 @@ _ae_build_lib_flags(compile_lib: string) {
     return out
 }
 
-_shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
+_shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string) {
     mod_dir = build._get(ctx, "module_dir")
+    source_dir = build._get(ctx, "source_dir")
     ae_bin = os.getenv("AETHER")
     if string.length(ae_bin) == 0 {
         ae_bin = "ae"
@@ -1018,6 +1112,9 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
     // Repeated flags (not a `;`/`:`-joined value) so it's Windows-shell-safe
     // (the cmd.exe∘sh quoting law — see lib/build's _sh).
     lib_flags = _ae_build_lib_flags(os.getenv("AEB_COMPILE_LIB"))
+    // Per-node lib() dirs (appended after the env path, so a node only ADDS).
+    // See asks/aether-program-per-node-lib-search-path.md.
+    lib_flags = string.concat(lib_flags, _node_lib_flags(builder_map, source_dir))
 
     // COMPILE-DELEGATION (docs/two-aeb-duality.md): when AEB_COMPILE_CONTAINER
     // names a toolchain image, this compile step runs IN that container
@@ -1053,7 +1150,7 @@ _shell_out_ae_build(ctx: ptr, src_path: string, bin_path: string) {
     // affects where aether.toml ([build] cflags/link_flags) is picked up. The
     // first target to actually need this was hosttinygo (link_flags = "-lffi"
     // for the libffi-using tinygo bridge); the other bridges had empty tomls.
-    source_dir = build._get(ctx, "source_dir")
+    // (source_dir read at the top of this fn.)
     cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag} ${src_path} -o ${bin_path}${lib_flags}"
     rc = build._sh(cmd)
     if rc != 0 {
@@ -1787,6 +1884,11 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     if string.length(compile_lib_env) > 0 {
         lib_flag = " --lib ${compile_lib_env}"
     }
+    // Per-node lib() dirs, appended AFTER the env path so a node only ADDS to
+    // the orchestrator's search path. Lets an app import sibling modules from a
+    // repo subdir other than its source dir / root (e.g. aevg/apps/* importing
+    // vg/* from aevg/). See asks/aether-program-per-node-lib-search-path.md.
+    lib_flag = string.concat(lib_flag, _node_lib_flags(builder_map, source_dir))
     ac_cmd = "${aetherc}${lib_flag} ${src_path} ${c_path}"
     rc = build._sh(ac_cmd)
     if rc != 0 {
@@ -1938,7 +2040,7 @@ _build_binary(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, c_
     if string.length(_collect_shared_libs(ctx)) > 0 {
         return _compile_and_link(ctx, builder_map, src_path, bin_path, c_path)
     }
-    return _shell_out_ae_build(ctx, src_path, bin_path)
+    return _shell_out_ae_build(ctx, builder_map, src_path, bin_path)
 }
 
 _default_source_name(ctx: ptr) {

@@ -1,0 +1,60 @@
+// Unit tests for the aether.program per-node lib() search-path helpers
+// (asks/aether-program-per-node-lib-search-path.md) — the Aether-side twin of
+// include_dir. _node_lib_dirs resolves the dirs (relative → source_dir,
+// absolute passthrough); _node_lib_flags renders the repeated " --lib <dir>"
+// fragment. Pure helpers — no toolchain or filesystem needed.
+
+import aether (_node_lib_dirs, _node_lib_flags)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+_eqs(a: string, b: string) {
+    if string.equals(a, b) == 1 { return 1 }
+    return 0
+}
+
+main() {
+    // --- _node_lib_dirs: relative resolves against source_dir, absolute passes ---
+    bm = map.new()
+    ld = list.new()
+    list.add(ld, "aevg")              // relative → source_dir/aevg
+    list.add(ld, "/abs/shared")        // absolute → passthrough
+    map.put(bm, "lib", ld)
+    res = _node_lib_dirs(bm, "/src")
+    _assert("two resolved lib dirs", list.size(res) == 2)
+    r0, _ = list.get(res, 0)
+    r1, _ = list.get(res, 1)
+    _assert("relative lib dir resolves to source_dir", _eqs(r0, "/src/aevg"))
+    _assert("absolute lib dir passes through", _eqs(r1, "/abs/shared"))
+
+    // --- _node_lib_flags: repeated " --lib <dir>", resolved ---
+    _assert("lib flags render repeated --lib",
+        _eqs(_node_lib_flags(bm, "/src"), " --lib /src/aevg --lib /abs/shared"))
+
+    // No lib() declared → empty (no NPE on a bare builder).
+    bm2 = map.new()
+    _assert("no lib() -> empty dirs", list.size(_node_lib_dirs(bm2, "/src")) == 0)
+    _assert("no lib() -> empty flags", _eqs(_node_lib_flags(bm2, "/src"), ""))
+
+    // Null builder → empty (the block-less default-path case passes null-ish maps).
+    _assert("null builder -> empty dirs", list.size(_node_lib_dirs(null, "/src")) == 0)
+    _assert("null builder -> empty flags", _eqs(_node_lib_flags(null, "/src"), ""))
+
+    // Single absolute dir (the common `lib("${root}/aevg")` shape after the
+    // .build.ae interpolates ${root} to an absolute path).
+    bm3 = map.new()
+    ld3 = list.new()
+    list.add(ld3, "/repo/aevg")
+    map.put(bm3, "lib", ld3)
+    _assert("single absolute lib flag",
+        _eqs(_node_lib_flags(bm3, "/repo/apps/x"), " --lib /repo/aevg"))
+
+    println("aether lib-dir tests done")
+}

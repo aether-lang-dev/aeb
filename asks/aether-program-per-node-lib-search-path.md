@@ -1,6 +1,19 @@
 # `aether.program` needs a per-node `lib()` setter (extra aetherc `--lib` search dir)
 
-> **STATUS: PROPOSED (2026-06-16).** Not yet implemented.
+> **STATUS: IMPLEMENTED (2026-06-16).** `lib(_ctx, dir)` setter on
+> `aether.program` (and `program_test`/`driver_test`, which route through the
+> same `_build_binary`). Works on BOTH compile paths — the default `ae build`
+> shell-out (`_shell_out_ae_build`) and the manual `aetherc`+gcc path
+> (`_compile_and_link`) — appending repeated `--lib <dir>` AFTER the env-derived
+> `AEB_COMPILE_LIB` (a node only ADDS to the search path). Relative dirs resolve
+> against source_dir, absolute pass through (same rule as `include_dir`). Folded
+> into the link cache key (`_node_lib_dirs` + per-`.ae`-in-dir hashing) so a
+> changed sibling module on the lib path invalidates. Container compile path
+> rewrites the dirs root/…→/work/… like the env libs. Pure helpers
+> `_node_lib_dirs`/`_node_lib_flags` unit-tested (`tests/test_aether_lib_dirs.ae`,
+> 9 assertions). Proven end-to-end: an app in `apps/hello/` importing a sibling
+> module from `shared/` via `lib("${root}/shared")` compiles + runs, and editing
+> the sibling busts the cache (`[hit]`→`[miss]`). Suite 112/112.
 
 **Filed by**: the aether-ui GUI-toolkit project (sibling claude session), while
 migrating the repo to per-app `.build.ae` nodes. The 11 toolkit examples moved
