@@ -9,6 +9,18 @@ hard build break, not a soft staleness.
 The toolchain images can't run a current `.build.ae`, and can't be refreshed
 in place.
 
+**UPDATE 2026-06-18 — now the explicit blocker for ladder Rung 4 (two-image
+cross-language).** The per-node container mechanism (`AEB_NODE_CONTAINER=1` in
+aeb-driver) is built + proven for one image: the rust node built
+`libvowelbase.so` in `aeb-tc:rust-1.75`. The two-image proof (rust `.so` → jdk
+node links it in `aeb-tc:jdk-21`) is gated SOLELY on this: the `aeb-tc:jdk-21`
+image carries **ae 0.209**, but current aeb needs a higher floor — refreshing
+that image's aeb fails at `tools/aeb-cli.ae` because its ae can't compile current
+aeb. The `aeb-tc:rust-1.75` image refreshed cleanly because it already had
+**ae 0.257**. So the fix is concrete: rebuild the toolchain images on an ae ≥ the
+floor (and have the image build ASSERT the floor) before the cross-language
+ladder can be two-image-green.
+
 ## The two stale layers, stacked
 
 ```

@@ -54,7 +54,7 @@ fixed along the way live in `asks/` (linked below). Update this as rungs land.
 | 1 | Real `aeb` in-container | `aeb <target>` in the image assembles the dep closure → artifact | ✅ green |
 | 2 | Agent over HTTP (`run_on=podman`) | the **agent** drives the per-job container: auth → scope → veto → image-override → build | ✅ **green** |
 | 3 | Requester token→image loop | `aeb --prereqs <target>` → map each token to its image → dispatch per node | ✅ **GREEN (build passes)** — `prereq rust:1.75 → image aeb-tc:rust-1.75` → lease → dispatch → veto-pass → build in-container → `remote build PASSED` rc=0 (2026-06-16) |
-| 4 | Multi-image cross-language pipeline | rust `.so` → (artifact threaded) → jdk node compiles against it, each in its own image | ◻ |
+| 4 | Multi-image cross-language pipeline | rust `.so` → (artifact threaded) → jdk node compiles against it, each in its own image | 🟡 **mechanism green** — `AEB_NODE_CONTAINER=1` (aeb-driver) routes each node to its own prereq-image; rust node built `libvowelbase.so` in `aeb-tc:rust-1.75` via the per-node driver, threaded via the `/work` mount (2026-06-18). Two-image proof gated on the **jdk image's stale ae base (0.209)** — the version-floor ask, NOT the driver. |
 | 5 | 4-toolchain capstone | `directed_graph_build_systems_are_cool` (jdk+kotlin+go+rust) driven entirely from `--prereqs` | ◻ |
 
 ## What's proven (Rungs 0–2)
