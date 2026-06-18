@@ -192,8 +192,14 @@ main() {
     if string.length(engine) == 0 { engine = "podman" }
     selabel = os.getenv("AEB_CONTAINER_SELABEL")
     if string.length(selabel) == 0 { selabel = "Z" }
-    // extract-deps lives beside this tool (same tools/ dir as out_bin's siblings).
-    extract_deps_bin = path.join(path.dirname(out_bin), "extract-deps")
+    // extract-deps lives in $AEB_HOME/tools (NOT beside out_bin, which is the
+    // generated target/_ae_build_all). Fall back to bare "extract-deps" on PATH.
+    aebhome = os.getenv("AEB_HOME")
+    extract_deps_bin = "extract-deps"
+    if string.length(aebhome) > 0 {
+        cand = path.join(path.join(aebhome, "tools"), "extract-deps")
+        if file.exists(cand) == 1 { extract_deps_bin = cand }
+    }
     node_image = map.new()
     if node_container == 1 {
         ii = 0
