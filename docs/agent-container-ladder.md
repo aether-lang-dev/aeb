@@ -54,7 +54,7 @@ fixed along the way live in `asks/` (linked below). Update this as rungs land.
 | 1 | Real `aeb` in-container | `aeb <target>` in the image assembles the dep closure → artifact | ✅ green |
 | 2 | Agent over HTTP (`run_on=podman`) | the **agent** drives the per-job container: auth → scope → veto → image-override → build | ✅ **green** |
 | 3 | Requester token→image loop | `aeb --prereqs <target>` → map each token to its image → dispatch per node | ✅ **GREEN (build passes)** — `prereq rust:1.75 → image aeb-tc:rust-1.75` → lease → dispatch → veto-pass → build in-container → `remote build PASSED` rc=0 (2026-06-16) |
-| 4 | Multi-image cross-language pipeline | rust `.so` → (artifact threaded) → jdk node compiles against it, each in its own image | 🟡 **mechanism green** — `AEB_NODE_CONTAINER=1` (aeb-driver) routes each node to its own prereq-image; rust node built `libvowelbase.so` in `aeb-tc:rust-1.75` via the per-node driver, threaded via the `/work` mount (2026-06-18). Two-image proof gated on the **jdk image's stale ae base (0.209)** — the version-floor ask, NOT the driver. |
+| 4 | Multi-image cross-language pipeline | rust `.so` → (artifact threaded) → jdk node compiles against it, each in its own image | ✅ **GREEN** — `AEB_NODE_CONTAINER=1` (aeb-driver) routes each node to its own prereq-image: rust node built `libvowelbase.so` in `aeb-tc:rust-1.75` (cargo), jdk node built `VowelBase.class` in `aeb-tc:jdk-21` (javac) linking the `.so` threaded via the `/work` mount — all rc=0 (2026-06-18). Required refreshing the jdk image to a current ae (0.281) base. |
 | 5 | 4-toolchain capstone | `directed_graph_build_systems_are_cool` (jdk+kotlin+go+rust) driven entirely from `--prereqs` | ◻ |
 
 ## What's proven (Rungs 0–2)
@@ -71,6 +71,39 @@ fixed along the way live in `asks/` (linked below). Update this as rungs land.
   (4.4 MB) with the `Java_components_vowelbase_VowelBase_printString` JNI symbol
   (so the vendored `jni` dep merged + linked). The host has no rust toolchain —
   it all happens in the ephemeral `--rm` container.
+
+## Per-node container routing (Rung 4, green 2026-06-18)
+
+`AEB_NODE_CONTAINER=1` makes `aeb-driver` (the per-node-subprocess runner) build
+**each node in the toolchain image its OWN `prereq` selects** — not one image for
+the whole flattened target. A cross-language DAG then spans multiple images:
+
+- For each node, `extract-deps --prereqs <node>` gives that node's own prereq
+  token → `agent.prereq_to_image` → its image (`rust:1.75` → `aeb-tc:rust-1.75`).
+- The node's Makefile recipe becomes, in that image (root bind-mounted at
+  `/work`): `aeb --noexe <node>` (link the in-image orchestrator) `&&`
+  `_ae_build_all /work <label>` (run **only this node** via the orchestrator's
+  per-node label selector — so deps, whose labels don't match, are NOT
+  recompiled in the wrong image).
+- Sibling artifacts thread through the shared `/work` mount: the rust node's
+  `.so` is on disk when the jdk node's `javac` links it.
+
+Two non-obvious constraints this design encodes (both verified):
+- **Glibc.** The host-linked `_ae_build_all` won't run in an image with a
+  different glibc (host 2.42 vs image 2.36 → `GLIBC_2.42 not found`), so each node
+  builds with the IMAGE's own aeb/toolchain, not the host orchestrator binary.
+- **Single-node, not closure.** `aeb <node>` would rebuild the node's deps in
+  THIS image (a rust dep cargo-building in the jdk image → `cargo: not found`).
+  The `--noexe` + label-selector two-step builds exactly one node.
+
+Proven on `google-monorepo-sim`: `aeb java/components/vowelbase` with
+`AEB_NODE_CONTAINER=1` → rust node `libvowelbase.so` in `aeb-tc:rust-1.75`
+(cargo), jdk node `VowelBase.class` in `aeb-tc:jdk-21` (javac) linking that `.so`,
+all rc=0. Zero SDK changes — the wrap is at the node-subprocess boundary.
+
+This is the BUILD-layer form (works with plain `aeb`, no agent). The agent's
+`--all-in-container` (one image for the whole build) stays the right choice for a
+single-language dispatch; per-node routing is for cross-language DAGs.
 
 ## The hop chain (Rung 2, today)
 
