@@ -100,12 +100,20 @@ _node_image(node: string, extract_deps_bin: string) {
 // fixes). A stale image aeb fails cryptically — see
 // asks/toolchain-image-aether-version-floor.md.
 _container_node_invocation(node: string, root: string, image: string, engine: string, selabel: string) {
+    // -e AEB_NODE_CONTAINER=0: the INNER aeb (building this one node in the
+    // image) must NOT itself try to route nodes into nested containers — it
+    // builds host-native (which, inside the image, IS the toolchain). Without
+    // this the per-node routing would recurse.
+    // --compile-only: build the node's artifact (e.g. cargo build → .so) but
+    // skip the run/test step — the artifact threads to consumers via the mount;
+    // execution belongs to the host/duality. (`--noexe` is WRONG here: it stops
+    // after linking the orchestrator, before the node compile.)
     mnt = string.concat(root, string.concat(":/work:", selabel))
-    inv = string.concat(engine, " run --rm -v '")
+    inv = string.concat(engine, " run --rm -e AEB_NODE_CONTAINER=0 -v '")
     inv = string.concat(inv, mnt)
     inv = string.concat(inv, "' -w /work --entrypoint aeb '")
     inv = string.concat(inv, image)
-    inv = string.concat(inv, "' --noexe '")
+    inv = string.concat(inv, "' --compile-only '")
     inv = string.concat(inv, node)
     inv = string.concat(inv, "'")
     return inv
