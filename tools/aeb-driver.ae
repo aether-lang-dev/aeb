@@ -21,6 +21,7 @@
 // to the all-in-one path.
 import build
 import aeblabel (file_to_label, infer_type)
+import agent (prereq_to_image)
 import std.string
 import std.os
 import std.io
@@ -54,16 +55,81 @@ _first_word(line: string) {
     return string.substring(line, 0, sp)
 }
 
+// _node_image(node, extract_deps_bin) — the toolchain image THIS node should
+// build in, or "" for host-native. Reads the node's OWN prereq token (NOT the
+// transitive set: `extract-deps --prereqs <one-file>` returns that file's own
+// prereqs) and maps it via agent.prereq_to_image (rust:1.75 → aeb-tc:rust-1.75).
+// Per-node-image routing (ladder Rung 4): a cross-language DAG builds each node
+// in its own image — the rust node in the rust image, the jdk node in the jdk
+// image — instead of forcing one image on the whole flattened target. Only the
+// FIRST prereq token is used (a single node is one toolchain; multi-toolchain
+// belongs to separate dep nodes). "" prereq → "" image (host-native node).
+_node_image(node: string, extract_deps_bin: string) {
+    raw, eerr = build._sh_capture(string.concat(extract_deps_bin, string.concat(" --prereqs '", string.concat(node, "' 2>/dev/null"))))
+    if string.length(eerr) > 0 { return string.concat("", "") }
+    t = string.trim(raw)
+    if string.length(t) == 0 { return string.concat("", "") }
+    // first whitespace/newline-delimited token
+    sp = string.index_of(t, " ")
+    nl = string.index_of(t, "\n")
+    cut = sp
+    if nl >= 0 {
+        if cut < 0 { cut = nl }
+        else { if nl < cut { cut = nl } }
+    }
+    tok = t
+    if cut >= 0 { tok = string.substring(t, 0, cut) }
+    if string.length(tok) == 0 { return string.concat("", "") }
+    return prereq_to_image(tok)
+}
+
+// _container_node_invocation(node, root, image, engine, selabel) — run ONE
+// node by building it with the IMAGE's OWN aeb (`<engine> run <image> aeb
+// <node>`), NOT the host orchestrator binary. This is the robust model: a
+// host-linked `_ae_build_all` is built against the host glibc and will NOT run
+// in an image with a different glibc (verified: host glibc 2.42 vs image 2.36 →
+// `GLIBC_2.42 not found`). So the node compiles with the image's matched
+// toolchain. root is bind-mounted at /work; the node target path is root-
+// relative (== /work-relative after the mount), so a sibling node's artifact
+// (e.g. a rust .so under target/) threads to a consumer node (the jdk javac
+// link) through the shared mount. `--noexe` compiles + links the node's
+// artifact but skips the run/test step (cross-language artifacts are produced;
+// execution belongs to the host/duality). Pure string assembly.
+//
+// REQUIRES: the image carries a recent-enough aeb (the per-node prereq model +
+// fixes). A stale image aeb fails cryptically — see
+// asks/toolchain-image-aether-version-floor.md.
+_container_node_invocation(node: string, root: string, image: string, engine: string, selabel: string) {
+    mnt = string.concat(root, string.concat(":/work:", selabel))
+    inv = string.concat(engine, " run --rm -v '")
+    inv = string.concat(inv, mnt)
+    inv = string.concat(inv, "' -w /work --entrypoint aeb '")
+    inv = string.concat(inv, image)
+    inv = string.concat(inv, "' --noexe '")
+    inv = string.concat(inv, node)
+    inv = string.concat(inv, "'")
+    return inv
+}
+
 // One per-node shell command: run the node, log it, record rc, fail with
 // the node's rc. Written for a Makefile recipe (`$` -> `$$`) AND reused
 // verbatim by the sequential fallback (where `$$`/`$?` are plain shell).
-_node_cmd(out_bin: string, root: string, label: string, log: string, rcmark: string) {
-    c = string.concat("'", out_bin)
-    c = string.concat(c, "' '")
-    c = string.concat(c, root)
-    c = string.concat(c, "' '")
-    c = string.concat(c, label)
-    c = string.concat(c, "' > '")
+//
+// `image` (Rung 4): when non-empty AND AEB_NODE_CONTAINER=1, the node-subprocess
+// runs INSIDE that toolchain image via `<engine> run`, instead of host-native —
+// so each node of a cross-language DAG builds in its own image. "" → host-native
+// (today's behaviour, unchanged).
+_node_cmd(out_bin: string, root: string, node: string, label: string, log: string, rcmark: string, image: string, engine: string, selabel: string) {
+    inner = string.concat("'", out_bin)
+    inner = string.concat(inner, "' '")
+    inner = string.concat(inner, root)
+    inner = string.concat(inner, "' '")
+    inner = string.concat(inner, label)
+    inner = string.concat(inner, "'")
+    if string.length(image) > 0 {
+        inner = _container_node_invocation(node, root, image, engine, selabel)
+    }
+    c = string.concat(inner, " > '")
     c = string.concat(c, log)
     c = string.concat(c, "' 2>&1; _r=$$?; echo $$_r > '")
     c = string.concat(c, rcmark)
@@ -113,6 +179,34 @@ main() {
         }
     }
     nn = list.size(nodes)
+
+    // --- Per-node container routing (ladder Rung 4) ---
+    // AEB_NODE_CONTAINER=1 runs each node-subprocess inside the toolchain image
+    // its OWN prereq maps to (rust node → aeb-tc:rust-1.75, jdk node →
+    // aeb-tc:jdk-21), so a cross-language DAG builds each node in the right
+    // image and artifacts thread across the shared /work mount. Off (default) =
+    // host-native, unchanged. node_image[node] = "" for host-native nodes.
+    node_container = 0
+    if string.equals(os.getenv("AEB_NODE_CONTAINER"), "1") == 1 { node_container = 1 }
+    engine = os.getenv("AEB_CONTAINER_ENGINE")
+    if string.length(engine) == 0 { engine = "podman" }
+    selabel = os.getenv("AEB_CONTAINER_SELABEL")
+    if string.length(selabel) == 0 { selabel = "Z" }
+    // extract-deps lives beside this tool (same tools/ dir as out_bin's siblings).
+    extract_deps_bin = path.join(path.dirname(out_bin), "extract-deps")
+    node_image = map.new()
+    if node_container == 1 {
+        ii = 0
+        while ii < nn {
+            nd, _ = list.get(nodes, ii)
+            ii = ii + 1
+            img = _node_image(nd, extract_deps_bin)
+            map.put(node_image, string.copy(nd), string.copy(img))
+            if string.length(img) > 0 {
+                println("aeb-driver: node ${nd} → image ${img}")
+            }
+        }
+    }
 
     // --- Choose parallel (make) or sequential ---
     jobs = os.getenv("AEB_JOBS")
@@ -169,8 +263,12 @@ main() {
                     mk = string.concat(mk, _san(dep))
                 }
             }
+            nimg = ""
+            if node_container == 1 {
+                nimg, _ = map.get(node_image, node)
+            }
             mk = string.concat(mk, "\n\t@")
-            mk = string.concat(mk, _node_cmd(out_bin, root, label, log, rcmark))
+            mk = string.concat(mk, _node_cmd(out_bin, root, node, label, log, rcmark, nimg, engine, selabel))
             mk = string.concat(mk, "\n")
         }
         mk_path = path.join(aeb_dir, "build.mk")
@@ -195,12 +293,19 @@ main() {
             // $$ to the shell's PID, so run it through bash where the
             // intent ($?) still works by stripping one '$'. Simpler: run
             // the node directly and write the rc ourselves.
-            cmd = string.concat("'", out_bin)
-            cmd = string.concat(cmd, "' '")
-            cmd = string.concat(cmd, root)
-            cmd = string.concat(cmd, "' '")
-            cmd = string.concat(cmd, label)
-            cmd = string.concat(cmd, "' > '")
+            seq_inner = string.concat("'", out_bin)
+            seq_inner = string.concat(seq_inner, "' '")
+            seq_inner = string.concat(seq_inner, root)
+            seq_inner = string.concat(seq_inner, "' '")
+            seq_inner = string.concat(seq_inner, label)
+            seq_inner = string.concat(seq_inner, "'")
+            if node_container == 1 {
+                simg, _ = map.get(node_image, node)
+                if string.length(simg) > 0 {
+                    seq_inner = _container_node_invocation(node, root, simg, engine, selabel)
+                }
+            }
+            cmd = string.concat(seq_inner, " > '")
             cmd = string.concat(cmd, log)
             cmd = string.concat(cmd, "' 2>&1")
             // Time the node + write a per-node duration marker (ms), so the
