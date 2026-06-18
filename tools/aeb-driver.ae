@@ -83,40 +83,54 @@ _node_image(node: string, extract_deps_bin: string) {
     return prereq_to_image(tok)
 }
 
-// _container_node_invocation(node, root, image, engine, selabel) — run ONE
-// node by building it with the IMAGE's OWN aeb (`<engine> run <image> aeb
-// <node>`), NOT the host orchestrator binary. This is the robust model: a
-// host-linked `_ae_build_all` is built against the host glibc and will NOT run
-// in an image with a different glibc (verified: host glibc 2.42 vs image 2.36 →
-// `GLIBC_2.42 not found`). So the node compiles with the image's matched
-// toolchain. root is bind-mounted at /work; the node target path is root-
-// relative (== /work-relative after the mount), so a sibling node's artifact
-// (e.g. a rust .so under target/) threads to a consumer node (the jdk javac
-// link) through the shared mount. `--noexe` compiles + links the node's
-// artifact but skips the run/test step (cross-language artifacts are produced;
-// execution belongs to the host/duality). Pure string assembly.
+// _container_node_invocation(node, root, label, image, engine, selabel) — run
+// ONE node in its toolchain image, building it with the IMAGE's OWN aeb (NOT the
+// host orchestrator binary: a host-linked `_ae_build_all` is built against the
+// host glibc and won't run in an image with a different one — verified host
+// 2.42 vs image 2.36 → `GLIBC_2.42 not found`). root is bind-mounted at /work,
+// so a sibling node's artifact (a rust .so under target/) threads to a consumer
+// node (the jdk javac link) through the shared mount.
 //
-// REQUIRES: the image carries a recent-enough aeb (the per-node prereq model +
-// fixes). A stale image aeb fails cryptically — see
-// asks/toolchain-image-aether-version-floor.md.
-_container_node_invocation(node: string, root: string, image: string, engine: string, selabel: string) {
-    // -e AEB_NODE_CONTAINER=0: the INNER aeb (building this one node in the
-    // image) must NOT itself try to route nodes into nested containers — it
-    // builds host-native (which, inside the image, IS the toolchain). Without
-    // this the per-node routing would recurse.
-    // --compile-only: build the node's artifact (e.g. cargo build → .so) but
-    // skip the run/test step — the artifact threads to consumers via the mount;
-    // execution belongs to the host/duality. (`--noexe` is WRONG here: it stops
-    // after linking the orchestrator, before the node compile.)
+// CRITICAL — single-node, NOT the dep closure: the deps are SEPARATE driver
+// nodes already built in THEIR own images (their .so on the mount). Running
+// `aeb <node>` (whole closure) in this image would rebuild the rust dep here →
+// `cargo: not found` in the jdk image. So a TWO-STEP, both in the same image:
+//   1. `aeb --noexe <node>` — generate + LINK the in-image orchestrator (runs
+//      no node; glibc-matched to the image).
+//   2. `_ae_build_all /work <label>` — run ONLY this node via the orchestrator's
+//      per-node label selector (gen-orchestrator: run iff the label matches), so
+//      deps (whose labels don't match) are NOT recompiled.
+// Pure string assembly.
+//
+// REQUIRES: the image carries a recent-enough aeb. A stale image aeb fails
+// cryptically — see asks/toolchain-image-aether-version-floor.md.
+_container_node_invocation(node: string, root: string, label: string, image: string, engine: string, selabel: string) {
+    // Build THIS ONE node in its toolchain image, NOT its dep closure. The deps
+    // are separate driver nodes already built in THEIR images; their artifacts
+    // are on the shared /work mount. So:
+    //   1. `aeb --noexe <node>` — generate + LINK the orchestrator in-image
+    //      (glibc-matched to the image; runs NO node) — cheap.
+    //   2. `_ae_build_all /work <label>` — run ONLY this node via the
+    //      orchestrator's per-node selector (gen-orchestrator: run iff label
+    //      matches). This compiles just this node (e.g. cargo build → .so) with
+    //      the image's toolchain; it does NOT rebuild the deps (whose labels
+    //      don't match), so a rust dep is never compiled in the jdk image.
+    // Running `aeb <node>` (whole closure) instead would rebuild the rust dep in
+    // the jdk image → `cargo: not found`. The single-node selector is the fix.
+    // -e AEB_NODE_CONTAINER=0: the inner aeb must not nest containers.
     mnt = string.concat(root, string.concat(":/work:", selabel))
-    inv = string.concat(engine, " run --rm -e AEB_NODE_CONTAINER=0 -v '")
-    inv = string.concat(inv, mnt)
-    inv = string.concat(inv, "' -w /work --entrypoint aeb '")
-    inv = string.concat(inv, image)
-    inv = string.concat(inv, "' --compile-only '")
-    inv = string.concat(inv, node)
-    inv = string.concat(inv, "'")
-    return inv
+    pfx = string.concat(engine, " run --rm -e AEB_NODE_CONTAINER=0 -v '")
+    pfx = string.concat(pfx, mnt)
+    pfx = string.concat(pfx, "' -w /work ")
+    link = string.concat(pfx, "--entrypoint aeb '")
+    link = string.concat(link, image)
+    link = string.concat(link, "' --noexe '")
+    link = string.concat(link, string.concat(node, "'"))
+    run1 = string.concat(pfx, "--entrypoint /work/target/_ae_build_all '")
+    run1 = string.concat(run1, image)
+    run1 = string.concat(run1, "' /work '")
+    run1 = string.concat(run1, string.concat(label, "'"))
+    return string.concat(link, string.concat(" && ", run1))
 }
 
 // One per-node shell command: run the node, log it, record rc, fail with
@@ -135,7 +149,7 @@ _node_cmd(out_bin: string, root: string, node: string, label: string, log: strin
     inner = string.concat(inner, label)
     inner = string.concat(inner, "'")
     if string.length(image) > 0 {
-        inner = _container_node_invocation(node, root, image, engine, selabel)
+        inner = _container_node_invocation(node, root, label, image, engine, selabel)
     }
     c = string.concat(inner, " > '")
     c = string.concat(c, log)
@@ -316,7 +330,7 @@ main() {
             if node_container == 1 {
                 simg, _ = map.get(node_image, node)
                 if string.length(simg) > 0 {
-                    seq_inner = _container_node_invocation(node, root, simg, engine, selabel)
+                    seq_inner = _container_node_invocation(node, root, label, simg, engine, selabel)
                 }
             }
             cmd = string.concat(seq_inner, " > '")
