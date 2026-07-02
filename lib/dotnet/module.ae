@@ -51,6 +51,91 @@ test_project(_ctx: ptr) {
     _e = map.put(_ctx, "is_test_project", "true")
 }
 
+// content_files(glob) — include non-source files matching `glob` and
+// copy them to the output directory (default CopyToOutputDirectory=
+// PreserveNewest). Emits one `<None Include="glob" CopyToOutput
+// Directory="...">` per call; multiple calls append (same shape as
+// nuget()). The classic use is test-fixture data — e.g.
+// content_files("tapes/**/*") so a test project's runtime fixtures
+// reach bin/. Folds into the build cache key (a changed content file
+// must rebuild). Aether is fixed-arity, so the copy mode is a second
+// setter, content_files_mode(...), rather than an optional arg.
+content_files(_ctx: ptr, glob: string) {
+    _content_files_add(_ctx, glob, "PreserveNewest")
+}
+
+// content_files_mode(glob, mode) — like content_files but with an
+// explicit CopyToOutputDirectory mode ("PreserveNewest" | "Always" |
+// "Never"). A "Never" entry is still a declared content file (it can
+// carry a custom PackagePath via pack), so it is emitted and cache-
+// tracked like the others.
+content_files_mode(_ctx: ptr, glob: string, mode: string) {
+    _content_files_add(_ctx, glob, mode)
+}
+
+// _content_files_add — shared accumulator. Stores "glob~mode" entries
+// (tilde-joined, same convention as nuget/vendored) into the
+// "content_files" list on the builder map.
+_content_files_add(_ctx: ptr, glob: string, mode: string) {
+    if map.has(_ctx, "content_files") == 0 {
+        _e1 = map.put(_ctx, "content_files", list.new())
+    }
+    entries, _ = map.get(_ctx, "content_files")
+    entry = string.concat(glob, "~")
+    entry = string.concat(entry, mode)
+    _e2 = list.add(entries, entry)
+}
+
+// --- Packaging setters (dotnet.pack) ---
+
+// package_id("Servirtium.Vcr") — the NuGet <PackageId>. Presence of a
+// package_id() (or packable()) is what marks a project packable.
+package_id(_ctx: ptr, id: string) {
+    _e = map.put(_ctx, "package_id", id)
+}
+
+package_version(_ctx: ptr, v: string) {
+    _e = map.put(_ctx, "package_version", v)
+}
+
+package_description(_ctx: ptr, d: string) {
+    _e = map.put(_ctx, "package_description", d)
+}
+
+// package_readme("README.md") — <PackageReadmeFile>. The file must
+// also reach the package; this setter additionally emits a
+// `<None Include="README.md" Pack="true" PackagePath="">` item (empty
+// PackagePath = package root) so the readme is packed.
+package_readme(_ctx: ptr, r: string) {
+    _e = map.put(_ctx, "package_readme", r)
+}
+
+// packable() — force <IsPackable>true</IsPackable>. build_project marks
+// test projects <IsPackable>false</IsPackable>; a library that declares
+// only content files (no package_id) but should still pack sets this.
+// Redundant when package_id() is present (that already implies packable).
+packable(_ctx: ptr) {
+    _e = map.put(_ctx, "packable", "true")
+}
+
+// native_runtime(rid, path) — stage a per-RID native asset into the
+// package under runtimes/<rid>/native/ and copy it next to the built
+// assembly for dev/test. `path` is relative to the project root (e.g.
+// a dep_artifact from a native build grid). Emits
+//   <None Include="<path>" Pack="true"
+//         PackagePath="runtimes/<rid>/native/"
+//         CopyToOutputDirectory="PreserveNewest" />
+// Multiple calls append (one per RID). Folds into the cache key.
+native_runtime(_ctx: ptr, rid: string, p: string) {
+    if map.has(_ctx, "native_runtimes") == 0 {
+        _e1 = map.put(_ctx, "native_runtimes", list.new())
+    }
+    entries, _ = map.get(_ctx, "native_runtimes")
+    entry = string.concat(rid, "~")
+    entry = string.concat(entry, p)
+    _e2 = list.add(entries, entry)
+}
+
 nullable(_ctx: ptr) {
     _e = map.put(_ctx, "nullable", "true")
 }
@@ -83,6 +168,15 @@ csproj_path(_ctx: ptr, p: string) {
 // the test orchestrator runs after build_project has already compiled.
 dotnet_test_cmd(csproj: string, config: string) {
     return "dotnet test '${csproj}' --configuration ${config} --no-build"
+}
+
+// dotnet_pack_cmd — `dotnet pack` invocation. Pure. Emits the .nupkg
+// into `out_dir`. Not --no-build: pack must restore + build so the
+// runtimes/ native assets and content files are staged into the
+// package (a --no-build pack against a bin/ that predates the pack
+// itemgroups would ship an incomplete nupkg).
+dotnet_pack_cmd(csproj: string, config: string, out_dir: string) {
+    return "dotnet pack '${csproj}' --configuration ${config} --output '${out_dir}'"
 }
 
 // _resolve_csproj_path — pure path-resolution helper for the
@@ -142,6 +236,34 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
         }
         if map.has(opts, "is_test_project") == 1 {
             xml = string.concat(xml, "    <IsPackable>false</IsPackable>\n")
+        } else {
+            // Packaging metadata (only for non-test projects). Presence
+            // of package_id() or packable() opts the project into
+            // <IsPackable>true</IsPackable>; the individual coords are
+            // emitted when set.
+            if map.has(opts, "packable") == 1 {
+                xml = string.concat(xml, "    <IsPackable>true</IsPackable>\n")
+            } else {
+                if map.has(opts, "package_id") == 1 {
+                    xml = string.concat(xml, "    <IsPackable>true</IsPackable>\n")
+                }
+            }
+            if map.has(opts, "package_id") == 1 {
+                pid, _ = map.get(opts, "package_id")
+                xml = string.concat(xml, "    <PackageId>${pid}</PackageId>\n")
+            }
+            if map.has(opts, "package_version") == 1 {
+                pv, _ = map.get(opts, "package_version")
+                xml = string.concat(xml, "    <Version>${pv}</Version>\n")
+            }
+            if map.has(opts, "package_description") == 1 {
+                pd, _ = map.get(opts, "package_description")
+                xml = string.concat(xml, "    <Description>${pd}</Description>\n")
+            }
+            if map.has(opts, "package_readme") == 1 {
+                prd, _ = map.get(opts, "package_readme")
+                xml = string.concat(xml, "    <PackageReadmeFile>${prd}</PackageReadmeFile>\n")
+            }
         }
     }
 
@@ -209,8 +331,138 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
         xml = string.concat(xml, "  </ItemGroup>\n")
     }
 
+    // Content files — `<None Include="glob" CopyToOutputDirectory=...>`
+    // from content_files(...) / content_files_mode(...). Read straight
+    // off the builder map (opts): stored as "glob~mode" entries.
+    if opts != null {
+        if map.has(opts, "content_files") == 1 {
+            cfs, _ = map.get(opts, "content_files")
+            if list.size(cfs) > 0 {
+                xml = string.concat(xml, "\n  <ItemGroup>\n")
+                cn = list.size(cfs)
+                ci = 0
+                while ci < cn {
+                    ce, _ = list.get(cfs, ci)
+                    cidx = string.index_of(ce, "~")
+                    cglob = string.substring(ce, 0, cidx)
+                    cmode = string.substring(ce, cidx + 1, string.length(ce))
+                    xml = string.concat(xml, "    <None Include=\"${cglob}\" CopyToOutputDirectory=\"${cmode}\" />\n")
+                    ci = ci + 1
+                }
+                xml = string.concat(xml, "  </ItemGroup>\n")
+            }
+        }
+    }
+
+    // Native runtime assets — `<None Include="path" Pack="true"
+    // PackagePath="runtimes/<rid>/native/" CopyToOutputDirectory=
+    // "PreserveNewest">` from native_runtime(rid, path). Stored as
+    // "rid~path".
+    if opts != null {
+        if map.has(opts, "native_runtimes") == 1 {
+            nrs, _ = map.get(opts, "native_runtimes")
+            if list.size(nrs) > 0 {
+                xml = string.concat(xml, "\n  <ItemGroup>\n")
+                nn = list.size(nrs)
+                nii = 0
+                while nii < nn {
+                    ne, _ = list.get(nrs, nii)
+                    nidx = string.index_of(ne, "~")
+                    nrid = string.substring(ne, 0, nidx)
+                    npath = string.substring(ne, nidx + 1, string.length(ne))
+                    xml = string.concat(xml, "    <None Include=\"${npath}\" Pack=\"true\" PackagePath=\"runtimes/${nrid}/native/\" CopyToOutputDirectory=\"PreserveNewest\" />\n")
+                    nii = nii + 1
+                }
+                xml = string.concat(xml, "  </ItemGroup>\n")
+            }
+        }
+    }
+
+    // Readme — pack the file declared by package_readme(...) at the
+    // package root so <PackageReadmeFile> resolves. Only for a packable
+    // (non-test) project; test projects never reach the packaging arm.
+    if opts != null {
+        if map.has(opts, "is_test_project") == 0 {
+            if map.has(opts, "package_readme") == 1 {
+                prf, _ = map.get(opts, "package_readme")
+                xml = string.concat(xml, "\n  <ItemGroup>\n")
+                // Empty PackagePath = package root (msbuild's portable
+                // spelling; equivalent to the Windows-ism PackagePath="\").
+                xml = string.concat(xml, "    <None Include=\"${prf}\" Pack=\"true\" PackagePath=\"\" />\n")
+                xml = string.concat(xml, "  </ItemGroup>\n")
+            }
+        }
+    }
+
     xml = string.concat(xml, "\n</Project>\n")
     return xml
+}
+
+// _append_content_inputs — append the resolved files behind each
+// content_files(...) glob and native_runtime(...) path to `argfile`,
+// so _cache_key_for_dotnet hashes their content (a changed tape / native
+// asset under an unchanged glob must bust the key; the glob string alone
+// rides the csproj fingerprint, but the file bytes do not). Best-effort:
+// globs are expanded relative to source_dir, native paths relative to
+// root; non-matches contribute nothing. Called by the build builders
+// after the *.cs find populates the argfile.
+_append_content_inputs(bld: ptr, argfile: string, source_dir: string, root: string) {
+    if bld == null { return 0 }
+    if map.has(bld, "content_files") == 1 {
+        cfs, _ = map.get(bld, "content_files")
+        n = list.size(cfs)
+        i = 0
+        while i < n {
+            e, _ = list.get(cfs, i)
+            idx = string.index_of(e, "~")
+            glob = string.substring(e, 0, idx)
+            // `**/*` msbuild globs → a recursive find under the glob's
+            // leading dir; a plain path lists just that path. Either way,
+            // expand relative to source_dir and append real files.
+            lead = _glob_lead_dir(glob)
+            build._sh("find '${source_dir}/${lead}' -type f ! -path '*/bin/*' ! -path '*/obj/*' >> '${argfile}' 2>/dev/null || true")
+            i = i + 1
+        }
+    }
+    if map.has(bld, "native_runtimes") == 1 {
+        nrs, _ = map.get(bld, "native_runtimes")
+        n2 = list.size(nrs)
+        j = 0
+        while j < n2 {
+            e2, _ = list.get(nrs, j)
+            idx2 = string.index_of(e2, "~")
+            npath = string.substring(e2, idx2 + 1, string.length(e2))
+            build._sh("test -f '${root}/${npath}' && echo '${root}/${npath}' >> '${argfile}' || true")
+            j = j + 1
+        }
+    }
+    return 0
+}
+
+// _glob_lead_dir("tapes/**/*") -> "tapes"; ("data/x.json") -> "data/x.json";
+// ("*.txt") -> ".". The leading fixed path segment before any wildcard,
+// used to scope a `find` for content-file hashing. Pure string parsing.
+_glob_lead_dir(glob: string) {
+    star = string.index_of(glob, "*")
+    if star < 0 { return glob }
+    head = string.substring(glob, 0, star)
+    // Trim back to the last "/" so we don't cut mid-segment.
+    slash = _last_index_of(head, "/")
+    if slash < 0 { return "." }
+    return string.substring(head, 0, slash)
+}
+
+// _last_index_of(s, needle) — index of the final occurrence of a
+// single-char needle, or -1. std.string has index_of (first) only.
+_last_index_of(s: string, needle: string) {
+    n = string.length(s)
+    i = n - 1
+    while i >= 0 {
+        c = string.substring(s, i, i + 1)
+        if string.equals(c, needle) == 1 { return i }
+        i = i - 1
+    }
+    return -1
 }
 
 // _dotnet_version() — `dotnet --version`, memoised per build via an
@@ -569,6 +821,7 @@ builder build_project(ctx: ptr) {
     if is_test == 0 {
         argfile = path.join(target_dir, "dotnet_sources.txt")
         build._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        _append_content_inputs(_builder, argfile, source_dir, root)
         cached = _dotnet_cache_restore(ctx, argfile, xml, config, source_dir, root)
         if cached == 1 {
             println("${mod_dir}: dotnet cache hit")
@@ -680,6 +933,7 @@ builder build_project_existing(ctx: ptr) {
         fingerprint = string.trim(fp_raw)
         argfile = path.join(target_dir, "dotnet_sources.txt")
         build._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        _append_content_inputs(_builder, argfile, source_dir, root)
         cached = _dotnet_cache_restore(ctx, argfile, fingerprint, config, source_dir, root)
         if cached == 1 {
             println("${mod_dir}: dotnet cache hit")
@@ -809,6 +1063,102 @@ _is_digit_dn(c: string) {
     if string.equals(c, "7") == 1 { return 1 }
     if string.equals(c, "8") == 1 { return 1 }
     if string.equals(c, "9") == 1 { return 1 }
+    return 0
+}
+
+// dotnet.pack(b) — `dotnet pack` the project into a NuGet .nupkg and
+// publish it as an aeb artifact (`nupkg` = absolute path to the .nupkg),
+// so a downstream `.dist.ae`/publish leaf can `dep_artifact(b, "...",
+// "nupkg")` it (mirroring how core/.build.ae publishes `shared_lib`).
+//
+// Typical shape: a `.dist.ae` that `build.dep`s the library's `.build.ae`
+// (so the `.{name}.generated.csproj` already exists next to the sources),
+// then declares the packaging setters:
+//   package_id("Servirtium.Vcr"); package_version("1.0.0")
+//   package_description("..."); package_readme("README.md")
+//   native_runtime("linux-x64", lib_linux_x64)   // from a native grid
+//   native_runtime("osx-arm64", lib_osx_arm64)
+//
+// The packaging metadata + native_runtime items must be present in the
+// csproj the pack runs against. When the packaging setters live on THIS
+// builder's block (not the upstream .build.ae's), pack regenerates the
+// csproj from its own `_builder` map so they take effect — this is why
+// pack accepts the same generation setters as build_project.
+builder pack(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    root = build._get(ctx, "root")
+    build._mkdirs(target_dir)
+
+    config = "Release"
+    if _builder != null {
+        if map.has(_builder, "configuration") == 1 {
+            config, _ = map.get(_builder, "configuration")
+        }
+    }
+
+    // If packaging setters were declared on this pack block, (re)generate
+    // the csproj so PackageId/native runtimes/content files are present.
+    // Otherwise reuse the csproj build_project already emitted.
+    csproj = ""
+    has_pkg_setters = 0
+    if _builder != null {
+        if map.has(_builder, "package_id") == 1 { has_pkg_setters = 1 }
+        if map.has(_builder, "packable") == 1 { has_pkg_setters = 1 }
+        if map.has(_builder, "native_runtimes") == 1 { has_pkg_setters = 1 }
+        if map.has(_builder, "content_files") == 1 { has_pkg_setters = 1 }
+    }
+    if has_pkg_setters == 1 {
+        pn_raw, _ep = build._sh_capture("basename '${source_dir}'")
+        project_name = string.trim(pn_raw)
+        // pack-side csproj: packaging metadata + declared item groups.
+        // Package/vendored/project refs from deps are NOT re-walked here
+        // (pack blocks declare packaging, not the compile graph); the
+        // regenerated csproj carries the same PropertyGroup as the
+        // build_project one plus the pack itemgroups. When the compile
+        // graph matters, put the packaging setters on the .build.ae's
+        // build_project block instead and omit them here.
+        xml = csproj_content(_builder, list.new(), list.new(), list.new())
+        csproj = path.join(source_dir, ".${project_name}.generated.csproj")
+        _ew = io.write_file(csproj, xml)
+    } else {
+        cs_raw, _ecs = build._sh_capture("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
+        csproj = string.trim(cs_raw)
+        if string.length(csproj) == 0 {
+            cs2_raw, _ecs2 = build._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
+            csproj = string.trim(cs2_raw)
+        }
+    }
+    if string.length(csproj) == 0 {
+        println("${mod_dir}: pack: no .csproj found in ${source_dir}")
+        println("${mod_dir}: dep the library .build.ae, or declare packaging setters here")
+        return 1
+    }
+
+    out_dir = path.join(target_dir, "nupkg")
+    build._sh("rm -rf '${out_dir}' && mkdir -p '${out_dir}'")
+
+    println("${mod_dir}: packing (dotnet pack)")
+    cmd = dotnet_pack_cmd(csproj, config, out_dir)
+    exit_code = build._sh(cmd)
+    if exit_code != 0 {
+        println("${mod_dir}: dotnet pack failed")
+        return exit_code
+    }
+
+    // Locate the produced .nupkg (exclude .symbols.nupkg) and publish
+    // its absolute path as the `nupkg` artifact.
+    np_raw, _enp = build._sh_capture("ls '${out_dir}'/*.nupkg 2>/dev/null | grep -v '\\.symbols\\.nupkg$' | head -1")
+    nupkg = string.trim(np_raw)
+    if string.length(nupkg) == 0 {
+        println("${mod_dir}: pack: dotnet pack produced no .nupkg in ${out_dir}")
+        return 1
+    }
+    build.publish_artifact(ctx, "nupkg", nupkg)
+    println("${mod_dir}: packed ${nupkg}")
+
+    _ets = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
 

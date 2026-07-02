@@ -12,8 +12,12 @@ import build
 // Tests for dotnet.dotnet_build_cmd, dotnet.dotnet_test_cmd
 
 import dotnet
-import dotnet (dotnet_build_cmd, dotnet_test_cmd, csproj_path,
-               _resolve_csproj_path)
+import dotnet (dotnet_build_cmd, dotnet_test_cmd, dotnet_pack_cmd, csproj_path,
+               _resolve_csproj_path, csproj_content,
+               content_files, content_files_mode, native_runtime,
+               package_id, package_version, package_description,
+               package_readme, packable, test_project,
+               _glob_lead_dir, _last_index_of)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -22,6 +26,25 @@ _assert_eq(label: string, actual: string, expected: string) {
         println("FAIL: ${label}")
         println("  expected: ${expected}")
         println("  actual:   ${actual}")
+    }
+}
+
+_assert_contains(label: string, haystack: string, needle: string) {
+    if string.contains(haystack, needle) == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  missing substring: ${needle}")
+        println("  in: ${haystack}")
+    }
+}
+
+_assert_absent(label: string, haystack: string, needle: string) {
+    if string.contains(haystack, needle) == 0 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  unexpected substring: ${needle}")
     }
 }
 
@@ -86,6 +109,76 @@ main() {
     _assert_eq("source_dir with trailing slash collapses cleanly",
         _resolve_csproj_path("/proj/dotnet/", "A.csproj"),
         "/proj/dotnet/A.csproj")
+
+    // --- dotnet_pack_cmd (pure).
+    _assert_eq("dotnet_pack_cmd Release into out dir",
+        dotnet_pack_cmd("/proj/.lib.generated.csproj", "Release", "/proj/target/nupkg"),
+        "dotnet pack '/proj/.lib.generated.csproj' --configuration Release --output '/proj/target/nupkg'")
+
+    // --- _last_index_of / _glob_lead_dir (pure helpers).
+    _assert_eq("_last_index_of finds final slash",
+        string.from_int(_last_index_of("a/b/c", "/")), "3")
+    _assert_eq("_last_index_of returns -1 when absent",
+        string.from_int(_last_index_of("abc", "/")), "-1")
+    _assert_eq("_glob_lead_dir recursive glob → leading dir",
+        _glob_lead_dir("tapes/**/*"), "tapes")
+    _assert_eq("_glob_lead_dir plain path → itself",
+        _glob_lead_dir("data/fixture.json"), "data/fixture.json")
+    _assert_eq("_glob_lead_dir bare wildcard → cwd",
+        _glob_lead_dir("*.txt"), ".")
+    _assert_eq("_glob_lead_dir nested wildcard trims to segment",
+        _glob_lead_dir("a/b/*.cs"), "a/b")
+
+    // --- Gap 1: content_files → <None ... CopyToOutputDirectory>.
+    cf = map_new()
+    content_files(cf, "tapes/**/*")
+    cf_xml = csproj_content(cf, list_new(), list_new(), list_new())
+    _assert_contains("content_files emits None Include",
+        cf_xml, "<None Include=\"tapes/**/*\" CopyToOutputDirectory=\"PreserveNewest\" />")
+
+    cf2 = map_new()
+    content_files_mode(cf2, "seed.sql", "Always")
+    content_files(cf2, "extra/**/*")
+    cf2_xml = csproj_content(cf2, list_new(), list_new(), list_new())
+    _assert_contains("content_files_mode honors explicit mode",
+        cf2_xml, "<None Include=\"seed.sql\" CopyToOutputDirectory=\"Always\" />")
+    _assert_contains("multiple content_files calls append",
+        cf2_xml, "<None Include=\"extra/**/*\" CopyToOutputDirectory=\"PreserveNewest\" />")
+
+    // --- Gap 2: packaging metadata + native runtimes.
+    pk = map_new()
+    package_id(pk, "Servirtium.Vcr")
+    package_version(pk, "1.2.3")
+    package_description(pk, "Native VCR")
+    package_readme(pk, "README.md")
+    native_runtime(pk, "linux-x64", "runtimes/linux-x64/native/libengine.so")
+    native_runtime(pk, "osx-arm64", "runtimes/osx-arm64/native/libengine.dylib")
+    pk_xml = csproj_content(pk, list_new(), list_new(), list_new())
+    _assert_contains("package_id → PackageId", pk_xml, "<PackageId>Servirtium.Vcr</PackageId>")
+    _assert_contains("package_id → IsPackable true", pk_xml, "<IsPackable>true</IsPackable>")
+    _assert_contains("package_version → Version", pk_xml, "<Version>1.2.3</Version>")
+    _assert_contains("package_description → Description", pk_xml, "<Description>Native VCR</Description>")
+    _assert_contains("package_readme → PackageReadmeFile", pk_xml, "<PackageReadmeFile>README.md</PackageReadmeFile>")
+    _assert_contains("package_readme → packed None item (root PackagePath)",
+        pk_xml, "<None Include=\"README.md\" Pack=\"true\" PackagePath=\"\" />")
+    _assert_contains("native_runtime linux → runtimes PackagePath",
+        pk_xml, "<None Include=\"runtimes/linux-x64/native/libengine.so\" Pack=\"true\" PackagePath=\"runtimes/linux-x64/native/\" CopyToOutputDirectory=\"PreserveNewest\" />")
+    _assert_contains("native_runtime osx → runtimes PackagePath",
+        pk_xml, "PackagePath=\"runtimes/osx-arm64/native/\"")
+
+    // packable() alone (no package_id) still flips IsPackable true.
+    pk2 = map_new()
+    packable(pk2)
+    pk2_xml = csproj_content(pk2, list_new(), list_new(), list_new())
+    _assert_contains("packable() → IsPackable true", pk2_xml, "<IsPackable>true</IsPackable>")
+
+    // Test projects take the false-IsPackable arm and get NO packaging.
+    tp = map_new()
+    test_project(tp)
+    package_id(tp, "ShouldNotAppear")
+    tp_xml = csproj_content(tp, list_new(), list_new(), list_new())
+    _assert_contains("test_project → IsPackable false", tp_xml, "<IsPackable>false</IsPackable>")
+    _assert_absent("test_project suppresses PackageId", tp_xml, "ShouldNotAppear")
 
     println("dotnet cmd tests done")
 }
