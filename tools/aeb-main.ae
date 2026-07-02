@@ -195,35 +195,31 @@ main() {
     // a `--<flag>` (modal action that uses the same scan/extract
     // pipeline as a build but exits before linking). argv[5] is an
     // optional flag/subcommand argument.
+    //
+    // `target` holds the FIRST positional (kept for every downstream
+    // consumer that reasons about a single target — dir resolution,
+    // --preflight/--prereqs, the affected-set "since <target>" note).
+    // `targets` holds ALL positionals in plain build mode: `aeb a b c`
+    // builds each of a, b, c and their transitive deps in one DAG. When
+    // a modal flag is present (argv[4] is a --flag or a query subcommand)
+    // there is exactly one target directive and argv[5]/argv[6] are the
+    // flag's arguments, NOT more targets — so `targets` collects only in
+    // the plain-build case.
     target = string.concat("", "")
+    targets = list.new()
     flag = string.concat("", "")
     flag_arg = string.concat("", "")
     flag_arg2 = string.concat("", "")
     if aether_args_count() >= 5 {
         a4 = aether_args_get(4)
+        is_flag = 0
         if string.length(a4) >= 2 {
             if string.equals(string.substring(a4, 0, 2), "--") == 1 {
                 flag = a4
-            } else {
-                if string.equals(a4, "query") == 1 {
-                    flag = "--query"
-                } else {
-                    if string.equals(a4, "owners") == 1 {
-                        flag = "--owners"
-                    } else {
-                        if string.equals(a4, "path") == 1 {
-                            flag = "--path"
-                        } else {
-                            if string.equals(a4, "why") == 1 {
-                                flag = "--why"
-                            } else {
-                                target = strip_trailing_slash(a4)
-                            }
-                        }
-                    }
-                }
+                is_flag = 1
             }
-        } else {
+        }
+        if is_flag == 0 {
             if string.equals(a4, "query") == 1 {
                 flag = "--query"
             } else {
@@ -236,7 +232,18 @@ main() {
                         if string.equals(a4, "why") == 1 {
                             flag = "--why"
                         } else {
+                            // Plain build mode: argv[4..] are ALL targets.
                             target = strip_trailing_slash(a4)
+                            _t0 = list.add(targets, target)
+                            ti = 5
+                            tc = aether_args_count()
+                            while ti <= tc {
+                                at = aether_args_get(ti)
+                                if string.length(at) > 0 {
+                                    _tn = list.add(targets, strip_trailing_slash(at))
+                                }
+                                ti = ti + 1
+                            }
                         }
                     }
                 }
@@ -359,25 +366,44 @@ main() {
             i = i + 1
         }
     } else {
-        // Target mode: resolve the target argument to a file if it's a dir.
-        if string.ends_with(target, ".ae") == 1 {
-            check_path = string.concat("./", target)
-            if file.exists(check_path) == 0 {
-                println(string.concat("error: ", string.concat(target, " not found")))
-                exit(1)
+        // Target mode: resolve every positional target (a dir resolves to
+        // its .build/.tests/.dist file) and seed the BFS from all of them.
+        // A modal flag (--preflight/--prereqs) sets `target` directly and
+        // leaves `targets` empty — fall back to the single `target` then.
+        seed_targets = targets
+        if list.size(seed_targets) == 0 {
+            seed_targets = list.new()
+            _st0 = list.add(seed_targets, target)
+        }
+        st_n = list.size(seed_targets)
+        sti = 0
+        while sti < st_n {
+            tgt, _ = list.get(seed_targets, sti)
+            sti = sti + 1
+            if string.ends_with(tgt, ".ae") == 1 {
+                check_path = string.concat("./", tgt)
+                if file.exists(check_path) == 0 {
+                    println(string.concat("error: ", string.concat(tgt, " not found")))
+                    exit(1)
+                }
+            } else {
+                resolved = resolve_target_dir(tgt)
+                if string.length(resolved) == 0 {
+                    println(string.concat("error: no .ae files found in ", tgt))
+                    exit(1)
+                }
+                tgt = resolved
             }
-        } else {
-            resolved = resolve_target_dir(target)
-            if string.length(resolved) == 0 {
-                println(string.concat("error: no .ae files found in ", target))
-                exit(1)
+            // `target` (singular) tracks the first resolved target for the
+            // downstream single-target consumers; seed the BFS from each.
+            if sti == 1 { target = string.concat(tgt, "") }
+            if map.has(seen, tgt) == 0 {
+                _lq = list.add(queue, string.concat(tgt, ""))
+                _mq = map.put(seen, tgt, "1")
             }
-            target = resolved
         }
 
-        // BFS from target through transitive deps.
-        _lq = list.add(queue, string.concat(target, ""))
-        _mq = map.put(seen, target, "1")
+        // BFS from the seeded targets through transitive deps.
         head = 0
         qs = list.size(queue)
         d = string.concat("", "")

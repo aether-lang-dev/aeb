@@ -55,6 +55,16 @@ convention. Don't migrate a regular Aether *program* (a `*_test.ae`, a CLI
 ### Addressing a target on the CLI
 
 - `aeb path/to/.name.ae` — the primary form (a real file path).
+- `aeb <a> <b> <c>` — multiple positional targets: each is seeded into the
+  SAME DAG (BFS from all of them, deps deduped by a shared visited set), so
+  one invocation builds every named target plus their transitive deps, topo-
+  sorted together. Independent nodes still run concurrently under the driver.
+  This is plain-build-mode only — a modal flag (`--graph`, `--since`, a query
+  subcommand, `--preflight`) consumes exactly one target directive and treats
+  later args as the flag's own arguments, not more targets. (Multi-target was
+  once silently dropped — only the first built — see the ask
+  `asks/aeb-multi-target-and-failure-exit-code-bugs.md`; fixed in aeb-main's
+  arg parse + BFS seeding.)
 - `aeb path/to:name` (or bare `:name` in the cwd) — synonym sugar; resolves
   to `path/to/.name.ae` and echoes `aeb synonym match: <path>`.
 - `aeb --scan '<glob>'` — scan mode: build every node whose basename matches
