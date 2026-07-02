@@ -1403,22 +1403,43 @@ shade(ctx: ptr, main_class: string, jar_name: string) {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
 
-    classes_dir = path.join(target_dir, "classes")
-
     bin_dir = path.join(target_dir, "bin")
     build._mkdirs(bin_dir)
     jar_path = path.join(bin_dir, jar_name)
 
-    cp_file = path.join(target_dir, "jvm_classpath_deps_including_transitive")
+    // A .dist.ae node's own target_dir is target/dist/<mod> — the compiled
+    // classes and the classpath/ldlib artifact files live under the compile
+    // node's target/build/<mod> instead. Read them across the dep() edge via
+    // the artifact contract (same idiom as javac's ldlibdeps collection), NOT
+    // from this node's own target_dir. The build node's
+    // jvm_classpath_deps_including_transitive lists its own classes dir first
+    // plus every transitive dep classes dir/jar, so staging from it captures
+    // the module's own classes too — no separate classes_dir copy needed.
+    deps, _ = map.get(ctx, "deps")
+    dep_count = list.size(deps)
     cp_content = ""
-    if file.exists(cp_file) == 1 {
-        cp_content, _er1 = io.read_file(cp_file)
-    }
-
-    ld_file = path.join(target_dir, "ldlibdeps")
     ld_content = ""
-    if file.exists(ld_file) == 1 {
-        ld_content, _er2 = io.read_file(ld_file)
+    di = 0
+    while di < dep_count {
+        dpx, _ = list.get(deps, di)
+        dmx = build._strip_lang(dpx)
+        dep_cp = build._read_dep_artifact(ctx, dmx, "jvm_classpath_deps_including_transitive")
+        if string.length(dep_cp) > 0 {
+            if string.length(cp_content) > 0 {
+                cp_content = string.concat(string.concat(cp_content, "\n"), dep_cp)
+            } else {
+                cp_content = dep_cp
+            }
+        }
+        dep_ld = build._read_dep_artifact(ctx, dmx, "ldlibdeps")
+        if string.length(dep_ld) > 0 {
+            if string.length(ld_content) > 0 {
+                ld_content = string.concat(string.concat(ld_content, "\n"), dep_ld)
+            } else {
+                ld_content = dep_ld
+            }
+        }
+        di = di + 1
     }
 
     println("${mod_dir}: packaging ${jar_name}")
@@ -1431,9 +1452,9 @@ shade(ctx: ptr, main_class: string, jar_name: string) {
     // ld_content are newline+colon-separated path lists; `tr ':' '\n'`
     // normalises to one entry per line.
     sh = "set -e; st='${stage_dir}'; rm -rf \"$st\"; mkdir -p \"$st\"; "
-    // Module's own classes first.
-    sh = string.concat(sh, "[ -d '${classes_dir}' ] && cp -a '${classes_dir}/.' \"$st\"/ 2>/dev/null; ")
-    // Classpath deps: extract .jar entries, copy class dirs.
+    // Classpath deps (includes this module's OWN classes dir as the first
+    // entry of its build node's classpath artifact): extract .jar entries,
+    // copy class dirs.
     if string.length(cp_content) > 0 {
         sh = string.concat(sh, "printf '%s\\n' '")
         sh = string.concat(sh, cp_content)
