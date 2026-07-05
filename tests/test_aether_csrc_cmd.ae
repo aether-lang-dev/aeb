@@ -1,0 +1,49 @@
+// Tests for the pure string helpers behind aether.csrc — the
+// C-source-package builder over aether 0.357's `ae build --emit=csrc`.
+//
+// ae_csrc_flags(caps): the pre-spaced flag run spliced after "build"
+// in the shell-out command (leading space is part of the contract).
+// csrc_default_output(src): output base = source name minus ".ae".
+//
+// The exec itself rides the shared _shell_out_ae_build (already
+// covered for the binary path); these pin the csrc-specific string
+// surface per the string-builder pattern (LLM.md § SDK extension).
+import std.string
+
+extern println(s: string)
+
+import aether (ae_csrc_flags, csrc_default_output)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if actual == expected {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected: '${expected}'")
+        println("  actual:   '${actual}'")
+    }
+}
+
+main() {
+    // --- ae_csrc_flags: emit flag, optional --with= csv ---
+    _assert_eq("flags: no caps",
+        ae_csrc_flags(""), " --emit=csrc")
+    _assert_eq("flags: one cap",
+        ae_csrc_flags("net"), " --emit=csrc --with=net")
+    _assert_eq("flags: csv caps, order preserved",
+        ae_csrc_flags("net,fs"), " --emit=csrc --with=net,fs")
+    _assert_eq("flags: all",
+        ae_csrc_flags("all"), " --emit=csrc --with=all")
+
+    // --- csrc_default_output: strip trailing .ae only ---
+    _assert_eq("output: greet.ae → greet",
+        csrc_default_output("greet.ae"), "greet")
+    _assert_eq("output: dotted stem keeps inner dots",
+        csrc_default_output("a.b.ae"), "a.b")
+    _assert_eq("output: no suffix passes through",
+        csrc_default_output("greet"), "greet")
+    _assert_eq("output: bare '.ae' passes through (nothing to strip to)",
+        csrc_default_output(".ae"), ".ae")
+
+    println("aether csrc cmd tests done")
+}

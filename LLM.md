@@ -308,10 +308,16 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   `aether.program(b)` shells out to `ae build` by default; declaring
   `extra_source(...)` / `link_flag(...)` / `regen(...)` opts into the
   manual `aetherc + gcc` path. Also hosts `aether.program_test` (a
-  compiled-binary unit test) and `aether.driver_test` (a compiled
+  compiled-binary unit test), `aether.driver_test` (a compiled
   driver binary that exercises a *separate* binary-under-test, with
-  the same fixture grammar as `bash.test`). Driver tests work with
-  contrib.aeocha or anything that uses exit code as PASS/FAIL.
+  the same fixture grammar as `bash.test`), and `aether.csrc` (a
+  distributable C-SOURCE package via `ae build --emit=csrc`, aether
+  0.357: `<name>.c` + `<name>.h` catalog header, no gcc/.so;
+  publishes `c_source`/`c_header`/`c_header_dirs`/
+  `c_needs_aether_runtime` so `c.program` consumes it without
+  special-casing; setters `source`/`output`/`caps`). Driver tests
+  work with contrib.aeocha or anything that uses exit code as
+  PASS/FAIL.
 - `lib/bash/module.ae` — bash test runner. `bash.test(b)` with
   `script(...)`, `jobs(N)`, `pre_command(...)`, `post_command(...)`,
   and structured server fixtures (`fixture_seed`, `fixture_server`).
@@ -829,6 +835,13 @@ exists if a need arises."
   The value-add over the current source-symlink model is unproven
   (the recompile is cheap; the symlink model is simple), so this is
   "exists if a need arises," not a roadmap commitment.
+- **0.357 `ae build --emit=csrc`** — emits portable generated C +
+  a catalog header and stops (no gcc, no host `.so`): the
+  compile-on-install / source-registry primitive. **Now consumed**:
+  `aether.csrc(b)` in `lib/aether` (see § Files/dirs). Same release
+  fixes `--emit=lib` catalog exports on Windows MinGW
+  (`-Wl,--export-all-symbols`) — relevant to the winbaz Axis-2 path,
+  nothing for aeb to change.
 
 A note on resolution order: an `ae` binary installed under
 `~/.local/bin/` will pick up contrib modules from

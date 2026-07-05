@@ -4,6 +4,30 @@
 
 ### Added
 
+- **`aether.csrc(b)` — distributable C-source packages (consumes aether 0.357's
+  `ae build --emit=csrc`).** A new builder in `lib/aether` that emits
+  `<name>.c` (portable generated C) + `<name>.h` (catalog header with the
+  `aether_<fn>()` prototypes) under `target/<module>/` and stops — no gcc, no
+  host `.so`. The consumer compiles it wherever (`cc -fPIC -shared <name>.c
+  $(ae cflags)`, WASM, static link) — the compile-on-install / source-registry
+  primitive the zsync packaging ask anticipated
+  (`asks/aeb-build-fetch-and-emit-lib-for-zsync-so.md`). Setters: `source`
+  (default `<moduledir>.ae`), `output` (default source minus `.ae`), new
+  `caps(csv)` → `--with=<csv>`. Publishes `c_source` / `c_header` /
+  `c_header_dirs` (the `c.generated_header` include-dir contract, so a
+  dependent `c.program` -I's it for free) / `c_needs_aether_runtime` (so
+  c.program's libaether link logic fires). Deliberately a SEPARATE builder,
+  not an `emit()` mode on `aether.program` — a csrc node publishes no
+  `program_binary`, and program's downstream consumers
+  (`build.program_binary_of`) must never find a half-populated node; same
+  reasoning that made `tinygo_lib` its own builder. Rides the shared
+  `_shell_out_ae_build` (now takes an emit-flags param), so
+  `AEB_COMPILE_CONTAINER` per-step delegation works unchanged; `--coverage`
+  is suppressed on emit-mode builds (nothing to instrument — no gcc step).
+  Pure helpers `ae_csrc_flags` / `csrc_default_output` tested in
+  `tests/test_aether_csrc_cmd.ae`; smoke-proven end-to-end (emit → standalone
+  `gcc -c $(ae cflags)` → `nm` shows the `aether_greet` catalog export).
+
 - **`fetch.git(b)` — the go-get-alike (clone a pinned repo, build a target under
   it).** A new `lib/fetch` builder that `git clone --branch <ref>`s a repo into a
   pinned working tree, verifies `HEAD == commit(...)`, and **FAILS LOUD on drift**

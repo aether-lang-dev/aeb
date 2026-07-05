@@ -1168,7 +1168,7 @@ bash.run(b) {               // non-test runner: codegen, asset prep, etc.
 
 ```aether
 import aether
-import aether (source, output, extra_source, extra_source_glob, link_flag, regen, regen_with, no_closure_regen)
+import aether (source, output, caps, extra_source, extra_source_glob, link_flag, regen, regen_with, no_closure_regen)
 
 aether.program(b) {                   // shells out to `ae build` by default —
     source("main.ae")                 //   honours aether.toml [[bin]].
@@ -1195,6 +1195,20 @@ aether.program(b) {                   // regen_with overrides auto-detection —
     output("hello")                     //   and the import scan misses them.
     regen_with("ae/client/auth.ae", "net,fs")
 }
+
+aether.csrc(b) {                      // C-SOURCE package (aether 0.357
+    source("greet.ae")                //   `ae build --emit=csrc`): emits
+    output("greet")                   //   greet.c + greet.h (catalog header)
+    caps("net")                       //   under target/<module>/ — no gcc,
+}                                     //   no host .so. Compile it anywhere:
+                                      //   `cc -fPIC -shared greet.c $(ae cflags)`,
+                                      //   WASM, or static-link. Publishes
+                                      //   c_source / c_header / c_header_dirs /
+                                      //   c_needs_aether_runtime, so a dependent
+                                      //   c.program -I's the header dir and
+                                      //   links libaether without extra wiring.
+                                      //   caps("net,fs") → --with= opt-ins;
+                                      //   omit when the module needs none.
 
 aether.program(b) {                   // hand-written extras still work via
     source("main.ae")                 //   extra_source(...) — combine freely

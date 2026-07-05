@@ -26,6 +26,15 @@ output(_ctx: ptr, bin_name: string) {
     _e = map.put(_ctx, "output", bin_name)
 }
 
+// caps(csv) — capability opt-ins for an aether.csrc node, forwarded as
+// `--with=<csv>` (e.g. "net" / "net,fs"). Same csv shape as
+// regen_with's second arg. Only meaningful inside aether.csrc(b);
+// aether.program's default `ae build` path derives capabilities
+// itself, and regen entries use regen_with / auto-detection.
+caps(_ctx: ptr, cap_csv: string) {
+    _e = map.put(_ctx, "csrc_caps", cap_csv)
+}
+
 // go_source(file) — the user's .go for an aether.tinygo_lib node.
 // TinyGo compiles it to a c-shared .so (the `output`); the Aether
 // program that deps this lib tinygo.load()s that .so at runtime.
@@ -1083,7 +1092,10 @@ _ae_build_lib_flags(compile_lib: string) {
     return out
 }
 
-_shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string) {
+// emit_flags: "" for a normal binary build; a pre-spaced flag run
+// (e.g. " --emit=csrc --with=net" from ae_csrc_flags) for emit-mode
+// builds where -o is an output BASE, not a binary path.
+_shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, emit_flags: string) {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
     ae_bin = os.getenv("AETHER")
@@ -1094,10 +1106,15 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     // Coverage: cross-cutting CLI flag set by the trampoline as
     // AEB_COVERAGE=1. When on, append `--coverage` to ae build,
     // which (per Aether 0.115) injects `gcc --coverage` and forces
-    // -O0 -g for accurate .ae.gcov line attribution.
+    // -O0 -g for accurate .ae.gcov line attribution. Suppressed for
+    // emit-mode builds: --coverage instruments the gcc step, and
+    // e.g. --emit=csrc never runs gcc — the flag would be at best a
+    // no-op riding into a source-only artifact.
     cov_flag = ""
     if string.length(os.getenv("AEB_COVERAGE")) > 0 {
-        cov_flag = " --coverage"
+        if string.length(emit_flags) == 0 {
+            cov_flag = " --coverage"
+        }
     }
 
     // Thread the orchestrator's module search path (AEB_COMPILE_LIB, set by
@@ -1133,7 +1150,7 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
         // NB: lib_flags carry host paths; inside the container they're rewritten
         // root/… → /work/… so the SDK lib resolves at the bind-mounted location.
         wlibs = _rewrite_under_root(lib_flags, root, "/work")
-        args = "build${cov_flag} ${wsrc} -o ${wbin}${wlibs}"
+        args = "build${cov_flag}${emit_flags} ${wsrc} -o ${wbin}${wlibs}"
         cmd = _ae_build_cmd_delegated(args, root, container_image, wsrcdir)
         rc = build._sh(cmd)
         if rc != 0 {
@@ -1151,7 +1168,7 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     // first target to actually need this was hosttinygo (link_flags = "-lffi"
     // for the libffi-using tinygo bridge); the other bridges had empty tomls.
     // (source_dir read at the top of this fn.)
-    cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag} ${src_path} -o ${bin_path}${lib_flags}"
+    cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag}${emit_flags} ${src_path} -o ${bin_path}${lib_flags}"
     rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: ae build failed")
@@ -1159,6 +1176,35 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
         return rc
     }
     return 0
+}
+
+// ae_csrc_flags(caps) — the pre-spaced `ae build` flag run for a
+// C-source-package build (aether 0.357 --emit=csrc): " --emit=csrc"
+// plus " --with=<caps>" when a capability csv is declared. The
+// leading space is part of the contract — the caller splices it
+// directly after "build" in the command line. Pure: no I/O.
+// Tested in tests/test_aether_csrc_cmd.ae.
+ae_csrc_flags(caps: string) {
+    flags = " --emit=csrc"
+    if string.length(caps) > 0 {
+        flags = string.concat(flags, " --with=")
+        flags = string.concat(flags, caps)
+    }
+    return flags
+}
+
+// csrc_default_output(src_name) — default output base for an
+// aether.csrc node: the source name minus a trailing ".ae"
+// ("greet.ae" → "greet"); a name without the suffix passes through
+// unchanged. Pure. Tested in tests/test_aether_csrc_cmd.ae.
+csrc_default_output(src_name: string) {
+    n = string.length(src_name)
+    if n > 3 {
+        if string.ends_with(src_name, ".ae") == 1 {
+            return string.substring(src_name, 0, n - 3)
+        }
+    }
+    return string.concat(src_name, "")
 }
 
 // Build the aetherc command for codegen-mode (--emit=lib) compilation
@@ -2040,7 +2086,7 @@ _build_binary(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, c_
     if string.length(_collect_shared_libs(ctx)) > 0 {
         return _compile_and_link(ctx, builder_map, src_path, bin_path, c_path)
     }
-    return _shell_out_ae_build(ctx, builder_map, src_path, bin_path)
+    return _shell_out_ae_build(ctx, builder_map, src_path, bin_path, "")
 }
 
 _default_source_name(ctx: ptr) {
@@ -2199,6 +2245,93 @@ builder program(ctx: ptr) {
     // c.tests (or any) suite can run this binary the same way it runs a
     // c.program's — without the artifact key being SDK-specific.
     build._write_artifact(ctx, "program_binary", bin_path)
+    return 0
+}
+
+// aether.csrc(b) — emit a distributable C-SOURCE package from an .ae
+// module (aether 0.357 `ae build --emit=csrc`): <name>.c (portable
+// generated C) + <name>.h (catalog header with the aether_<fn>()
+// prototypes) under target/<module>/, and STOP — no gcc, no host .so.
+// The consumer compiles it wherever (`cc -fPIC -shared <name>.c
+// $(ae cflags)`, WASM, static link) — the compile-on-install /
+// source-registry primitive (see asks/aeb-build-fetch-and-emit-lib-
+// for-zsync-so.md for the demand).
+//
+//   aether.csrc(b) {
+//       source("greet.ae")   // default: <moduledir>.ae
+//       output("greet")      // default: source name minus .ae
+//       caps("net")          // optional --with= csv (fs,net,os,…)
+//   }
+//
+// Deliberately a SEPARATE builder, not an emit() mode on
+// aether.program: the artifact contract differs (no program_binary —
+// nothing here is runnable), and program's downstream consumers
+// (c.tests via build.program_binary_of) must never find a
+// half-populated node. Same reasoning that made tinygo_lib its own
+// builder. Manual-path setters (extra_source/link_flag/regen) are not
+// honoured here — csrc is always the `ae build` shell-out; a node
+// needing hand-linked C extras wants aether.program or c.program.
+//
+// Published artifacts:
+//   c_source        — target/<module>/<name>.c
+//   c_header        — target/<module>/<name>.h
+//   c_header_dirs   — target/<module> (a dependent c.program -I's it,
+//                     same contract c.generated_header publishes)
+//   c_needs_aether_runtime — "1": anything compiling the emitted C
+//                     must link libaether (same key c.aether_objects
+//                     publishes, so c.program's runtime-link logic
+//                     fires without special-casing).
+//
+// Compile-only by nature (a source package has no run step): active
+// under --compile-only, inert under --execute-only; artifact writes
+// run in both passes so dependents resolve paths either way. The
+// AEB_COMPILE_CONTAINER per-step delegation seam is honoured via the
+// shared _shell_out_ae_build.
+builder csrc(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    build._mkdirs(target_dir)
+
+    src_name = _default_source_name(ctx)
+    if _builder != null {
+        if map.has(_builder, "source") == 1 {
+            src_name, _ = map.get(_builder, "source")
+        }
+    }
+    src_path = path.join(source_dir, src_name)
+
+    out_name = csrc_default_output(src_name)
+    if _builder != null {
+        if map.has(_builder, "output") == 1 {
+            out_name, _ = map.get(_builder, "output")
+        }
+    }
+    out_base = path.join(target_dir, out_name)
+
+    cap_csv = ""
+    if _builder != null {
+        if map.has(_builder, "csrc_caps") == 1 {
+            cap_csv, _ = map.get(_builder, "csrc_caps")
+        }
+    }
+
+    if build._compile_enabled() == 1 {
+        println("${mod_dir}: emitting C source package (--emit=csrc)")
+        rc = _shell_out_ae_build(ctx, _builder, src_path, out_base, ae_csrc_flags(cap_csv))
+        if rc != 0 {
+            build.fail(ctx, "aether csrc emit failed")
+            return rc
+        }
+    }
+
+    c_path = string.concat(out_base, ".c")
+    h_path = string.concat(out_base, ".h")
+    build._write_artifact(ctx, "c_source", c_path)
+    build._write_artifact(ctx, "c_header", h_path)
+    build._write_artifact(ctx, "c_header_dirs", target_dir)
+    build._write_artifact(ctx, "c_needs_aether_runtime", "1")
     return 0
 }
 
