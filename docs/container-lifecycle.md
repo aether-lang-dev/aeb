@@ -89,7 +89,7 @@ $ aeb docs/examples/container-lifecycle/.up_poke_down.ae
 up:   aeb-cldemo serving at http://localhost:18080/
 poke: PASS — http://localhost:18080/ -> HTTP 200
 down: stopped + removed aeb-cldemo
-aeb: 1 compile + 0 dist + 0 test
+aeb: 1 up_poke_down
 ```
 
 The poke artifact is left for inspection / a later archive step:

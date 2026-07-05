@@ -35,7 +35,7 @@ import std.strbuilder
 
 // Label / tag derivation is shared via the aeblabel module (built
 // with `--lib tools`) — one canonical copy, no drift across tools.
-import aeblabel (infer_type, dirname_pure, extract_tag, file_to_label)
+import aeblabel (infer_type, dirname_pure, extract_tag, file_to_label, counts_line)
 
 extern println(s: string)
 extern exit(code: int)
@@ -491,25 +491,13 @@ main() {
     files = load_files(edges_file)
     n = list.size(files)
 
-    // --- Build display counts (compile / dist / test) ---
-    nb = 0
-    nt = 0
-    nd = 0
-    i = 0
-    while i < n {
-        f, _ = list.get(files, i)
-        t = infer_type(f)
-        if t == "build" { nb = nb + 1 }
-        // infer_type returns the verbatim filename stem, so a `.tests.ae`
-        // node is type "tests" (plural) — the pre-d6340b4 code checked only
-        // the singular "test" and silently dropped every test node from the
-        // summary count. Count both spellings.
-        if t == "test"  { nt = nt + 1 }
-        if t == "tests" { nt = nt + 1 }
-        if t == "dist"  { nd = nd + 1 }
-        i = i + 1
-    }
-    println("aeb: ${nb} compile + ${nd} dist + ${nt} test")
+    // --- Build display counts: one clause per DISTINCT verbatim type ---
+    // (aeblabel.counts_line). No fixed compile/dist/test buckets: the
+    // pre-d6340b4 hardcoded spellings silently dropped `.tests.ae` (plural)
+    // nodes from the count, and any non-canonical type (.install.ae,
+    // .essais.ae, .構築.ae) was invisible. The summary now speaks the
+    // repo's own filename vocabulary, per docs/filename-is-the-route.md.
+    println(counts_line(files))
 
     // --- Per-file transform + aetherc compile ---
     c_files = list.new()
@@ -529,10 +517,11 @@ main() {
             display = string.concat(string.concat(dir, ":"), tag)
         }
 
-        if type == "build" { println("  compile: ${display}") }
-        if type == "test"  { println("  test:    ${display}") }
-        if type == "tests" { println("  test:    ${display}") }
-        if type == "dist"  { println("  dist:    ${display}") }
+        // Verbatim type, matching counts_line — the pre-verbatim code
+        // relabelled build→compile and printed NOTHING for non-canonical
+        // types (.install.ae, .essais.ae, …), so those nodes were invisible
+        // in the pre-build listing too.
+        println("  ${type}: ${display}")
 
         // transform-ae <src> <fname> <label> <out> <aeb-lib> <aeb-home>
         tr_cmd = string.concat(transform_ae, " ")

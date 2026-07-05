@@ -1,0 +1,88 @@
+// Tests for counts_line() — the end-of-build display summary that
+// counts DAG nodes per DISTINCT verbatim type (infer_type), first-seen
+// order, no fixed compile/dist/test buckets.
+//
+// This imports the SAME `aeblabel` module tools/aeb-link.ae imports
+// (tests/run.sh builds with `--lib lib --lib tools`), so the test
+// exercises the exact code the build path runs. The pre-d6340b4
+// hardcoded-spellings bug class ("tests" plural silently dropped from
+// the count; .install.ae / .essais.ae / .構築.ae invisible) is what
+// the verbatim grammar retires — the cases below pin that behaviour.
+import std.string
+import std.list
+
+extern println(s: string)
+
+import aeblabel (counts_line)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if actual == expected {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected: '${expected}'")
+        println("  actual:   '${actual}'")
+    }
+}
+
+main() {
+    // --- canonical repo: build/dist/tests, verbatim words, no relabel ---
+    l1 = list.new()
+    _a = list.add(l1, "a/.build.ae")
+    _a = list.add(l1, "b/.build.ae")
+    _a = list.add(l1, "a/.dist.ae")
+    _a = list.add(l1, "a/.tests.ae")
+    _a = list.add(l1, "b/.tests.ae")
+    _assert_eq("canonical: verbatim words, .tests stays plural",
+        counts_line(l1), "aeb: 2 build + 1 dist + 2 tests")
+
+    // --- first-seen order, not canonical order ---
+    l2 = list.new()
+    _a = list.add(l2, "x/.dist.ae")
+    _a = list.add(l2, "x/.build.ae")
+    _assert_eq("order: first-seen, dist before build",
+        counts_line(l2), "aeb: 1 dist + 1 build")
+
+    // --- singular and plural are DISTINCT literal types ---
+    l3 = list.new()
+    _a = list.add(l3, "x/.test.ae")
+    _a = list.add(l3, "y/.tests.ae")
+    _assert_eq("literal: .test.ae and .tests.ae are separate clauses",
+        counts_line(l3), "aeb: 1 test + 1 tests")
+
+    // --- non-canonical types are counted, not dropped ---
+    l4 = list.new()
+    _a = list.add(l4, "tools/remote-agent/.install.ae")
+    _a = list.add(l4, "foo/.essais.ae")
+    _a = list.add(l4, "foo/.build.ae")
+    _assert_eq("custom: .install.ae + .essais.ae visible",
+        counts_line(l4), "aeb: 1 install + 1 essais + 1 build")
+
+    // --- non-ASCII type names pass through verbatim (byte-clean) ---
+    l5 = list.new()
+    _a = list.add(l5, "src/.構築.ae")
+    _a = list.add(l5, "src/.試験.ae")
+    _a = list.add(l5, "src2/.構築.ae")
+    _assert_eq("kanji: counted per verbatim stem",
+        counts_line(l5), "aeb: 2 構築 + 1 試験")
+
+    // --- bare dir / non-".<name>.ae" path counts as build (infer_type default) ---
+    l6 = list.new()
+    _a = list.add(l6, "ae/x")
+    _a = list.add(l6, "ae/x/main.ae")
+    _assert_eq("default: bare dir + plain file fold into build",
+        counts_line(l6), "aeb: 2 build")
+
+    // --- single node ---
+    l7 = list.new()
+    _a = list.add(l7, ".build.ae")
+    _assert_eq("single: one clause, no separator",
+        counts_line(l7), "aeb: 1 build")
+
+    // --- empty input ---
+    l8 = list.new()
+    _assert_eq("empty: 0 targets",
+        counts_line(l8), "aeb: 0 targets")
+
+    println("counts_line tests done")
+}

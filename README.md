@@ -233,12 +233,12 @@ third-party dep file is followed automatically.
 ### Typical output
 
 ```
-aeb: 18 compile + 2 dist + 17 test
-  compile: rust/components/vowelbase
-  compile: java/components/vowelbase
+aeb: 18 build + 2 dist + 17 tests
+  build: rust/components/vowelbase
+  build: java/components/vowelbase
   ...
-  dist:    java/applications/monorepos_rule
-  test:    javatests/components/vowelbase
+  dist: java/applications/monorepos_rule
+  tests: javatests/components/vowelbase
   ...
 javatests/components/vowelbase: tests PASSED
 ```
@@ -553,20 +553,23 @@ configuration; no opt-in flag.
 
 ```
 [telemetry]
-  compile: java/components/vowelbase     1.21s [miss]
-  compile: rust/components/vowelbase     0.01s [hit]
-  test:    javatests/components/vowelbase 3.03s [n/a] 17/17 PASS
-  test:    apptests/integration          5.40s [n/a] 28/30 FAIL
+  build:   java/components/vowelbase     1.21s [miss]
+  build:   rust/components/vowelbase     0.01s [hit]
+  tests:   javatests/components/vowelbase 3.03s [n/a] 17/17 PASS
+  tests:   apptests/integration          5.40s [n/a] 28/30 FAIL
             - blame against demo	expected 'alice' got 'bob'
             - log shows three commits	exit 1
 total: 9.65s wall
-aeb: 2 compile + 0 dist + 2 test
+aeb: 2 build + 2 tests
 ```
 
 Per-target row format: `<type>: <label> <wall>s [<cache>] <P>/<T> PASS|FAIL`
 
-- **`<type>`** — `compile` / `test` / `dist`. Derived from the file
-  type (`.build.ae` → compile, `.tests.ae` → test, `.dist.ae` → dist).
+- **`<type>`** — the build file's name, verbatim: the stem between the
+  leading `.` and trailing `.ae` (`.build.ae` → build, `.tests.ae` →
+  tests, `.dist.ae` → dist, `.essais.ae` → essais, `.構築.ae` → 構築).
+  No normalization — the summary speaks the repo's own filename
+  vocabulary (see docs/filename-is-the-route.md).
 - **`<label>`** — module path, with `:tag` suffix for tagged build
   files (see "Multiple build files per directory" above).
 - **`<wall>s`** — wall time in seconds, two decimals.
@@ -586,8 +589,10 @@ report counts only — adding per-test-name detail is per-SDK
 follow-up.
 
 The bottom-line summary (`total: 9.65s wall`) is wall-clock for
-the whole build session. `aeb: 2 compile + 0 dist + 2 test` is
-the count of targets that ran (independent of cache outcome).
+the whole build session. `aeb: 2 build + 2 tests` counts the
+targets that ran (independent of cache outcome) — one `<n> <type>`
+clause per distinct verbatim type, first-seen order; types with no
+targets are simply not shown.
 
 #### Machine-readable build outputs
 

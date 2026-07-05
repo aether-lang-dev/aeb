@@ -26,6 +26,7 @@
 // today's labels unchanged.
 
 import std.string
+import std.list
 
 // The build file's type IS the WHOLE `.<type>.ae` segment, verbatim — the route
 // is the filename (docs/filename-is-the-route.md). No inference into a fixed set,
@@ -101,6 +102,64 @@ basename_pure(path: string) {
 // new code should not call it.
 extract_tag(file: string) {
     return string.concat("", "")
+}
+
+// counts_line(files) — the end-of-scan display summary: one "<n> <type>"
+// clause per DISTINCT verbatim type (infer_type) across the given build-file
+// paths, in first-seen order, joined with " + ":
+//
+//   aeb: 3 build + 2 dist + 4 tests + 2 構築
+//
+// Verbatim on purpose: no normalization of build→compile or tests→test —
+// the filename is the route (docs/filename-is-the-route.md), so the summary
+// speaks the repo's own vocabulary, whatever language or spelling that is.
+// A type absent from the tree is simply not shown (no zero rows). Empty
+// input renders "aeb: 0 targets". Counting is a two-pass O(n·types) scan;
+// n is the node count of one invocation, so no strbuilder needed.
+counts_line(files: ptr) {
+    n = list.size(files)
+    if n == 0 {
+        return string.concat("aeb: 0 targets", "")
+    }
+    // Pass 1: distinct types, first-seen order.
+    types = list.new()
+    i = 0
+    while i < n {
+        f, _ = list.get(files, i)
+        t = infer_type(f)
+        seen = 0
+        j = 0
+        m = list.size(types)
+        while j < m {
+            u, _ = list.get(types, j)
+            if string.equals(u, t) == 1 { seen = 1 }
+            j = j + 1
+        }
+        if seen == 0 { _d = list.add(types, t) }
+        i = i + 1
+    }
+    // Pass 2: count each type, render " + "-joined clauses.
+    out = "aeb:"
+    m = list.size(types)
+    j = 0
+    while j < m {
+        u, _ = list.get(types, j)
+        c = 0
+        i = 0
+        while i < n {
+            f, _ = list.get(files, i)
+            t = infer_type(f)
+            if string.equals(t, u) == 1 { c = c + 1 }
+            i = i + 1
+        }
+        if j > 0 { out = string.concat(out, " +") }
+        out = string.concat(out, " ")
+        out = string.concat(out, string.from_int(c))
+        out = string.concat(out, " ")
+        out = string.concat(out, u)
+        j = j + 1
+    }
+    return out
 }
 
 // Derive the build.begin() label for a build file path:

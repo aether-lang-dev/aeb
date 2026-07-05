@@ -123,7 +123,7 @@ Running it:
 ```
 $ aeb docs/examples/inline-git-changelog/.build.ae
 inline-changelog: wrote /…/target/docs/examples/inline-git-changelog/RECENT_CHANGES.txt
-aeb: 1 compile + 0 dist + 0 test
+aeb: 1 build
 ```
 
 The artifact:

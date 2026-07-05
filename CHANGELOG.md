@@ -388,6 +388,21 @@
 
 ### Changed
 
+- **End-of-build counts are verbatim per type — no more fixed
+  compile/dist/test buckets.** The `aeb: N compile + N dist + N test` line and
+  the pre-build listing hardcoded three spellings, relabelled `build`→`compile`,
+  and silently dropped every other type (`.install.ae`, `.essais.ae`, `.構築.ae`
+  counted nowhere — the same bug class d6340b4 fixed for `tests` vs `test`).
+  Now one `<n> <type>` clause per DISTINCT verbatim type (infer_type), first-seen
+  order: `aeb: 2 build + 1 dist + 2 tests + 1 構築`; absent types are omitted;
+  empty input renders `aeb: 0 targets`. The summary speaks the repo's own
+  filename vocabulary, completing `docs/filename-is-the-route.md`'s reach into
+  the display layer. New pure `aeblabel.counts_line` (single canonical copy,
+  next to `infer_type`), consumed by `tools/aeb-link.ae`; exact-string tests in
+  `tests/test_counts_line.ae` including kanji, singular-vs-plural, and
+  first-seen-order cases. Which nodes are *tests* for PASS/FAIL purposes is
+  unchanged — that's marker-driven (test results present), not spelling-driven.
+
 - **Per-node output is now the default; `aeb --in-process` opts out.**
   aeb runs each build node as its own subprocess and redirects that
   node's tool output (javac/junit/jest/…) into
