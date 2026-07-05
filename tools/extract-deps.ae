@@ -235,6 +235,21 @@ resolve_dep_rel(dep: string, base_dir: string) {
     if string.index_of(dep, "git:") == 0 {
         return resolve_git_dep(dep)
     }
+    // Package/coordinate deps are NOT file-DAG nodes — the language SDK
+    // resolves them at build time (maven jars onto the classpath, npm packages
+    // via pnpm). Mirror the runtime build.dep rule (lib/build/module.ae:
+    // "Maven coordinates contain colons; module paths use slashes"): an npm:
+    // prefix or any remaining ':' means a coordinate. Emit no edge — otherwise
+    // a `dep(b, "hiccup:hiccup:2.0.0-RC3")` fabricated a phantom node and the
+    // driver failed with `make: No rule to make target
+    // 'hiccup_hiccup_2.0.0-RC3_.build.ae'`. (git:/npm: are matched above/here
+    // first because they too contain colons.) File paths never contain ':'.
+    if string.index_of(dep, "npm:") == 0 {
+        return ""
+    }
+    if string.index_of(dep, ":") >= 0 {
+        return ""
+    }
     resolved = resolve_dep(dep)
     if file.exists(resolved) == 1 {
         return resolved

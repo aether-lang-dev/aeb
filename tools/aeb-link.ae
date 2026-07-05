@@ -500,7 +500,12 @@ main() {
         f, _ = list.get(files, i)
         t = infer_type(f)
         if t == "build" { nb = nb + 1 }
+        // infer_type returns the verbatim filename stem, so a `.tests.ae`
+        // node is type "tests" (plural) — the pre-d6340b4 code checked only
+        // the singular "test" and silently dropped every test node from the
+        // summary count. Count both spellings.
         if t == "test"  { nt = nt + 1 }
+        if t == "tests" { nt = nt + 1 }
         if t == "dist"  { nd = nd + 1 }
         i = i + 1
     }
@@ -526,6 +531,7 @@ main() {
 
         if type == "build" { println("  compile: ${display}") }
         if type == "test"  { println("  test:    ${display}") }
+        if type == "tests" { println("  test:    ${display}") }
         if type == "dist"  { println("  dist:    ${display}") }
 
         // transform-ae <src> <fname> <label> <out> <aeb-lib> <aeb-home>

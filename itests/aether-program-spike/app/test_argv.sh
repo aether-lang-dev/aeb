@@ -24,7 +24,10 @@ grep -qx "triple=21"           <<<"${OUT}" || fail "C library (via include_dir h
 
 # Gap 2: regen must not litter the committed source tree. The sibling
 # Aether lib's generated C belongs under target/, not beside greet.ae.
-STRAY="$(find . -path ./target -prune -o -name '*_generated.c' -print 2>/dev/null)"
+# Prune every target/ dir at any depth — aeb now writes regen output to
+# per-module <module>/target/ (e.g. app/target/), not just a single
+# monorepo-root target/, so a `-path ./target -prune` misses those.
+STRAY="$(find . -name target -prune -o -name '*_generated.c' -print 2>/dev/null)"
 if [ -n "${STRAY}" ]; then
     fail "generated C leaked into the source tree: ${STRAY}"
 fi

@@ -13,11 +13,13 @@
 //   - depth-0 glob duplicates (./X appearing twice from `./**/X`)
 //     collapse to one
 //   - empty scan + no dep = empty output
+//   - npm:/maven coordinate deps emit NO edge (they are runtime-resolved
+//     package deps, not file-DAG nodes — mirrors the runtime build.dep
+//     colon rule; a phantom `<coord>/.build.ae` broke the driver)
 //
 // Not covered (delegated to runtime build.scan):
 //   - zero-match → loud error (extract-deps is silent at extraction
 //     time; runtime build.scan reports the error)
-//   - npm:/maven coord classification (separate code path in dep)
 
 import std.string
 import std.io
@@ -172,6 +174,20 @@ main() {
         println("FAIL: dep+scan: lib/foo/.tests.ae missing entirely")
         println("  output: '${out_mixed}'")
     }
+
+    // --- coordinate deps are NOT file-DAG edges ---
+    // Regression: a maven `group:artifact:version` or `npm:pkg` coordinate
+    // was fabricated into a phantom `<coord>/.build.ae` node, which the
+    // driver could not build (`make: No rule to make target
+    // 'hiccup_hiccup_2.0.0-RC3_.build.ae'`). Coordinates are runtime-resolved
+    // package deps (maven jars onto the classpath, npm via pnpm) — they
+    // mirror the runtime build.dep colon rule and must emit no edge. Only
+    // the real file-path dep survives.
+    coords = "import build\nmain() {\n    b = build.start()\n    build.dep(b, \"hiccup:hiccup:2.0.0-RC3\")\n    build.dep(b, \"org.springframework.boot:spring-boot-starter\")\n    build.dep(b, \"npm:left-pad:1.3.0\")\n    build.dep(b, \"single/.build.ae\")\n}\n"
+    fs.write_atomic("${root}/.coords.ae", coords, string.length(coords))
+    out_coords = _run_extract_deps(root, ".coords.ae")
+    _assert_eq("coord deps (maven/npm) excluded; only file dep emitted",
+        _normalise(out_coords), "single/.build.ae")
 
     // --- empty file: no deps, no scans ---
     empty = "import build\nmain() { b = build.start(); return 0 }\n"
