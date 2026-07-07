@@ -1853,12 +1853,33 @@ _dir_nonempty(d: string) {
 // SDKs that don't (yet) call this leave the marker absent; the
 // orchestrator treats absence as "no results" rather than "0/0".
 _record_test_result(ctx: ptr, passed: int, failed: int) {
+    // Default: these are genuine per-test counts from a runner that
+    // reported them (junit5, pytest, aeocha report, …). report=1.
+    _record_test_result_r(ctx, passed, failed, 1)
+}
+
+// _record_test_result_exitcode(ctx, passed, failed) — the counts were
+// SYNTHESISED from a process exit code (0 → 1/0 PASS, non-0 → 0/1 FAIL),
+// not reported by a test runner with real per-test granularity. Callers:
+// aether.program_test and the aeocha-less driver_test fallback. Records
+// report=0 so the telemetry JSON emits `tests: null` for these rows
+// (they carry only rc), per the for_ci_use.md granularity split.
+_record_test_result_exitcode(ctx: ptr, passed: int, failed: int) {
+    _record_test_result_r(ctx, passed, failed, 0)
+}
+
+// Shared writer. `has_report` distinguishes genuine per-test counts
+// (1) from exit-code-synthesised ones (0); persisted as a `report=`
+// line the orchestrator reads back.
+_record_test_result_r(ctx: ptr, passed: int, failed: int, has_report: int) {
     td = _get(ctx, "target_dir")
     _mkdirs(td)
     p = path.join(td, ".aeb_test_result")
     body = string.concat("passed=", string.from_int(passed))
     body = string.concat(body, "\nfailed=")
     body = string.concat(body, string.from_int(failed))
+    body = string.concat(body, "\nreport=")
+    body = string.concat(body, string.from_int(has_report))
     body = string.concat(body, "\n")
     _e = fs.write_atomic(p, body, string.length(body))
 }
@@ -1898,6 +1919,41 @@ _read_test_result(target_dir: string) {
         }
     }
     return passed, failed, 1
+}
+
+// _read_test_report_flag(target_dir) — read just the `report=` line
+// the .aeb_test_result marker carries (1 = genuine per-test counts,
+// 0 = exit-code-synthesised). Absent marker or absent line → 1
+// (backward-compatible default: pre-existing markers and every runner
+// that reports real counts are treated as reported). The telemetry
+// JSON renderer emits `tests: null` only when this is 0.
+_read_test_report_flag(target_dir: string) {
+    p = path.join(target_dir, ".aeb_test_result")
+    if fs.exists(p) == 0 { return 1 }
+    content, _err = fs.read(p)
+    if string.length(content) == 0 { return 1 }
+    rest = content
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        eq = string.index_of(line, "=")
+        if eq > 0 {
+            key = string.substring(line, 0, eq)
+            if string.equals(key, "report") == 1 {
+                value_str = string.substring(line, eq + 1, string.length(line))
+                value, _verr = string.to_int(string.trim(value_str))
+                return value
+            }
+        }
+    }
+    return 1
 }
 
 // _record_test_failures(ctx, names) — write failed-test names to
@@ -2793,19 +2849,33 @@ _record_json(rec: ptr) {
     out = string.concat(out, _json_str(cache))
     out = string.concat(out, ",\"rc\":")
     out = string.concat(out, rc)
+    // `tests` is a real per-test object ONLY when the SDK reported
+    // genuine counts. Exit-code-mapped rows (program_test, aeocha-less
+    // driver_test) set test_has_report=0 → `tests: null`, carrying rc
+    // only, per the for_ci_use.md granularity split. Absent test_passed
+    // (a non-test node) is also null.
+    has_report = 1
+    if map.has(rec, "test_has_report") == 1 {
+        thr_s, _ = map.get(rec, "test_has_report")
+        if string.equals(thr_s, "0") == 1 { has_report = 0 }
+    }
     if map.has(rec, "test_passed") == 1 {
-        tp, _ = map.get(rec, "test_passed")
-        tf, _ = map.get(rec, "test_failed")
-        total_i, _ = string.to_int(tp)
-        failed_i, _ = string.to_int(tf)
-        total_i = total_i + failed_i
-        out = string.concat(out, ",\"tests\":{\"total\":")
-        out = string.concat(out, string.from_int(total_i))
-        out = string.concat(out, ",\"passed\":")
-        out = string.concat(out, tp)
-        out = string.concat(out, ",\"failed\":")
-        out = string.concat(out, tf)
-        out = string.concat(out, ",\"errored\":0}")
+        if has_report == 1 {
+            tp, _ = map.get(rec, "test_passed")
+            tf, _ = map.get(rec, "test_failed")
+            total_i, _ = string.to_int(tp)
+            failed_i, _ = string.to_int(tf)
+            total_i = total_i + failed_i
+            out = string.concat(out, ",\"tests\":{\"total\":")
+            out = string.concat(out, string.from_int(total_i))
+            out = string.concat(out, ",\"passed\":")
+            out = string.concat(out, tp)
+            out = string.concat(out, ",\"failed\":")
+            out = string.concat(out, tf)
+            out = string.concat(out, ",\"errored\":0}")
+        } else {
+            out = string.concat(out, ",\"tests\":null")
+        }
     } else {
         out = string.concat(out, ",\"tests\":null")
     }

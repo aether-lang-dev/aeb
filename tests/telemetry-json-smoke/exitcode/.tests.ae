@@ -1,0 +1,17 @@
+// Hand-rolled exit-code-only test target for the telemetry-JSON smoke.
+//
+// aether.program_test runs one binary; exit code IS the verdict, with no
+// aeocha report. aeb maps exit 0 → 1/0 PASS, and — crucially for the
+// acceptance criteria — the telemetry JSON row has tests: null (no
+// per-it granularity), rc: 0, status "pass".
+import build
+import aether
+import aether (source, output)
+
+aeb(cap) {
+    b = build.start()
+    aether.program_test(b) {
+        source("exitcode.ae")
+        output("exitcode")
+    }
+}

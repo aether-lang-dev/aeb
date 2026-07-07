@@ -1,0 +1,9 @@
+// Hand-rolled exit-code-only test: no aeocha, exit status is the whole
+// verdict. Under aether.program_test aeb maps exit 0 → 1/0 PASS with NO
+// per-it report, so the telemetry JSON row carries rc:0 and tests:null
+// (the exit-code-mapped granularity split _parse_aeocha_report leaves
+// alone). This is the third target the acceptance criteria require.
+main() {
+    println("exitcode check ok")
+    return 0
+}

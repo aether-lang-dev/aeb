@@ -425,9 +425,22 @@ main() {
         if thr == 1 {
             _rp = map.put(rec, "test_passed", string.from_int(tp))
             _rf = map.put(rec, "test_failed", string.from_int(tf))
+            _rhr = map.put(rec, "test_has_report", string.from_int(build._read_test_report_flag(td)))
             if tf > 0 { node_failed = 1 }
             tfn = build._read_test_failures(td)
             if string.length(tfn) > 0 { _rn = map.put(rec, "test_failed_names", tfn) }
+        }
+        // Keep rc in agreement with the logical outcome: a test node whose
+        // process exits 0 but whose aeocha report shows failures (tf>0) set
+        // node_failed above, so surface rc=1 too. Without this the JSON row
+        // reads status:"fail" alongside rc:0 — the exact disagreement the
+        // telemetry-json smoke guards against. (Mirrors the in-process
+        // orchestrator's status→rc mapping in gen-orchestrator.ae.)
+        if node_failed == 1 {
+            if string.equals(rc_value, "0") == 1 {
+                rc_value = "1"
+                _rrc2 = map.put(rec, "rc", "1")
+            }
         }
         rec_status = "pass"
         if node_failed == 1 { rec_status = "fail" }

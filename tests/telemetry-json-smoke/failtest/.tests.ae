@@ -1,0 +1,18 @@
+// Failing-aeocha test target for the telemetry-JSON smoke.
+//
+// aether.driver_test spawns the driver with an IPC back-channel; the
+// aeocha run_summary emits a version=1 per-it() report the driver
+// parses. With 1 of 3 specs failing, aeb records 2/3 FAIL, and the
+// telemetry JSON must carry tests: {total:3, passed:2, failed:1} with
+// status "fail".
+import build
+import aether
+import aether (source, output)
+
+aeb(cap) {
+    b = build.start()
+    aether.driver_test(b) {
+        source("failtest.ae")
+        output("failtest")
+    }
+}

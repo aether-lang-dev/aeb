@@ -1,0 +1,9 @@
+// Trivial Aether program. The build target that compiles it opts into
+// the manual aetherc+gcc path (via extra_source), which is the path
+// that records a content-addressed cache outcome — so a second aeb run
+// reports `cache: hit` for this node. That is the "cache-hit target"
+// the telemetry-JSON acceptance criteria call for.
+main() {
+    println("cachelib ok")
+    return 0
+}

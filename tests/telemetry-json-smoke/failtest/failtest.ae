@@ -1,0 +1,27 @@
+// Aeocha driver with 3 specs, 1 deliberately failing → 2/3 FAIL.
+//
+// Run under aether.driver_test, aeb spawns this with an IPC back-channel;
+// aeocha.run_summary emits a structured per-it() report the driver parses
+// (build._parse_aeocha_report), so the telemetry JSON records
+// tests: {total:3, passed:2, failed:1} — the granularity the CI daemon
+// wants, not a binary 0/1. Exit code is non-zero (a spec failed).
+import contrib.aeocha
+
+main() {
+    fw = aeocha.init()
+
+    aeocha.describe(fw, "telemetry smoke specs") {
+        aeocha.it("passes first") callback {
+            aeocha.assert_eq(fw, 1 + 1, 2, "math one")
+        }
+        aeocha.it("fails on purpose") callback {
+            aeocha.assert_eq(fw, 1, 2, "intentional failure")
+        }
+        aeocha.it("passes last") callback {
+            aeocha.assert_str_eq(fw, "ok", "ok", "string eq")
+        }
+    }
+
+    aeocha.run_summary(fw)
+    return 0
+}

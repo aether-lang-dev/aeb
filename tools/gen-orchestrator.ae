@@ -160,10 +160,17 @@ main() {
         println("    map.put(_rec, \"label\", \"${label}\")")
         println("    map.put(_rec, \"type\", \"${type_word}\")")
         println("    map.put(_rec, \"wall_ms\", string.from_int((_end - _start) / 1000000))")
-        println("    map.put(_rec, \"rc\", \"0\")")
         println("    _st = build.status_of(s, \"${label}\")")
         println("    if string.length(_st) == 0 { _st = \"passed\" }")
         println("    map.put(_rec, \"status\", _st)")
+        // rc reflects the node's logical outcome so the JSON's rc agrees
+        // with status (a failed test can't report rc:0). The in-process
+        // orchestrator has no child exit code to read — status IS the
+        // outcome here — so map failed→1, everything else→0. (The driver's
+        // per-node make path reads a real child rc from the .rc marker.)
+        println("    _rc = \"0\"")
+        println("    if string.equals(_st, \"failed\") == 1 { _rc = \"1\" }")
+        println("    map.put(_rec, \"rc\", _rc)")
         println("    _td = build._label_to_target_dir(_root, \"${label}\")")
         println("    map.put(_rec, \"cache\", build._read_cache_outcome(_td))")
         // Read the test-result marker for EVERY node — gated at runtime on the
@@ -175,6 +182,7 @@ main() {
         println("    if _thr == 1 {")
         println("        map.put(_rec, \"test_passed\", string.from_int(_tp))")
         println("        map.put(_rec, \"test_failed\", string.from_int(_tf))")
+        println("        map.put(_rec, \"test_has_report\", string.from_int(build._read_test_report_flag(_td)))")
         println("    }")
         println("    _tfn = build._read_test_failures(_td)")
         println("    if string.length(_tfn) > 0 {")

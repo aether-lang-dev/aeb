@@ -2384,14 +2384,15 @@ builder program_test(ctx: ptr) {
     rc = build._sh(run_cmd)
     if rc != 0 {
         // aether.program_test runs one binary; non-zero exit = 1
-        // logical failure. Test runners with sub-test counts
-        // (junit5, pytest, etc.) report finer granularity.
-        build._record_test_result(ctx, 0, 1)
+        // logical failure. Exit-code-synthesised (no per-test report),
+        // so the telemetry JSON gets `tests: null` + rc only. Runners
+        // with sub-test counts (junit5, pytest, …) report finer granularity.
+        build._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
         build.fail(ctx, "aether tests failed")
         return rc
     }
-    build._record_test_result(ctx, 1, 0)
+    build._record_test_result_exitcode(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     return 0
 }
@@ -2467,7 +2468,7 @@ builder driver_test(ctx: ptr) {
     println("${mod_dir}: compiling Aether driver")
     rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
     if rc != 0 {
-        build._record_test_result(ctx, 0, 1)
+        build._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: driver FAILED (compile)")
         build.fail(ctx, "aether driver build failed")
         return rc
@@ -2528,7 +2529,7 @@ builder driver_test(ctx: ptr) {
             if file.exists(resolved) == 0 {
                 println("${mod_dir}: binary_under_test \"${name}\" not found at ${resolved}")
                 println("${mod_dir}: did you forget a build.dep on the producing module?")
-                build._record_test_result(ctx, 0, 1)
+                build._record_test_result_exitcode(ctx, 0, 1)
                 return 1
             }
             // Default env-var name is <UPPER(name)>_BIN; user may override.
@@ -2621,8 +2622,9 @@ builder driver_test(ctx: ptr) {
     if string.length(run_err) > 0 {
         // Spawn itself failed (binary not found, permission
         // denied, Windows fall-through, …). Distinct from the
-        // driver running and exiting non-zero.
-        build._record_test_result(ctx, 0, 1)
+        // driver running and exiting non-zero. No report → exit-code
+        // granularity (tests: null in the JSON).
+        build._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: driver spawn error: ${run_err}")
         return 1
     }
@@ -2642,7 +2644,14 @@ builder driver_test(ctx: ptr) {
     }
 
     total_failed = failed + errored
-    build._record_test_result(ctx, passed, total_failed)
+    // A genuine aeocha report → real per-it counts (tests: {…}); no
+    // report → exit-code-mapped 1/0 (tests: null, rc only). Mirrors the
+    // for_ci_use.md granularity split.
+    if has_report == 1 {
+        build._record_test_result(ctx, passed, total_failed)
+    } else {
+        build._record_test_result_exitcode(ctx, passed, total_failed)
+    }
     // Persist failed-test names so the orchestrator can render
     // them under the FAIL line in [telemetry]. No-op when
     // failed_names is empty (all-pass run, or hand-rolled driver
