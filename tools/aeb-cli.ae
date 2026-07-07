@@ -85,6 +85,25 @@ _print_version(aeb_home: string) {
     if string.length(av_t) > 0 { println(av_t) }
 }
 
+_aeb_version_line(aeb_home: string) {
+    stamp = string.concat(aeb_home, "/AEB_STAMP")
+    if file.exists(stamp) == 1 {
+        text, _e = fs.read(stamp)
+        src = aebcli.stamp_field(text, "src")
+        commit = aebcli.stamp_field(text, "commit")
+        installed = aebcli.stamp_field(text, "installed")
+        return "aeb 0.0.0-dev+${src}   (git ${commit}, installed ${installed})"
+    }
+    return "aeb 0.0.0-dev   (no AEB_STAMP — un-installed tree at ${aeb_home})"
+}
+
+_maybe_set_aeb_version(aeb_home: string) {
+    if string.length(os.getenv("AEB_TELEMETRY_JSON")) == 0 { return 0 }
+    if string.length(os.getenv("AEB_VERSION")) > 0 { return 0 }
+    _ev = os.setenv("AEB_VERSION", _aeb_version_line(aeb_home))
+    return 0
+}
+
 // Podman socket autodetect for TestContainers — the bash
 // `[[ -z DOCKER_HOST ]] && [[ -S /run/user/<uid>/podman/podman.sock ]]`.
 // POSIX-only (no Windows socket path); a no-op when DOCKER_HOST is set or
@@ -191,6 +210,8 @@ main() {
         }
         j = j + 1
     }
+
+    _maybe_set_aeb_version(aeb_home)
 
     // --- Remote offload: --use-remote-agents routes to aeb-remote instead of
     // building locally (mirrors the bash arm at aeb ~438). The directive plan

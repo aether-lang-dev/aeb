@@ -607,8 +607,10 @@ aeb \
 ```
 
 - **Telemetry JSON** contains the same per-target records that feed the
-  `[telemetry]` block: label, type, wall time, cache outcome, and test
-  counts when present.
+  `[telemetry]` block under a versioned schema: `version`, `aeb_version`,
+  `since_ref`, `targets[]`, and `summary`. Each target row includes label,
+  type, status, duration, cache outcome, rc, and nested test counts when
+  present (`tests: null` otherwise).
 - **Tests JSON** contains only test rows, with pass/fail counts,
   verdict, cache outcome, and failed-test detail when an SDK provides it.
 - **Artifacts JSON** lists non-internal files found under each target's

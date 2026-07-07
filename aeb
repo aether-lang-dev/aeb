@@ -539,6 +539,18 @@ if [[ ! -x "$AEB_MAIN_BIN" ]]; then
     "$AETHER" build "$AEB_HOME/tools/aeb-main.ae" -o "$AEB_MAIN_BIN" 2>/dev/null
 fi
 
+if [[ -n "${AEB_TELEMETRY_JSON:-}" && -z "${AEB_VERSION:-}" ]]; then
+    stamp="$AEB_HOME/AEB_STAMP"
+    if [[ -f "$stamp" ]]; then
+        src=$(awk '$1=="src"{print $2}' "$stamp")
+        commit=$(awk '$1=="commit"{print $2}' "$stamp")
+        installed=$(awk '$1=="installed"{sub(/^installed /,"");print}' "$stamp")
+        export AEB_VERSION="aeb 0.0.0-dev+${src}   (git ${commit}, installed ${installed})"
+    else
+        export AEB_VERSION="aeb 0.0.0-dev   (no AEB_STAMP — un-installed tree at $AEB_HOME)"
+    fi
+fi
+
 # --- --sandbox gate: run the build under runtime containment ---------
 # When AEB_SANDBOX=1, the build is launched through tools/aeb-sandbox,
 # which spawn_sandboxed's the whole aeb-main run under the operator grant

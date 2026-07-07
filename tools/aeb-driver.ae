@@ -159,6 +159,28 @@ _node_cmd(out_bin: string, root: string, node: string, label: string, log: strin
     return c
 }
 
+_node_cmd_timed(out_bin: string, root: string, node: string, label: string, log: string, rcmark: string, msmark: string, image: string, engine: string, selabel: string) {
+    inner = string.concat("'", out_bin)
+    inner = string.concat(inner, "' '")
+    inner = string.concat(inner, root)
+    inner = string.concat(inner, "' '")
+    inner = string.concat(inner, label)
+    inner = string.concat(inner, "'")
+    if string.length(image) > 0 {
+        inner = _container_node_invocation(node, root, label, image, engine, selabel)
+    }
+    c = string.concat("_s=$$(date +%s%3N 2>/dev/null || date +%s000); ", "")
+    c = string.concat(c, inner)
+    c = string.concat(c, " > '")
+    c = string.concat(c, log)
+    c = string.concat(c, "' 2>&1; _r=$$?; _e=$$(date +%s%3N 2>/dev/null || date +%s000); echo $$_r > '")
+    c = string.concat(c, rcmark)
+    c = string.concat(c, "'; echo $$((_e-_s)) > '")
+    c = string.concat(c, msmark)
+    c = string.concat(c, "'; exit $$_r")
+    return c
+}
+
 main() {
     argc = aether_args_count()
     if argc < 4 {
@@ -276,6 +298,7 @@ main() {
             label = file_to_label(node)
             log = path.join(logs_dir, _log_name(label))
             rcmark = path.join(rc_dir, string.concat(_san(node), ".rc"))
+            msmark = path.join(rc_dir, string.concat(_san(node), ".ms"))
             // target line: <san(node)>: <san(dep)>...
             mk = string.concat(mk, _san(node))
             mk = string.concat(mk, ":")
@@ -296,7 +319,7 @@ main() {
                 nimg, _ = map.get(node_image, node)
             }
             mk = string.concat(mk, "\n\t@")
-            mk = string.concat(mk, _node_cmd(out_bin, root, node, label, log, rcmark, nimg, engine, selabel))
+            mk = string.concat(mk, _node_cmd_timed(out_bin, root, node, label, log, rcmark, msmark, nimg, engine, selabel))
             mk = string.concat(mk, "\n")
         }
         mk_path = path.join(aeb_dir, "build.mk")
@@ -367,25 +390,31 @@ main() {
         type_word = type
 
         node_failed = 0
+        rc_value = "0"
         rcmark = path.join(rc_dir, string.concat(_san(node), ".rc"))
         if file.exists(rcmark) == 1 {
             rctxt, _rce = io.read_file(rcmark)
-            if string.equals(string.trim(rctxt), "0") == 0 { node_failed = 1 }
+            rc_value = string.trim(rctxt)
+            if string.equals(rc_value, "0") == 0 { node_failed = 1 }
         } else {
             // No rc marker: make skipped it (a dependency failed).
             node_failed = 1
+            rc_value = "1"
         }
 
         rec = map.new()
         _rl = map.put(rec, "label", string.copy(label))
         _rt = map.put(rec, "type", string.copy(type_word))
+        _rrc = map.put(rec, "rc", string.copy(rc_value))
         // Per-node wall from the .ms marker the node-run wrote (driver
-        // reconstructs from markers; absent → 0, e.g. the make path which
-        // doesn't yet write one — a follow-up). Without this the row shows 0.00s.
+        // reconstructs from markers; absent → 0, e.g. a skipped make node.
+        // Without this the row shows 0.00s.
         msmark = path.join(rc_dir, string.concat(_san(node), ".ms"))
         if file.exists(msmark) == 1 {
             mstxt, _mse = io.read_file(msmark)
             _rw = map.put(rec, "wall_ms", string.trim(mstxt))
+        } else {
+            _rw0 = map.put(rec, "wall_ms", "0")
         }
         td = build._label_to_target_dir(root, label)
         _rcc = map.put(rec, "cache", build._read_cache_outcome(td))
@@ -400,6 +429,10 @@ main() {
             tfn = build._read_test_failures(td)
             if string.length(tfn) > 0 { _rn = map.put(rec, "test_failed_names", tfn) }
         }
+        rec_status = "pass"
+        if node_failed == 1 { rec_status = "fail" }
+        if file.exists(rcmark) == 0 { rec_status = "skipped" }
+        _rst = map.put(rec, "status", string.copy(rec_status))
         _ra = list.add(records, rec)
 
         if node_failed == 1 {

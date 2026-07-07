@@ -2775,46 +2775,113 @@ _record_json(rec: ptr) {
     type_word, _ = map.get(rec, "type")
     wm_s, _ = map.get(rec, "wall_ms")
     cache, _ = map.get(rec, "cache")
+    status = _telemetry_status(rec)
+    rc = "0"
+    if map.has(rec, "rc") == 1 {
+        rc, _ = map.get(rec, "rc")
+    }
     out = "{"
     out = string.concat(out, "\"label\":")
-    out = string.concat(out, _json_str(label))
+    out = string.concat(out, _json_str(_label_display(label)))
     out = string.concat(out, ",\"type\":")
     out = string.concat(out, _json_str(type_word))
-    out = string.concat(out, ",\"wall_ms\":")
+    out = string.concat(out, ",\"status\":")
+    out = string.concat(out, _json_str(status))
+    out = string.concat(out, ",\"duration_ms\":")
     out = string.concat(out, wm_s)
     out = string.concat(out, ",\"cache\":")
     out = string.concat(out, _json_str(cache))
+    out = string.concat(out, ",\"rc\":")
+    out = string.concat(out, rc)
     if map.has(rec, "test_passed") == 1 {
         tp, _ = map.get(rec, "test_passed")
         tf, _ = map.get(rec, "test_failed")
-        out = string.concat(out, ",\"test_passed\":")
+        total_i, _ = string.to_int(tp)
+        failed_i, _ = string.to_int(tf)
+        total_i = total_i + failed_i
+        out = string.concat(out, ",\"tests\":{\"total\":")
+        out = string.concat(out, string.from_int(total_i))
+        out = string.concat(out, ",\"passed\":")
         out = string.concat(out, tp)
-        out = string.concat(out, ",\"test_failed\":")
+        out = string.concat(out, ",\"failed\":")
         out = string.concat(out, tf)
-        if map.has(rec, "test_failed_names") == 1 {
-            tfn, _ = map.get(rec, "test_failed_names")
-            out = string.concat(out, ",\"test_failed_names\":")
-            out = string.concat(out, _json_str(tfn))
-        }
+        out = string.concat(out, ",\"errored\":0}")
+    } else {
+        out = string.concat(out, ",\"tests\":null")
     }
     out = string.concat(out, "}")
     return out
 }
 
+_telemetry_status(rec: ptr) {
+    if map.has(rec, "status") == 1 {
+        st, _ = map.get(rec, "status")
+        cache0, _ = map.get(rec, "cache")
+        if string.equals(st, "passed") == 1 {
+            if string.equals(cache0, "hit") == 1 { return "cache-hit" }
+            return "pass"
+        }
+        if string.equals(st, "failed") == 1 { return "fail" }
+        if string.equals(st, "pass") == 1 {
+            if string.equals(cache0, "hit") == 1 { return "cache-hit" }
+            return "pass"
+        }
+        if string.length(st) > 0 { return st }
+    }
+    cache, _ = map.get(rec, "cache")
+    if string.equals(cache, "hit") == 1 { return "cache-hit" }
+    rc = "0"
+    if map.has(rec, "rc") == 1 { rc, _ = map.get(rec, "rc") }
+    if string.equals(rc, "0") == 0 { return "fail" }
+    if map.has(rec, "test_failed") == 1 {
+        tf, _ = map.get(rec, "test_failed")
+        tfi, _ = string.to_int(tf)
+        if tfi > 0 { return "fail" }
+    }
+    return "pass"
+}
+
 render_telemetry_json(records: ptr, total_ms: int) {
+    aeb_version = os.getenv("AEB_VERSION")
+    since_ref = os.getenv("AEB_SINCE_REF")
+    built = 0
+    failed_count = 0
+    skipped_count = 0
     out = "{"
-    out = string.concat(out, "\"total_ms\":")
-    out = string.concat(out, string.from_int(total_ms))
-    out = string.concat(out, ",\"records\":[")
+    out = string.concat(out, "\"version\":1")
+    out = string.concat(out, ",\"aeb_version\":")
+    out = string.concat(out, _json_str(aeb_version))
+    out = string.concat(out, ",\"since_ref\":")
+    if string.length(since_ref) > 0 {
+        out = string.concat(out, _json_str(since_ref))
+    } else {
+        out = string.concat(out, "null")
+    }
+    out = string.concat(out, ",\"targets\":[")
     n = list.size(records)
     i = 0
     while i < n {
         rec, _ = list.get(records, i)
         if i > 0 { out = string.concat(out, ",") }
+        st = _telemetry_status(rec)
+        if string.equals(st, "skipped") == 1 {
+            skipped_count = skipped_count + 1
+        } else {
+            built = built + 1
+        }
+        if string.equals(st, "fail") == 1 { failed_count = failed_count + 1 }
         out = string.concat(out, _record_json(rec))
         i = i + 1
     }
-    out = string.concat(out, "]}")
+    out = string.concat(out, "],\"summary\":{\"built\":")
+    out = string.concat(out, string.from_int(built))
+    out = string.concat(out, ",\"failed\":")
+    out = string.concat(out, string.from_int(failed_count))
+    out = string.concat(out, ",\"skipped\":")
+    out = string.concat(out, string.from_int(skipped_count))
+    out = string.concat(out, ",\"duration_ms\":")
+    out = string.concat(out, string.from_int(total_ms))
+    out = string.concat(out, "}}")
     return out
 }
 

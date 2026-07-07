@@ -189,13 +189,19 @@ main() {
     // --- JSON renderers: telemetry records ---
     json_records = list.new()
     json_compile = _record("ae/quote\"slash\\", "compile", 12, "hit")
+    map.put(json_compile, "rc", "0")
+    map.put(json_compile, "status", "passed")
     list.add(json_records, json_compile)
     json_test = _record("test:ae/wc", "test", 3400, "n/a")
+    map.put(json_test, "rc", "1")
+    map.put(json_test, "status", "failed")
     map.put(json_test, "test_passed", "2")
     map.put(json_test, "test_failed", "1")
     map.put(json_test, "test_failed_names", "bad \"case\"\tnope\nnext\\case")
     list.add(json_records, json_test)
-    expected_json = "{\"total_ms\":3412,\"records\":[{\"label\":\"ae/quote\\\"slash\\\\\",\"type\":\"compile\",\"wall_ms\":12,\"cache\":\"hit\"},{\"label\":\"test:ae/wc\",\"type\":\"test\",\"wall_ms\":3400,\"cache\":\"n/a\",\"test_passed\":2,\"test_failed\":1,\"test_failed_names\":\"bad \\\"case\\\"\\tnope\\nnext\\\\case\"}]}"
+    os.setenv("AEB_VERSION", "aeb test-version")
+    os.setenv("AEB_SINCE_REF", "main")
+    expected_json = "{\"version\":1,\"aeb_version\":\"aeb test-version\",\"since_ref\":\"main\",\"targets\":[{\"label\":\"ae/quote\\\"slash\\\\\",\"type\":\"compile\",\"status\":\"cache-hit\",\"duration_ms\":12,\"cache\":\"hit\",\"rc\":0,\"tests\":null},{\"label\":\"ae/wc\",\"type\":\"test\",\"status\":\"fail\",\"duration_ms\":3400,\"cache\":\"n/a\",\"rc\":1,\"tests\":{\"total\":3,\"passed\":2,\"failed\":1,\"errored\":0}}],\"summary\":{\"built\":2,\"failed\":1,\"skipped\":0,\"duration_ms\":3412}}"
     _assert_eq("render: telemetry json", render_telemetry_json(json_records, 3412), expected_json)
 
     expected_tests_json = "{\"tests\":[{\"label\":\"test:ae/wc\",\"wall_ms\":3400,\"cache\":\"n/a\",\"has_results\":true,\"passed\":2,\"failed\":1,\"verdict\":\"FAIL\",\"failed_names\":\"bad \\\"case\\\"\\tnope\\nnext\\\\case\"}]}"

@@ -643,6 +643,7 @@ main() {
             println("aeb: --since requires a git ref (e.g. `aeb --since main`)")
             exit(1)
         }
+        _since_env = os.setenv("AEB_SINCE_REF", flag_arg)
     }
     if is_cpf == 1 {
         if string.length(flag_arg) == 0 {

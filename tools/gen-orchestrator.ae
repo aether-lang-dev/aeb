@@ -160,6 +160,10 @@ main() {
         println("    map.put(_rec, \"label\", \"${label}\")")
         println("    map.put(_rec, \"type\", \"${type_word}\")")
         println("    map.put(_rec, \"wall_ms\", string.from_int((_end - _start) / 1000000))")
+        println("    map.put(_rec, \"rc\", \"0\")")
+        println("    _st = build.status_of(s, \"${label}\")")
+        println("    if string.length(_st) == 0 { _st = \"passed\" }")
+        println("    map.put(_rec, \"status\", _st)")
         println("    _td = build._label_to_target_dir(_root, \"${label}\")")
         println("    map.put(_rec, \"cache\", build._read_cache_outcome(_td))")
         // Read the test-result marker for EVERY node — gated at runtime on the
