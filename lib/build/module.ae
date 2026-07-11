@@ -1323,6 +1323,15 @@ _resolve_aether_include(aether_dir: string) {
             return env_inc
         }
     }
+    // FHS install (ae via get.sh, >= ~0.3xx): the runtime headers are nested
+    // under <prefix>/share/aether/{runtime,std}, while <prefix>/include/aether
+    // may exist but carry only the umbrella libaether.h. Prefer share/aether
+    // when it actually holds the runtime headers, else the -I block matches an
+    // empty include/aether and aether_panic.h is never found.
+    share = string.concat(aether_dir, "/../share/aether")
+    if dir.exists(string.concat(share, "/runtime")) == 1 {
+        return share
+    }
     cand = string.concat(aether_dir, "/../include/aether")
     if dir.exists(cand) == 1 {
         return cand
