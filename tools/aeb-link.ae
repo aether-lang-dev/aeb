@@ -641,13 +641,20 @@ main() {
     // when the Aether toolchain was built with them detected. Pull
     // the link flags from pkg-config; no-op when libs absent.
     sysdeps = " $(pkg-config --libs zlib openssl 2>/dev/null)"
+    // libaether pulls Windows system libs its crypto/net code needs
+    // (BCryptGenRandom -> bcrypt, winsock -> ws2_32); no pkg-config .pc for
+    // these, so add them explicitly. Empty off Windows.
+    winsysdeps = ""
+    if _is_windows_link() == 1 { winsysdeps = " -lbcrypt -lws2_32" }
     if _is_macos_link() == 1 {
         cc = string.concat(cc, " -pthread -lm")
         cc = string.concat(cc, sysdeps)
+        cc = string.concat(cc, winsysdeps)
         cc = string.concat(cc, " 2>&1")
     } else {
         cc = string.concat(cc, " -pthread -lm")
         cc = string.concat(cc, sysdeps)
+        cc = string.concat(cc, winsysdeps)
         cc = string.concat(cc, " -Wl,--allow-multiple-definition 2>&1")
     }
     _sh_link(cc)

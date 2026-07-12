@@ -1293,6 +1293,11 @@ _aether_dev_bin_dir(dev_root: string) {
 // (caller treats that as a misconfigured Aether install). When a dev
 // root is supplied, its build/ dir wins.
 _resolve_libaether_dir(aether_dir: string) {
+    if _is_windows() == 1 {
+        _nat, _ne = _sh_capture("cygpath -m ${aether_dir}")
+        _nat = string.trim(_nat)
+        if string.length(_nat) > 0 { aether_dir = _nat }
+    }
     cand1 = string.concat(aether_dir, "/../lib/aether/libaether.a")
     if fs.exists(cand1) == 1 {
         return string.concat(aether_dir, "/../lib/aether")
