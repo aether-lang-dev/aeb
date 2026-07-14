@@ -567,6 +567,19 @@ these are absolute, but skipping them tends to produce regrets.
    alone. Past commit bodies are the design archive; skim them
    when a similar question comes up.
 
+## Branching: there isn't any
+
+Nic and Paul commit and push **direct to `main`**. No feature branches, no
+PRs, no fork-and-merge — this repo is small and the two of them are the only
+committers, so a branch is pure ceremony.
+
+If you are an assistant working here: put the commit on `main` and push it.
+Do NOT helpfully create a topic branch "to be safe" — that just leaves work
+stranded somewhere nobody looks.
+
+The discipline that replaces branch review is the checklist below: the tests
+are green *before* the push, not after.
+
 ## What to verify before saying "done"
 
 - `make install` ran, runtime tree at `~/.local/share/aeb/` matches
