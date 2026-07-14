@@ -28,6 +28,11 @@ tools/scan-ae-files
 tools/topo-sort
 tools/transform-ae
 tools/mvn-to-aeb
+# The opt-in pair (skipped by `make install`, built by the remote-agent kit).
+# Missing from this list until now for exactly that reason: the default build
+# never produces them, so they never turned up in anyone's `git status`.
+tools/aeb-keygen
+tools/aeb-lease
 
 # aeb modules
 .aeb/
