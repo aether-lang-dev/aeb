@@ -169,16 +169,39 @@ _node_cmd_timed(out_bin: string, root: string, node: string, label: string, log:
     if string.length(image) > 0 {
         inner = _container_node_invocation(node, root, label, image, engine, selabel)
     }
-    c = string.concat("_s=$$(date +%s%3N 2>/dev/null || date +%s000); ", "")
+    // Millisecond clock, portably.
+    //
+    // `date +%s%3N || date +%s000` looks like a fallback but isn't one: BSD
+    // date (macOS) does not understand %N, yet it SUCCEEDS and prints the
+    // literal "N" — "1784014092N". Exit status is 0, so the || branch never
+    // runs, and `$((_e-_s))` then dies with "value too great for base",
+    // failing the make target with error 127 on every timed node.
+    //
+    // So validate the OUTPUT, not the exit code: anything that isn't all
+    // digits falls back to whole seconds × 1000.
+    c = string.concat(_ms_clock("_s"), "")
     c = string.concat(c, inner)
     c = string.concat(c, " > '")
     c = string.concat(c, log)
-    c = string.concat(c, "' 2>&1; _r=$$?; _e=$$(date +%s%3N 2>/dev/null || date +%s000); echo $$_r > '")
+    c = string.concat(c, "' 2>&1; _r=$$?; ")
+    c = string.concat(c, _ms_clock("_e"))
+    c = string.concat(c, "echo $$_r > '")
     c = string.concat(c, rcmark)
     c = string.concat(c, "'; echo $$((_e-_s)) > '")
     c = string.concat(c, msmark)
     c = string.concat(c, "'; exit $$_r")
     return c
+}
+
+// Emit `<name>=$(date +%s%3N); case … esac; ` — a millisecond epoch in <name>
+// that is correct on both GNU and BSD date.
+_ms_clock(name: string) -> string {
+    s = string.concat(name, "=$$(date +%s%3N 2>/dev/null); case \"$$")
+    s = string.concat(s, name)
+    s = string.concat(s, "\" in ''|*[!0-9]*) ")
+    s = string.concat(s, name)
+    s = string.concat(s, "=$$(date +%s)000;; esac; ")
+    return s
 }
 
 main() {
