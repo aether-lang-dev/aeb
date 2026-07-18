@@ -93,7 +93,8 @@ kotlinc_cmd(kotlinc_bin: string, classes_dir: string, classpath: string, file_li
 // the first whose `lib/kotlin-stdlib.jar` exists. The snap package
 // (/snap/kotlin/current) is preferred because it ships a current
 // compiler (2.x); the apt/sdkman layout (/usr/share/kotlin/kotlinc)
-// is the fallback. Returns "" if none found (caller degrades to bare
+// and the Arch/CachyOS layout (/usr/share/kotlin, no `kotlinc` subdir)
+// are fallbacks. Returns "" if none found (caller degrades to bare
 // `kotlinc` on PATH + no explicit stdlib, the historic behaviour).
 _kotlin_home() {
     env_home = os.getenv("KOTLIN_HOME")
@@ -107,6 +108,12 @@ _kotlin_home() {
     apt = "/usr/share/kotlin/kotlinc"
     if file.exists(path.join(apt, "lib/kotlin-stdlib.jar")) == 1 {
         return apt
+    }
+    // Arch / CachyOS `kotlin` package: stdlib at /usr/share/kotlin/lib,
+    // with `kotlinc` a wrapper on PATH (no self-contained home dir).
+    arch = "/usr/share/kotlin"
+    if file.exists(path.join(arch, "lib/kotlin-stdlib.jar")) == 1 {
+        return arch
     }
     return ""
 }

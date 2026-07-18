@@ -829,6 +829,49 @@ main() {
         files = pat_files
         seen  = pat_seen
         narrowed = 1
+
+        // Dep-close the narrowed set. The glob filters the BUILD SET by
+        // basename, but a matched node may dep on a node whose basename
+        // does NOT match — e.g. a `.build.ae` depending on a vendored
+        // registry node (`.jni.crate.ae`, `.ffi-napi.npm.ae`). Those deps
+        // were populated into `file_deps` during the full scan above; the
+        // basename filter dropped them from `files` while leaving the dep
+        // edge in the rewritten edges file, so make/topo-sort would see a
+        // target with no rule ("No rule to make target ..."). Re-add each
+        // matched node's transitive deps (BFS over file_deps, same shape as
+        // the target-mode closure) so every emitted edge has a row. Only
+        // deps present in the original scan are re-added; `seen` dedups.
+        chead = 0
+        cn = list.size(files)
+        cword = string.concat("", "")
+        while chead < cn {
+            cf, _ = list.get(files, chead)
+            chead = chead + 1
+            cdeps = string.concat("", "")
+            if map.has(file_deps, cf) == 1 {
+                cdeps, _ = map.get(file_deps, cf)
+            }
+            crest = cdeps
+            while string.length(crest) > 0 {
+                csp = string.index_of(crest, " ")
+                if csp < 0 {
+                    cword = string.concat(crest, "")
+                    crest = ""
+                } else {
+                    cword = string.substring(crest, 0, csp)
+                    crest = string.substring(crest, csp + 1, string.length(crest))
+                }
+                if string.length(cword) > 0 {
+                    if map.has(seen, cword) == 0 {
+                        if file.exists(cword) == 1 {
+                            _mcc = map.put(seen, cword, "1")
+                            _lcc = list.add(files, string.concat(cword, ""))
+                            cn = cn + 1
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // --- AEB_SHARD: deterministic target partitioning for CI ---
