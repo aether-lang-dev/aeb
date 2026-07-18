@@ -43,6 +43,23 @@ offline(_ctx: ptr, v: string) {
     _e = map.put(_ctx, "offline", v)
 }
 
+// --- DSL setters: analyze ---
+
+// analyze_flag("--no-fatal-infos") — one verbatim flag passed to
+// `dart analyze` / `flutter analyze`. Repeatable. The escape hatch for
+// analyzer knobs without a named setter — chiefly `--no-fatal-infos`
+// (dart analyze already treats infos as non-fatal, but `flutter analyze`
+// makes them fatal by default, so a lone `sort_pub_dependencies` info
+// fails an otherwise-clean flutter package). Also `--fatal-warnings`,
+// `--fatal-infos`. Greppable literal; no shell, no flag-string smuggling.
+analyze_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "analyze_flags") == 0 {
+        _e1 = map.put(_ctx, "analyze_flags", list.new())
+    }
+    l, _ = map.get(_ctx, "analyze_flags")
+    _a = list.add(l, flag)
+}
+
 // --- DSL setters: test ---
 
 // test_path("test") — restrict `dart test` to a path (file or dir),
@@ -220,10 +237,28 @@ pub_get_cmd(dart: string, source_dir: string, offline_flag: string) {
     return "cd '${source_dir}' && '${dart}' pub get${offline_flag}"
 }
 
+// analyze_args_part(flags) — render the suffix after `analyze` from the
+// analyze_flags list (or "" when null/empty). Pure (I/O-free); mirrors
+// the flags portion of test_args_part.
+analyze_args_part(flags: ptr) {
+    out = ""
+    if flags != null {
+        n = list.size(flags)
+        i = 0
+        while i < n {
+            fl, _ = list.get(flags, i)
+            out = string.concat(out, string.concat(" ", fl))
+            i = i + 1
+        }
+    }
+    return out
+}
+
 // analyze_cmd — `dart analyze` invocation. Pure. Runs from source_dir
-// so package resolution (`.dart_tool/`) is found.
-analyze_cmd(dart: string, source_dir: string) {
-    return "cd '${source_dir}' && '${dart}' analyze"
+// so package resolution (`.dart_tool/`) is found. args_part carries any
+// analyze_flag() tokens (e.g. " --no-fatal-infos"), "" for none.
+analyze_cmd(dart: string, source_dir: string, args_part: string) {
+    return "cd '${source_dir}' && '${dart}' analyze${args_part}"
 }
 
 // test_cmd — `dart test` invocation. Pure. args_part is the suffix after
@@ -361,7 +396,13 @@ builder analyze(ctx: ptr) {
     println("${mod_dir}: analysing (dart analyze)")
 
     dart = _dart_of(_builder)
-    cmd = analyze_cmd(dart, source_dir)
+    analyze_flags = null
+    if _builder != null {
+        if map.has(_builder, "analyze_flags") == 1 {
+            analyze_flags, _ = map.get(_builder, "analyze_flags")
+        }
+    }
+    cmd = analyze_cmd(dart, source_dir, analyze_args_part(analyze_flags))
     exit_code = build._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: analyze FAILED")

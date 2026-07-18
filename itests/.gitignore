@@ -15,6 +15,7 @@ spring-data-examples/**
 clojure-multiproject-example/**
 scala-cli-multi-module-demo/**
 dotnet-architecture-eShopOnWeb/**
+flutter-melos-monorepo/**
 
 # aeb files we DO track (un-ignore)
 !**/.build.ae
@@ -25,6 +26,7 @@ dotnet-architecture-eShopOnWeb/**
 !**/*.deps.ae
 !**/*.config.ae
 !**/*.whl.ae
+!**/pubspec_overrides.yaml
 !**/AEB_MIGRATION_STATUS.md
 !**/git-ls-files.txt
 

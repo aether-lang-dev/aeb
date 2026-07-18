@@ -6,8 +6,8 @@
 // exact string that would be passed to os.system, or the (pass,fail)
 // tuple parsed from captured `dart test` output.
 
-import dart (pub_get_cmd, analyze_cmd, test_cmd, test_args_part, compile_cmd,
-            _parse_dart_test_counts, _strip_dart_ext)
+import dart (pub_get_cmd, analyze_cmd, analyze_args_part, test_cmd, test_args_part,
+            compile_cmd, _parse_dart_test_counts, _strip_dart_ext)
 import std.string
 import std.list
 import std.map
@@ -35,10 +35,22 @@ main() {
         pub_get_cmd("/opt/flutter/bin/dart", "/proj", ""),
         "cd '/proj' && '/opt/flutter/bin/dart' pub get")
 
-    // --- analyze_cmd
+    // --- analyze_cmd (args_part suffix appended only when non-empty)
     _eq("analyze runs from source_dir",
-        analyze_cmd("dart", "/proj"),
+        analyze_cmd("dart", "/proj", ""),
         "cd '/proj' && 'dart' analyze")
+    _eq("analyze with flags suffix",
+        analyze_cmd("flutter", "/proj", " --no-fatal-infos"),
+        "cd '/proj' && 'flutter' analyze --no-fatal-infos")
+
+    // --- analyze_args_part: the DSL → `analyze` flag suffix.
+    _eq("analyze args: nothing set", analyze_args_part(null), "")
+    afl = list.new()
+    _af1 = list.add(afl, "--no-fatal-infos")
+    _eq("analyze args: one flag", analyze_args_part(afl), " --no-fatal-infos")
+    _af2 = list.add(afl, "--fatal-warnings")
+    _eq("analyze args: two flags", analyze_args_part(afl),
+        " --no-fatal-infos --fatal-warnings")
 
     // --- test_cmd: arg suffix appended only when non-empty.
     _eq("test no args → dart's own discovery",

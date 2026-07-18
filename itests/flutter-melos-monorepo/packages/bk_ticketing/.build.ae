@@ -1,0 +1,12 @@
+import build
+import dart
+import dart (dart_bin)
+
+// bk_ticketing: resolve deps (`flutter pub get`) and static-analyse
+// (`flutter analyze`). dart_bin("flutter") routes the dart SDK through
+// the Flutter-bundled Dart 2.18 the melos packages pin (sdk <3.0.0).
+aeb(cap) {
+    b = build.start()
+    dart.pub_get(b) { dart_bin("flutter") }
+    dart.analyze(b) { dart_bin("flutter") }
+}

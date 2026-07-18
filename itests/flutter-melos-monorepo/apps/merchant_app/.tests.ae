@@ -1,0 +1,9 @@
+import build
+import dart
+import dart (dart_bin)
+
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "apps/merchant_app/.build.ae")
+    dart.test(b) { dart_bin("flutter") }
+}

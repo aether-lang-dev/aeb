@@ -1,0 +1,12 @@
+# aeb overlay (tracked): replaces `melos bootstrap`. Resolves sibling melos
+# packages by path, and pins intl to the version flutter_localizations ships
+# in Flutter 3.3.x — the upstream pubspec asks ^0.18.0, which only exists in
+# newer Flutter (Dart 3), conflicting with the package's sdk <3.0.0 pin.
+dependency_overrides:
+  bk_ticketing:
+    path: ../../packages/bk_ticketing
+  bk_ui_kit:
+    path: ../../packages/bk_ui_kit
+  bk_utilities:
+    path: ../../packages/bk_utilities
+  intl: 0.17.0

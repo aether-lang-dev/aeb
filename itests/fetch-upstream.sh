@@ -38,6 +38,7 @@ fetch_repo "https://github.com/fyne-io/fyne.git" "go-multimodule-fyne"
 fetch_repo "https://github.com/Oxen-AI/Oxen.git" "rust-multi-module-oxen"
 fetch_repo "https://github.com/SystemCraftsman/pants-python-monorepo-demo.git" "python-monorepo-demo"
 fetch_repo "https://github.com/mrhdias/store.git" "mrhdias_rust_store"
+fetch_repo "https://github.com/adityadroid/flutter-melos-monorepo.git" "flutter-melos-monorepo"
 fetch_repo "https://github.com/pytorch/pytorch.git" "pytorch"
 fetch_repo "https://github.com/SeleniumHQ/selenium.git" "selenium"
 

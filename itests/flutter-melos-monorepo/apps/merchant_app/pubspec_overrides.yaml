@@ -1,0 +1,10 @@
+# aeb overlay (tracked): replaces `melos bootstrap`. See booking_app for the
+# intl pin rationale.
+dependency_overrides:
+  bk_customers:
+    path: ../../packages/bk_customers
+  bk_ui_kit:
+    path: ../../packages/bk_ui_kit
+  bk_utilities:
+    path: ../../packages/bk_utilities
+  intl: 0.17.0

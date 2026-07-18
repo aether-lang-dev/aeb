@@ -1,0 +1,12 @@
+import build
+import dart
+import dart (dart_bin, analyze_flag)
+
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "packages/bk_customers/.build.ae")
+    build.dep(b, "packages/bk_ui_kit/.build.ae")
+    build.dep(b, "packages/bk_utilities/.build.ae")
+    dart.pub_get(b) { dart_bin("flutter") }
+    dart.analyze(b) { dart_bin("flutter")  analyze_flag("--no-fatal-infos") }
+}
