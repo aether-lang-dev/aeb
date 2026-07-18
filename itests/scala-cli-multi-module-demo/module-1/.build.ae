@@ -1,8 +1,0 @@
-import build
-import scala
-
-main() {
-    b = build.start()
-    build.dep(b, "common/.build.ae")
-    scala.scalac(b)
-}

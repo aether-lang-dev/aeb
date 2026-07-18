@@ -1,7 +1,0 @@
-import build
-import scala
-
-main() {
-    b = build.start()
-    scala.scalac(b)
-}

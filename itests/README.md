@@ -26,7 +26,7 @@ AETHER=/path/to/ae aeb
 actually skips work on a warm rebuild and re-runs when a source changes —
 the level the unit suite (`tests/run.sh`) can't reach because it never
 drives a real build. For each cache-wired SDK with a green itest
-(scala/go/dotnet/ts) it runs three `aeb --telemetry-json` builds against a
+(go/dotnet/ts) it runs three `aeb --telemetry-json` builds against a
 fresh `$AEB_CACHE_DIR` and asserts: cold → 0 cache hits, warm → >0 hits,
 touch-a-source → fewer hits than warm. Projects whose toolchain or
 upstream sources are absent are skipped (so partial environments still get
@@ -47,7 +47,6 @@ AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne   # one project
 | spring-data-examples | Java | [spring-projects/spring-data-examples](https://github.com/spring-projects/spring-data-examples) | 107 pom.xml files (Maven) |
 | nx-examples | TypeScript | [nrwl/nx-examples](https://github.com/nrwl/nx-examples) | Nx workspace (Angular + React) |
 | clojure-multiproject-example | Clojure | [adityaathalye/clojure-multiproject-example](https://github.com/adityaathalye/clojure-multiproject-example) | deps.edn + build.clj |
-| scala-cli-multi-module-demo | Scala | [VirtusLab/scala-cli-multi-module-demo](https://github.com/VirtusLab/scala-cli-multi-module-demo) | scala-cli (replaced entirely — direct scalac) |
 | dotnet-architecture-eShopOnWeb | C# | [dotnet-architecture/eShopOnWeb](https://github.com/dotnet-architecture/eShopOnWeb) | .sln + .csproj files (generated from .build.ae) |
 | go-multimodule-fyne | Go | [fyne-io/fyne](https://github.com/fyne-io/fyne) | go test ./... (per-package isolation) |
 | rust-multi-module-oxen | Rust | [Oxen-AI/Oxen](https://github.com/Oxen-AI/Oxen) | Cargo workspace (per-crate targeting) |
@@ -61,7 +60,6 @@ AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne   # one project
 | spring-data-examples | 90 | 68+ OK | 9+ pass |
 | nx-examples | 13 | 13 OK | 7/7 pass |
 | clojure-multiproject | 6 | 6 OK | 3/5 pass (1 intentional fail, 1 port conflict) |
-| scala-cli-multi-module | 3 | 3 OK | 1/1 pass |
 | dotnet-eShopOnWeb | 9 | 9 OK | 3/3 pass |
 | go-multimodule-fyne | 1 + 11 test | 1 OK | 11/11 pass |
 | rust-multi-module-oxen | 3 | 0 (env) | — (RocksDB C++ build issue) |
@@ -87,7 +85,6 @@ Build artifacts (`target/`, `.aeb/`, `.generated.csproj`) are also ignored.
 | java + maven | spring-data-examples |
 | ts + pnpm + angular + jest + webpack | nx-examples |
 | clojure + maven | clojure-multiproject-example |
-| scala | scala-cli-multi-module-demo |
 | dotnet | dotnet-architecture-eShopOnWeb |
 | go | go-multimodule-fyne |
 | rust | rust-multi-module-oxen, mrhdias_rust_store |

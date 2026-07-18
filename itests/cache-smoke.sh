@@ -10,8 +10,8 @@
 #   - a WORKING `ae` (>= 0.231, able to link a full multi-module ./aeb) is
 #     available — i.e. Linux today (macOS ld64 can't link multi-module
 #     builds; see TODO.md "macOS link step"),
-#   - the per-project language toolchains are installed (scalac/java, go,
-#     dotnet, node+tsc), and
+#   - the per-project language toolchains are installed (go, dotnet,
+#     node+tsc), and
 #   - upstream sources have been fetched: `./fetch-upstream.sh`.
 # Projects whose toolchain or sources are absent are SKIPPED, not failed,
 # so partial CI environments still get useful coverage.
@@ -27,7 +27,7 @@
 #
 # Usage:
 #   cd itests && AETHER=/path/to/ae ./cache-smoke.sh           # all projects
-#   AETHER=/path/to/ae ./cache-smoke.sh scala-cli-multi-module-demo  # subset
+#   AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne  # subset
 #   AEB=/path/to/aeb AETHER=/path/to/ae ./cache-smoke.sh       # explicit aeb
 #
 # Exit code: 0 if every project that RAN passed; 1 if any ran and failed.
@@ -58,7 +58,6 @@ fi
 # upstream; clojure caches only its AOT main_ns branch so it's omitted to
 # avoid a flaky "warm hits>0").
 PROJECTS="
-scala-cli-multi-module-demo|scalac|*.scala
 go-multimodule-fyne|go|*.go
 dotnet-architecture-eShopOnWeb|dotnet|*.cs
 nx-examples|tsc|*.ts
@@ -137,7 +136,7 @@ EOF
     touch "$src"
     # Make the change real (content), so content-addressed keys bust even if
     # the SDK keyed on content rather than mtime. A trailing newline is
-    # syntactically harmless in scala/go/cs/ts.
+    # syntactically harmless in go/cs/ts.
     printf '\n' >> "$src"
     run_aeb "$proj" "$tj"
     touched_hits="$(count_hits "$tj")"

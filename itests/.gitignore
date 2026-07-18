@@ -13,7 +13,6 @@
 nx-examples/**
 spring-data-examples/**
 clojure-multiproject-example/**
-scala-cli-multi-module-demo/**
 dotnet-architecture-eShopOnWeb/**
 flutter-melos-monorepo/**
 
