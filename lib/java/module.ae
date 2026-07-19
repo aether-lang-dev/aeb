@@ -903,6 +903,19 @@ builder javac(ctx: ptr) {
         }
     }
 
+    // Copy src/main/resources onto the classpath (into classes_dir) so
+    // classloader lookups (getResource/getResourceAsStream) resolve — the
+    // Maven resources-plugin equivalent. Maven-idiomatic layout only; runs
+    // every build (cheap, outside the class cache) so resource edits are
+    // always reflected.
+    if map.has(_builder, "source_layout") == 1 {
+        _rlayout, _ = map.get(_builder, "source_layout")
+        if string.equals(_rlayout, "maven idiomatic") == 1 {
+            main_res = path.join(source_dir, "src/main/resources")
+            build._sh("[ -d '${main_res}' ] && cp -R '${main_res}/.' '${classes_dir}/' 2>/dev/null || true")
+        }
+    }
+
     // Write classpath artifact (classes dir + dep classpath + maven classpath)
     cp_out = classes_dir
     if string.length(dep_cp) > 0 {
@@ -1057,6 +1070,18 @@ builder javac_test(ctx: ptr) {
                     println("${mod_dir}: javac-test cache write failed: ${perr}")
                 }
             }
+        }
+    }
+
+    // Copy src/test/resources onto the test classpath (into test-classes) so
+    // classloader lookups in tests resolve — SSL certs, config, fixtures.
+    // Maven test-resources equivalent; maven-idiomatic layout only; every
+    // build (outside the class cache).
+    if map.has(_builder, "source_layout") == 1 {
+        _trlayout, _ = map.get(_builder, "source_layout")
+        if string.equals(_trlayout, "maven idiomatic") == 1 {
+            test_res = path.join(source_dir, "src/test/resources")
+            build._sh("[ -d '${test_res}' ] && cp -R '${test_res}/.' '${test_classes}/' 2>/dev/null || true")
         }
     }
 
