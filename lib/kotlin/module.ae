@@ -413,9 +413,14 @@ builder kotlinc_test(ctx: ptr) {
     _ekb = map.put(_builder, "_kotlinc_bin", kotlinc_bin)
 
     dep_cp = build._build_dep_classpath(ctx)
+    maven_cp = maven.classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
     classpath = build._cp_append(test_classes, stdlib_jar)
     classpath = build._cp_append(classpath, dep_cp)
+    // Test-scope maven deps (junit, mockito, mockk, …) declared via dep() in
+    // the .tests.ae. The main kotlinc builder already folds these in; without
+    // it here, kotlinc_test can't resolve test-only libraries.
+    classpath = build._cp_append(classpath, maven_cp)
     classpath = build._cp_append(classpath, lib_cp)
 
     // Honor source_layout("maven idiomatic") like kotlinc does: tests live
