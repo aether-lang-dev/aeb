@@ -80,11 +80,14 @@ purpose**, not the part it hasn't gotten to.
   it's framed as a *repeatability* cache with a stated policy contract,
   **not** a Bazel-style reproducibility CAS (that's the deliberate
   divergence, not an oversight).
-- **Query / introspection.** No `query`/`cquery`/`aquery` —
-  `deps()`/`rdeps()`/`somepath()`/`allpaths()`. The graph already exists
-  in memory during a build and the edges file is on disk, so a read-only
-  `aeb query`/`aeb rdeps` is low-risk and high-value; the affected-target
-  walk is already half of it.
+- **Query / introspection.** [have, partial] — `aeb query 'deps(t)'` /
+  `'rdeps(t)'`, `aeb owners <src>`, `aeb path A B`, `aeb why A B`, and
+  `aeb why-rebuilt <target> [ref]` (the VCS-facing "what changed input forces
+  this to rebuild, and by what dep path" — pairs with the cache-key work) all
+  answer read-only from the on-disk edges file (`tools/aeb-query.ae`). Still
+  missing: `somepath`/`allpaths` as first-class query *expressions*, and
+  `cquery`/`aquery` (configured / action graph) — the latter only once a
+  `select()`-style configuration surface exists, which is itself a maybe.
 - **Finer cache granularity.** Wiring `lib/cache` into the remaining SDKs
   (the table above is partial) — pure follow-through.
 

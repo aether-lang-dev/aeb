@@ -4,6 +4,19 @@
 
 ### Added
 
+- **`aeb why-rebuilt <target> [ref]` — explain what would rebuild a target and
+  why.** The VCS-facing complement to the existing graph queries (`aeb query
+  'deps(t)'`/`'rdeps(t)'`, `owners`, `path`, `why`): it computes the changed
+  inputs (`git diff` vs `ref`, default HEAD, plus untracked files) and, for
+  each change that lands in the target's dependency closure, prints the changed
+  file, its owning node, and the dependency path from the target down to it —
+  so "why is this rebuilding when I touched *that*?" is one command, not a
+  manual `owners` + `path` chase. Reports "up to date" when nothing in the
+  closure changed. Pure graph + `git diff`, read-only, in `tools/aeb-query.ae`
+  (new `whyrebuilt` mode) + `tools/aeb-main.ae` (`--why-rebuilt` / bare
+  `why-rebuilt` subcommand). A future cache-key-diff version will also explain
+  a bare `[miss]` once the cache records its key inputs.
+
 - **`aether.csrc(b)` — distributable C-source packages (consumes aether 0.357's
   `ae build --emit=csrc`).** A new builder in `lib/aether` that emits
   `<name>.c` (portable generated C) + `<name>.h` (catalog header with the

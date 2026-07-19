@@ -410,6 +410,71 @@ main() {
         return 0
     }
 
+    // whyrebuilt <target> [changed-path ...] — explain, for a target, which
+    // of the given changed paths force it to rebuild and by what dependency
+    // path. A change matters iff its owning target is `target` itself or in
+    // `deps(target)` (the target's transitive input closure). Pure graph +
+    // owners lookup; the caller (aeb-main) supplies the changed-paths list
+    // from `git diff`.
+    if string.equals(mode, "whyrebuilt") == 1 {
+        if argc < 4 {
+            println("Usage: aeb-query <edges> whyrebuilt <target> [changed-path ...]")
+            exit(1)
+        }
+        wtarget = aether_args_get(3)
+        // Closure = target + its transitive deps.
+        wclosure = map.new()
+        map.put(wclosure, wtarget, "1")
+        wdeps = _transitive(wtarget, forward)
+        wdn = list.size(wdeps)
+        wdi = 0
+        while wdi < wdn {
+            wd, _ = list.get(wdeps, wdi)
+            map.put(wclosure, wd, "1")
+            wdi = wdi + 1
+        }
+        wfound = 0
+        wseen = map.new()
+        wci = 4
+        while wci < argc {
+            wchanged = aether_args_get(wci)
+            wci = wci + 1
+            if string.length(wchanged) > 0 {
+                wowners = _owners(wchanged, indices)
+                won = list.size(wowners)
+                woi = 0
+                while woi < won {
+                    wowner, _ = list.get(wowners, woi)
+                    woi = woi + 1
+                    if map.has(wclosure, wowner) == 1 {
+                        wkey = string.concat(wchanged, string.concat("|", wowner))
+                        if map.has(wseen, wkey) == 0 {
+                            map.put(wseen, wkey, "1")
+                            wfound = wfound + 1
+                            println(string.concat(wchanged, string.concat("  (input of ", string.concat(wowner, ")"))))
+                            // Show the dependency path target -> owner (skip when
+                            // the change is in the target's own sources).
+                            if string.equals(wowner, wtarget) == 0 {
+                                wp = _find_path(wtarget, wowner, forward)
+                                wpn = list.size(wp)
+                                wpi = 0
+                                while wpi < wpn {
+                                    wstep, _ = list.get(wp, wpi)
+                                    println(string.concat("    ", wstep))
+                                    wpi = wpi + 1
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if wfound == 0 {
+            println(string.concat(wtarget, ": up to date — no changed input in its dependency closure"))
+        }
+        return 0
+    }
+
     println(string.concat("aeb-query: unknown mode: ", mode))
     exit(1)
 }

@@ -232,6 +232,9 @@ main() {
                         if string.equals(a4, "why") == 1 {
                             flag = "--why"
                         } else {
+                        if string.equals(a4, "why-rebuilt") == 1 {
+                            flag = "--why-rebuilt"
+                        } else {
                             // Plain build mode: argv[4..] are ALL targets.
                             target = strip_trailing_slash(a4)
                             _t0 = list.add(targets, target)
@@ -244,6 +247,7 @@ main() {
                                 }
                                 ti = ti + 1
                             }
+                        }
                         }
                     }
                 }
@@ -269,6 +273,9 @@ main() {
         target = ""
     }
     if string.equals(flag, "--why") == 1 {
+        target = ""
+    }
+    if string.equals(flag, "--why-rebuilt") == 1 {
         target = ""
     }
     // --preflight and --prereqs are TARGET-mode (they need that target's dep
@@ -616,6 +623,32 @@ main() {
         pcmd = string.concat(pcmd, flag_arg2)
         rc_q = build._sh(pcmd)
         exit(rc_q)
+    }
+
+    // --- why-rebuilt: explain what would rebuild a target and why ---
+    // `aeb why-rebuilt <target> [ref]` — the VCS-facing complement to the
+    // graph queries above. Compute the changed inputs (git diff vs ref,
+    // default HEAD, plus untracked files), then let aeb-query intersect them
+    // with the target's dependency closure and print, for each hit, the
+    // changed file + the dep path from target to its owning node. (This is the
+    // graph/VCS "why is X dirty" — a future cache-key-diff version, once the
+    // cache records its inputs, will also explain a bare `[miss]`.)
+    if string.equals(flag, "--why-rebuilt") == 1 {
+        if string.length(flag_arg) == 0 {
+            println("aeb: why-rebuilt requires a target, e.g. `aeb why-rebuilt path/.build.ae [ref]`")
+            exit(1)
+        }
+        wr_ref = flag_arg2
+        if string.length(wr_ref) == 0 { wr_ref = "HEAD" }
+        wr_raw, _wre = build._sh_capture(string.concat(string.concat("{ git diff --name-only ", wr_ref), " ; git ls-files --others --exclude-standard ; } 2>/dev/null | tr '\n' ' '"))
+        wrcmd = string.concat(aeb_query_bin, " ")
+        wrcmd = string.concat(wrcmd, edges_path)
+        wrcmd = string.concat(wrcmd, " whyrebuilt ")
+        wrcmd = string.concat(wrcmd, flag_arg)
+        wrcmd = string.concat(wrcmd, " ")
+        wrcmd = string.concat(wrcmd, string.trim(wr_raw))
+        rc_wr = build._sh(wrcmd)
+        exit(rc_wr)
     }
 
     // --- --since / --affected / --print-affected: filter the build set ---
