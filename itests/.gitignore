@@ -15,6 +15,7 @@ spring-data-examples/**
 clojure-multiproject-example/**
 dotnet-architecture-eShopOnWeb/**
 flutter-melos-monorepo/**
+jooby/**
 
 # aeb files we DO track (un-ignore)
 !**/.build.ae

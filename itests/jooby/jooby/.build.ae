@@ -1,0 +1,21 @@
+import build
+import build (dep)
+import maven (load_bom_file)
+import java
+import java (release, source_layout)
+
+// jooby (core framework). JPMS module (module-info.java). Deps re-declared
+// from jooby/pom.xml; versions inline (jooby-pinned) or via jooby.bom.ae.
+aeb(cap) {
+    b = build.start()
+    load_bom_file(b, "../jooby.bom.ae")
+    dep(b, "org.jspecify:jspecify:1.0.0")
+    dep(b, "org.slf4j:slf4j-api:2.0.18")
+    dep(b, "jakarta.inject:jakarta.inject-api:2.0.1.MR")
+    dep(b, "com.typesafe:config:1.4.9")
+    dep(b, "com.bucket4j:bucket4j_jdk17-core:8.19.0")
+    java.javac(b) {
+        release("21")
+        source_layout("maven idiomatic")
+    }
+}

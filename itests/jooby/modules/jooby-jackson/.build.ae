@@ -1,0 +1,17 @@
+import build
+import build (dep)
+import maven (load_bom_file)
+import java
+import java (release, source_layout)
+
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "jooby/.build.ae")
+    load_bom_file(b, "../../jooby.bom.ae")
+    dep(b, "com.fasterxml.jackson.core:jackson-databind")
+    dep(b, "com.fasterxml.jackson.datatype:jackson-datatype-jdk8")
+    dep(b, "com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+    dep(b, "com.fasterxml.jackson.module:jackson-module-parameter-names")
+    dep(b, "jakarta.json.bind:jakarta.json.bind-api:3.0.2")
+    java.javac(b) { release("21")  source_layout("maven idiomatic") }
+}

@@ -1,0 +1,10 @@
+// jooby third-party version management — the import-scoped BOMs from the
+// jooby parent pom's <dependencyManagement>. Consumers load this via
+// load_bom_file() so `dep(b, "g:a")` (no version) resolves.
+maven_bom("io.netty:netty-bom:4.2.15.Final")
+maven_bom("com.amazonaws:aws-java-sdk-bom:1.12.797")
+maven_bom("org.apache.camel:camel-bom:4.20.0")
+maven_bom("org.junit:junit-bom:6.1.1")
+maven_bom("com.fasterxml.jackson:jackson-bom:2.22.0")
+maven_bom("tools.jackson:jackson-bom:3.2.0")
+maven_bom("io.modelcontextprotocol.sdk:mcp-bom:2.0.0")

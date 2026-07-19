@@ -52,6 +52,7 @@ AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne   # one project
 | rust-multi-module-oxen | Rust | [Oxen-AI/Oxen](https://github.com/Oxen-AI/Oxen) | Cargo workspace (per-crate targeting) |
 | mrhdias_rust_store | Rust | [mrhdias/store](https://github.com/mrhdias/store) | Cargo.toml (generated from .build.ae) |
 | flutter-melos-monorepo | Dart/Flutter | [adityadroid/flutter-melos-monorepo](https://github.com/adityadroid/flutter-melos-monorepo) | Melos (`melos bootstrap` → committed pubspec_overrides.yaml) |
+| jooby | Java/Kotlin | [jooby-project/jooby](https://github.com/jooby-project/jooby) | Maven reactor (82 modules; deps re-declared aeb-native) |
 
 ## Results summary
 
@@ -65,6 +66,7 @@ AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne   # one project
 | rust-multi-module-oxen | 3 | 0 (env) | — (RocksDB C++ build issue) |
 | mrhdias_rust_store | 1 | 0 (upstream) | — (ord_subset crate incompatible with current rustc) |
 | flutter-melos-monorepo | 6 | 6 OK | 20/20 pass (needs Flutter 3.3.x) |
+| jooby | 5 of 82 | 5 OK | core 1285/1285, kotlin 9/9 (partial; see status) |
 
 ## What gets committed
 
@@ -89,3 +91,4 @@ Build artifacts (`target/`, `.aeb/`, `.generated.csproj`) are also ignored.
 | go | go-multimodule-fyne |
 | rust | rust-multi-module-oxen, mrhdias_rust_store |
 | dart (+ flutter via `dart_bin`) | flutter-melos-monorepo |
+| java + maven + kotlin (JPMS) | jooby |

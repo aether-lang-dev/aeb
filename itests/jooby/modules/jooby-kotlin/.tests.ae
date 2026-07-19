@@ -1,0 +1,18 @@
+import build
+import build (dep)
+import maven (load_bom_file)
+import kotlin
+import kotlin (source_layout)
+import java
+
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "modules/jooby-kotlin/.build.ae")
+    load_bom_file(b, "../../jooby.bom.ae")
+    dep(b, "org.junit.jupiter:junit-jupiter-engine")
+    dep(b, "org.junit.platform:junit-platform-console")
+    dep(b, "org.mockito:mockito-core:5.23.0")
+    dep(b, "io.mockk:mockk-jvm:1.14.11")
+    kotlin.kotlinc_test(b) { source_layout("maven idiomatic") }
+    java.junit5(b) {}
+}

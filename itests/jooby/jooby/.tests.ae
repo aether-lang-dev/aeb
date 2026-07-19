@@ -1,0 +1,22 @@
+import build
+import build (dep)
+import maven (load_bom_file)
+import java
+import java (release, source_layout, parameters)
+
+aeb(cap) {
+    b = build.start()
+    dep(b, "jooby/.build.ae")
+    load_bom_file(b, "../jooby.bom.ae")
+    dep(b, "org.junit.jupiter:junit-jupiter-engine")
+    dep(b, "org.junit.jupiter:junit-jupiter-params")
+    dep(b, "org.junit.platform:junit-platform-console")
+    dep(b, "org.assertj:assertj-core:3.27.7")
+    dep(b, "org.mockito:mockito-core:5.23.0")
+    dep(b, "org.mockito:mockito-junit-jupiter:5.23.0")
+    dep(b, "com.squareup.okhttp3:okhttp-jvm:5.4.0")
+    dep(b, "com.google.guava:guava:33.6.0-jre")
+    dep(b, "org.webjars.npm:vue:3.4.15")
+    java.javac_test(b) { release("21")  source_layout("maven idiomatic")  parameters() }
+    java.junit5(b) {}
+}
