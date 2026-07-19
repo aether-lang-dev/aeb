@@ -86,6 +86,18 @@ main() {
     _assert_eq("encoding+preview+modpath+proc", javac_cmd("out", "cp", "A.java", opts8),
         "javac -d out -encoding UTF-8 --enable-preview --module-path mods -processor com.example.MyProcessor -cp cp A.java")
 
+    // modular: resolved deps go on --module-path instead of -cp (JPMS)
+    opts8m = map_new()
+    map_put(opts8m, "modular", "1")
+    _assert_eq("modular routes deps to --module-path", javac_cmd("out", "deps.jar:b.jar", "module-info.java A.java", opts8m),
+        "javac -d out --module-path deps.jar:b.jar module-info.java A.java")
+
+    opts8n = map_new()
+    map_put(opts8n, "release", "21")
+    map_put(opts8n, "modular", "1")
+    _assert_eq("modular + release", javac_cmd("out", "cp", "A.java", opts8n),
+        "javac -d out --release 21 --module-path cp A.java")
+
     opts9 = map_new()
     map_put(opts9, "release", "21")
     map_put(opts9, "encoding", "UTF-8")

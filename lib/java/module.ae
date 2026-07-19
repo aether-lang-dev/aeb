@@ -75,6 +75,16 @@ module_path(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "module_path", path)
 }
 
+// no_module_info() — when the source set contains a module-info.java, the
+// javac builder auto-switches to a modular compile (resolved deps go on
+// --module-path so `requires` resolves). Call this to opt OUT: module-info.java
+// is dropped from the compile and deps stay on -classpath (the automatic-module
+// / plain-jar build). Use when a JPMS descriptor is present but you want a
+// classpath-mode jar. Any non-empty value enables.
+no_module_info(_ctx: ptr) {
+    _e = map.put(_ctx, "no_module_info", "1")
+}
+
 source_layout(_ctx: ptr, layout: string) {
     _e = map.put(_ctx, "source_layout", layout)
 }
@@ -223,7 +233,23 @@ javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) 
         }
     }
 
-    cmd = string.concat(cmd, " -cp ${classpath} ${file_list}")
+    // Modular compile: a module-info.java in the source set means the
+    // resolved deps must sit on --module-path (not -cp) or `requires`
+    // won't resolve. The builder sets "modular" when it detects one (and
+    // no_module_info() wasn't given). A manual module_path(...) above adds
+    // its own --module-path; javac takes the last, so don't set both.
+    modular = 0
+    if opts != null {
+        if map.has(opts, "modular") == 1 {
+            mv, _ = map.get(opts, "modular")
+            if string.equals(mv, "1") == 1 { modular = 1 }
+        }
+    }
+    if modular == 1 {
+        cmd = string.concat(cmd, " --module-path ${classpath} ${file_list}")
+    } else {
+        cmd = string.concat(cmd, " -cp ${classpath} ${file_list}")
+    }
     return cmd
 }
 
@@ -769,6 +795,22 @@ builder javac(ctx: ptr) {
     if string.length(argfile_content) == 0 {
         println("${mod_dir}: no Java source files found")
         return 0
+    }
+
+    // JPMS: if the source set carries a module-info.java, this is a modular
+    // compile — resolved deps must go on --module-path (not -cp) or the
+    // module's `requires` won't resolve. Auto-detect so build files needn't
+    // opt in. no_module_info() opts out: drop module-info.java and compile
+    // classpath-mode. (Modifies argfile before the cache key hashes it.)
+    mi_cnt_raw, _emi = build._sh_capture("grep -c 'module-info\\.java' '${argfile}' 2>/dev/null || echo 0")
+    if string.equals(string.trim(mi_cnt_raw), "0") == 0 {
+        if map.has(_builder, "no_module_info") == 1 {
+            println("${mod_dir}: no_module_info — compiling module-info-less (classpath mode)")
+            build._sh("grep -v 'module-info\\.java' '${argfile}' > '${argfile}.tmp' && mv '${argfile}.tmp' '${argfile}'")
+        } else {
+            println("${mod_dir}: module-info.java present — modular compile (deps on --module-path)")
+            _emm = map.put(_builder, "modular", "1")
+        }
     }
 
     file_ref = string.concat("@", argfile)
