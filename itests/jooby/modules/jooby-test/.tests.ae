@@ -2,7 +2,7 @@ import build
 import build (dep)
 import maven (load_bom_file)
 import java
-import java (release, source_layout)
+import java (release, source_layout, parameters)
 import kotlin
 
 aeb(cap) {
@@ -22,7 +22,7 @@ aeb(cap) {
     dep(b, "org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     dep(b, "org.jetbrains.kotlin:kotlin-reflect:2.4.0")
     dep(b, "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    java.javac_test(b) { release("21")  source_layout("maven idiomatic") }
+    java.javac_test(b) { release("21")  source_layout("maven idiomatic")  parameters() }
     kotlin.kotlinc_test(b) { source_layout("maven idiomatic") }
     java.junit5(b) {}
 }

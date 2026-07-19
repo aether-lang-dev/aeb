@@ -26,7 +26,7 @@ byte of jooby. Cloners do **not** need `itests/fetch-upstream.sh`.
 | jooby-jackson | OK | — | JPMS leaf, `requires io.jooby` resolves via core on module-path |
 | jooby-kotlin | OK | **9/9** | pure Kotlin (coroutines) |
 | jooby-netty | OK | — | classpath-mode (`no_module_info()`) — see netty note |
-| jooby-test | OK (main + 19 Java tests) | blocked | mixed Java+Kotlin tests — blocked, see segfault note |
+| jooby-test | OK | **110/110** | mixed Java+Kotlin tests (`javac_test` + `kotlinc_test`) — green since the aether list_get_raw fix |
 
 ## aeb features this migration surfaced (all fixed)
 
@@ -41,20 +41,25 @@ byte of jooby. Cloners do **not** need `itests/fetch-upstream.sh`.
   transitives (netty resolved to *just* netty-handler); now resolves the full
   effective-model tree. This is what unblocked netty.
 
+## Fixed along the way
+
+- **`list_get_raw` segfault on mixed Java+Kotlin test compile — FIXED** (aether
+  0.417.0). `jooby-test` compiles Kotlin tests via `kotlin.kotlinc_test` against
+  a *diamond* dependency (core reached via two paths) with a rich maven dep set
+  (junit + coroutines). The aether runtime segfaulted in `list_get_raw`, handed a
+  pointer with a bad `_kind_magic` (a dangling/type-confused list) that it
+  dereferenced without validating — exposed once the resolver fix produced full
+  (longer) classpaths. Fixed upstream by guarding the accessor with the
+  `_kind_magic` + low-address discriminator (aether PR #1196). With the fixed
+  toolchain, `jooby-test` is **110/110** — the mixed `javac_test` + `kotlinc_test`
+  compile coexist fine; the earlier "clobber" fear was unfounded.
+
 ## Known blockers (not yet resolved)
 
 - **netty 4.2 multi-release jars + JPMS.** netty's jars carry `module-info` only
   under `META-INF/versions/11`, so javac treats them as automatic modules on
   `--module-path` and jooby-netty's `requires io.netty.*` can't match. Worked
   around with `no_module_info()` (classpath-mode) — a netty idiosyncrasy, not aeb.
-- **`list_get_raw` segfault on mixed Java+Kotlin test compile.** `jooby-test`
-  and `jooby-openapi` compile Kotlin tests via `kotlin.kotlinc_test` against a
-  *diamond* dependency (core reached via two paths) with a rich maven dep set
-  (junit + coroutines). The aether runtime segfaults in `list_get_raw`, called
-  from the compiled `.tests.ae` — an out-of-bounds list access exposed once the
-  resolver fix produced full (longer) classpaths. A single dependency path, or
-  `kotlin-stdlib` alone, compiles fine; Java's `javac_test` handles the same
-  diamond without issue. `jooby-test/.tests.ae` is committed as the repro.
 
 ## Aeb-owned overlay (tracked)
 
