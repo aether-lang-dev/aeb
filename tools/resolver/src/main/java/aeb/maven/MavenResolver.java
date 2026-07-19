@@ -106,59 +106,67 @@ public class MavenResolver {
             dependencies.add(new Dependency(artifact, JavaScopes.COMPILE));
         }
 
-        // Collect and resolve transitive dependencies
-        CollectRequest collectRequest = new CollectRequest();
-        collectRequest.setDependencies(dependencies);
-        collectRequest.setRepositories(remoteRepos);
-
-        // Add all managed versions from BOMs so transitive version resolution works.
-        // When jackson-databind depends on jackson-core with ${jackson.version.core},
-        // the managed version from the BOM fills in the missing version.
-        List<Dependency> managedDeps = new ArrayList<>();
-        for (Map.Entry<String, String> entry : managedVersions.entrySet()) {
-            String[] keyParts = entry.getKey().split(":");
-            Artifact managed = new DefaultArtifact(keyParts[0], keyParts[1], "jar", entry.getValue());
-            managedDeps.add(new Dependency(managed, null));
+        // Transitive collection via the maven-model-builder (see effectiveModel).
+        // BFS with nearest-wins version mediation: seed the direct deps (they
+        // win any conflict), then for each artifact read its effective model and
+        // enqueue compile/runtime, non-optional deps not already chosen.
+        Map<String, String> chosen = new LinkedHashMap<>();   // "g:a" -> version
+        Deque<String[]> queue = new ArrayDeque<>();            // [g, a]
+        for (Dependency d : dependencies) {
+            Artifact a = d.getArtifact();
+            String ga = a.getGroupId() + ":" + a.getArtifactId();
+            if (chosen.putIfAbsent(ga, a.getVersion()) == null) {
+                queue.add(new String[]{a.getGroupId(), a.getArtifactId()});
+            }
         }
-        collectRequest.setManagedDependencies(managedDeps);
-
-        DependencyFilter filter = DependencyFilterUtils.classpathFilter(
-            JavaScopes.COMPILE, JavaScopes.RUNTIME);
-
-        DependencyRequest dependencyRequest = new DependencyRequest(collectRequest, filter);
-
-        DependencyResult result;
-        try {
-            result = repoSystem.resolveDependencies(session, dependencyRequest);
-        } catch (DependencyResolutionException e) {
-            // Print what we got so far, even if some transitives failed
-            result = e.getResult();
-            System.err.println("warning: some dependencies could not be resolved: " + e.getMessage());
+        Set<String> built = new HashSet<>();
+        while (!queue.isEmpty()) {
+            String[] c = queue.poll();
+            String ga = c[0] + ":" + c[1];
+            if (!built.add(ga)) continue;
+            Model em;
+            try {
+                em = effectiveModel(repoSystem, session, remoteRepos, c[0], c[1], chosen.get(ga));
+            } catch (Exception e) {
+                System.err.println("warning: cannot read model for " + ga + ":" + chosen.get(ga) + " — " + e.getMessage());
+                continue;
+            }
+            for (org.apache.maven.model.Dependency md : em.getDependencies()) {
+                if (md.isOptional()) continue;
+                String scope = md.getScope() == null ? "compile" : md.getScope();
+                if (!scope.equals("compile") && !scope.equals("runtime")) continue;
+                String cga = md.getGroupId() + ":" + md.getArtifactId();
+                String cver = md.getVersion();
+                if (cver == null || cver.isEmpty()) cver = managedVersions.get(cga);
+                if (cver == null || cver.isEmpty() || cver.startsWith("${")) continue;
+                if (chosen.putIfAbsent(cga, cver) == null) {      // nearest-wins: first seen keeps
+                    queue.add(new String[]{md.getGroupId(), md.getArtifactId()});
+                }
+            }
         }
 
         // SBOM mode: emit the resolved TRANSITIVE coordinate closure as one
         // "group:artifact:version" per line — the supply-chain veto (Tier B,
         // docs/build-veto-and-sandbox.md) feeds this to a CVE/banned-dep
-        // scanner. The full closure is already computed for classpath; here we
-        // emit the coordinates rather than the jar paths. Sorted + de-duped so
-        // the output is stable (content-addressable, diffable).
+        // scanner. Sorted + de-duped so the output is stable.
         if ("sbom".equals(outputMode)) {
             java.util.TreeSet<String> coords = new java.util.TreeSet<>();
-            for (ArtifactResult artifactResult : result.getArtifactResults()) {
-                Artifact a = artifactResult.getArtifact();
-                coords.add(a.getGroupId() + ":" + a.getArtifactId() + ":" + a.getVersion());
-            }
-            for (String c : coords) {
-                System.out.println(c);
-            }
+            for (Map.Entry<String, String> e : chosen.entrySet()) coords.add(e.getKey() + ":" + e.getValue());
+            for (String coord : coords) System.out.println(coord);
             return;
         }
 
+        // Download each chosen artifact's jar (Aether resolves explicit
+        // coordinates reliably; the descriptor reader is bypassed entirely).
         List<String> jarPaths = new ArrayList<>();
-        for (ArtifactResult artifactResult : result.getArtifactResults()) {
-            File file = artifactResult.getArtifact().getFile();
-            if (file != null && file.getName().endsWith(".jar")) {
-                jarPaths.add(file.getAbsolutePath());
+        for (Map.Entry<String, String> e : chosen.entrySet()) {
+            String[] ga = e.getKey().split(":");
+            try {
+                Artifact ja = new DefaultArtifact(ga[0], ga[1], "jar", e.getValue());
+                File file = repoSystem.resolveArtifact(session, new ArtifactRequest(ja, remoteRepos, null)).getArtifact().getFile();
+                if (file != null && file.getName().endsWith(".jar")) jarPaths.add(file.getAbsolutePath());
+            } catch (Exception ex) {
+                System.err.println("warning: cannot resolve jar " + e.getKey() + ":" + e.getValue() + " — " + ex.getMessage());
             }
         }
 
@@ -264,6 +272,32 @@ public class MavenResolver {
         locator.addService(RepositoryConnectorFactory.class, BasicRepositoryConnectorFactory.class);
         locator.addService(TransporterFactory.class, HttpTransporterFactory.class);
         return locator.getService(RepositorySystem.class);
+    }
+
+    /**
+     * Build the FULL effective model for one artifact — parent inheritance,
+     * property interpolation (${project.version}, …), dependencyManagement.
+     * The same maven-model-builder machinery loadBomVersions uses. We resolve
+     * the transitive graph through this rather than Aether's own
+     * DefaultArtifactDescriptorReader, which — under the DefaultServiceLocator
+     * wiring available here (maven-model-builder 3.9.x is Sisu-injected and the
+     * locator can't instantiate it) — read RAW poms and silently dropped every
+     * dependency whose version came from a parent BOM or a property. Only
+     * literal-version transitives survived, so netty/jackson/spring lost most
+     * of their tree; it hid at compile time (runtime-only jars) but broke JPMS
+     * `requires` and runtime.
+     */
+    private static Model effectiveModel(RepositorySystem sys, RepositorySystemSession ses,
+            List<RemoteRepository> repos, String g, String a, String v) throws Exception {
+        Artifact pom = new DefaultArtifact(g, a, "pom", v);
+        File pf = sys.resolveArtifact(ses, new ArtifactRequest(pom, repos, null)).getArtifact().getFile();
+        DefaultModelBuildingRequest br = new DefaultModelBuildingRequest();
+        br.setPomFile(pf);
+        br.setValidationLevel(ModelBuildingRequest.VALIDATION_LEVEL_MINIMAL);
+        br.setProcessPlugins(false);
+        br.setSystemProperties(System.getProperties());
+        br.setModelResolver(new SimpleModelResolver(sys, ses, repos));
+        return new DefaultModelBuilderFactory().newInstance().build(br).getEffectiveModel();
     }
 
     private static RepositorySystemSession newSession(RepositorySystem system, String localRepoDir) {
