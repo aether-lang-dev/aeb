@@ -29,6 +29,9 @@ byte of jooby. Cloners do **not** need `itests/fetch-upstream.sh`.
 | jooby-test | OK | **110/110** | mixed Java+Kotlin tests (`javac_test` + `kotlinc_test`) — green since the aether list_get_raw fix |
 | jooby-javadoc | OK | — | standalone JPMS (commons-lang3/text, checkstyle) |
 | jooby-openapi | OK (classpath-mode) | 65/69 | **cyclic** Java↔Kotlin test sources (joint compile); needs `debug("all")` for the asm bytecode reader; 4 `ktMvc` generator failures remain |
+| jooby-guice | OK | **9/9** | Google Guice DI leaf (classpath-mode) |
+| jooby-hikari | OK | **15/15** | HikariCP pool leaf (classpath-mode); test-only log4jdbc spy driver |
+| jooby-apt | OK (main) | — | jooby's MVC annotation processor; compiles against `javax.lang.model` with only jooby-javadoc as dep. Tests skipped (transitive web: compile-testing + truth + mcp/trpc/htmx/jsonrpc/jackson3) |
 
 ## aeb features this migration surfaced (all fixed)
 

@@ -1,0 +1,18 @@
+import build
+import build (dep)
+import maven (load_bom_file)
+import java
+import java (release, source_layout, no_module_info)
+
+// jooby-apt: jooby's MVC annotation processor (registers a
+// javax.annotation.processing.Processor via META-INF/services). The processor
+// itself is plain Java compiled against javax.lang.model — its only project
+// dep is jooby-javadoc (JavaDoc AST for route descriptions); it reads the MVC
+// annotations by NAME through the model API, so jooby core isn't a compile dep.
+// Classpath-mode: no module-info.java.
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "modules/jooby-javadoc/.build.ae")
+    load_bom_file(b, "../../jooby.bom.ae")
+    java.javac(b) { release("21")  source_layout("maven idiomatic")  no_module_info() }
+}

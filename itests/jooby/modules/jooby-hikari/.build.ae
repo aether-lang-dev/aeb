@@ -1,0 +1,15 @@
+import build
+import build (dep)
+import maven (load_bom_file)
+import java
+import java (release, source_layout, no_module_info)
+
+// jooby-hikari. HikariCP connection-pool module. Classpath-mode: no
+// module-info.java, HikariCP is a plain (non-modular) jar.
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "jooby/.build.ae")
+    load_bom_file(b, "../../jooby.bom.ae")
+    dep(b, "com.zaxxer:HikariCP:7.1.0")
+    java.javac(b) { release("21")  source_layout("maven idiomatic")  no_module_info() }
+}

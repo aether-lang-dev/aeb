@@ -1,0 +1,14 @@
+import build
+import build (dep)
+import maven (load_bom_file)
+import java
+import java (release, source_layout, no_module_info)
+
+// jooby-guice. Google Guice DI module. Classpath-mode: guice 7 is a plain jar.
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "jooby/.build.ae")
+    load_bom_file(b, "../../jooby.bom.ae")
+    dep(b, "com.google.inject:guice:7.0.0")
+    java.javac(b) { release("21")  source_layout("maven idiomatic")  no_module_info() }
+}
