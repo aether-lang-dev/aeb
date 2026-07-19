@@ -30,6 +30,7 @@ source_layout(_ctx: ptr, layout: string) {
     _e = map.put(_ctx, "source_layout", layout)
 }
 
+
 compiler_plugin(_ctx: ptr, path: string) {
     if map.has(_ctx, "compiler_plugin") == 1 {
         prev, _ = map.get(_ctx, "compiler_plugin")
@@ -433,7 +434,15 @@ builder kotlinc_test(ctx: ptr) {
     }
     if use_maven == 1 {
         tsrc = path.join(source_dir, "src/test/kotlin")
-        fl_raw, _efl = build._sh_capture("find '${tsrc}' -name '*.kt' 2>/dev/null | tr '\n' ' '")
+        // Joint Java+Kotlin compilation: hand kotlinc the .java test sources
+        // alongside the .kt. kotlinc emits ONLY the .kt classes but uses the
+        // .java for symbol resolution, so a Kotlin fixture can reference a Java
+        // test class (and vice-versa) — the cyclic case Maven's
+        // kotlin-maven-plugin handles by feeding both source roots. javac_test
+        // then compiles the .java against those .kt classes. Harmless when the
+        // sources don't cross-reference (kotlinc still emits only .kt).
+        jsrc = path.join(source_dir, "src/test/java")
+        fl_raw, _efl = build._sh_capture("{ find '${tsrc}' -name '*.kt' 2>/dev/null ; find '${jsrc}' -name '*.java' 2>/dev/null ; } | tr '\n' ' '")
         file_list = string.trim(fl_raw)
     } else {
         kt_pat = path.join(source_dir, "*.kt")

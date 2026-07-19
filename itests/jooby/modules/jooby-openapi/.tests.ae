@@ -1,0 +1,27 @@
+import build
+import build (dep)
+import maven (load_bom_file)
+import java
+import java (release, source_layout, parameters, debug)
+import kotlin
+
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "modules/jooby-openapi/.build.ae")
+    build.dep(b, "modules/jooby-kotlin/.build.ae")
+    load_bom_file(b, "../../jooby.bom.ae")
+    dep(b, "org.junit.jupiter:junit-jupiter-engine")
+    dep(b, "org.junit.platform:junit-platform-console")
+    dep(b, "org.apache.commons:commons-lang3:3.20.0")
+    dep(b, "io.avaje:avaje-inject:12.6")
+    dep(b, "org.slf4j:slf4j-simple:2.0.18")
+    dep(b, "org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    dep(b, "org.jetbrains.kotlin:kotlin-reflect:2.4.0")
+    dep(b, "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    dep(b, "net.bytebuddy:byte-buddy:1.18.11")
+    dep(b, "org.mockito:mockito-core:5.23.0")
+    dep(b, "org.assertj:assertj-core:3.27.7")
+    kotlin.kotlinc_test(b) { source_layout("maven idiomatic")  }
+    java.javac_test(b) { release("21")  source_layout("maven idiomatic")  parameters()  debug("all") }
+    java.junit5(b) {}
+}

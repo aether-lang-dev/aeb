@@ -4,6 +4,18 @@
 
 ### Added
 
+- **`kotlin.kotlinc_test` now does joint Java+Kotlin compilation** (`lib/kotlin`).
+  For the maven-idiomatic layout it hands kotlinc the `src/test/java` sources
+  alongside the `.kt` — kotlinc emits only the `.kt` classes but resolves
+  symbols against the `.java`, so a module whose Kotlin fixtures reference Java
+  test classes *and* whose Java tests reference the Kotlin fixtures (a true
+  cycle) compiles; `javac_test` then compiles the `.java` against those `.kt`
+  classes. This is what Maven's kotlin-maven-plugin does by feeding both source
+  roots. Surfaced by the jooby-openapi itest (cyclic Java↔Kotlin fixtures);
+  harmless when the sources don't cross-reference (jooby-test's independent
+  Kotlin test still compiles). Gets jooby-openapi's mixed test set compiling
+  (65/69, with `debug("all")` for its asm bytecode reader).
+
 - **`aeb why-rebuilt <target> [ref]` — explain what would rebuild a target and
   why.** The VCS-facing complement to the existing graph queries (`aeb query
   'deps(t)'`/`'rdeps(t)'`, `owners`, `path`, `why`): it computes the changed

@@ -27,6 +27,8 @@ byte of jooby. Cloners do **not** need `itests/fetch-upstream.sh`.
 | jooby-kotlin | OK | **9/9** | pure Kotlin (coroutines) |
 | jooby-netty | OK | — | classpath-mode (`no_module_info()`) — see netty note |
 | jooby-test | OK | **110/110** | mixed Java+Kotlin tests (`javac_test` + `kotlinc_test`) — green since the aether list_get_raw fix |
+| jooby-javadoc | OK | — | standalone JPMS (commons-lang3/text, checkstyle) |
+| jooby-openapi | OK (classpath-mode) | 65/69 | **cyclic** Java↔Kotlin test sources (joint compile); needs `debug("all")` for the asm bytecode reader; 4 `ktMvc` generator failures remain |
 
 ## aeb features this migration surfaced (all fixed)
 
@@ -37,6 +39,13 @@ byte of jooby. Cloners do **not** need `itests/fetch-upstream.sh`.
   equivalent; jooby core's tests went 15 failures → 0 once SSL certs / config /
   webjar props landed on the classpath.
 - **`kotlin.kotlinc_test` maven classpath** — was omitting test-scope maven deps.
+- **Joint Java+Kotlin compilation.** `kotlin.kotlinc_test` now also feeds the
+  `src/test/java` sources to kotlinc (symbol resolution only — kotlinc emits
+  just the `.kt` classes), so a module whose Kotlin fixtures reference Java test
+  classes *and* whose Java tests reference Kotlin fixtures — a true cycle,
+  which jooby-openapi has — compiles. Maven's kotlin-maven-plugin does the same
+  by handing both source roots to kotlinc. jooby-test's independent Kotlin test
+  compiled without it; jooby-openapi's cyclic fixtures needed it.
 - **Resolver transitivity** — aeb-resolve dropped BOM/property-versioned
   transitives (netty resolved to *just* netty-handler); now resolves the full
   effective-model tree. This is what unblocked netty.
