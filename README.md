@@ -305,6 +305,53 @@ The query expression should be quoted in a shell because unquoted
 parentheses are shell syntax. `deps(...)` walks dependency edges
 outward; `rdeps(...)` walks reverse edges to consumers.
 
+### Named target sets (`.presubmit.ae`)
+
+A dot-prefixed `.ae` file whose body is nothing but `build.dep(...)`
+lines is a **named set of targets**. Building it builds the set.
+
+```aether
+// .presubmit.ae — what must be green before you push
+import build (start, dep)
+
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "libs/core/.tests.ae")
+    build.dep(b, "apps/api/.tests.ae")
+    build.dep(b, "apps/web/.tests.ae")
+}
+```
+
+```bash
+aeb .presubmit.ae
+```
+
+No flag, no registry, no special-casing — the existing rules already
+allow it. Any dot-prefixed `.ae` file is a node, `build.dep()` is the
+only edge mechanism, and the filename is the route, so `.presubmit.ae`
+self-classifies as type `presubmit` and reports as
+`aeb: 1 build + 1 tests + 1 presubmit`. Members run concurrently; if
+one fails, the set exits non-zero.
+
+The name is yours — `.merge-queue.ae`, `.smoke.ae`, `.release.ae`,
+`.nightly.ae` all work identically, and sets may depend on sets.
+
+Add `meta.desc(b, "Must be green before push")` to say what the set is
+for — it's the highest-value line in the file for whoever reads it next.
+A set may also carry an inline guard (failed via `build.fail`) for a
+condition that belongs to the set rather than to any member — but only a
+*reproducible* one, such as a missing tool the whole set needs. The doc
+works through why the guard people ask for first, "fail if the working
+tree is dirty", is the wrong thing to reach for.
+
+> **Caveat.** A set is only as honest as its members. A hand-rolled
+> node that discards its exit code (`_ = os.system("...")`) reports
+> success regardless — which inside a presubmit set means a green
+> result that proves nothing. Prefer an SDK builder for anything a set
+> depends on.
+
+Full write-up: [`docs/presubmit-target-sets.md`](docs/presubmit-target-sets.md).
+
 ### Affected-target detection (`aeb --since`, `aeb --print-affected`)
 
 `aeb --since <git-ref>` builds only the targets transitively

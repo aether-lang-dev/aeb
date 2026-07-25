@@ -40,6 +40,29 @@ AETHER=/path/to/ae ./cache-smoke.sh                       # all green-itest SDKs
 AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne   # one project
 ```
 
+## Named-target-set smoke test
+
+`presubmit-smoke.sh` verifies the `.presubmit.ae` convention
+(`../docs/presubmit-target-sets.md`): a dot-prefixed `.ae` file whose body
+is nothing but `build.dep(...)` lines is a runnable set of targets. It
+synthesises a three-node fixture in a temp dir and asserts that members
+run, the aggregator topo-sorts last, the set self-classifies as type
+`presubmit` from its filename alone, an all-green set exits 0, and — the
+load-bearing one — a set with a failing member exits non-zero with the
+failure attributed to that member. Two further rounds pin the doc's
+claims about guards: `meta.desc` on a node that builds nothing, an
+inline working-tree check gating both ways, a reproducible tool probe,
+and the `os.exec` silent-pass trap that makes a naive probe useless.
+
+Needs no language toolchain (members are trivial `bash.test` nodes) and
+fetches nothing, so it runs anywhere a working `ae` can link a
+multi-module build.
+
+```bash
+cd itests
+AETHER=/path/to/ae ./presubmit-smoke.sh
+```
+
 ## Projects
 
 | Directory | Language | Upstream | What aeb replaces |

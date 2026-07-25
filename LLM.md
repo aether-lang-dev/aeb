@@ -41,6 +41,61 @@ Multiple build files in the same directory get distinct DAG nodes
 via a `:tag` suffix on their visited-set key (preserved in
 human-display labels, stripped before deriving filesystem paths).
 
+### Named target sets (`.presubmit.ae`) — a convention, not a feature
+
+A dot-prefixed `.ae` file whose body is nothing but `build.dep(...)` lines
+is a **named set of targets**; `aeb .presubmit.ae` builds the set. This
+needed no engine change — it falls out of three rules already in force:
+any dot-prefixed `.ae` is a node, `build.dep()` is a runtime no-op whose
+edges are extracted textually, and the filename is the route (so
+`.presubmit.ae` self-classifies as type `presubmit` and routes to
+`target/presubmit/` with no classification-table entry). A node with no
+builder does no work of its own; its edges ARE its contribution.
+
+The name is not privileged — `.merge-queue.ae`, `.smoke.ae`,
+`.nightly.ae` behave identically, and sets may depend on sets (visited-set
+dedup means shared members build once). **Do not special-case the name in
+the runner**; if `.presubmit.ae` ever behaves differently from
+`.nightly.ae`, the convention is broken.
+
+A set's body may also carry `meta.desc(b, "...")` (says what the set is
+for; `lib/meta` is orthogonal to building, so it works unchanged on a
+node that produces no artifact) and — where a gate genuinely belongs to
+the set rather than to any member — an inline guard failed via
+`build.fail`. The rule of thumb: **a set's own body should only ever say
+no.** If it makes something, it is a build target, not a set.
+
+**Guards: reproducible only.** A guard is fine when what it asserts is
+stable and repo-independent (a tool the whole set needs is missing). It
+is NOT fine when its answer depends on the developer's incidental
+workspace state — a `git status --porcelain` check is the canonical
+mistake: it was wrong against the first repo it ever ran in (aeb's own
+`target/` dirtied the tree) and it is red most often when it is least
+informative, which trains people to ignore red gates. That belongs in a
+pre-push hook, not a set. Write probes with `os.system` (returns the exit
+code), **not** `os.exec` — `os.exec`'s second return is an execution
+error, not a non-zero exit status, so `if string.length(err) > 0` never
+fires for a command that runs and exits 1. Same silent-green family as
+the `_ =` trap; both are pinned by round 4 of the itest.
+
+Verified end-to-end by `itests/presubmit-smoke.sh` (members run,
+aggregator topo-sorts last, self-classification, green→0, red→non-zero
+with per-member attribution, plus `meta.desc` + an inline
+`git status --porcelain` guard passing clean / failing dirty). The one
+trap: a set is only as honest as its members — a hand-rolled node doing
+`_ = os.system(...)` discards the exit code and reports success
+regardless, so a set depending on it can report green while proving
+nothing. Prefer an SDK builder.
+
+**Don't ship a `git() { no_untracked_files() }` grammar** — asked and
+declined. `os.exec` + `build.fail` already compose; the check is
+non-reproducible (it passes in clean CI, fails for anyone holding a
+scratch file); and a `git` builder would be the first place aeb hardcodes
+one VCS when root discovery already honours `.avn`/`.hg`/`.svn`/`.bzr`/
+Fossil/Pijul. Policy gates (approval, attestation, external status) have
+a home in `lib/approval`. Full write-up:
+`docs/presubmit-target-sets.md`.
+
 ### Entrypoint: `aeb(cap)` (or legacy `main()`)
 
 A build node's entrypoint is `aeb(cap) { b = build.start() ... }`. `cap`
