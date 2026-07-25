@@ -1,7 +1,8 @@
 # Halting guarantees: should aeb's config language be non-Turing-complete?
 
 **Filed by**: Paul + LLM session, 2026-07-25, prompted by a comment
-thread on "What makes a good build system?" (r/programming, 2026-07-24).
+thread on "What makes a good build system?" (r/programming, 2026-07-24):
+https://www.reddit.com/r/programming/comments/1v5ip78/what_makes_a_good_build_system/
 **Status**: **DECLINED** (the language-level ask). The termination
 property it wants is already delivered by other means, verified below.
 One genuine gap it surfaced — per-node timeouts — is recorded as a

@@ -117,11 +117,59 @@ The consequences worth knowing:
   Makefile at all. Same for `AEB_JOBS=1`. Windows without `make` is
   therefore a *supported* configuration, just a serial one — the
   fallback is the Windows story, not a degraded mode.
-- **This is untested on Windows.** The reasoning above is from reading
-  the chokepoint, not from a winbaz run. The Axis-2 work has proven
-  native compile+run through the trampoline; whether the *multi-node
-  parallel* path has ever been exercised there is not recorded. Treat
-  "aeb builds a multi-node DAG under MSYS make" as unverified.
+### Tested on winbaz, 2026-07-25 — the `make` half holds; gcc blocks the build
+
+Run on the Win11 VM (`winbaz`, MSYS2, GNU Make 4.4.1, gcc 16.1.0,
+`ae 0.413.0` native `windows-x86_64`) against a two-node DAG
+(`.presubmit.ae` → `a/.tests.ae` + `b/.tests.ae`).
+
+**What the scheduling layer got right — the § 4 reasoning is confirmed:**
+
+- `command -v make` found MSYS `/usr/bin/make` and the driver took the
+  parallel branch;
+- `target/.aeb/build.mk` **was emitted**, with correct topology
+  (`all: .presubmit.ae a_.tests.ae b_.tests.ae`, and `.presubmit.ae`
+  listing both members as prerequisites);
+- the recipes carried native Windows paths and an `.exe` suffix
+  (`'C:/Users/paul/.../target/_ae_build_all.exe'`), i.e. `_exe_suffix()`
+  did its job;
+- `make` **ran the recipes** — the POSIX bodies were interpreted by
+  `sh`, exactly as predicted, with no `cmd.exe` involvement;
+- per-node `.rc` markers were written, the `[telemetry]` block rendered,
+  and the summary self-classified as `aeb: 2 tests + 1 presubmit`;
+- `AEB_JOBS=1` correctly wrote **no Makefile** and took the sequential
+  loop.
+
+**What actually fails, and it is not `make`:** the link step.
+
+```
+/mingw64/bin/gcc: Argument list too long
+```
+
+The build never produces `target/_ae_build_all.exe`, so every node then
+fails with "No such file or directory". Two facts localise it away from
+the scheduling layer entirely:
+
+- it reproduces with **`AEB_JOBS=1`**, where no Makefile is written and
+  `make` is never invoked;
+- it reproduces on a **single node with 2 generated `.c` files** — this
+  is not a large-project scaling limit.
+
+`tools/aeb-link` builds one long `gcc` command (every generated `.c`,
+plus `-I`/`-L`/`-l` flags and `-Wl,--allow-multiple-definition`) and
+runs it through the `sh` chokepoint, which writes it to a temp script.
+Windows' `CreateProcess` command-line ceiling (~32 KB) is far below
+POSIX `ARG_MAX`, so a command that is unremarkable on Linux overflows
+here. The fix shape is a gcc **`@response-file`** (or splitting compile
+from link), not anything in the driver.
+
+**Bottom line for this section:** "aeb schedules a multi-node DAG under
+MSYS make on native Windows" is now **verified** — the Makefile is
+emitted, `make` drives it, `sh` interprets the recipes, markers and
+telemetry come back. "aeb completes a build on native Windows" is
+**blocked** on the gcc argument-length limit in `aeb-link`, which is a
+separate, single-node, `make`-independent defect. Filed as
+`asks/windows-gcc-argument-list-too-long.md`.
 
 Related: `asks/halting-guarantees-and-build-termination.md` § the
 per-node timeout gap — any future per-node bound must work in *both*

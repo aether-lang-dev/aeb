@@ -7,7 +7,7 @@ permit; it is a naming agreement, not a feature.
 ## The gap this fills
 
 From a comment thread on "What makes a good build system?"
-(r/programming, 2026-07-24), u/lookmeat naming the constituencies a build
+([r/programming](https://www.reddit.com/r/programming/comments/1v5ip78/what_makes_a_good_build_system/), 2026-07-24), u/lookmeat naming the constituencies a build
 config has to serve:
 
 > there's the people who want to manage the resources and nitty gritty

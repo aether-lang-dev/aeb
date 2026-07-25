@@ -3,7 +3,8 @@
 **Filed by**: Paul + LLM session, 2026-07-25, from the same
 r/programming thread ("What makes a good build system?", 2026-07-24)
 that produced `.presubmit.ae` and
-`asks/halting-guarantees-and-build-termination.md`.
+`asks/halting-guarantees-and-build-termination.md`:
+https://www.reddit.com/r/programming/comments/1v5ip78/what_makes_a_good_build_system/
 **Status**: **NO ACTION** — no feature proposed, no feature declined.
 Recorded as a **boundary marker**: if someone later asks for value
 override in a `.build.ae`, this is the argument that should shape the
