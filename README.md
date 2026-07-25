@@ -521,9 +521,7 @@ AEB_SCHED=native aeb .presubmit.ae
 ```
 
 Opt-in while it earns the default. `AEB_JOBS=1` still forces the
-sequential loop. Known gap: per-node telemetry times read `0.00s` for
-siblings reaped in the same round (total wall is exact) — see
-`asks/halting-guarantees-and-build-termination.md`.
+sequential loop.
 
 **`--in-process`** (or `AEB_IN_PROCESS=1`) runs the older all-in-one
 orchestrator — one process, all nodes in-process, tool output streamed

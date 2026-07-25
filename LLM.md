@@ -975,7 +975,8 @@ exists if a need arises."
   makes it an argument), and a failed exec is NOT reported at spawn time
   — a nonexistent binary yields a valid token and empty err, surfacing
   only as exit 127 from `wait`. So "spawn returned no error" does not
-  mean "the node started". See `asks/halting-guarantees-and-build-
+  mean "the node started". **Consumed**: `AEB_SCHED=native` in
+  `tools/aeb-driver.ae`. See `asks/halting-guarantees-and-build-
   termination.md` § Postscript and
   `../aether/asks/os-run-pipe-on-windows-for-parallel-build-scheduling.md`.
 - **0.357 `ae build --emit=csrc`** — emits portable generated C +

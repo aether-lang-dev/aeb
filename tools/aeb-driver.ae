@@ -431,14 +431,13 @@ main() {
         started = map.new()       // node -> "1" once spawned
         tok_node = map.new()      // token (as string) -> node
         live = list.new()         // in-flight tokens
-        // Per-node wall time: measured from the moment this scheduler round
-        // spawned work to the moment the node was reaped. NOT stored via
-        // string.from_int(token) in a map — from_int truncates to 32 bits, so
-        // a ns timestamp round-tripped through a string comes back negative
-        // and the duration renders as garbage (seen: 163906.57s). Aether
-        // lists are pointer-typed, so stashing int64 ns in one is equally
-        // unsafe. A plain int variable per round is correct and enough.
-        round_start = clock_ns()
+        tok_start = map.new()     // token (as string) -> start ns, as a LONG.
+                                  // string.from_int/to_int are 32-bit and
+                                  // silently mangle a ns timestamp (seen:
+                                  // 163919858627885 -> -1863191251, rendering
+                                  // a node as 163906.57s). from_long/to_long
+                                  // round-trip int64 exactly — use those for
+                                  // anything clock-sized.
         completed = 0
 
         while completed < nn {
@@ -480,6 +479,7 @@ main() {
                                 tk = string.from_int(tok)
                                 _tn = map.put(tok_node, string.copy(tk), string.copy(node))
                                 _lv = list.add(live, tok)
+                                _ts = map.put(tok_start, string.copy(tk), string.from_long(clock_ns()))
                                 _ss2 = map.put(started, string.copy(node), "1")
                             }
                             progressed = 1
@@ -506,22 +506,20 @@ main() {
                 if string.length(rnode) > 0 {
                     rcm = path.join(rc_dir, string.concat(_san(rnode), ".rc"))
                     _we2 = io.write_file(rcm, string.from_int(rcode))
-                    // Per-node wall: measured from the last spawn/reap
-                    // boundary. Nodes reaped in the same drain as their
-                    // spawn round therefore read ~0 for siblings after the
-                    // first — the concurrent-node equivalent of make's own
-                    // "no per-recipe timing". Total wall (below) is exact;
-                    // exact per-node wall under concurrency needs a
-                    // per-token int64 store, which Aether's pointer-typed
-                    // lists and 32-bit string.from_int both preclude today.
-                    st_ns = round_start
+                    // Exact per-node wall: this token's own spawn instant.
+                    // Seed from to_long (not `= 0`) so the variable is typed
+                    // long — `st_ns = 0` types it int, and the later
+                    // to_long reassignment then truncates back to 32 bits,
+                    // which is the same 163906.57s garbage in a new hat.
+                    st_seed = "0"
+                    if map.has(tok_start, rtk) == 1 { st_seed, _ = map.get(tok_start, rtk) }
+                    st_ns, _sne = string.to_long(st_seed)
                     msm2 = path.join(rc_dir, string.concat(_san(rnode), ".ms"))
-                    _wm2 = io.write_file(msm2, string.from_int((clock_ns() - st_ns) / 1000000))
+                    _wm2 = io.write_file(msm2, string.from_long((clock_ns() - st_ns) / 1000000))
                     _dn = map.put(done, string.copy(rnode), "1")
                     completed = completed + 1
                 }
                 live = _list_without(live, rtok)
-                round_start = clock_ns()
             }
         }
     } else if have_make == 1 {
