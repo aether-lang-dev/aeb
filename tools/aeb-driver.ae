@@ -7,11 +7,18 @@
 // stdout then carries only framing + the telemetry summary — per-target
 // tool output (javac/junit/jest…) is compartmentalized into the logs.
 //
-// Parallelism: the driver emits a Makefile (one PHONY target per node,
-// prerequisites = its dep nodes from the edges file, recipe = the per-node
-// run) and lets `make -jN` schedule it — dep-respecting concurrency + the
-// job cap, for free. If `make` is unavailable (or AEB_JOBS=1) it falls
-// back to the sequential loop, so the default path never hard-breaks.
+// Parallelism — three modes, picked per invocation:
+//   1. AEB_SCHED=native — an in-process ready-queue over os.spawn_proc /
+//      os.wait_any (needs ae >= 0.442). No Makefile, no `make`, no external
+//      dependency; works identically on Windows. OPT-IN while it earns the
+//      default.
+//   2. default — emit a Makefile (one PHONY target per node, prerequisites
+//      = its dep nodes, recipe = the per-node run) and let `make -jN`
+//      schedule it.
+//   3. AEB_JOBS=1, or no `make` on PATH — the sequential loop, so the
+//      default path never hard-breaks.
+// All three write the same .rc/.ms markers and feed the same telemetry
+// render, so the summary is identical whichever ran.
 //
 // Usage: aeb-driver <root> <out_bin> <edges_file>
 //   edges_file: one line per node — "<node.ae> <dep1.ae> <dep2.ae> ..."
@@ -30,6 +37,105 @@ import std.fs
 import std.list
 import std.map
 import std.path
+
+// --- Native scheduler helpers (AEB_SCHED=native) -------------------------
+//
+// The native path replaces `make -jN` with an in-process ready-queue over
+// os.spawn_proc / os.wait_any (aether 0.442+). Same DAG, same per-node
+// command, same .rc/.ms markers — only the scheduling engine differs.
+//
+// Why: `make` buys exactly ONE capability (dep-respecting concurrency) at
+// the cost of POSIX-shell recipes through the Windows cmd.exe->sh
+// chokepoint, `$$` escaping that differs between the two modes (so the two
+// paths cannot share a command builder), two schedulers that can silently
+// diverge, and an external dependency whose absence silently halves
+// throughput. See asks/halting-guarantees-and-build-termination.md.
+
+// _dep_list(deps_str) -> list of dep node names. The edges file joins deps
+// with single spaces; empty string means "no deps" (a root, ready at once).
+_dep_list(deps_str: string) {
+    out = list.new()
+    rest = string.trim(deps_str)
+    while string.length(rest) > 0 {
+        sp = string.index_of(rest, " ")
+        dep = ""
+        if sp < 0 { dep = rest  rest = "" }
+        else {
+            dep = string.substring(rest, 0, sp)
+            rest = string.trim(string.substring(rest, sp + 1, string.length(rest)))
+        }
+        if string.length(dep) > 0 { _a = list.add(out, string.copy(dep)) }
+    }
+    return out
+}
+
+// _deps_satisfied(node_deps, done) -> 1 when every dep has a "done" entry.
+// A dep that FAILED still counts as done: this mirrors `make -k`, which
+// keeps building independent nodes past a failure. A dependent of a failed
+// node still runs — and fails itself on the missing artifact — exactly as
+// it does under make today. Changing that is a behaviour change, not a
+// scheduler detail, so it is deliberately NOT made here.
+_deps_satisfied(node_deps: ptr, done: ptr) {
+    m = list.size(node_deps)
+    j = 0
+    while j < m {
+        d, _ = list.get(node_deps, j)
+        if map.has(done, d) == 0 { return 0 }
+        j = j + 1
+    }
+    return 1
+}
+
+// _node_run_cmd(...) -> the shell command that runs ONE node, without any
+// redirection. Shared by the native scheduler and the sequential loop, so
+// the two cannot drift. (The Makefile path cannot use it: its recipe needs
+// `$$` doubling for make's own expansion, which is precisely the kind of
+// divergence the native path exists to remove.)
+_node_run_cmd(out_bin: string, root: string, node: string, label: string,
+              node_container: int, node_image: ptr, engine: string, selabel: string) {
+    inner = string.concat("'", out_bin)
+    inner = string.concat(inner, "' '")
+    inner = string.concat(inner, root)
+    inner = string.concat(inner, "' '")
+    inner = string.concat(inner, label)
+    inner = string.concat(inner, "'")
+    if node_container == 1 {
+        img = ""
+        if map.has(node_image, node) == 1 { img, _ = map.get(node_image, node) }
+        if string.length(img) > 0 {
+            inner = _container_node_invocation(node, root, label, img, engine, selabel)
+        }
+    }
+    return inner
+}
+
+// _deps_of_str(map, node) -> the node's dep string, or "" when absent.
+_deps_of_str(deps_of: ptr, node: string) {
+    if map.has(deps_of, node) == 0 { return string.concat("", "") }
+    d, _ = map.get(deps_of, node)
+    return d
+}
+
+// _list_without(l, v) -> a new int list with the first `v` removed.
+// Aether lists have no remove-by-value; rebuilding is O(n) over a list
+// bounded by the job cap, so this is cheap.
+_list_without(l: ptr, v: int) {
+    out = list.new()
+    n = list.size(l)
+    i = 0
+    dropped = 0
+    while i < n {
+        x, _ = list.get(l, i)
+        if x == v {
+            if dropped == 0 { dropped = 1 }
+            else { _a = list.add(out, x) }
+        } else {
+            _b = list.add(out, x)
+        }
+        i = i + 1
+    }
+    return out
+}
 
 // Map any string to a flat, safe token (non-[alnum._-] -> '_').
 _san(s: string) {
@@ -287,15 +393,138 @@ main() {
         np, _npe = build._sh_capture("nproc 2>/dev/null || echo 4")
         jobs = string.trim(np)
     }
+    // AEB_SCHED=native opts into the in-process ready-queue scheduler
+    // (os.spawn_proc/wait_any) instead of shelling out to `make -jN`.
+    // Opt-in third mode while it earns the default; AEB_JOBS=1 still wins
+    // (one job means sequential, and the sequential loop already does that
+    // with less machinery).
+    want_native = 0
+    if string.equals(os.getenv("AEB_SCHED"), "native") == 1 { want_native = 1 }
+    if string.equals(jobs, "1") == 1 { want_native = 0 }
+
     have_make = 0
-    if string.equals(jobs, "1") == 0 {
-        mk_probe, _mpe = build._sh_capture("command -v make >/dev/null 2>&1 && echo y || echo n")
-        if string.equals(string.trim(mk_probe), "y") == 1 { have_make = 1 }
+    if want_native == 0 {
+        if string.equals(jobs, "1") == 0 {
+            mk_probe, _mpe = build._sh_capture("command -v make >/dev/null 2>&1 && echo y || echo n")
+            if string.equals(string.trim(mk_probe), "y") == 1 { have_make = 1 }
+        }
     }
 
     session_start = clock_ns()
 
-    if have_make == 1 {
+    if want_native == 1 {
+        // --- Native ready-queue scheduler (AEB_SCHED=native) ---
+        //
+        // Spawn up to `jobs` ready nodes, wait for whichever finishes
+        // first, record its markers, unblock its dependents, repeat. The
+        // DAG is already topo-sorted, so a node is ready once every dep
+        // has completed.
+        //
+        // Each node runs via `sh -c '<same command the sequential path
+        // builds>'` — one command builder for both paths, unlike the
+        // Makefile recipe which needs `$$` doubling.
+        max_jobs = 1
+        mj, _mje = string.to_int(jobs)
+        if mj > 0 { max_jobs = mj }
+
+        done = map.new()          // node -> "1" once reaped
+        started = map.new()       // node -> "1" once spawned
+        tok_node = map.new()      // token (as string) -> node
+        live = list.new()         // in-flight tokens
+        // Per-node wall time: measured from the moment this scheduler round
+        // spawned work to the moment the node was reaped. NOT stored via
+        // string.from_int(token) in a map — from_int truncates to 32 bits, so
+        // a ns timestamp round-tripped through a string comes back negative
+        // and the duration renders as garbage (seen: 163906.57s). Aether
+        // lists are pointer-typed, so stashing int64 ns in one is equally
+        // unsafe. A plain int variable per round is correct and enough.
+        round_start = clock_ns()
+        completed = 0
+
+        while completed < nn {
+            // Fill: spawn every ready, unstarted node up to the job cap.
+            progressed = 0
+            i = 0
+            while i < nn {
+                if list.size(live) >= max_jobs { i = nn }
+                if i < nn {
+                    node, _ = list.get(nodes, i)
+                    if map.has(started, node) == 0 {
+                        ndeps = _dep_list(_deps_of_str(deps_of, node))
+                        if _deps_satisfied(ndeps, done) == 1 {
+                            label = file_to_label(node)
+                            log = path.join(logs_dir, _log_name(label))
+                            inner = _node_run_cmd(out_bin, root, node, label,
+                                                  node_container, node_image,
+                                                  engine, selabel)
+                            cmd = string.concat(inner, " > '")
+                            cmd = string.concat(cmd, log)
+                            cmd = string.concat(cmd, "' 2>&1")
+                            argv = list.new()
+                            _c1 = list.add(argv, "-c")
+                            _c2 = list.add(argv, cmd)
+                            tok, serr = os.spawn_proc("sh", argv, null)
+                            if string.length(serr) > 0 {
+                                // Spawn itself failed (not the child) —
+                                // record a failure marker so the node is
+                                // not silently skipped.
+                                println("aeb-driver: spawn failed for ${label}: ${serr}")
+                                rcm = path.join(rc_dir, string.concat(_san(node), ".rc"))
+                                _we = io.write_file(rcm, "1")
+                                msm = path.join(rc_dir, string.concat(_san(node), ".ms"))
+                                _wm = io.write_file(msm, "0")
+                                _sd = map.put(done, string.copy(node), "1")
+                                _ss = map.put(started, string.copy(node), "1")
+                                completed = completed + 1
+                            } else {
+                                tk = string.from_int(tok)
+                                _tn = map.put(tok_node, string.copy(tk), string.copy(node))
+                                _lv = list.add(live, tok)
+                                _ss2 = map.put(started, string.copy(node), "1")
+                            }
+                            progressed = 1
+                        }
+                    }
+                    i = i + 1
+                }
+            }
+
+            if list.size(live) == 0 {
+                if progressed == 0 {
+                    // Nothing running and nothing became ready: the DAG
+                    // has a cycle or an unknown dep. Fail loudly rather
+                    // than spin — a silent hang is the worst outcome.
+                    println("aeb-driver: native scheduler stalled (dependency cycle or unknown dep); ${completed}/${nn} done")
+                    exit(1)
+                }
+            } else {
+                // Drain: reap whichever finishes first.
+                rtok, rcode, rerr2 = os.wait_any(live)
+                rtk = string.from_int(rtok)
+                rnode = ""
+                if map.has(tok_node, rtk) == 1 { rnode, _ = map.get(tok_node, rtk) }
+                if string.length(rnode) > 0 {
+                    rcm = path.join(rc_dir, string.concat(_san(rnode), ".rc"))
+                    _we2 = io.write_file(rcm, string.from_int(rcode))
+                    // Per-node wall: measured from the last spawn/reap
+                    // boundary. Nodes reaped in the same drain as their
+                    // spawn round therefore read ~0 for siblings after the
+                    // first — the concurrent-node equivalent of make's own
+                    // "no per-recipe timing". Total wall (below) is exact;
+                    // exact per-node wall under concurrency needs a
+                    // per-token int64 store, which Aether's pointer-typed
+                    // lists and 32-bit string.from_int both preclude today.
+                    st_ns = round_start
+                    msm2 = path.join(rc_dir, string.concat(_san(rnode), ".ms"))
+                    _wm2 = io.write_file(msm2, string.from_int((clock_ns() - st_ns) / 1000000))
+                    _dn = map.put(done, string.copy(rnode), "1")
+                    completed = completed + 1
+                }
+                live = _list_without(live, rtok)
+                round_start = clock_ns()
+            }
+        }
+    } else if have_make == 1 {
         // --- Emit the Makefile and let `make -jN` schedule it ---
         mk = ".PHONY: all"
         i = 0
@@ -367,18 +596,8 @@ main() {
             // $$ to the shell's PID, so run it through bash where the
             // intent ($?) still works by stripping one '$'. Simpler: run
             // the node directly and write the rc ourselves.
-            seq_inner = string.concat("'", out_bin)
-            seq_inner = string.concat(seq_inner, "' '")
-            seq_inner = string.concat(seq_inner, root)
-            seq_inner = string.concat(seq_inner, "' '")
-            seq_inner = string.concat(seq_inner, label)
-            seq_inner = string.concat(seq_inner, "'")
-            if node_container == 1 {
-                simg, _ = map.get(node_image, node)
-                if string.length(simg) > 0 {
-                    seq_inner = _container_node_invocation(node, root, label, simg, engine, selabel)
-                }
-            }
+            seq_inner = _node_run_cmd(out_bin, root, node, label,
+                                      node_container, node_image, engine, selabel)
             cmd = string.concat(seq_inner, " > '")
             cmd = string.concat(cmd, log)
             cmd = string.concat(cmd, "' 2>&1")

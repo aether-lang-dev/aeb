@@ -508,6 +508,23 @@ sequential per-node loop — same artifacts, no warning, just serial. So
 > supported configuration. See
 > [`docs/windows-cross-platform-notes.md`](docs/windows-cross-platform-notes.md) § 4.
 
+**`AEB_SCHED=native`** (experimental) replaces `make` with an in-process
+ready-queue scheduler built on Aether's `os.spawn_proc` / `os.wait_any`
+— spawn up to N ready nodes, reap whichever finishes first, unblock its
+dependents. Same DAG, same `.rc`/`.ms` markers, same telemetry; no
+Makefile and no external `make` dependency, on any platform. Measured at
+parity with `make -jN` (3 × 2 s nodes: 4487 ms native vs 4464 ms make,
+against ~6000 ms serial). Needs `ae >= 0.442.0`.
+
+```bash
+AEB_SCHED=native aeb .presubmit.ae
+```
+
+Opt-in while it earns the default. `AEB_JOBS=1` still forces the
+sequential loop. Known gap: per-node telemetry times read `0.00s` for
+siblings reaped in the same round (total wall is exact) — see
+`asks/halting-guarantees-and-build-termination.md`.
+
 **`--in-process`** (or `AEB_IN_PROCESS=1`) runs the older all-in-one
 orchestrator — one process, all nodes in-process, tool output streamed
 inline. Simplest to debug, and fine for small builds. Design:
