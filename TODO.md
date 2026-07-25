@@ -312,6 +312,23 @@ is honest about what it can't do on Windows.
   `tests/test_platform_helpers.ae` token-agreement assertions.
 - Linux-green against `./tests/run.sh` (99/99).
 
+**Open question — the node driver's `make` dependency.** `tools/aeb-driver`
+by default emits `target/.aeb/build.mk` (POSIX-shell recipes: `2>&1`, `$$?`,
+`$$((_e-_s))`, `date +%s%3N`, `case`/`esac`) and runs `make -jN`. On Windows
+this is not immediately broken, because the driver's `command -v make` probe
+and its `make` run both go through the `build._sh_capture` / `build._sh`
+chokepoint, which routes shell-outs via MSYS `sh` rather than `cmd.exe`. Two
+things follow, neither yet verified on a Windows host:
+- the `make` it finds must be the **MSYS/MinGW** one (an `nmake` would not
+  understand these recipes, but also would not satisfy that probe);
+- with no MSYS `make`, `have_make` stays 0 and the **sequential in-process
+  loop** runs instead, writing no Makefile — so *Windows-without-make is a
+  supported serial configuration*, not a breakage. On the cut-down runner the
+  sequential path is likely the common one, which makes it the path to test
+  first and the one any future per-node timeout must also cover.
+Whether the multi-node parallel path has ever run on winbaz is not recorded;
+treat it as unverified. Write-up: `docs/windows-cross-platform-notes.md` § 4.
+
 **Reference: Nushell** (`../nushell`, MIT, shallow clone). A mature
 Windows-first shell in Rust — high-value comparison for these exact seams.
 Findings written up in `docs/windows-cross-platform-notes.md` (attribution in

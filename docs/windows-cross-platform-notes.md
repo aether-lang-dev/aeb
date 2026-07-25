@@ -89,6 +89,45 @@ non-separator after it). Known limitation, matching the conservative rule:
 the rare drive-*relative* form `C:name` (no separator) is **not**
 recognised as a drive prefix.
 
+## 4. The node driver emits a POSIX Makefile — which is fine, via `sh`
+
+`tools/aeb-driver.ae` schedules nodes by, **by default**, writing
+`target/.aeb/build.mk` and running `make -jN -k -f <mk> all`. That file
+is POSIX-shell through and through: single-quoted paths, `2>&1`, `$$?`,
+`$$((_e-_s))` arithmetic, `date +%s%3N`, `case`/`esac`. `cmd.exe` rejects
+essentially all of it.
+
+It works on Windows anyway, for the same reason the rest of aeb does:
+**the driver never calls `os.system` directly.** Both the probe and the
+run go through `build._sh_capture` / `build._sh`, and those are the
+POSIX-shell chokepoint (§ `lib/build/module.ae`, "_sh(cmd)") — on
+Windows they write the command to a temp file and run it under `sh`,
+i.e. the MSYS/MinGW shell the trampoline already depends on. So the
+recipe bodies are interpreted by `sh`, never by `cmd.exe`.
+
+The consequences worth knowing:
+
+- **`make` must be the MSYS/MinGW one.** The probe is
+  `command -v make` executed under `sh`, so it finds whatever `make` is
+  on the MSYS `PATH`. A `nmake`-style Windows make would not understand
+  these recipes — but it also would not be found by that probe.
+- **No `make` → sequential, silently and correctly.** If MSYS `make` is
+  absent, `have_make` stays 0 and the driver runs its in-process
+  sequential loop over the same `_ae_build_all` binary, writing no
+  Makefile at all. Same for `AEB_JOBS=1`. Windows without `make` is
+  therefore a *supported* configuration, just a serial one — the
+  fallback is the Windows story, not a degraded mode.
+- **This is untested on Windows.** The reasoning above is from reading
+  the chokepoint, not from a winbaz run. The Axis-2 work has proven
+  native compile+run through the trampoline; whether the *multi-node
+  parallel* path has ever been exercised there is not recorded. Treat
+  "aeb builds a multi-node DAG under MSYS make" as unverified.
+
+Related: `asks/halting-guarantees-and-build-termination.md` § the
+per-node timeout gap — any future per-node bound must work in *both*
+scheduling modes, which on Windows matters more than elsewhere because
+the sequential mode is the likelier one.
+
 ## What aeb did NOT take
 
 - **Win32 Job Objects.** Nushell doesn't use them for the foreground/kill

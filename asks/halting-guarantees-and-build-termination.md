@@ -228,6 +228,12 @@ Makefile is the *default* path, not the only one — anything that hangs
 per-node bounding off the Makefile silently does nothing in sequential
 mode.
 
+(The emitted recipes are POSIX shell, which works on Windows only
+because the driver's probe and run both go through `build._sh_capture` /
+`build._sh` — the chokepoint that routes shell-outs via MSYS `sh` rather
+than `cmd.exe`. And on a Windows box with no MSYS `make`, the sequential
+loop *is* the path. See `docs/windows-cross-platform-notes.md` § 4.)
+
 In the Makefile mode the emitted file has one target per node:
 
 ```make
