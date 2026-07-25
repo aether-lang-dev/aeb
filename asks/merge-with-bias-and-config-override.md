@@ -80,10 +80,69 @@ The last call wins. And in both runs all four scripts ran, so repeated
 
 That is exactly lookmeat's bias rule ("lists get extended, dictionaries
 merge when they share the key"), applied *per setter call* instead of
-per structure. And because a `.build.ae` is an ordinary Aether program,
-composition is ordinary code: call a helper that sets defaults, then set
-your overrides after it. The later call wins on scalars and extends on
-lists — a merge-with-bias, expressed as sequential statements.
+per structure.
+
+### What "template + override" actually looks like
+
+Because a `.build.ae` is an ordinary Aether program, the "template with
+defaults you override" shape is just a function. A plain helper whose
+body calls bare setters writes to the **same** builder map as the block
+it is called from:
+
+```aether
+import build (start)
+import bash (test, script, jobs)
+
+aeb(cap) {
+    b = build.start()
+    bash.test(b) {
+        _defaults()      // the "template": shared defaults
+        jobs(4)          // scalar override — wins, because it is later
+        script("s3.sh")  // list contribution — appends to the template's
+        script("s4.sh")
+    }
+}
+
+// Setters called bare inside a plain function land on the enclosing
+// block's map. No _builder threading, no ctx parameter.
+_defaults() {
+    jobs(1)
+    script("s1.sh")
+    script("s2.sh")
+}
+```
+
+Measured, four `sleep 1` scripts, only the ordering varied:
+
+| Shape | Node time | Outcome |
+|---|---|---|
+| `_defaults()` then `jobs(4)` | **1.06s** | override won → parallel |
+| `jobs(4)` then `_defaults()` | **4.06s** | template won → sequential |
+
+Both ran 4/4 scripts, so the template's `script(...)` calls and the
+caller's both landed. That is merge-with-bias: **lists extended, the
+last scalar write won** — expressed as sequential statements, with the
+bias visible as reading order rather than hidden in a merge rule.
+
+The corollary is the sharp edge: a template that sets a scalar the
+caller also sets **must be called first**. Put it last and it silently
+clobbers the caller's override (the 4.06s row). Nothing warns; the build
+just behaves as the template said. This is the cost of the model, and it
+is the reason the `required` bottom type below is the piece most worth
+having — a template hole you must fill is order-independent, whereas a
+template default you must remember to override is not.
+
+Two authoring notes, both learned by getting them wrong while writing
+this doc:
+
+- **Don't pass `_builder` to the helper.** `_defaults(_builder)` is
+  `E0300 Undefined variable '_builder'` — it is magic only inside
+  `builder { ... }` bodies, not inside a `<verb>(b) { ... }` call block
+  (LLM.md § "Idioms that keep biting"). Call the helper with no
+  arguments and use bare setters in its body.
+- **The helper needs the same bare-setter imports** as the file
+  (`import bash (test, script, jobs)`) — the two-import idiom applies
+  here too.
 
 So the honest answer to "should aeb add merge?" is: **the useful 90% is
 already there**, and it costs no new grammar because it rides on
@@ -102,17 +161,53 @@ Two pieces of the sketch are genuinely absent:
 forgets to set a mandatory value fails late — at `os.system` time with a
 toolchain error, or silently with a wrong default. A first-class "declared
 but undefined, and it is an error to finish this way" marker would catch
-that at build-script evaluation instead. This is the more defensible half
-of the ask; `build.fail(ctx, reason)` already exists as the reporting
-mechanism, so a helper could assert-and-fail without new machinery. Worth
-considering **if a concrete case appears** — not on spec.
+that at build-script evaluation instead.
+
+This is the more defensible half of the ask, and the poor-man's version
+already works today with no new machinery — `build.fail` is the reporting
+mechanism:
+
+```aether
+import build (start, fail)
+import std.string
+
+aeb(cap) {
+    b = build.start()
+    mem = ""                    // the hole the template left for you
+    if string.length(mem) == 0 {
+        build.fail(b, "this target requires mem(\"...\")")
+    }
+    // ... builders ...
+}
+```
+
+Verified: exits **1** with `tests:m: FAILED — this target requires
+mem("...")`, at script-evaluation time rather than at toolchain time.
+
+What a real `required` would add over the hand-rolled check is that the
+*template author* declares the hole once, instead of every consumer
+remembering to write the guard — and, per the sharp edge above, it is
+order-independent where a default is not. Worth considering **if a
+concrete case appears**; not on spec.
 
 **Whole-structure merge as an operation** (`merge(a, b) -> c` over
-builder maps). This is the part to be sceptical of. It would mean
-handing users a second way to configure a target — one whose result is
+builder maps). This is the part to be sceptical of:
+
+```aether
+// NOT proposed. The problem is not that it can't work — it is that
+// the effective config of this target is no longer readable here.
+bash.test(b) {
+    merge(shared.ci_defaults())   // what does this set? read another file
+    jobs(4)                       // does this win? depends on merge bias
+}
+```
+
+It hands users a second way to configure a target — one whose result is
 not readable by scanning the file top-to-bottom, because the effective
-value would depend on a merge performed elsewhere. That directly attacks
-what the DSL is for.
+value depends on a merge rule plus a structure defined elsewhere. The
+sequential-setter form above answers "what is `jobs` here?" by reading
+down the block; this form does not. That directly attacks what the DSL
+is for.
 
 ## The tension with design principle #2, stated honestly
 
@@ -152,13 +247,37 @@ When someone asks for value override in a `.build.ae`:
    feature.
 2. **If a real gap remains, ship the eager (after-evaluation) form.** The
    override lands on the value; nothing recomputes.
-3. **Refuse the lazy (before-evaluation / dynamic-binding) form.** Its
-   justification is circular references between live entities, which a
-   build DAG does not have — a shared value can always be hoisted to an
-   upstream node. What it buys is not worth what it costs: an override in
-   one place silently changing a derived value somewhere unrelated, which
-   is the failure mode lookmeat warns is a PITA to debug and which no
-   amount of convention reliably contains.
+3. **Refuse the lazy (before-evaluation / dynamic-binding) form.** The
+   difference, concretely — a template that derives two values from one
+   input:
+
+   ```aether
+   // ILLUSTRATIVE — jvm_arg/container_memory are lookmeat's example,
+   // not real aeb setters. Shape only.
+   // Template: one `mem` feeds both a JVM flag and a container hint.
+   _java_test() {
+       mem = "2g"                          // <- the shared input
+       jvm_arg("-Xmx" + mem)               // derived
+       container_memory(mem)               // derived
+   }
+   ```
+
+   **Eager** (what aeb does): overriding after the helper changes only
+   what you name. `jvm_arg(...)` set later wins; `container_memory` still
+   says `2g`. Boring, local, greppable — and if you want both changed you
+   say both.
+
+   **Lazy** (refused): you override `mem` and *both* derived values
+   recompute. Convenient in the two-line example, and the failure mode is
+   that this works at a distance — a template merged in for one reason
+   silently changes a value some unrelated template derived, because they
+   share a name in the same space. That is dynamic binding, which
+   lookmeat warns is a PITA to debug and which no amount of convention
+   reliably contains.
+
+   Its justification is circular references between live entities, which
+   a build DAG does not have — a shared value can always be hoisted to an
+   upstream node instead.
 4. **`required`/`expected` is the piece most likely to be worth it** —
    fail at script-evaluation time rather than at toolchain time — but
    wait for a concrete case.
