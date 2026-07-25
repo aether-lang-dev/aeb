@@ -282,11 +282,40 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
 ## Files/dirs worth knowing
 
 - `aeb` — bash trampoline. ~635 lines (env setup, the full flag grammar,
-  lazy-build dispatch, and the build-supervision tail: process group +
-  signal-forward + timeout + group-reap). Read it first if anything about
-  trampoline behaviour confuses you. (A native Aether port is hedged — see
-  TODO.md § "Full Aether CLI entrypoint" + `../aether/aeb-process-
-  supervision-primitives.md`.)
+  lazy-build dispatch, and the build-supervision tail). Read it first if
+  anything about trampoline behaviour confuses you. (A native Aether port
+  is hedged — see TODO.md § "Full Aether CLI entrypoint" +
+  `../aether/aeb-process-supervision-primitives.md`.)
+
+  **The supervision tail is more complete than "process group + timeout"
+  suggests, and it is verified.** The whole build runs as one backgrounded
+  job that `set -m` puts in its own process group; INT/TERM are forwarded
+  to the group; the group is reaped unconditionally afterwards (TERM →
+  10×100ms grace → KILL), so a step that leaks a backgrounded server does
+  not outlive the build. `--timeout N` / `AEB_TIMEOUT=N` adds a watchdog
+  (TERM, 5s, KILL) reporting the coreutils-conventional exit 124.
+  Measured against a fixture that leaks a background grandchild: Ctrl-C →
+  exit **130**, grandchild killed, 0 survivors; `--timeout 8` → exit
+  **124**, grandchild killed, 0 survivors. Don't re-litigate "does aeb
+  clean up on Ctrl-C" — it does, including grandchildren.
+
+  **Known gap: `--timeout` is whole-build only.** One slow node can eat
+  the budget and every other node dies with it, with no indication of the
+  culprit. Per-node caps are unbuilt (nothing in `tools/aeb-driver.ae`;
+  the `timeout(300)` in TODO.md's DSL sketch is an illustrative junit
+  setter, not a shipped feature). See
+  `asks/halting-guarantees-and-build-termination.md`.
+
+  **Don't make the config language non-Turing-complete** — asked and
+  declined, same ask doc. The Starlark-style "prove the config halts" bet
+  targets the wrong layer: `build.dep()` is a runtime no-op and the DAG is
+  extracted textually, so config evaluation is already ~straight-line and
+  finishes in microseconds. Builds hang in `os.system("mvn ...")`, across
+  a fork/exec boundary no totality checker reaches. aeb bounds termination
+  *dynamically* instead, which is strictly stronger here because it also
+  bounds the opaque toolchain child — and it would cost the
+  `docs/inline-build-steps.md` escape hatch that the configuration-DSL-
+  ceiling ✓ depends on.
 - `tools/aeb-link.ae` — the per-build orchestration. THE largest
   Aether file. If a build fails between scan and link, the bug is
   here.
