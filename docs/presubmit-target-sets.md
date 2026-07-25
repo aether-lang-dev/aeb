@@ -4,6 +4,41 @@ Status: **BEST PRACTICE (2026-07-25).** No engine change was required or
 made. This document names a convention that the existing rules already
 permit; it is a naming agreement, not a feature.
 
+## The gap this fills
+
+From a comment thread on "What makes a good build system?"
+(r/programming, 2026-07-24), u/lookmeat naming the constituencies a build
+config has to serve:
+
+> there's the people who want to manage the resources and nitty gritty
+> details, there's the people who just want to document how to do
+> something (e.g. run a specific test) and there's people who are looking
+> at the system level (e.g. define all test targets that must be run
+> pre-submit)
+
+aeb served the first two well and had **nothing** for the third:
+
+- the person managing the nitty-gritty — served by the per-module
+  `.build.ae`, and served well;
+- the person who just wants to run one thing — served by
+  `aeb path/to/.tests.ae`, about as directly as possible;
+- **the person looking at the system level** — "these are the pre-submit
+  targets", "this is the merge-queue set" — served by nothing.
+
+That third role had no vocabulary. The nearest thing was
+`aeb --scan '<glob>'`, which selects by filename pattern — an accident of
+naming, not a declared intent. A glob cannot express "these seven
+targets, chosen deliberately, and not the eighth."
+
+The gap was invisible until those three roles were named side by side,
+which is the whole value of the framing: the first two are what a build
+system's authors use daily, so their needs get met by attrition. The
+third is the one nobody is holding, because it is the only one that
+belongs to no single module.
+
+What follows costs nothing to adopt — the rules that make it work were
+already in force (see [Why this needs no machinery](#why-this-needs-no-machinery)).
+
 ## The rule, in one line
 
 A dot-prefixed `.ae` file whose body is nothing but `build.dep(...)` lines
@@ -228,31 +263,24 @@ in core.
 A gate on a *policy* rather than the working tree — an approval, an
 attestation, an external status — already has a home in `lib/approval`.
 
-## Why the third audience needed this
-
-aeb served two audiences well and a third not at all:
-
-- the person maintaining a module's nitty-gritty build rules — served by
-  the per-module `.build.ae`;
-- the person who just wants to run one thing — served by
-  `aeb path/to/.tests.ae`;
-- **the person reasoning about the repo as a whole** — "what must be green
-  before merge?" — served by nothing.
-
-That third role had no vocabulary. The nearest thing was
-`aeb --scan '<glob>'`, which selects by filename pattern — an accident of
-naming, not a declared intent. A glob cannot express "these seven targets,
-chosen deliberately, and not the eighth."
+## What the third audience gets
 
 `.presubmit.ae` gives that role a file to own, in the same grammar as
 everything else: greppable, diffable, reviewable, and addressable by the
-same path form as any other target. The set becomes a reviewable artifact
-— adding a target to CI is a diff, with an author and a reason.
+same path form as any other target.
 
-Framing credit: a comment thread on "What makes a good build system?"
-(r/programming, 2026-07-24) that named these three audiences as the
-constituencies a build config must serve. aeb's gap in the third was
-visible immediately once they were named.
+The payoff is that **the set becomes a reviewable artifact**. Adding a
+target to CI stops being a change to a YAML file in some other system, or
+a glob that silently widens as files get renamed, and becomes a diff — one
+line, with an author, a date, and a reason in the commit message. Removing
+one is equally visible. "What must be green before merge?" is answered by
+reading a file in the repo, at the version of the repo you are asking
+about, rather than by reading CI config that may have drifted from it.
+
+That last property is the one worth protecting: the set travels with the
+code. A branch that adds a module can add it to the set in the same
+commit, and a bisect lands on a tree whose definition of "green" is the
+one that was true at the time.
 
 ## The family
 
@@ -304,8 +332,8 @@ as its universe. Intersecting the two ("the impacted subset of
 - **Don't reach for an inline guard first.** A check that belongs to one
   member belongs in that member, where it gets per-test PASS/FAIL
   accounting for free. Inline guards are for conditions that are genuinely
-  properties of the *set* — and they cost reproducibility (see the three
-  warnings above).
+  properties of the *set* — and they cost reproducibility (see
+  [Why this particular guard is a bad default](#why-this-particular-guard-is-a-bad-default)).
 - **Don't special-case the name in the runner.** `presubmit` earns no
   privileges. If a future change makes `.presubmit.ae` behave differently
   from `.nightly.ae`, the convention has been broken.
