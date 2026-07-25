@@ -499,7 +499,14 @@ independent nodes build concurrently while deps are respected. Job count
 defaults to `nproc`; cap it with `AEB_JOBS=<n>` (`AEB_JOBS=1` forces
 sequential). On the polyglot sim this is **~2× faster** than the
 all-in-one path, not slower. If `make` isn't on PATH it falls back to a
-sequential per-node loop.
+sequential per-node loop — same artifacts, no warning, just serial. So
+`make` is a dependency for *concurrency*, not for building at all.
+
+> **Windows:** the emitted recipes are POSIX shell, so the `make` on
+> `PATH` must be the **MSYS/MinGW** GNU make (aeb runs it via MSYS `sh`,
+> never `cmd.exe`). Without it you get the serial path, which is a
+> supported configuration. See
+> [`docs/windows-cross-platform-notes.md`](docs/windows-cross-platform-notes.md) § 4.
 
 **`--in-process`** (or `AEB_IN_PROCESS=1`) runs the older all-in-one
 orchestrator — one process, all nodes in-process, tool output streamed
