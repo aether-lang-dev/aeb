@@ -296,6 +296,34 @@ both).
 **Open** for per-node timeouts, which is the version of "a build should
 end" that would actually improve aeb.
 
+## Postscript: why two schedulers at all?
+
+Paul's follow-on challenge (2026-07-25): if aeb has already scanned and
+topo-sorted the DAG, why emit a Makefile instead of scheduling the nodes
+itself? The sequential fallback is ~35 lines and already does everything
+the Makefile path does *except* run nodes concurrently — so `make` buys
+exactly one capability, at the cost of POSIX-shell recipes through the
+Windows chokepoint, `$$`-escaping that differs between the two modes,
+two schedulers that can silently diverge (this section's per-node
+timeout being the example), and an external dependency whose absence
+silently halves throughput.
+
+A native scheduler — spawn up to N ready nodes, wait for any, unblock
+dependents — is ~80–120 lines given the topo-sorted DAG. The blocker is
+platform coverage: `os.run_pipe` / `os.wait_pid` (non-blocking spawn +
+reap) are **hard stubs on Windows**, returning
+`(-1, -1, "unsupported on Windows")`, and `os.run_supervised` is
+blocking-with-timeout, so it supervises one child rather than fanning
+out. Filed upstream as
+`../aether/asks/os-run-pipe-on-windows-for-parallel-build-scheduling.md`,
+asking for a pipe-less `spawn`/`wait_any` pair (a split of the existing,
+working `win_launch`) and winbaz acceptance criteria.
+
+If that lands, the right shape is `AEB_SCHED=native` as a third mode
+first — proven green on Linux + winbaz — then flip the default and
+delete the Makefile path, with the deletion trigger stated up front so
+it doesn't stall at three paths.
+
 ## Related
 
 - `docs/presubmit-target-sets.md` — the other outcome of the same thread.
