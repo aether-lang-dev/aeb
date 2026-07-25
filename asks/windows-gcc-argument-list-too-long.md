@@ -3,12 +3,9 @@
 **Filed by**: Paul + LLM session, 2026-07-25, from a winbaz run that set
 out to verify something else (whether the multi-node parallel path works
 under MSYS `make` — it does; see below).
-**Status**: **OPEN — real blocker, not yet fixed.** Root cause measured
-(see below); fix not attempted.
-**Severity**: high for the Windows cut-down runner. No aeb build
-completes on native Windows today, regardless of project size, and there
-is **no user-side workaround** (`AETHER_INCLUDE` does not help — see
-below). Bounded: the diagnosis says the fix is small.
+**Status**: **FIXED and VERIFIED on winbaz** (2026-07-25, `da9bfff`).
+**Severity**: was high — no aeb build completed on native Windows at all,
+regardless of project size, with no user-side workaround.
 
 ## Symptom
 
@@ -138,14 +135,34 @@ Whatever ships should be unconditional, not Windows-gated — the flag
 list is wrong on every platform; Windows is just the only one that
 refuses to tolerate it.
 
-## Acceptance
+## Resolution
 
-- `aeb a/.tests.ae` completes on winbaz and produces
-  `target/_ae_build_all.exe`;
-- the two-node DAG fixture (`.presubmit.ae` → `a` + `b`) builds green in
-  BOTH modes: default (`make -jN`) and `AEB_JOBS=1`;
-- Linux behaviour is unchanged (`./tests/run.sh` still 115/115, and a
-  `/tmp/aeb-*-smoke` run still passes).
+Shipped as option (1)/(2) combined in `da9bfff`: the include block now
+finds `*.h` files and strips to their parent dirs, rather than printing
+every directory. Layout-agnostic (no hardcoded `runtime`/`std` names)
+and **not Windows-gated** — the old flag list was wrong everywhere;
+Linux merely tolerated it under a ~2 MB `ARG_MAX`. The gcc
+`@response-file` was NOT needed and was not added.
+
+### Acceptance — all met on winbaz
+
+| Check | Result |
+|---|---|
+| `aeb a/.tests.ae`, `AEB_JOBS=1` | **exit 0**, `_ae_build_all.exe` BUILT, `1/1 PASS` |
+| Two-node DAG, default (`make -jN`) | **exit 0**, `build.mk` emitted, both members ran, `2/2 PASS` |
+| Two-node DAG, `AEB_JOBS=1` | **exit 0**, no Makefile, both members ran |
+| Linux unchanged | `tests/run.sh` 115/115, `presubmit-smoke` 14/14, smoke green |
+
+Link line, measured with the same gcc shim as the diagnosis:
+
+| | ARGC | Bytes |
+|---|---|---|
+| before | 621 | **39,369** (over the ~32 KB ceiling) |
+| after | 82 | **3,478** |
+
+A 91% reduction, from 7 KB over the ceiling to comfortably under it.
+
+**This is the first aeb build known to complete on native Windows.**
 
 ## What this run DID verify
 

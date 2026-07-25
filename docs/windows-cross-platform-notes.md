@@ -117,7 +117,8 @@ The consequences worth knowing:
   Makefile at all. Same for `AEB_JOBS=1`. Windows without `make` is
   therefore a *supported* configuration, just a serial one — the
   fallback is the Windows story, not a degraded mode.
-### Tested on winbaz, 2026-07-25 — the `make` half holds; gcc blocks the build
+
+### Tested on winbaz, 2026-07-25 — both halves now verified
 
 Run on the Win11 VM (`winbaz`, MSYS2, GNU Make 4.4.1, gcc 16.1.0,
 `ae 0.413.0` native `windows-x86_64`) against a two-node DAG
@@ -140,7 +141,7 @@ Run on the Win11 VM (`winbaz`, MSYS2, GNU Make 4.4.1, gcc 16.1.0,
 - `AEB_JOBS=1` correctly wrote **no Makefile** and took the sequential
   loop.
 
-**What actually fails, and it is not `make`:** the link step.
+**What failed at first, and it was not `make`:** the link step.
 
 ```
 /mingw64/bin/gcc: Argument list too long
@@ -155,20 +156,26 @@ the scheduling layer entirely:
 - it reproduces on a **single node with 2 generated `.c` files** — this
   is not a large-project scaling limit.
 
-`tools/aeb-link` builds one long `gcc` command (every generated `.c`,
-plus `-I`/`-L`/`-l` flags and `-Wl,--allow-multiple-definition`) and
-runs it through the `sh` chokepoint, which writes it to a temp script.
-Windows' `CreateProcess` command-line ceiling (~32 KB) is far below
-POSIX `ARG_MAX`, so a command that is unremarkable on Linux overflows
-here. The fix shape is a gcc **`@response-file`** (or splitting compile
-from link), not anything in the driver.
+Measured cause: `tools/aeb-link`'s include block emitted **one `-I` per
+directory** under the include root. `_resolve_aether_include`'s last
+fallback is the Aether *source root*, so on a dev tree (winbaz has a git
+clone, not an install) that was 607 dirs — `.github`, `asks`,
+`benchmarks/…` — none holding a header. 621 args / 39,369 bytes against
+Windows' ~32 KB `CreateProcess` ceiling; POSIX `ARG_MAX` (~2 MB) had
+been absorbing it silently on Linux all along.
 
-**Bottom line for this section:** "aeb schedules a multi-node DAG under
-MSYS make on native Windows" is now **verified** — the Makefile is
-emitted, `make` drives it, `sh` interprets the recipes, markers and
-telemetry come back. "aeb completes a build on native Windows" is
-**blocked** on the gcc argument-length limit in `aeb-link`, which is a
-separate, single-node, `make`-independent defect. Filed as
+Fixed in `da9bfff` by finding `*.h` and stripping to parent dirs, so
+only header-bearing dirs get an `-I`. No `@response-file` was needed.
+
+**Bottom line for this section:** both halves are now **verified**.
+"aeb schedules a multi-node DAG under MSYS make on native Windows" — the
+Makefile is emitted, `make` drives it, `sh` interprets the recipes,
+markers and telemetry come back. And after `da9bfff` fixed the gcc
+argument-length blocker (the `-I` block was emitting one flag per
+directory, 39 KB worth, against Windows' ~32 KB ceiling), **"aeb
+completes a build on native Windows" is verified too**: exit 0 with
+`_ae_build_all.exe` produced and tests passing, in BOTH scheduling
+modes. Link line went 621 args / 39,369 bytes → 82 / 3,478. Write-up:
 `asks/windows-gcc-argument-list-too-long.md`.
 
 Related: `asks/halting-guarantees-and-build-termination.md` § the
