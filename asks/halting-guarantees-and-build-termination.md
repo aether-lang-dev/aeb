@@ -206,8 +206,29 @@ Two honest qualifications, both found by testing rather than assuming:
   exactly what you lose when you most want it.
 
 Bazel has per-action timeouts. aeb has the hooks — `tools/aeb-driver`
-already writes per-node `.rc` markers and per-node logs, and the emitted
-Makefile has one target per node:
+already writes per-node `.rc` markers and per-node logs in **both**
+scheduling modes.
+
+**A Makefile is not always emitted.** `tools/aeb-driver.ae` picks a mode
+per invocation: it emits `target/.aeb/build.mk` and runs `make -jN` only
+when `AEB_JOBS != 1` *and* `command -v make` succeeds. Otherwise it runs
+a sequential in-process loop calling the same `_ae_build_all` binary per
+label, and **no Makefile is written at all**:
+
+| Condition | `target/.aeb/build.mk` |
+|---|---|
+| `AEB_JOBS` unset (defaults to `nproc`) | **emitted** |
+| `AEB_JOBS=4` | **emitted** |
+| `AEB_JOBS=1` | **absent** — sequential loop |
+| `make` not on `PATH` | **absent** — sequential loop |
+
+Verified: `AEB_JOBS=1` builds the same set to exit 0 with both members
+run and both `.rc` markers written, with no `build.mk` on disk. So the
+Makefile is the *default* path, not the only one — anything that hangs
+per-node bounding off the Makefile silently does nothing in sequential
+mode.
+
+In the Makefile mode the emitted file has one target per node:
 
 ```make
 # target/.aeb/build.mk — real shape, elided. One target per node, dep
@@ -232,17 +253,25 @@ illustrative junit setter, not a shipped node-level feature).
 Sketch, **not designed, not promised**:
 
 - a `timeout(N)` setter on the driver side, or `AEB_NODE_TIMEOUT`;
-- the Makefile recipe wraps `_ae_build_all <root> <label>` in a bounded
-  invocation;
+- **both** scheduling modes bound the node — the Makefile recipe wraps
+  `_ae_build_all <root> <label>` in a bounded invocation, and the
+  sequential loop applies the same cap. Implementing only the Makefile
+  half would make the feature silently absent under `AEB_JOBS=1` and on
+  hosts without `make`, which is exactly the "green build that proves
+  nothing" shape this repo keeps tripping over;
+- the bound must nest *inside* the existing recipe wrapper so `.rc` is
+  still written (see above);
 - the node's `.rc` records the timeout distinctly from a plain failure so
   `[telemetry]` can render `TIMEOUT` rather than `FAIL`.
 
-Open questions before anyone builds this: does the Makefile path make
-per-recipe bounding awkward (a `timeout` binary dependency aeb does not
-currently require)? Does it interact badly with the sequential fallback
-path? Does a per-node cap want to be declarable in the `.ae` file — which
-would make it config, and therefore subject to the "closure-DSL grammar
-over external config" principle — or purely an operator-side env var?
+Open questions before anyone builds this. Would a per-recipe bound need
+the `timeout` binary — a dependency aeb does not currently require, and
+which would have to be probed like `make` already is, with a defined
+behaviour when absent? What is the sequential-loop equivalent, given it
+has no `make` to lean on? And does a per-node cap want to be declarable
+in the `.ae` file — which would make it config, and therefore subject to
+the file-as-truth principle — or purely an operator-side env var like
+`AEB_JOBS`?
 
 Filed as an observation, not a plan.
 
