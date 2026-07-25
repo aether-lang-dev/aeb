@@ -39,13 +39,51 @@ group afterward (TERM → 10×100ms grace → KILL). `--timeout N` /
 overrun and reports the coreutils-conventional exit code 124.
 
 Verified end-to-end against a fixture whose build step spawns a
-background grandchild and then sleeps 300s — i.e. a step that leaks a
-process, which is the case naive supervision gets wrong:
+background grandchild and then hangs — i.e. a step that leaks a process,
+which is the case naive supervision gets wrong. The whole fixture:
+
+```bash
+# slow/run.sh — a build step that hangs AND leaks
+#!/usr/bin/env bash
+echo "step: starting"
+( sleep 300 ) &                 # leaked grandchild
+echo "step: leaked pid $!"
+sleep 300                       # the step itself never ends
+```
+
+```aether
+// slow/.build.ae
+import build (start)
+import bash (test, script)
+
+aeb(cap) {
+    b = build.start()
+    bash.test(b) { script("run.sh") }
+}
+```
+
+Reproduce (the `&` + `kill -INT` stands in for an interactive Ctrl-C):
+
+```bash
+# Signal path
+aeb slow/.build.ae & T=$!; sleep 6; kill -INT $T; wait $T; echo "exit=$?"
+
+# Timeout path
+aeb --timeout 8 slow/.build.ae; echo "exit=$?"
+
+# Survivor check (expect 0 both times)
+pgrep -x sleep | while read p; do tr '\0' ' ' </proc/$p/cmdline; echo; done \
+  | grep -c 300
+```
 
 | Scenario | aeb exit | Leaked grandchild afterwards |
 |---|---|---|
 | SIGINT (Ctrl-C) after 6s | **130** (128+SIGINT) | **killed** — 0 survivors |
 | `--timeout 8` | **124** + `aeb: build exceeded timeout 8s; terminating` | **killed** — 0 survivors |
+
+That the leak genuinely happened (rather than the step dying before it
+could fork) is confirmed from the node log, which carries
+`step: leaked pid <N>` in both runs.
 
 Both the direct child and the leaked grandchild are gone in both cases.
 This is the Bazel-shaped answer and it is done. No work needed.
@@ -60,18 +98,51 @@ rather than only-on-signal.)
 The halting ask targets the **configuration language**. aeb's problem is
 not there, and this is the crux:
 
-**Config evaluation is not where builds hang.** A `.build.ae` that calls
-setters and `build.dep(...)` finishes in microseconds. `build.dep()` is a
-runtime no-op — the DAG is extracted *textually* by `tools/extract-deps`
-before any `.ae` executes — so the graph-construction phase the halting
-guarantee would protect is already effectively straight-line.
+**Config evaluation is not where builds hang.** Look at what a typical
+build file actually asks the language to do:
 
-**Builds hang in `os.system("mvn ...")`.** The non-terminating thing is
-an external toolchain process on the far side of a `fork`/`exec`
-boundary. No type system, totality checker, or restricted loop form
-reaches across that boundary. Making Aether non-Turing-complete would not
-shorten a single real hang, because a terminating config language can
-still emit `mvn -Dtest.wait.forever`.
+```aether
+import build (start, dep)
+import java (javac, release)
+
+aeb(cap) {
+    b = build.start()
+    build.dep(b, "libs/core/.build.ae")   // runtime no-op — see below
+    java.javac(b) {                        // accumulates into a map,
+        release("21")                      // then ONE os.system(...)
+    }
+}
+```
+
+There is no loop here, and nothing to diverge. `build.dep()` does
+nothing at execution time — the DAG is extracted *textually* by
+`tools/extract-deps` before any `.ae` runs — so the graph-construction
+phase a halting guarantee would protect is already straight-line. The
+setters are map writes. Evaluation finishes in microseconds.
+
+**Builds hang in the `os.system` at the bottom.** The one line that can
+run forever is the toolchain invocation, on the far side of a
+`fork`/`exec` boundary:
+
+```aether
+    // Inside java.javac's builder body, roughly:
+    rc = os.system(javac_cmd(opts))   // <- everything that hangs, hangs here
+```
+
+No type system, totality checker, or restricted loop form reaches across
+that boundary. A provably-terminating config language can still emit:
+
+```aether
+    bash.test(b) { script("waits_forever.sh") }   // totally terminating
+                                                  // config; infinite build
+```
+
+The config evaluated fine. The build never ends. That is the whole
+objection in three lines — and it is not hypothetical: that exact build
+file, which contains no loop and no recursion and would satisfy any
+totality checker, ran until the watchdog killed it (`--timeout 6` →
+exit **124**). A halting guarantee on the language would have certified
+it as terminating.
 
 **The cost would be severe.** `docs/inline-build-steps.md` is a
 load-bearing escape hatch: "if no SDK builder does what you need, the
@@ -106,17 +177,57 @@ never the problem.
 
 ## The one real gap this surfaced
 
-**`--timeout` is whole-build only.** One slow node can consume the entire
-budget, and when the watchdog fires every *other* node is killed for that
-node's sin. The build reports 124 with no indication of which node was
-responsible.
+**`--timeout` is whole-build only.** One slow node consumes the shared
+budget, and when the watchdog fires it kills the whole process group —
+including nodes that were progressing fine and would have finished.
+
+Demonstrated with two independent members of a set, a hung node and an
+innocent 10s one, under a 6s budget:
+
+```bash
+# slow/.tests.ae  runs `sleep 300`   (never ends)
+# quick/.tests.ae runs `sleep 10`    (would finish at 10s)
+# .presubmit.ae   deps on both
+aeb --timeout 6 .presubmit.ae      # exit 124
+```
+
+The innocent node never printed its completion marker — killed
+mid-flight at 6s for another node's sin. Its own work needed 10s and
+nothing was wrong with it.
+
+Two honest qualifications, both found by testing rather than assuming:
+
+- **Attribution is not entirely absent.** `make` names the culprit on
+  stderr — `*** [build.mk:6: slow_.tests.ae] Terminated` — so the
+  information exists, in `make`'s voice rather than aeb's.
+- **The `[telemetry]` block does not render at all** on the timeout
+  path (the group is killed before the driver's collection step), so
+  the per-node view that normally shows which target burned the time is
+  exactly what you lose when you most want it.
 
 Bazel has per-action timeouts. aeb has the hooks — `tools/aeb-driver`
 already writes per-node `.rc` markers and per-node logs, and the emitted
-Makefile has one target per node — but there is no per-node cap today
-(confirmed: no `timeout` handling in `tools/aeb-driver.ae`; the
-`timeout(300)` in TODO.md's DSL sketch is an illustrative junit setter,
-not a shipped node-level feature).
+Makefile has one target per node:
+
+```make
+# target/.aeb/build.mk — real shape, elided. One target per node, dep
+# edges as prerequisites; the recipe is ALREADY a wrapper.
+.presubmit.ae: slow_.tests.ae quick_.tests.ae
+	@_s=$$(date …);  '…/_ae_build_all' '…' 'presubmit:.' > '…/logs/presubmit_..log' 2>&1; \
+	 _r=$$?; _e=$$(date …); echo $$_r > '…/rc/.presubmit.ae.rc'; \
+	 echo $$((_e-_s)) > '…/rc/.presubmit.ae.ms'; exit $$_r
+```
+
+so a per-node bound has a place to attach — but note the recipe is not a
+bare command. It already captures start/end milliseconds, redirects to
+the per-node log, writes `.rc` and `.ms`, and re-raises the node's exit
+code. A per-node timeout has to nest *inside* that wrapper so the `.rc`
+still gets written (a naive `timeout N <recipe>` would kill the wrapper
+and lose the marker that tells the driver what happened).
+
+There is no per-node cap today (confirmed: no `timeout` handling in
+`tools/aeb-driver.ae`; the `timeout(300)` in TODO.md's DSL sketch is an
+illustrative junit setter, not a shipped node-level feature).
 
 Sketch, **not designed, not promised**:
 

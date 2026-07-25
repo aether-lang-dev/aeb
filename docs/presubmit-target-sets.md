@@ -296,9 +296,26 @@ named set," and the name is yours:
 ```
 
 Each routes to `target/<name>/` by the filename rule, each self-classifies
-in the summary, each is addressable as `aeb .<name>.ae`. Sets may depend on
-sets — `.merge-queue.ae` can `build.dep(b, ".presubmit.ae")` and add to it;
-the visited-set dedup means shared members build once.
+in the summary, each is addressable as `aeb .<name>.ae`.
+
+**Sets may depend on sets.** A heavier set can build on a lighter one
+rather than restating it:
+
+```aether
+// .merge-queue.ae — everything presubmit checks, plus the slow suite
+import build (start, dep)
+
+aeb(cap) {
+    b = build.start()
+    build.dep(b, ".presubmit.ae")   // <- a set as a member
+    build.dep(b, "b/.tests.ae")
+}
+```
+
+Verified: `aeb .merge-queue.ae` summarises as
+`aeb: 2 tests + 1 presubmit + 1 merge-queue` — both set types
+self-classify — and a member reachable through *both* paths runs exactly
+once, because the visited-set dedup is what deduplicates it.
 
 Scoping still applies: a set built from a subdirectory sees that subtree.
 A repo-root `.presubmit.ae` is the natural home for a whole-repo set.
