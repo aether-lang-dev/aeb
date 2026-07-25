@@ -632,6 +632,24 @@ these are absolute, but skipping them tends to produce regrets.
    of TOML/YAML/JSON parsing; external formats are honoured only
    via shell-outs to tools that already parse them (e.g. `ae build`
    for `aether.toml`). See `regen(...)` / `regen_with(...)`.
+   Note this principle targets *parsing external formats*, NOT
+   expressiveness inside the closure DSL — don't cite it to reject a
+   native-Aether feature. The bar for those is the load-bearing
+   principle (file-as-truth) instead.
+
+   **Value override / merge: setters already do it.** Scalars are
+   last-write-wins (`map.put` overwrites; verified observably —
+   `jobs(4)` then `jobs(1)` runs sequentially, the reverse order runs
+   parallel), lists append (`list.add`). That IS merge-with-bias, spelled
+   as evaluation order, and it's the *eager* (after-evaluation) form.
+   If someone asks for config override: first check sequential setters
+   don't already cover it (they usually do — a helper sets defaults, the
+   caller overrides after); ship the eager form if a real gap remains;
+   **refuse the lazy/before-evaluation (dynamic-binding) form** — its
+   justification is circular references between live entities, which a
+   build DAG doesn't have, and it buys an override silently changing a
+   derived value somewhere unrelated. See
+   `asks/merge-with-bias-and-config-override.md`.
 3. **Single-arg-per-call setters.** Aether is fixed-arity. Sketches
    like `fn("name", port: 9540, timeout: 1500)` don't compile.
    Land them as `fn("name"); fn_port("name", 9540); fn_timeout(...)`
