@@ -3,9 +3,12 @@
 **Filed by**: Paul + LLM session, 2026-07-25, from a winbaz run that set
 out to verify something else (whether the multi-node parallel path works
 under MSYS `make` — it does; see below).
-**Status**: **OPEN — real blocker, not yet fixed.**
+**Status**: **OPEN — real blocker, not yet fixed.** Root cause measured
+(see below); fix not attempted.
 **Severity**: high for the Windows cut-down runner. No aeb build
-completes on native Windows today, regardless of project size.
+completes on native Windows today, regardless of project size, and there
+is **no user-side workaround** (`AETHER_INCLUDE` does not help — see
+below). Bounded: the diagnosis says the fix is small.
 
 ## Symptom
 
@@ -36,40 +39,104 @@ ruled out directly:
 So it is `tools/aeb-link`'s gcc invocation, independent of how nodes are
 scheduled.
 
-## Cause
+## Cause — measured, not guessed
 
-`aeb-link` assembles **one** `gcc` command containing every generated
-`.c` file for the node plus the include/lib flags
-(`-I`, `-L`, `-l…`, `-Wl,--allow-multiple-definition`), and runs it
-through the `build._sh` chokepoint, which on Windows writes it to a temp
-script and runs it under MSYS `sh`.
+The failing `gcc` invocation was captured on winbaz with a shim that
+dumps its own argv:
 
-The ceiling is Windows', not `sh`'s: `CreateProcess` caps a command line
-at roughly 32 KB, where POSIX `ARG_MAX` is ~2 MB. Absolute Windows paths
-are long (`C:/Users/paul/winmake-test/target/_aeb/a__D_tests_D_ae.c`),
-and aeb passes absolute paths throughout — so a command line that is
-unremarkable on Linux blows the Windows limit almost immediately.
+```
+=== ARGC=621 ===
+=== TOTAL BYTES=39369 ===
+-O2
+-pipe
+-w
+C:/Users/paul/winmake-test/target/_aeb/_orchestrator.c
+C:/Users/paul/winmake-test/target/_aeb/a__D_tests_D_ae.c
+-IC:/Users/paul/aether/build/..
+-IC:/Users/paul/aether/build/../.github
+-IC:/Users/paul/aether/build/../.github/scripts
+-IC:/Users/paul/aether/build/../asks
+-IC:/Users/paul/aether/build/../benchmarks
+-IC:/Users/paul/aether/build/../benchmarks/cross-language/scala/project
+…
+```
 
-That it fires with only two `.c` files suggests the flag/lib portion of
-the line is doing most of the damage, not the file list. Worth measuring
-before designing the fix.
+**39 KB against a ~32 KB `CreateProcess` ceiling** (POSIX `ARG_MAX` is
+~2 MB, which is why Linux never notices). Two `.c` files contribute ~130
+bytes; **the other 39 KB is `-I` flags.**
+
+The mechanism is `aeb-link.ae`'s include block, which embeds a shell
+expansion into the command:
+
+```
+$(find <inc_root> -type d -name .git -prune -o -type d -name build -prune \
+   -o -type d -print | sed -e s,^,-I,)
+```
+
+— one `-I` per directory under the include root. The root comes from
+`_resolve_aether_include`, which tries, in order: `$AETHER_INCLUDE`,
+`<prefix>/share/aether`, `<prefix>/include/aether`, and finally a
+**dev-tree fallback** of `<aether_dir>/..` — the entire Aether *source
+tree*.
+
+On winbaz, Aether is a git clone rather than an installed prefix, so the
+first three probes miss and the fallback fires:
+
+| Include root | Dirs `-I`'d |
+|---|---|
+| dev-tree fallback (`aether/build/..`) | **607** — `.github`, `asks`, `benchmarks/…`, everything |
+| the actual header trees (`runtime/` + `std/`) | 9 + 81 |
+
+So this is **not** "Windows paths are long" (my first guess) and not the
+file list. It is the dev-tree fallback `-I`-ing 600+ directories that
+have no headers in them. The code comment at that block already notes
+"a dev-tree root holds 600+ dirs" and prunes `.git`/`build` — that
+pruning is simply not close to enough.
+
+### No user-side workaround
+
+`AETHER_INCLUDE` does *not* rescue it: the variable sets the *root* that
+gets `find`-expanded, not the flag list, so pointing it at the Aether
+root produces the same 600-dir expansion. Verified — still
+`Argument list too long`. Anyone hitting this on Windows is stuck until
+the code changes.
+
+### Why Linux never sees it
+
+Same 39 KB command line, but `ARG_MAX` ~2 MB. Linux dev-tree users have
+been carrying a 600-entry `-I` list (a real, if invisible, compile-time
+cost) all along.
 
 ## Fix shapes (not chosen)
 
-1. **gcc `@response-file`.** Write the arguments to a file and invoke
-   `gcc @args.rsp`. This is the standard Windows answer, gcc supports it
-   natively, and it is a contained change at the one place that builds
-   the command. Most likely correct.
-2. **Split compile from link.** Compile each `.c` to `.o` separately
-   (short commands), then link the objects — possibly still needing (1)
-   if the object list itself is long.
-3. **Shorten the paths.** Emit relative paths, or `cd` into
-   `target/_aeb` first. Reduces the constant factor without removing the
-   ceiling; a mitigation, not a fix.
+The measurement reorders these from the original filing. Since the bulk
+is `-I` flags for directories containing no headers, **stop generating
+them** is both the smaller change and the one that helps every platform:
 
-Whichever is chosen should be Windows-gated or, if harmless, applied
-everywhere — a response file works fine on POSIX too, and keeping one
-code path is worth more than saving a temp file.
+1. **Narrow the dev-tree fallback to the header subtrees.** Instead of
+   returning `<aether_dir>/..`, return only the dirs that actually carry
+   headers (`runtime/`, `std/`) — 90 dirs instead of 607, and a ~6 KB
+   line instead of 39 KB. Fixes Windows *and* removes a real
+   compile-time cost Linux dev-tree users have been paying silently.
+   Cheapest, most targeted, no new mechanism. **Most likely correct.**
+2. **Prune harder, or `-I` only dirs containing a `.h`.** Same idea,
+   more general: filter the `find` by header presence rather than
+   hardcoding subtree names. Robust to Aether's layout changing;
+   slightly slower `find`.
+3. **gcc `@response-file`.** Write the args to a file, invoke
+   `gcc @args.rsp`. This is the standard Windows answer and raises the
+   ceiling regardless of what fills the line — but it *only* raises the
+   ceiling. With (1) or (2) done, 39 KB becomes 6 KB and the response
+   file is not needed today. Worth doing as **belt-and-braces** for
+   genuinely large builds (many modules → long `.c` list), not as the
+   primary fix.
+4. ~~Shorten the paths~~ — a mitigation of a constant factor. Now clearly
+   not worth it on its own.
+
+Recommended: **(1) or (2) now, (3) later if a real build ever needs it.**
+Whatever ships should be unconditional, not Windows-gated — the flag
+list is wrong on every platform; Windows is just the only one that
+refuses to tolerate it.
 
 ## Acceptance
 
