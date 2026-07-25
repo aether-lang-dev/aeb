@@ -309,15 +309,37 @@ timeout being the example), and an external dependency whose absence
 silently halves throughput.
 
 A native scheduler — spawn up to N ready nodes, wait for any, unblock
-dependents — is ~80–120 lines given the topo-sorted DAG. The blocker is
-platform coverage: `os.run_pipe` / `os.wait_pid` (non-blocking spawn +
-reap) are **hard stubs on Windows**, returning
-`(-1, -1, "unsupported on Windows")`, and `os.run_supervised` is
+dependents — is ~80–120 lines given the topo-sorted DAG. The blocker
+*was* platform coverage: `os.run_pipe` / `os.wait_pid` (non-blocking
+spawn + reap) were **hard stubs on Windows**, and `os.run_supervised` is
 blocking-with-timeout, so it supervises one child rather than fanning
 out. Filed upstream as
 `../aether/asks/os-run-pipe-on-windows-for-parallel-build-scheduling.md`,
 asking for a pipe-less `spawn`/`wait_any` pair (a split of the existing,
-working `win_launch`) and winbaz acceptance criteria.
+working `win_launch`) plus winbaz acceptance criteria.
+
+**UNBLOCKED — aether 0.442.0** shipped exactly that:
+
+```
+os.spawn_proc(prog, argv, env) -> (token, err)      // non-blocking
+os.wait(token)                 -> (exit_code, err)
+os.wait_any(tokens)            -> (token, exit_code, err)   // fan-in
+```
+
+Cross-platform including Windows, because these create no IPC pipe —
+the pipe was the only part that needed the `_open_osfhandle` work.
+`spawn_proc`, not `spawn`, because `spawn` is the reserved actor
+keyword. Windows holds spawned handles in an int-token→HANDLE table with
+**tokens never recycled, so PID reuse cannot misattribute a reap** — a
+hazard our ask didn't think to raise. Verified on Win11/MSYS2 against
+every acceptance criterion we listed, including genuine concurrency
+(4×sleep-2 in ~2 s, so not silently serialised) and clean coexistence
+with a `run_supervised` Job Object.
+
+So the native scheduler is now writable on **every** platform aeb
+targets, and the Makefile path has no remaining capability advantage.
+Note the toolchain floor: this needs `ae >= 0.442.0` (a dev box on
+0.437.0 will not have it).
 
 If that lands, the right shape is `AEB_SCHED=native` as a third mode
 first — proven green on Linux + winbaz — then flip the default and

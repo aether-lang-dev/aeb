@@ -950,6 +950,28 @@ exists if a need arises."
   The value-add over the current source-symlink model is unproven
   (the recompile is cheap; the symlink model is simple), so this is
   "exists if a need arises," not a roadmap commitment.
+- **0.442 `os.spawn_proc` / `os.wait` / `os.wait_any` — cross-platform
+  non-blocking spawn + reap, Windows included.** The fan-out/fan-in pair
+  a native parallel build scheduler needs: `spawn_proc(prog, argv, env)
+  -> (token, err)`, `wait(token) -> (exit_code, err)`,
+  `wait_any(tokens) -> (token, exit_code, err)`. No IPC pipe (that was
+  the only part keeping `run_pipe` POSIX-only), so it works on Windows;
+  handles live in an int-token→HANDLE table with non-recycled tokens, so
+  PID reuse can't misattribute a reap. `spawn_proc` not `spawn` — the
+  latter is the reserved actor keyword. **Not consumed yet, and it is
+  the unblock for a real change**: aeb currently schedules nodes by
+  emitting `target/.aeb/build.mk` and shelling to `make -jN`, with a
+  sequential in-process loop as fallback. `make` buys exactly ONE
+  capability (concurrency) at the cost of POSIX-shell recipes through
+  the Windows chokepoint, `$$`-escaping that differs between the two
+  modes, two schedulers that can silently diverge, and an external dep
+  whose absence silently halves throughput. With these primitives the
+  native scheduler is ~80–120 lines on the already-topo-sorted DAG, on
+  every platform. Plan: `AEB_SCHED=native` as a third mode, green on
+  Linux + winbaz, then flip the default and delete the Makefile path.
+  Needs `ae >= 0.442.0`. See `asks/halting-guarantees-and-build-
+  termination.md` § Postscript and
+  `../aether/asks/os-run-pipe-on-windows-for-parallel-build-scheduling.md`.
 - **0.357 `ae build --emit=csrc`** — emits portable generated C +
   a catalog header and stops (no gcc, no host `.so`): the
   compile-on-install / source-registry primitive. **Now consumed**:
