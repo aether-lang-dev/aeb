@@ -969,7 +969,13 @@ exists if a need arises."
   native scheduler is ~80–120 lines on the already-topo-sorted DAG, on
   every platform. Plan: `AEB_SCHED=native` as a third mode, green on
   Linux + winbaz, then flip the default and delete the Makefile path.
-  Needs `ae >= 0.442.0`. See `asks/halting-guarantees-and-build-
+  Needs `ae >= 0.442.0`. Smoke-tested on Linux 0.442.0: 4×`sleep 2` in
+  2 s (concurrent), completion-order reap, faithful exit codes. **Two
+  gotchas**: `argv` EXCLUDES `argv[0]` (passing the program name again
+  makes it an argument), and a failed exec is NOT reported at spawn time
+  — a nonexistent binary yields a valid token and empty err, surfacing
+  only as exit 127 from `wait`. So "spawn returned no error" does not
+  mean "the node started". See `asks/halting-guarantees-and-build-
   termination.md` § Postscript and
   `../aether/asks/os-run-pipe-on-windows-for-parallel-build-scheduling.md`.
 - **0.357 `ae build --emit=csrc`** — emits portable generated C +

@@ -338,8 +338,37 @@ with a `run_supervised` Job Object.
 
 So the native scheduler is now writable on **every** platform aeb
 targets, and the Makefile path has no remaining capability advantage.
-Note the toolchain floor: this needs `ae >= 0.442.0` (a dev box on
-0.437.0 will not have it).
+Toolchain floor: `ae >= 0.442.0`.
+
+### Smoke-tested locally on 0.442.0 (Linux) before designing anything
+
+```aether
+    tok, err = os.spawn_proc("sleep", argv, null)   // argv EXCLUDES argv[0]
+    …
+    tok, code, err = os.wait_any(toks)
+```
+
+- **Genuinely concurrent**: 4 × `sleep 2` completed in **2 s**, not 8.
+- **Completion-order reap**: tokens came back `18248, 18249, 18247,
+  18250` — not spawn order. `wait_any` is a real wait-any.
+- **Exit codes faithful**: `sh -c "exit N"` children reported 0 / 1 / 2
+  distinctly, which is what `.rc` markers depend on.
+
+Two API notes for whoever writes the scheduler:
+
+1. **`argv` excludes `argv[0]`.** Passing the program name as the first
+   list element makes it an *argument* (`sleep sleep 2` →
+   `invalid time interval 'sleep'`). Cost me one run.
+2. **A failed exec is NOT reported at spawn time.** Spawning a
+   nonexistent binary returned a valid token and an *empty* err string;
+   the failure surfaced only as **exit 127** from `wait`. This is
+   ordinary fork-then-exec behaviour, but it means the scheduler cannot
+   treat "spawn returned no error" as "the node started" — a missing
+   toolchain looks identical to a node that ran and failed. The
+   acceptance criterion in the upstream ask ("distinguishable from a
+   spawn failure") is therefore only half-met, and by design; the
+   scheduler must map non-zero exit → node failed and let 127 speak for
+   itself, exactly as the Makefile path already does.
 
 If that lands, the right shape is `AEB_SCHED=native` as a third mode
 first — proven green on Linux + winbaz — then flip the default and
