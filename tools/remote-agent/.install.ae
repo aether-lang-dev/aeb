@@ -23,7 +23,8 @@ main() {
     dep(b, "tools/lease/.install.ae")
     dep(b, "tools/keygen/.install.ae")
     println("remote-agent: installed aeb-agent (verifier) + aeb-lease (minter) + aeb-keygen (secret gen).")
-    println("  make a secret:   aeb-keygen > ~/.aeb/lease.secret && chmod 600 ~/.aeb/lease.secret")
+    println("  make a secret:   mkdir -p ~/.local/share/aeb && aeb-keygen > ~/.local/share/aeb/lease.secret")
+    println("                   chmod 600 ~/.local/share/aeb/lease.secret")
     println("  start an agent:  aeb-agent --lease-secrets <file> --accept 'preint/*' ...")
     println("  mint a lease:    aeb-lease  --secret <file> --purpose preint/<scope> --ttl-mins 30")
     return 0

@@ -153,7 +153,7 @@ dedicated native builder, e.g. a **Mac mini doing AppKit builds** of aether-ui:
 aeb-agent --host 0.0.0.0 --port 9440 --accept 'preint/*' \
           --workdir ~/aether-ui --repo ~/aether-ui \
           --run-on host --allow-vm-command \
-          --lease-secrets ~/.aeb/lease.secret
+          --lease-secrets ~/.local/share/aeb/lease.secret
 ```
 ```jsonc
 // Requester's dispatch — "command" runs in ~/aether-ui on the Mac:

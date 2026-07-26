@@ -11,7 +11,7 @@
 // + repo URLs, so it caches well — once a developer or CI run has
 // resolved a given coordinate set, every subsequent build with the
 // same inputs short-circuits to a content-addressable lookup
-// against $AEB_CACHE_DIR (default ~/.aeb/cache). See lib/cache.
+// against $AEB_CACHE_DIR (default ~/.cache/aeb, XDG). See lib/cache.
 import build
 import cache
 import std.string

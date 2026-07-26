@@ -1,7 +1,7 @@
 // cache — Content-addressable build artifact cache.
 //
 //   - sha256-keyed hashing of inputs (file contents, dep manifests, flags)
-//   - zlib-compressed storage under $AEB_CACHE_DIR (or ~/.aeb/cache)
+//   - zlib-compressed storage under $AEB_CACHE_DIR (or ~/.cache/aeb, XDG)
 //   - put / get / has lookups against the local store
 //
 // REMOTE CACHE (shared, cross-machine). When $AEB_REMOTE_CACHE_URL names
@@ -54,18 +54,33 @@ available() {
     return 1
 }
 
-// dir() — local cache root. $AEB_CACHE_DIR if set, else $HOME/.aeb/cache.
-// Falls back to ./.aeb/cache when $HOME is unset (CI sandboxes).
+// dir() — local cache root, XDG Base Directory spec.
+//
+// Order: $AEB_CACHE_DIR (explicit override, always wins) → $XDG_CACHE_HOME/aeb
+// → $HOME/.cache/aeb → ./.aeb/cache (last resort when $HOME is unset, e.g. CI
+// sandboxes; project-relative so a build still works).
+//
+// This used to be $HOME/.aeb/cache, which collided with the PROJECT marker of
+// the same name: `_has_aeb_marker` is a bare `fs.exists(<dir>/.aeb)`, so a
+// user-level ~/.aeb made $HOME look like an aeb project root to any build run
+// from underneath it. Cache belongs in the cache dir anyway — XDG's whole
+// point is that ~/.cache is the tree a user can delete without losing state.
+// Hard cut, no fallback read of the old location: this is a CACHE, so the
+// worst case is one cold rebuild. Delete a stale ~/.aeb/cache by hand.
 dir() {
     env_dir = os.getenv("AEB_CACHE_DIR")
     if string.length(env_dir) > 0 {
         return env_dir
     }
+    xdg = os.getenv("XDG_CACHE_HOME")
+    if string.length(xdg) > 0 {
+        return path.join(xdg, "aeb")
+    }
     home = os.getenv("HOME")
     if string.length(home) == 0 {
         return ".aeb/cache"
     }
-    return path.join(path.join(home, ".aeb"), "cache")
+    return path.join(path.join(home, ".cache"), "aeb")
 }
 
 // path(hash) — shard the cache into 256 directories by the digest's

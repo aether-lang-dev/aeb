@@ -198,7 +198,7 @@ infrastructure.
 Today, aeb has:
 
 - `lib/cache` — sha256 + zlib local content-addressed store under
-  `$AEB_CACHE_DIR` (default `~/.aeb/cache`).
+  `$AEB_CACHE_DIR` (default `~/.cache/aeb`, XDG).
 - Cache integration for Maven classpath resolution, Aether
   manual-path link, Java javac + javac_test classes-tree (tar+zlib).
 - Content hashing primitives (`cache.hash_file`, `cache.hash_inputs`)

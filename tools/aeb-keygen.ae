@@ -10,7 +10,8 @@
 // emitting — the same strength test the agent/minter run, so output always
 // passes (the "generator runs the same test" contract).
 //
-//   aeb-keygen > ~/.aeb/lease.secret && chmod 600 ~/.aeb/lease.secret
+//   mkdir -p ~/.local/share/aeb && aeb-keygen > ~/.local/share/aeb/lease.secret \
+//     && chmod 600 ~/.local/share/aeb/lease.secret
 //
 // Then: aeb-agent --lease-secrets <that file> ; aeb-lease --secret <that file> …
 

@@ -733,7 +733,8 @@ skipped — `[hit]` in `[telemetry]`.
 
 Storage:
 
-- Default location: `~/.aeb/cache/` (override with `$AEB_CACHE_DIR`).
+- Default location: `~/.cache/aeb/` — XDG (`$XDG_CACHE_HOME/aeb` when set;
+  override either with `$AEB_CACHE_DIR`).
 - Content-addressed via sha256; entries are zlib-compressed.
 - No size cap or eviction yet; users prune manually if needed.
 
@@ -1386,7 +1387,8 @@ maven_bom("org.springframework.boot:spring-boot-dependencies:4.0.4")
 Modules load it via `load_bom_file(b, "../../spring-boot.bom.ae")`, then
 use `build.dep(b, "group:artifact")` with version omitted — the BOM
 supplies it. Resolution is performed by `tools/aeb-resolve.jar`, which
-wraps the Maven Resolver API and caches to `~/.aeb/repo`.
+wraps the Maven Resolver API and caches to `~/.local/share/aeb/repo`
+(XDG data dir; `$XDG_DATA_HOME/aeb/repo` when set).
 
 ## Cross-language dependencies
 

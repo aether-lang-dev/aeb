@@ -53,6 +53,6 @@ main() {
     println("aeb-keygen installed:")
     println("  binary:  ${dst_bin}")
     println("  wrapper: ${wrapper}")
-    println("  (make a secret:  aeb-keygen > ~/.aeb/lease.secret && chmod 600 ~/.aeb/lease.secret)")
+    println("  (make a secret:  mkdir -p ~/.local/share/aeb && aeb-keygen > ~/.local/share/aeb/lease.secret)")
     return 0
 }

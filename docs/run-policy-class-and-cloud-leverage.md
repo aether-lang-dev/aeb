@@ -218,7 +218,8 @@ decode. Separate roots (not a key-salt) so isolation is visible,
 independently prunable, and independently securable (the ci root is a
 different backing store — shared/remote — than a dev's local one; it can
 be read-only to dev principals). The single chokepoint is `lib/cache`
-`dir()` (today `$AEB_CACHE_DIR` else `$HOME/.aeb/cache`), which resolves a
+`dir()` (today `$AEB_CACHE_DIR`, else `$XDG_CACHE_HOME/aeb`, else
+`$HOME/.cache/aeb`), which resolves a
 purpose-partitioned root.
 
 **How many partitions — fork only on incompatible policy (Wingerd &

@@ -541,7 +541,7 @@ affected-targets tool already consumes — no change to the walk.
 ### Local content-addressed cache (done across all artifact SDKs)
 
 `lib/cache/` ships sha256+zlib content-addressable storage under
-`$AEB_CACHE_DIR` (default `~/.aeb/cache`). Wired into every
+`$AEB_CACHE_DIR` (default `~/.cache/aeb`, XDG). Wired into every
 artifact-producing SDK:
 - `lib/maven` — resolved classpath
 - `lib/aether` — manual-path link binary
@@ -747,7 +747,7 @@ What's left:
   it without modifying.
 - **Cross-build aggregation**: "what's our cache hit rate over
   the last 100 builds?" Needs persistent storage (per-build
-  telemetry file under `target/_aeb/` or central `~/.aeb/log/`).
+  telemetry file under `target/_aeb/` or central `~/.local/state/aeb/log/`).
   Postpone until a real consumer asks.
 - **Per-builder timing inside an SDK**: today telemetry sees
   per-target wall-time. Inside `aether.program(b)`, regen vs

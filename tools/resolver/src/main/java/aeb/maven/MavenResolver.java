@@ -42,7 +42,14 @@ public class MavenResolver {
         List<String> repos = new ArrayList<>();
         List<String> deps = new ArrayList<>();
         String outputMode = "classpath";
-        String cacheDir = System.getProperty("user.home") + "/.aeb/repo";
+        // XDG Base Directory: downloaded Maven artifacts are reconstructible
+        // but expensive, so they live in the data dir, not the cache dir.
+        // Was ~/.aeb/repo — that collided with aeb's PROJECT marker of the
+        // same name (a bare .aeb dir made $HOME look like a project root).
+        String xdgData = System.getenv("XDG_DATA_HOME");
+        String cacheDir = (xdgData != null && !xdgData.isEmpty())
+                ? xdgData + "/aeb/repo"
+                : System.getProperty("user.home") + "/.local/share/aeb/repo";
 
         List<String> bomFiles = new ArrayList<>();
 
