@@ -1543,6 +1543,109 @@ _write_artifact(ctx: ptr, artifact: string, content: string) {
     _e = fs.write_atomic(p, content, string.length(content))
 }
 
+// --- Post-build steps (the other half of the build sandwich) ---
+//
+// aeb has always had a way to run things BEFORE work (`pre_command` in
+// lib/bash, `regen(...)` in lib/aether — generate sources, tweak flags).
+// It had nothing for AFTER: the point where the artifact exists and you
+// want to do something to it. From the r/programming build-systems
+// thread, u/matthieum on Cargo:
+//
+//   > It's a simple sandwich: pre-build actions may be required to
+//   > massage the INPUTS […] post-build actions may be required to
+//   > massage the OUTPUTS: embed SBOM, fingerprint the binaries, bundle
+//   > multiple artifacts together. build.rs covers the inputs, but
+//   > there's nothing for the outputs :'(
+//
+// Same hole here. `lib/bash`'s post_command is per-TEST-SCRIPT and lives
+// inside `bash.test`; a java/rust/go node had no after-hook at all.
+//
+// `post_build(b, "<shell command>")` is generic and SDK-agnostic: it
+// records a command on the BUILD CONTEXT (not a builder map), so it works
+// with any builder, or none. Repeated calls run in declaration order
+// (Aether is fixed-arity — one command per call).
+//
+// Interpolation: `{target_dir}` and `{module_dir}` are substituted so a
+// step can address what was just produced without hardcoding a path —
+// the same reason publish_artifact exists.
+//
+//   post_build(b, "sha256sum {target_dir}/app.jar > {target_dir}/app.jar.sha256")
+//
+// Failure is NOT advisory: a non-zero step fails the node, via the same
+// build.fail() path a builder uses. A post-build step that embeds an SBOM
+// or signs a binary is part of the artifact being correct; letting it fail
+// silently would be the "green build that proves nothing" shape this repo
+// keeps meeting (cf. the os.system / os.exec traps in
+// docs/presubmit-target-sets.md).
+//
+// Ordering: steps run when `run_post_build(b)` is called. The SDK builders
+// do not call it — the node does, at the end of its aeb() body, which
+// keeps this opt-in and keeps SDKs unaware of it.
+post_build(ctx: ptr, cmd: string) {
+    if map.has(ctx, "post_build_steps") == 0 {
+        _e1 = map.put(ctx, "post_build_steps", list.new())
+    }
+    steps, _ = map.get(ctx, "post_build_steps")
+    _e2 = list.add(steps, string.copy(cmd))
+}
+
+// _post_build_interp(ctx, cmd) — substitute {target_dir} / {module_dir}.
+// Deliberately NOT Aether's `${...}` interpolation: these are aeb-level
+// placeholders in a user-authored string, and `${...}` is consumed at
+// parse time by the compiler (see LLM.md's note on interpolation eating
+// bash parameter expansions).
+_post_build_interp(ctx: ptr, cmd: string) {
+    td = _get(ctx, "target_dir")
+    md = _get(ctx, "module_dir")
+    out = _subst(cmd, "{target_dir}", td)
+    return _subst(out, "{module_dir}", md)
+}
+
+// _subst(hay, needle, repl) — replace EVERY occurrence. The stdlib has no
+// string.replace (see _path_to_slashes' note), so this is a scan-and-rebuild.
+_subst(hay: string, needle: string, repl: string) {
+    nl = string.length(needle)
+    if nl == 0 { return hay }
+    out = ""
+    rest = hay
+    while string.length(rest) > 0 {
+        at = string.index_of(rest, needle)
+        if at < 0 {
+            out = string.concat(out, rest)
+            rest = ""
+        } else {
+            out = string.concat(out, string.substring(rest, 0, at))
+            out = string.concat(out, repl)
+            rest = string.substring(rest, at + nl, string.length(rest))
+        }
+    }
+    return out
+}
+
+// run_post_build(b) — run every declared post-build step in order.
+// Returns 0 when all succeeded (or none were declared), the first
+// non-zero exit otherwise, having already marked the node failed.
+run_post_build(ctx: ptr) {
+    if map.has(ctx, "post_build_steps") == 0 { return 0 }
+    steps, _ = map.get(ctx, "post_build_steps")
+    n = list.size(steps)
+    md = _get(ctx, "module_dir")
+    i = 0
+    while i < n {
+        raw, _ = list.get(steps, i)
+        cmd = _post_build_interp(ctx, raw)
+        println("${md}: post-build: ${cmd}")
+        rc = _sh(cmd)
+        if rc != 0 {
+            println("${md}: post-build FAILED (exit ${rc}): ${cmd}")
+            fail(ctx, "post-build step failed (exit ${rc}): ${cmd}")
+            return rc
+        }
+        i = i + 1
+    }
+    return 0
+}
+
 // --- Public artifact handoff across a dep() edge ---
 //
 // The producer/consumer pair that lets a node read what a dep it

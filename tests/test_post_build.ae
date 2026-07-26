@@ -1,0 +1,63 @@
+// Tests for build.post_build / _subst — the post-build ("output half of
+// the sandwich") hook. The pure part under test is the {target_dir} /
+// {module_dir} placeholder substitution: run_post_build itself shells
+// out, so its behaviour is covered end-to-end by a smoke build rather
+// than here (this file stays I/O-free, per the string-builder rule in
+// LLM.md's "SDK extension shape").
+import std.string
+
+extern println(s: string)
+
+import build (_subst)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if actual == expected {
+        println("  ok: ${label}")
+        return 0
+    }
+    println("  FAIL: ${label}")
+    println("    expected: ${expected}")
+    println("    actual:   ${actual}")
+    return 1
+}
+
+main() {
+    fails = 0
+
+    // Single occurrence — the common case.
+    fails = fails + _assert_eq("single",
+        _subst("sha256 {target_dir}/a.jar", "{target_dir}", "/t"),
+        "sha256 /t/a.jar")
+
+    // EVERY occurrence, not just the first. A step like
+    // `cp {target_dir}/a {target_dir}/b` is the reason this matters.
+    fails = fails + _assert_eq("repeated",
+        _subst("cp {target_dir}/a {target_dir}/b", "{target_dir}", "/t"),
+        "cp /t/a /t/b")
+
+    // Absent needle: unchanged, no truncation.
+    fails = fails + _assert_eq("absent",
+        _subst("echo hi", "{target_dir}", "/t"),
+        "echo hi")
+
+    // At the very start and very end of the string (boundary rebuild).
+    fails = fails + _assert_eq("leading",
+        _subst("{target_dir}/x", "{target_dir}", "/t"), "/t/x")
+    fails = fails + _assert_eq("trailing",
+        _subst("x{target_dir}", "{target_dir}", "/t"), "x/t")
+
+    // Empty replacement is legal (an unset dir must not corrupt the rest).
+    fails = fails + _assert_eq("empty-repl",
+        _subst("a{m}b", "{m}", ""), "ab")
+
+    // Empty needle must be a no-op, NOT an infinite loop.
+    fails = fails + _assert_eq("empty-needle",
+        _subst("abc", "", "X"), "abc")
+
+    if fails > 0 {
+        println("test_post_build: ${fails} failure(s)")
+        return 1
+    }
+    println("test_post_build: all assertions passed")
+    return 0
+}

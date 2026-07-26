@@ -511,6 +511,45 @@ Independent modules in the DAG can build concurrently. The visited map
 needs thread-safe access (mutex or atomic). Aether actors are a natural
 fit — one actor per module, message-passing for completion.
 
+### Persistent compiler processes (daemons / workers) — NOT PLANNED
+
+Every aeb node is a fresh subprocess: `_ae_build_all <root> <label>` spawns,
+does its work, exits. That means a per-node toolchain invocation pays full
+start-up every time — and for toolchains that parse the *dependency* surface
+on each run, that cost is superlinear in a monorepo.
+
+Reported from the wild (r/programming thread on build systems, u/elliotones,
+who was pressed to define what "supports daemons" meant):
+
+> In a large typescript monorepo […] tsc and eslint re-initialize and
+> re-parse your dependency types for every package. We were parsing
+> $largeApiSurface **more than 100 times per cold build**. Wrapping tsc in a
+> daemon process lets you pass the previous "program" to the next parse tree
+> to use as a cache […] cold build times drop from **15 minutes to 5**.
+
+The technique is real and has prior art — Gradle's daemon, Bazel's persistent
+workers, `tsc --build` project references, Nailgun for the JVM. The shape is:
+a long-lived process per toolchain, fed unit-of-work requests over a pipe,
+holding parsed state between them.
+
+**Why it is not planned.** It inverts aeb's execution model. Nodes-as-
+subprocesses is what makes the driver simple, the `.rc`/`.ms` markers
+meaningful, `--sandbox` containable at the process boundary, and per-node
+container routing possible at all. A worker pool means a protocol, lifecycle
+management (spawn/health/evict/timeout), cache-invalidation rules per
+toolchain, and a per-SDK adapter — for a win that only materialises in
+toolchains with expensive re-parse (TS, JVM) and is invisible in the ones
+where aeb already shells out to a fast compiler.
+
+**What aeb does instead**: the content-addressed cache (skip the work
+entirely on a hit) and node-level concurrency. Those attack the same wall-
+clock from the other side and cost far less machinery.
+
+**If it is ever revisited**, the honest entry point is ONE toolchain
+(TypeScript, where the reported win is largest), behind an opt-in flag, with
+the daemon owned by `lib/ts` rather than the driver — not a generic worker
+protocol. Prove the win on a real itest before generalising.
+
 ### ~~Affected-target detection~~ (done)
 
 Shipped via `aeb --since <ref>` and `aeb --print-affected <ref>`.

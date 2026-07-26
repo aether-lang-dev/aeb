@@ -338,6 +338,40 @@ explicitly when you are below the project root:
 #       (listing is scoped to this directory; run from /path/to/repo for all)
 ```
 
+### Post-build steps (`post_build`)
+
+aeb has always had ways to act *before* the work — `pre_command` in
+`lib/bash`, `regen(...)` in `lib/aether` (generate sources, tweak flags).
+`post_build` is the other half of the sandwich: act on the **output**,
+once the artifact exists.
+
+```aether
+import build (start, post_build, run_post_build)
+import java (javac)
+
+aeb(cap) {
+    b = build.start()
+    java.javac(b) { release("21") }
+
+    post_build(b, "sha256sum {target_dir}/app.jar > {target_dir}/app.jar.sha256")
+    post_build(b, "syft {target_dir}/app.jar -o spdx-json > {target_dir}/app.sbom")
+    return build.run_post_build(b)
+}
+```
+
+Generic and SDK-agnostic — it records on the build context, not a builder
+map, so it works after any builder (or none). `{target_dir}` and
+`{module_dir}` are substituted so a step can address what was just built
+without hardcoding a path. Steps run in declaration order.
+
+**A failing step fails the node** (and stops the remaining steps). That is
+deliberate: embedding an SBOM or signing a binary is part of the artifact
+being correct, so a silent failure would be a green build that proves
+nothing.
+
+Note `run_post_build(b)` is called by *your* build file, not by the SDK —
+which keeps the SDKs unaware of it and the feature opt-in.
+
 ### Named target sets (`.presubmit.ae`)
 
 A dot-prefixed `.ae` file whose body is nothing but `build.dep(...)`
