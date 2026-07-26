@@ -305,6 +305,39 @@ The query expression should be quoted in a shell because unquoted
 parentheses are shell syntax. `deps(...)` walks dependency edges
 outward; `rdeps(...)` walks reverse edges to consumers.
 
+### Seeing what's here (`aeb --list`)
+
+A bare `aeb` deliberately does **not** build the whole tree — scoping is
+always explicit. But it no longer dead-ends: it points at `--list`.
+
+```bash
+aeb --list
+```
+
+```
+sets:
+  .presubmit.ae
+tests:
+  libs/core/.tests.ae
+  apps/api/.tests.ae
+build:
+  libs/core/.build.ae
+```
+
+Builds nothing, reads no edges — one tree scan, grouped by the target's
+own type, with named target sets first because they answer "what do I
+run?".
+
+Scoping matches every other aeb verb: the scan is rooted at CWD, so
+running it from a subdirectory lists that subtree only. Because that is
+easy to misread as "this is the whole repo", the listing says so
+explicitly when you are below the project root:
+
+```
+# Note: targets from parent directories omitted
+#       (listing is scoped to this directory; run from /path/to/repo for all)
+```
+
 ### Named target sets (`.presubmit.ae`)
 
 A dot-prefixed `.ae` file whose body is nothing but `build.dep(...)`

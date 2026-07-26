@@ -23,6 +23,7 @@ import provision
 import std.string
 import std.file
 import std.fs
+import std.dir
 import std.io
 import std.os
 import std.list
@@ -30,6 +31,166 @@ import std.map
 import std.path
 
 extern println(s: string)
+
+// --- `aeb --list` ------------------------------------------------------
+//
+// Answers "what can I run here?" — the question a bare `aeb` used to
+// dead-end on. Builds nothing, reads no edges: names and types only, so
+// it costs one tree scan and no per-file shell-outs.
+//
+// Scoping matches every other aeb verb: the scan is rooted at CWD, so
+// running this from a subdirectory lists that subtree ONLY. That is easy
+// to misread as "this is the whole repo", so when CWD is not the project
+// root the listing says so explicitly rather than leaving the reader to
+// infer it.
+
+// _list_type(file) — the verbatim `.<type>.ae` segment, matching
+// tools/aeblabel's infer_type (the filename IS the route). Reimplemented
+// inline rather than importing aeblabel: aeb-main is built without
+// `--lib tools` in some lazy-build paths, and a listing must never be the
+// reason a build cannot start.
+_list_type(f: string) {
+    base = f
+    sl = -1
+    n = string.length(f)
+    i = 0
+    while i < n {
+        ch = string.substring(f, i, i + 1)
+        if string.equals(ch, "/") == 1 { sl = i }
+        i = i + 1
+    }
+    if sl >= 0 { base = string.substring(f, sl + 1, n) }
+    if string.starts_with(base, ".") == 0 { return string.concat("build", "") }
+    if string.ends_with(base, ".ae") == 0 { return string.concat("build", "") }
+    stem = string.substring(base, 1, string.length(base) - 3)
+    if string.length(stem) == 0 { return string.concat("build", "") }
+    return stem
+}
+
+// A "set" is a dep-only node — a named target set (.presubmit.ae and
+// friends, docs/presubmit-target-sets.md). We cannot tell dep-only from
+// the filename alone without reading the file, so treat the documented
+// set names as the hint and let everything else group by its own type.
+_is_set_type(t: string) {
+    if string.equals(t, "presubmit") == 1 { return 1 }
+    if string.equals(t, "merge-queue") == 1 { return 1 }
+    if string.equals(t, "smoke") == 1 { return 1 }
+    if string.equals(t, "release") == 1 { return 1 }
+    if string.equals(t, "nightly") == 1 { return 1 }
+    return 0
+}
+
+// _render_list(files) — group by type, sets first, then exit.
+_render_list(files: ptr) {
+    n = list.size(files)
+    if n == 0 {
+        println("aeb: no targets under this directory.")
+        println("     (aeb looks for dot-prefixed .ae files, e.g. .build.ae, .tests.ae)")
+        return 0
+    }
+
+    // Sets first — they are the "what do I run?" answer.
+    shown = 0
+    i = 0
+    while i < n {
+        f, _ = list.get(files, i)
+        if _is_set_type(_list_type(f)) == 1 {
+            if shown == 0 { println("sets:") }
+            println(string.concat("  ", f))
+            shown = shown + 1
+        }
+        i = i + 1
+    }
+
+    // Then every other type, first-seen order, one heading per type.
+    seen_types = list.new()
+    i = 0
+    while i < n {
+        f, _ = list.get(files, i)
+        t = _list_type(f)
+        if _is_set_type(t) == 0 {
+            already = 0
+            m = list.size(seen_types)
+            j = 0
+            while j < m {
+                u, _ = list.get(seen_types, j)
+                if string.equals(u, t) == 1 { already = 1 }
+                j = j + 1
+            }
+            if already == 0 {
+                _a = list.add(seen_types, string.copy(t))
+                println(string.concat(t, ":"))
+                k = 0
+                while k < n {
+                    g, _ = list.get(files, k)
+                    if string.equals(_list_type(g), t) == 1 {
+                        println(string.concat("  ", g))
+                    }
+                    k = k + 1
+                }
+            }
+        }
+        i = i + 1
+    }
+
+    // Scope note: only when CWD is below the project root, so a full-repo
+    // listing is not cluttered by a note that does not apply.
+    cwd = os.getcwd()
+    rootm = _list_project_root(cwd)
+    if string.length(rootm) > 0 {
+        // Two conditions, both required:
+        //  (a) the root is a STRICT ancestor of cwd, and
+        //  (b) that root is plausibly an aeb project — it carries an
+        //      `.aeb` marker, or a build file of its own.
+        // (b) exists because a VCS marker alone proves nothing: a stray
+        // /tmp/.git, or $HOME being a dotfiles repo, would otherwise make
+        // this say "run from /home/paul for all", which is true of the
+        // marker and useless to the reader. Better to say nothing than to
+        // point somewhere that is not a project.
+        if string.equals(rootm, cwd) == 0 {
+            plausible = 0
+            if dir.exists(string.concat(rootm, "/.aeb")) == 1 { plausible = 1 }
+            if file.exists(string.concat(rootm, "/.build.ae")) == 1 { plausible = 1 }
+            if file.exists(string.concat(rootm, "/.presubmit.ae")) == 1 { plausible = 1 }
+            if plausible == 1 {
+                println("")
+                println("# Note: targets from parent directories omitted")
+                println("#       (listing is scoped to this directory; run from ${rootm} for all)")
+            }
+        }
+    }
+    return 0
+}
+
+// _list_project_root(start) — nearest ancestor holding an aeb/VCS marker,
+// or "" if none. Mirrors aeb-link's _discover_repo_root preference order
+// (.aeb wins, else a VCS marker) but is read-only and local to listing.
+//
+// Returning "" matters: with NO marker anywhere up the tree there is no
+// principled project root, so the caller must NOT claim targets were
+// omitted. An earlier cut walked to "/" and told the user to "run from
+// /tmp for all", which is both wrong and actively misleading.
+_list_project_root(start: string) {
+    cur = start
+    while string.length(cur) > 1 {
+        if dir.exists(string.concat(cur, "/.aeb")) == 1 { return cur }
+        if dir.exists(string.concat(cur, "/.git")) == 1 { return cur }
+        if dir.exists(string.concat(cur, "/.hg")) == 1 { return cur }
+        if dir.exists(string.concat(cur, "/.svn")) == 1 { return cur }
+        if dir.exists(string.concat(cur, "/.avn")) == 1 { return cur }
+        sl = -1
+        n = string.length(cur)
+        i = 0
+        while i < n {
+            ch = string.substring(cur, i, i + 1)
+            if string.equals(ch, "/") == 1 { sl = i }
+            i = i + 1
+        }
+        if sl <= 0 { return string.concat("", "") }
+        cur = string.substring(cur, 0, sl)
+    }
+    return string.concat("", "")
+}
 extern exit(code: int)
 
 // _toolbase(aebhome, name) — the helper tool's path WITHOUT an exe suffix.
@@ -342,6 +503,7 @@ main() {
             if string.length(os.getenv("AEB_SCAN")) == 0 {
                 println("aeb: nothing to build — name a target (e.g. `aeb path/to/.build.ae`)")
                 println("     or scope a tree scan with a glob (e.g. `aeb --scan '.build.ae'`).")
+                println("     See what's here: `aeb --list`")
                 exit(2)
             }
         }
@@ -363,6 +525,15 @@ main() {
                 _ms = map.put(seen, copy, "1")
             }
         }
+        // --- --list: show what is here, build nothing, exit ---
+        // Rendered HERE, after the scan but before the extract-deps loop
+        // below (one shell-out per file). Listing needs names and types,
+        // not edges, so it must not pay for the DAG.
+        if string.equals(flag, "--list") == 1 {
+            _render_list(files)
+            return 0
+        }
+
         // For each file, run extract-deps to populate file_deps.
         nf = list.size(files)
         i = 0
