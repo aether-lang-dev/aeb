@@ -281,10 +281,32 @@ the "green build that proves nothing" shape this repo keeps hitting.
 Filed upstream as
 [aether#1278](https://github.com/aether-lang-org/aether/issues/1278):
 `os.wait_any_timeout(tokens, secs)` plus a contract that timeout/kill
-accept spawn *tokens* on every platform. **Do not implement per-node
-timeouts against `wait_pid_timeout` before that lands** — polling live
-tokens is the only alternative and costs a wakeup per second per node
-while still leaving the Windows hole.
+accept spawn *tokens* on every platform.
+
+**DELIVERED — aether `4368ad1b`, in 0.447.0.** Both halves:
+
+```aether
+os.wait_any_timeout(tokens, secs) -> (token, exit, timed_out, err)
+```
+
+per-CALL deadline (not a batch one), `timed_out` distinguishable from a
+non-zero child exit, `secs <= 0` blocks like `wait_any`. POSIX polls
+`waitpid(-1, WNOHANG)` against a monotonic deadline; Windows passes the
+deadline to `WaitForMultipleObjects`.
+
+And the asymmetry is closed: `os.kill` / `os.wait_pid_timeout` now
+resolve a spawn token through the Windows process table before falling
+back to an OS pid, so `kill(spawn_token)` behaves the same on both
+platforms — previously it hit an unrelated process on Windows. POSIX
+`posix_status_to_tuple` also now maps a signalled child to `128+signo`,
+so killing a timed-out token reaps a distinguishable **137** rather than
+an opaque "abnormal" error.
+
+Caveats before building on it: the toolchain here must be rebuilt (source
+is 0.447.0; an `ae` reporting 0.442.0 does not have it), and the commit
+notes the **Windows paths mirror POSIX but await a winbaz run** — so the
+cross-platform claim is reasoned, not yet measured, exactly as our own
+Windows work was until we ran it.
 
 Sketch, **not designed, not promised**:
 

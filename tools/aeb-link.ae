@@ -75,6 +75,29 @@ extern exit(code: int)
 // Subversion note: assumes svn ≥1.7, which keeps a single `.svn` at the
 // working-copy root (pre-1.7 put `.svn` in every dir and would anchor too
 // deep — but 1.7 shipped in 2011).
+// DELIBERATELY LOOSE: any `.aeb` directory anchors the root, NOT the
+// stricter `.aeb/lib` that `aeb --init` actually writes. Considered and
+// declined (2026-07-26).
+//
+// The looseness is real: a stray `.aeb` anywhere above a build silently
+// becomes the project root, and aeb-link appends the discovered root to
+// the aetherc `--lib` search path. That bit here — a user-level
+// `~/.aeb` holding cache/secrets made `$HOME` satisfy this test for any
+// build run underneath it. The fix for THAT was to move user state to
+// XDG dirs (`~/.cache/aeb`, `~/.local/share/aeb`), which removed the
+// collision at its source.
+//
+// Tightening to `.aeb/lib` would also work and is a one-liner, but it
+// changes root discovery for every consumer to fix a case we no longer
+// have, and a project with a hand-made `.aeb/` (no `lib/`) would
+// silently stop being found as root. Not worth the blast radius:
+// `--init` is the only writer, and a bare `.aeb` is a reasonable thing
+// for a project to mean by it.
+//
+// Note aeb-main's SDK *resolution* is already stricter — it probes
+// `.aeb/lib/build/module.ae` so a dangling symlink is caught. That
+// asymmetry is intentional: "where is the root" is a broader question
+// than "are the SDK symlinks usable".
 _has_aeb_marker(d: string) {
     if fs.exists(string.concat(d, "/.aeb")) == 1 { return 1 }      // aeb project root
     return 0
