@@ -33,6 +33,7 @@
 
 import build
 import std.string
+import std.fs
 import std.io
 import std.list
 import std.map
@@ -53,6 +54,139 @@ license(ctx: ptr, spdx: string) {
 
 version(ctx: ptr, ver: string) {
     _e = map.put(ctx, "_meta_version", ver)
+}
+
+// --- version_from_vcs: derive the version from the working copy ---
+//
+// `version(b, "1.2.3")` is a literal, which means the number lives in TWO
+// places (the tag and the build file) and drifts. From the r/programming
+// build-systems thread, u/eeriemyxi on Cargo:
+//
+//   > I like using Git tags for tagging versions then embedding that at
+//   > build time into the binaries [...] Cargo can't do it. The only
+//   > "solution" is a script which reads the last git tag and writes it to
+//   > the Cargo.toml file. This is not the solution. I don't want useless
+//   > git commits polluting commit history.
+//
+// aeb had the identical hole. `version_from_vcs(b)` asks the working copy
+// instead: the tag IS the version, no second copy, no stamping commit.
+//
+// VCS-NEUTRAL BY CONSTRUCTION. aeb's root discovery already honours eight
+// systems (tools/aeb-link.ae `_has_vcs_marker`); this covers the same set
+// rather than treating git as the default and the rest as an afterthought.
+// Detection is by WORKING-COPY MARKER, not by probing each binary in turn:
+// a marker says which VCS this tree actually is, so we run one command,
+// not seven. A tree with no marker, or a VCS whose CLI is absent, yields
+// "" — see the fallback note below.
+//
+//   .git       git describe --tags --dirty --always     v1.2.3-4-gabc1234
+//   .hg        hg id -t / hg id -i                       1.2.3 or abc1234+
+//   .svn       svnversion                                r1234 (or 1234M)
+//   .bzr       bzr revno                                 r42
+//   .fslckout  fossil describe-ish via `fossil timeline` abc1234
+//   .pijul     pijul log latest state hash               abc1234
+//   .avn       avn id                                    (avn's own form)
+//
+// The exact string is each VCS's OWN idiom, deliberately not normalised
+// into a fake-semver. A version stamp's job is to identify the tree it was
+// built from; translating `r1234` into `0.0.1234` would invent precision
+// that is not there. If you need a specific shape, post-process it or use
+// version() with a literal.
+//
+// FALLBACK: `version_from_vcs(b, "0.0.0-dev")` — the second argument is
+// used when the tree has no VCS marker, the VCS CLI is missing, or the
+// command fails (a fresh clone with no tags, an exported tarball). One-arg
+// `version_from_vcs(b)` falls back to "" (metadata simply absent), which
+// is the honest answer when nothing can be determined but is a poor
+// default for a formula/package that requires a version — hence the
+// two-arg form exists.
+version_from_vcs(ctx: ptr, fallback: string) {
+    v = _vcs_version(ctx)
+    if string.length(v) == 0 { v = fallback }
+    _e = map.put(ctx, "_meta_version", v)
+}
+
+// _vcs_version(ctx) -> the working copy's own version string, or "".
+// Walks up from the module dir looking for a marker, so this works from a
+// subdirectory module the same way root discovery does.
+_vcs_version(ctx: ptr) {
+    // source_dir is the module's absolute path; module_dir is only a
+    // display label ("app"), so it cannot be walked.
+    dir = build._get(ctx, "source_dir")
+    if string.length(dir) == 0 { dir = build._get(ctx, "root") }
+    if string.length(dir) == 0 { return string.concat("", "") }
+    root = _vcs_root(dir)
+    if string.length(root) == 0 { return string.concat("", "") }
+    kind = _vcs_kind(root)
+    cmd = _vcs_version_cmd(kind, root)
+    if string.length(cmd) == 0 { return string.concat("", "") }
+    out, err = build._sh_capture(cmd)
+    if string.length(err) > 0 { return string.concat("", "") }
+    return string.trim(out)
+}
+
+// _vcs_root(start) — nearest ancestor holding any known working-copy
+// marker, or "". Same marker set as tools/aeb-link's _has_vcs_marker;
+// fs.exists (not dir.exists) because several markers are FILES — a git
+// worktree/submodule has a `.git` file, Fossil uses `.fslckout`.
+_vcs_root(start: string) {
+    cur = string.concat(start, "")
+    while string.length(cur) > 1 {
+        if string.length(_vcs_kind(cur)) > 0 { return cur }
+        parent = build._dirname(cur)
+        if string.equals(parent, cur) == 1 { return string.concat("", "") }
+        if string.length(parent) == 0 { return string.concat("", "") }
+        cur = parent
+    }
+    return string.concat("", "")
+}
+
+// _vcs_kind(dir) — which VCS this directory is the root of, or "".
+_vcs_kind(d: string) {
+    if fs.exists(string.concat(d, "/.git")) == 1 { return string.concat("git", "") }
+    if fs.exists(string.concat(d, "/.hg")) == 1 { return string.concat("hg", "") }
+    if fs.exists(string.concat(d, "/.svn")) == 1 { return string.concat("svn", "") }
+    if fs.exists(string.concat(d, "/.bzr")) == 1 { return string.concat("bzr", "") }
+    if fs.exists(string.concat(d, "/.fslckout")) == 1 { return string.concat("fossil", "") }
+    if fs.exists(string.concat(d, "/_FOSSIL_")) == 1 { return string.concat("fossil", "") }
+    if fs.exists(string.concat(d, "/.pijul")) == 1 { return string.concat("pijul", "") }
+    if fs.exists(string.concat(d, "/.avn")) == 1 { return string.concat("avn", "") }
+    return string.concat("", "")
+}
+
+// _vcs_version_cmd(kind, root) — the command to ask that VCS what version
+// this working copy is. PURE: builds a string, runs nothing, so it is unit-
+// testable (tests/test_vcs_version_cmd.ae) without any VCS installed.
+//
+// Each command is run with the VCS's own "operate on this directory" flag
+// rather than a `cd` — no subshell, and no dependence on cwd.
+// stderr is redirected so a missing binary or an untagged tree produces an
+// empty capture rather than noise on the build log.
+_vcs_version_cmd(kind: string, root: string) {
+    if string.equals(kind, "git") == 1 {
+        return "git -C '${root}' describe --tags --dirty --always 2>/dev/null"
+    }
+    if string.equals(kind, "hg") == 1 {
+        // -t gives tags ("tip" when untagged); fall back to the node id.
+        return "hg -R '${root}' id -t 2>/dev/null | grep -v '^tip$' | head -1 || hg -R '${root}' id -i 2>/dev/null"
+    }
+    if string.equals(kind, "svn") == 1 {
+        // svnversion prints e.g. 1234 or 1234M (M = locally modified).
+        return "svnversion '${root}' 2>/dev/null"
+    }
+    if string.equals(kind, "bzr") == 1 {
+        return "bzr revno '${root}' 2>/dev/null"
+    }
+    if string.equals(kind, "fossil") == 1 {
+        return "fossil info 2>/dev/null | awk '/^checkout:/ {print substr($2,1,10); exit}'"
+    }
+    if string.equals(kind, "pijul") == 1 {
+        return "pijul log --limit 1 2>/dev/null | awk '/^Change/ {print substr($2,1,10); exit}'"
+    }
+    if string.equals(kind, "avn") == 1 {
+        return "avn id 2>/dev/null"
+    }
+    return string.concat("", "")
 }
 
 url(ctx: ptr, url_text: string) {

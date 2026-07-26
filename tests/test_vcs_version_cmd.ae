@@ -1,0 +1,77 @@
+// Tests for meta._vcs_version_cmd — the pure "which command asks this VCS
+// for its version" builder behind meta.version_from_vcs.
+//
+// Pure by design (LLM.md's string-builder rule): it returns a command
+// string and runs nothing, so all EIGHT supported VCSes are covered here
+// without any of them being installed. Only git and svn could be
+// exercised end-to-end on the dev box; this is what keeps the other six
+// from silently rotting.
+import std.string
+
+extern println(s: string)
+
+import meta (_vcs_version_cmd)
+
+_assert_contains(label: string, hay: string, needle: string) {
+    if string.index_of(hay, needle) >= 0 {
+        println("  ok: ${label}")
+        return 0
+    }
+    println("  FAIL: ${label}")
+    println("    wanted substring: ${needle}")
+    println("    in:               ${hay}")
+    return 1
+}
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if string.equals(actual, expected) == 1 {
+        println("  ok: ${label}")
+        return 0
+    }
+    println("  FAIL: ${label}")
+    println("    expected: ${expected}")
+    println("    actual:   ${actual}")
+    return 1
+}
+
+main() {
+    f = 0
+    r = "/repo"
+
+    // Each VCS invokes its OWN tool, and addresses the root explicitly
+    // rather than relying on cwd.
+    f = f + _assert_contains("git tool",   _vcs_version_cmd("git", r),   "git -C '/repo' describe")
+    f = f + _assert_contains("git tags",   _vcs_version_cmd("git", r),   "--tags --dirty --always")
+    f = f + _assert_contains("hg tool",    _vcs_version_cmd("hg", r),    "hg -R '/repo'")
+    f = f + _assert_contains("svn tool",   _vcs_version_cmd("svn", r),   "svnversion '/repo'")
+    f = f + _assert_contains("bzr tool",   _vcs_version_cmd("bzr", r),   "bzr revno '/repo'")
+    f = f + _assert_contains("fossil",     _vcs_version_cmd("fossil", r), "fossil info")
+    f = f + _assert_contains("pijul",      _vcs_version_cmd("pijul", r),  "pijul log")
+    f = f + _assert_contains("avn",        _vcs_version_cmd("avn", r),    "avn id")
+
+    // Every command silences stderr, so a missing binary or an untagged
+    // tree yields an empty capture instead of noise on the build log.
+    f = f + _assert_contains("git quiet",    _vcs_version_cmd("git", r),    "2>/dev/null")
+    f = f + _assert_contains("hg quiet",     _vcs_version_cmd("hg", r),     "2>/dev/null")
+    f = f + _assert_contains("svn quiet",    _vcs_version_cmd("svn", r),    "2>/dev/null")
+    f = f + _assert_contains("bzr quiet",    _vcs_version_cmd("bzr", r),    "2>/dev/null")
+    f = f + _assert_contains("fossil quiet", _vcs_version_cmd("fossil", r), "2>/dev/null")
+    f = f + _assert_contains("pijul quiet",  _vcs_version_cmd("pijul", r),  "2>/dev/null")
+    f = f + _assert_contains("avn quiet",    _vcs_version_cmd("avn", r),    "2>/dev/null")
+
+    // An unknown kind yields "" so the caller reports no version rather
+    // than shelling out to something arbitrary.
+    f = f + _assert_eq("unknown kind", _vcs_version_cmd("cvs", r), "")
+    f = f + _assert_eq("empty kind",   _vcs_version_cmd("", r), "")
+
+    // The root is interpolated, not ignored — a subdir module must ask
+    // about the working copy it actually belongs to.
+    f = f + _assert_contains("root used", _vcs_version_cmd("git", "/other/wc"), "/other/wc")
+
+    if f > 0 {
+        println("test_vcs_version_cmd: ${f} failure(s)")
+        return 1
+    }
+    println("test_vcs_version_cmd: all assertions passed")
+    return 0
+}

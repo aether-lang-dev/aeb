@@ -338,6 +338,48 @@ explicitly when you are below the project root:
 #       (listing is scoped to this directory; run from /path/to/repo for all)
 ```
 
+### Version from the working copy (`meta.version_from_vcs`)
+
+`meta.version(b, "1.2.3")` is a literal, so the number lives in two places
+— the tag and the build file — and drifts. `version_from_vcs` asks the
+working copy instead:
+
+```aether
+import meta (version_from_vcs)
+
+aeb(cap) {
+    b = build.start()
+    aether.program(b) { source("main.ae") output("hello") }
+    meta.version_from_vcs(b, "0.0.0-dev")   // 2nd arg = fallback
+}
+```
+
+Yields e.g. `v2.5.0` on a tagged commit, `v2.5.0-1-ge22998f-dirty` once
+you have moved past it with local edits. The tag *is* the version — no
+second copy, and no stamping commit polluting history.
+
+**VCS-neutral.** aeb's root discovery already honours eight systems, and
+this covers the same set rather than treating git as the default:
+
+| Marker | Asks | Looks like |
+|---|---|---|
+| `.git` | `git describe --tags --dirty --always` | `v1.2.3-4-gabc1234` |
+| `.hg` | `hg id -t` / `hg id -i` | `1.2.3` |
+| `.svn` | `svnversion` | `1234M` |
+| `.bzr` | `bzr revno` | `42` |
+| `.fslckout` | `fossil info` | `abc1234567` |
+| `.pijul` | `pijul log` | `abc1234567` |
+| `.avn` | `avn id` | avn's own form |
+
+Detection is by working-copy **marker**, so aeb runs one command, not
+seven. Each string is that VCS's own idiom, deliberately not normalised
+into a fake semver — a stamp identifies the tree it was built from, and
+rewriting `r1234` as `0.0.1234` would invent precision that is not there.
+
+The fallback (2nd argument) is used when the tree has no marker, the VCS
+CLI is absent, or the command fails — an exported tarball, a fresh clone
+with no tags. One-arg `version_from_vcs(b)` falls back to `""`.
+
 ### Post-build steps (`post_build`)
 
 aeb has always had ways to act *before* the work — `pre_command` in
