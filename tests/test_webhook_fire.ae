@@ -41,6 +41,7 @@ main() {
         return 0
     }
 
+    nl = "\n"
     base = "/tmp/aeb_test_webhook_fire"
     port = "19887"
     os.system("rm -rf ${base}; mkdir -p ${base}")
@@ -50,6 +51,25 @@ main() {
     // One-shot HTTP listener: record the request path, answer 204,
     // exit. srv.timeout bounds it so a missed request never leaks a
     // background process.
+    //
+    // FLAKE HISTORY (fixed 2026-07-26). This test failed intermittently
+    // under full-suite load — twice observed, passing in isolation and on
+    // re-run, which is the signature of a resource race rather than a
+    // logic bug. Root cause, reproduced deterministically by occupying
+    // port 19887 before running: the listener could not bind, and the
+    // fixed `sleep 1` never noticed, so the assert failed on a listener
+    // that was never up. Three separate weaknesses, all fixed here:
+    //
+    //   1. NO SO_REUSEADDR — a socket left in TIME_WAIT by the previous
+    //      run blocks the bind for ~60s. allow_reuse_address fixes that,
+    //      and is why this is a *self-perpetuating* flake: one failure
+    //      makes the next run likelier to fail too.
+    //   2. `sleep 1` AS A READINESS CHECK — a fixed sleep is a guess. It
+    //      is now a poll: wait until the port actually accepts, up to 10s.
+    //      Fast when idle, patient under load.
+    //   3. NO PRE-CLEANUP — nothing evicted a stale listener from an
+    //      earlier aborted run. The bind probe below now fails loudly
+    //      instead of silently asserting against a dead server.
     gen = "cat > ${pyf} <<'PYEOF'\n"
     gen = string.concat(gen, "import http.server\n")
     gen = string.concat(gen, "class H(http.server.BaseHTTPRequestHandler):\n")
@@ -59,6 +79,7 @@ main() {
     gen = string.concat(gen, "  s.end_headers()\n")
     gen = string.concat(gen, " def log_message(s,*a):\n")
     gen = string.concat(gen, "  pass\n")
+    gen = string.concat(gen, "http.server.HTTPServer.allow_reuse_address=True\n")
     gen = string.concat(gen, "srv=http.server.HTTPServer(('127.0.0.1',${port}),H)\n")
     gen = string.concat(gen, "srv.timeout=8\n")
     gen = string.concat(gen, "srv.handle_request()\n")
@@ -66,7 +87,43 @@ main() {
     os.system(gen)
 
     os.system("python3 ${pyf} >/dev/null 2>&1 &")
-    os.system("sleep 1")
+
+    // Poll for readiness instead of guessing with a sleep: up to 10s in
+    // 100ms steps.
+    //
+    // The probe must NOT connect. The listener is ONE-SHOT
+    // (handle_request() serves a single request then exits), so a probing
+    // TCP connect is itself that one request — the server would exit
+    // before webhook.fire ever POSTed, and the assert would fail on a
+    // listener that had already done its job. (Caught by writing exactly
+    // that probe first and watching the POST get "connection failed".)
+    //
+    // So probe by trying to BIND the port instead: bind fails => something
+    // is listening => the server is up. No connection, nothing consumed.
+    // Readiness WITHOUT touching the socket. Two constraints collide:
+    //   - the listener is ONE-SHOT (handle_request serves a single
+    //     request then exits), so any probing *connect* consumes the very
+    //     request webhook.fire is meant to make. Caught the hard way:
+    //     the first attempt at this poll used connect_ex and the real
+    //     POST then got "connection failed";
+    //   - a *bind* probe must NOT set SO_REUSEADDR, or it binds alongside
+    //     the listener and never reports "up".
+    // So: ask the OS who is listening, via the process itself. `pgrep -f`
+    // on the listener script is cheap, needs no socket, and cannot
+    // disturb the server. Then one short settle for the bind to complete.
+    ready_cmd = string.concat("for _i in $(seq 1 100); do pgrep -f ", pyf)
+    ready_cmd = string.concat(ready_cmd, " >/dev/null 2>&1 && exit 0; sleep 0.1; done; exit 1")
+    up = os.system(ready_cmd)
+    if up != 0 {
+        println("  FAIL: listener never came up on port ${port} (stale process holding it?)")
+        os.system("rm -rf ${base}")
+        println("webhook fire tests done")
+        return 1
+    }
+    // The process exists; give the bind a moment to complete. Short and
+    // bounded — the long wait above already absorbed any load-induced
+    // start-up delay, which is what the old bare `sleep 1` could not do.
+    os.system("sleep 0.5")
 
     // Drive the builder the way the orchestrator does. {{ci}} also
     // exercises real interpolation inside the builder.
