@@ -1009,10 +1009,16 @@ ae >= 0.442".
 
 Agreed shape (Paul's framing) — **not yet implemented**:
 
-- **aeb's own compilation is PINNED to the aeb release.** The Aether
-  that turns `.foo.ae` into an orchestrator is an implementation detail,
-  like the gcc that built your `make`. aeb should assert its floor at
-  startup in one line, not fail later in generated code.
+- **aeb's own compilation is PINNED to the aeb release**, and aeb may
+  **quietly go-get that Aether for its own private use** — built into
+  aeb's cache dir (`~/.cache/aeb/toolchain/aether-<ver>/`), never on
+  `PATH`, never in a system or user prefix. `which ae` must answer the
+  same before and after aeb runs; the user's `ae` is what
+  `aether.program` uses and is never touched. `aether/get.sh` already
+  takes `AETHER_REF` + `PREFIX`, so this is wiring, not invention. This
+  does NOT contradict "never provisions": that rule is about the
+  UNBOUNDED case (every toolchain × distro × version). aeb fetching its
+  OWN single pinned dependency is bounded and known at release time.
 - **A target that builds Aether code DECLARES its Aether**, via the
   existing `prereq(b, "aether:0.410")`. `aether` becomes a canonical
   token beside `jdk`/`node`/`rust` (with `ae` a rejected misname), so

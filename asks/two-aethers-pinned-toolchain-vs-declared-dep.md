@@ -4,9 +4,10 @@
 compile on winbaz with `E0301: Undefined function 'os.spawn_proc'`.
 **Status**: **PROPOSED — design agreed, not implemented.**
 **Shape**: Paul's framing. aeb's own compilation of `.foo.ae` should use an
-Aether **coupled to the aeb release**. A target that itself builds *Aether
-code* declares its own Aether like any other dependency, and that one
-compiles the target's sources.
+Aether **coupled to the aeb release** — which aeb may quietly fetch and
+build **for its own private use**, never touching the user's `ae`. A target
+that itself builds *Aether code* declares its own Aether like any other
+dependency, and that one compiles the target's sources.
 
 ## The conflation
 
@@ -57,11 +58,60 @@ that built your `make` binary. A given aeb is *built against* a given
 Aether; running it against an older one is not a supported configuration,
 it is an accident that currently manifests as `E0301`.
 
-aeb should know its own floor and say so:
+**And aeb should just GO GET IT.** This is the part that makes the split
+worth having rather than merely tidy: if the pinned Aether is an
+implementation detail of the aeb release, then aeb should quietly fetch
+and build that exact version **for its own private use**, the same way it
+would vendor any other internal dependency. Not into the system prefix.
+Not into `~/.local/bin`. Not on `PATH`. Just a private toolchain aeb uses
+to compile `.foo.ae` files, invisible unless you go looking.
+
+```
+~/.cache/aeb/toolchain/aether-0.449.0/bin/ae      # aeb's own, private
+/usr/local/bin/ae                                  # the user's, untouched
+```
+
+(Under the cache root `lib/cache` already resolves — `$AEB_CACHE_DIR` →
+`$XDG_CACHE_HOME/aeb` → `~/.cache/aeb`. Version-suffixed, so two aeb
+releases on one box do not fight, and `rm -rf` on the cache is always safe
+— worst case is one re-fetch, which is what a cache dir is for.)
+
+The user's `ae` — whatever version, wherever it came from, however they
+manage it — is **left completely alone**. It remains what
+`aether.program(b)` uses (Role 2), and what the user gets when they type
+`ae` themselves. aeb never upgrades it, never shadows it, never has an
+opinion about it.
+
+First run on a machine prints one line and takes a few minutes:
+
+```
+aeb: fetching aether 0.449.0 for aeb's own use (one-time, ~/.cache/aeb/toolchain)
+```
+
+Every subsequent run is silent. The mechanism already exists upstream —
+`aether/get.sh` takes exactly the two knobs needed:
+
+```bash
+AETHER_REF=v0.449.0 PREFIX=~/.cache/aeb/toolchain/aether-0.449.0 sh get.sh
+```
+
+so this is wiring, not invention. `ae version install` proves the fetch
+path works too.
+
+**What this buys, concretely.** The winbaz failure disappears entirely.
+Instead of `E0301: Undefined function 'os.spawn_proc'` from a generated
+file — followed by a human bisecting Aether versions, discovering pcre2 is
+a new dependency, and losing an hour to `MSYSTEM=MSYS` — aeb would have
+fetched 0.449.0 itself and just worked. The user's 0.413.0 would have
+stayed exactly where it was, still building their targets.
+
+Failing that (no network, air-gapped CI, a policy against auto-download),
+fall back to asserting the floor and saying so plainly:
 
 ```
 aeb: this build needs aether >= 0.442 (found 0.413.0 at /c/.../ae.exe)
      aeb uses os.spawn_proc/wait_any for the native scheduler.
+     fetch it with: aeb --fetch-toolchain     (or set AEB_AETHER=<path>)
 ```
 
 One line, at startup, instead of a wall of undefined-function errors from
@@ -99,17 +149,33 @@ one; the trampoline resolves the *pinned* one; they are allowed to differ.
 
 ## Explicitly NOT asking for
 
-- **An installer.** `docs/build-prerequisites-and-provisioning.md` is
-  explicit that resolving a token to an install is unbounded (every
-  toolchain × distro × version × arch) and deliberately out of scope. This
-  stays **state and observe**. The winbaz rebuild would still be a human
-  running `make` — just with aeb having said *why* first, instead of after
-  ten minutes of link errors.
-- **Vendoring Aether into aeb.** The pin is a *version assertion*, not a
-  bundled compiler.
-- **Auto-selecting between installed Aethers.** If a target declares
-  `aether:0.410` and it is not present, fail closed and say so. Choosing
-  is the operator's job; aeb's job is to be precise about the need.
+- **A general installer for TARGET prereqs.**
+  `docs/build-prerequisites-and-provisioning.md` is explicit that
+  resolving a token to an install is unbounded (every toolchain × distro ×
+  version × arch) and deliberately out of scope. Role 2 stays **state and
+  observe**: if a target declares `jdk:21` or `aether:0.410` and it is
+  absent, aeb says so and stops.
+
+  Note this does NOT contradict aeb fetching its OWN Aether above. The
+  distinction is ownership, and it is the whole point of the split:
+  - **Role 1 is aeb's own dependency** — exactly one thing, exactly one
+    version, known at release time, from one known source. Bounded, so
+    aeb can own it end-to-end.
+  - **Role 2 is the user's dependency** — arbitrary toolchains at
+    arbitrary versions from arbitrary package managers. Unbounded, so aeb
+    states the need and stops.
+
+  "Never provisions" was always a statement about the *unbounded* case.
+  A tool fetching its own pinned dependency is not the same act as a tool
+  trying to install everybody else's.
+
+- **Touching the user's `ae`.** The private toolchain lives under aeb's
+  cache dir, never on `PATH`, never in a system or user prefix. `which ae`
+  must give the same answer before and after aeb has run. No shadowing, no
+  upgrading, no `~/.local/bin` writes.
+- **Auto-selecting between installed Aethers for a TARGET.** If a target
+  declares `aether:0.410` and it is not present, fail closed and say so.
+  Choosing is the operator's job there.
 
 ## The objection, and the mitigation
 
@@ -123,13 +189,32 @@ Same fix available here: **derive, don't declare**. The primitives aeb
 consumes are greppable (`os.spawn_proc`, `os.wait_any_timeout`,
 `--emit=csrc`). A test can assert that every Aether symbol aeb calls exists
 in the pinned floor, so the floor is *checkable* rather than aspirational.
-Without that, this ask makes the failure message nicer and the accuracy
-worse over time — which is not obviously a win.
+
+**Self-fetching weakens this objection considerably**, which is the second
+reason it is worth doing. A drifting floor is dangerous when it is only an
+*assertion* — "0.442 is fine" while the code needs 0.449 means a confusing
+failure on someone else's machine. When aeb *fetches* the pinned version,
+the pin is what actually gets used, so a stale pin fails on the
+maintainer's own machine at the first build after the drift — loudly,
+locally, and immediately. The pin stops being a claim about the world and
+becomes a fact about the build.
+
+The residual risk is narrower: aeb's SOURCES calling a primitive newer than
+the pin. That is exactly what the greppable check catches, and it is a
+CI-side test rather than a runtime concern.
 
 ## Acceptance
 
-- Running aeb against an Aether below its floor produces ONE clear line
-  naming both versions, not `E0301` from a generated file.
+- On a machine with no suitable Aether, aeb fetches its pinned version
+  into its own cache, prints ONE line about it, and builds successfully —
+  without `E0301` from a generated file, and without a human bisecting
+  versions.
+- `which ae` returns the same path, and `ae --version` the same version,
+  before and after aeb has run. The user's toolchain is untouched.
+- With fetching disabled or unavailable (offline, policy), aeb states the
+  floor and the remedy in one line instead of failing in generated code.
+- The fetched toolchain is reused silently on subsequent runs (no
+  re-download, no per-build cost).
 - `prereq(b, "aether:X")` flows through `--prereqs` / `--preflight` like
   any other token, and `ae` is rejected as a misname for `aether`.
 - A target declaring an Aether **different** from aeb's own pin builds
