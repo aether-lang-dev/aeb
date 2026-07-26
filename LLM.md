@@ -996,6 +996,42 @@ prefix. So `make install-contrib` from the Aether source tree
 (typically requires sudo) suffices even when the toolchain itself
 was a per-user `make install`.
 
+## Two Aethers: pinned toolchain vs declared dep (PROPOSED)
+
+There is ONE `$AETHER` knob today doing TWO unrelated jobs: compiling
+aeb's own machinery (`transform-ae`, the orchestrator, `aeb-link`,
+`aeb-driver` — trampoline line 16) and compiling the USER'S program
+(`lib/aether/module.ae:1101`, inside `aether.program`). Conflating them
+is why winbaz died with `E0301: Undefined function 'os.spawn_proc'`:
+its ae was 0.413.0, aeb's driver needs 0.442, and the failure surfaced
+as a compile error in a generated file rather than "this aeb needs
+ae >= 0.442".
+
+Agreed shape (Paul's framing) — **not yet implemented**:
+
+- **aeb's own compilation is PINNED to the aeb release.** The Aether
+  that turns `.foo.ae` into an orchestrator is an implementation detail,
+  like the gcc that built your `make`. aeb should assert its floor at
+  startup in one line, not fail later in generated code.
+- **A target that builds Aether code DECLARES its Aether**, via the
+  existing `prereq(b, "aether:0.410")`. `aether` becomes a canonical
+  token beside `jdk`/`node`/`rust` (with `ae` a rejected misname), so
+  `--prereqs`, `--preflight`, `agent.prereq_to_image` and the agent's
+  `/ping` version all cover it for free — that `/ping` version is
+  currently advisory and consumed by nothing.
+- **The two may differ**, deliberately: same shape as building a Java 8
+  target on a Java 21 JVM.
+
+Still NO installer — states needs, observes presence, never provisions
+(`docs/build-prerequisites-and-provisioning.md`).
+
+The live objection: a hand-maintained floor DRIFTS, and a stale floor is
+worse than none. Mitigation is derive-don't-declare — the primitives aeb
+calls are greppable, so a test can assert they all exist in the pinned
+floor. Without that, this makes the error message nicer and the accuracy
+worse. Full write-up:
+`asks/two-aethers-pinned-toolchain-vs-declared-dep.md`.
+
 ## The load-bearing principle
 
 **The dot-prefixed `.ae` file is the single source of truth for
