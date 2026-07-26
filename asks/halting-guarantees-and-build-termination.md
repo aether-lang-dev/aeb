@@ -257,6 +257,35 @@ There is no per-node cap today (confirmed: no `timeout` handling in
 `tools/aeb-driver.ae`; the `timeout(300)` in TODO.md's DSL sketch is an
 illustrative junit setter, not a shipped node-level feature).
 
+### Blocked on aether#1278 (filed 2026-07-26)
+
+With `AEB_SCHED=native` there is now ONE scheduler to implement this in
+rather than two, which was the main cost. But the primitive is missing:
+`os.wait_any(tokens)` blocks indefinitely and has no bounded variant, so
+the drain step cannot notice that one child has overrun while others are
+still legitimately running.
+
+`os.wait_pid_timeout(pid, secs)` *is* bounded and **does** work on a
+spawn token — verified on 0.442.0 Linux: `sleep 30` spawned, bounded
+wait returned `timed_out=1` after 2 s, then `kill(tok, 9)` gave status
+**137**, distinguishable from any normal exit. But building on that
+would be POSIX-only, because the token is only a pid on POSIX. Aether's
+own comment says so (`std/os/aether_os.c`): `out._0 = (int)pid; /* token
+== pid on POSIX */`, whereas the Windows branch returns a table index
+and `os_wait_pid_timeout_raw` there calls `OpenProcess((DWORD)pid)`.
+
+So a per-node timeout written today would silently not fire on Windows —
+the exact two-path divergence the native scheduler exists to remove, and
+the "green build that proves nothing" shape this repo keeps hitting.
+
+Filed upstream as
+[aether#1278](https://github.com/aether-lang-org/aether/issues/1278):
+`os.wait_any_timeout(tokens, secs)` plus a contract that timeout/kill
+accept spawn *tokens* on every platform. **Do not implement per-node
+timeouts against `wait_pid_timeout` before that lands** — polling live
+tokens is the only alternative and costs a wakeup per second per node
+while still leaving the Windows hole.
+
 Sketch, **not designed, not promised**:
 
 - a `timeout(N)` setter on the driver side, or `AEB_NODE_TIMEOUT`;
