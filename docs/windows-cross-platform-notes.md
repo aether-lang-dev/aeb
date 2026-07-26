@@ -183,6 +183,58 @@ per-node timeout gap — any future per-node bound must work in *both*
 scheduling modes, which on Windows matters more than elsewhere because
 the sequential mode is the likelier one.
 
+## 5. Native scheduler + per-node timeout — verified on winbaz (2026-07-26)
+
+`AEB_SCHED=native` replaces the emitted Makefile with an in-process
+ready-queue over `os.spawn_proc` / `os.wait_any`. On Windows that is the
+*more* interesting path, because it removes the MSYS-`make` dependency
+described in § 4 entirely.
+
+Run on winbaz (Win11/MSYS2, `ae 0.449.0` native `windows-x86_64`), two
+independent 2s nodes plus a `.presubmit.ae` aggregating them:
+
+| Check | Result |
+|---|---|
+| `AEB_SCHED=native`, 2-node DAG | **exit 0**, both members ran, `2/2 PASS` |
+| `build.mk` written? | **absent** — no Makefile, no `make` involved |
+| per-node telemetry | `a 2.40s`, `b 2.39s`, **total 2.46s wall** → genuinely concurrent |
+| make path, same fixture | exit 0, `build.mk` emitted (unchanged) |
+| `AEB_NODE_TIMEOUT=6` w/ a hung node | **exit 1**, culprit named, `slow=137`, innocent `a=0`, telemetry rendered |
+
+So on native Windows aeb can now schedule a multi-node DAG **without
+`make` at all**, and bound each node's wall clock — neither of which the
+Makefile path can do there.
+
+### Toolchain gotcha that cost a build: `MSYSTEM`
+
+The winbaz Aether was 0.413.0, predating `os.spawn_proc` (0.442), so
+`aeb-driver` failed to compile with `E0301: Undefined function
+'os.spawn_proc'`. Rebuilding Aether from source then failed to LINK:
+
+```
+undefined reference to `pcre2_get_ovector_pointer_8'
+undefined reference to `compress2'          (zlib)
+undefined reference to `EVP_DigestFinal_ex' (openssl)
+```
+
+The libraries were all installed. The cause was the **environment**, not
+the packages: a plain `bash -l` over ssh gives `MSYSTEM=MSYS`, so
+`pkg-config` is the MSYS one searching `/usr/lib/pkgconfig`, while the
+MinGW packages live under `/mingw64`. Aether's Makefile asks
+`pkg-config --libs libpcre2-8`, gets nothing, and links without them.
+
+Fix — export these before building anything on winbaz:
+
+```bash
+export MSYSTEM=MINGW64
+export PATH=/mingw64/bin:/usr/bin:$PATH
+export PKG_CONFIG_PATH=/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig
+```
+
+With that, `make -j4` is clean and reports `ae 0.449.0`. Note pcre2 is a
+*new* Aether dependency relative to 0.413.0 — an old winbaz checkout will
+need `pacman -S mingw-w64-x86_64-pcre2` even with the env fixed.
+
 ## What aeb did NOT take
 
 - **Win32 Job Objects.** Nushell doesn't use them for the foreground/kill
