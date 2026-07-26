@@ -632,6 +632,24 @@ AEB_SCHED=native aeb .presubmit.ae
 Opt-in while it earns the default. `AEB_JOBS=1` still forces the
 sequential loop.
 
+**`AEB_NODE_TIMEOUT=<secs>`** caps each node's wall clock, which
+`--timeout` cannot: the whole-build watchdog kills the entire process
+group, so one hung node takes healthy siblings down with it. Per-node,
+only the culprit dies:
+
+```bash
+AEB_SCHED=native AEB_NODE_TIMEOUT=600 aeb .presubmit.ae
+```
+
+```
+aeb-driver: node slow/.tests.ae exceeded AEB_NODE_TIMEOUT=6s; terminating
+```
+
+The offender's `.rc` records **137** (128+SIGKILL), distinguishing a
+timeout from an ordinary failure; siblings finish normally and the
+`[telemetry]` block still renders — which the whole-build timeout path
+does not do at all. Native scheduler only (it warns if set without it).
+
 **`--in-process`** (or `AEB_IN_PROCESS=1`) runs the older all-in-one
 orchestrator — one process, all nodes in-process, tool output streamed
 inline. Simplest to debug, and fine for small builds. Design:

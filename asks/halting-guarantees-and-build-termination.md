@@ -308,6 +308,28 @@ notes the **Windows paths mirror POSIX but await a winbaz run** — so the
 cross-platform claim is reasoned, not yet measured, exactly as our own
 Windows work was until we ran it.
 
+## RESOLVED (2026-07-26) — `AEB_NODE_TIMEOUT`
+
+Shipped in the native scheduler once aether#1278 landed
+`os.wait_any_timeout` (0.447.0). Measured against the exact fixture that
+demonstrated the gap — a hung node and an innocent 3s one under a 6s cap:
+
+| | before (`--timeout 6`) | after (`AEB_NODE_TIMEOUT=6`) |
+|---|---|---|
+| hung node | killed | killed, **named** |
+| innocent sibling | killed mid-flight | **finishes** (`QUICK-FINISHED`) |
+| `.rc` attribution | — | `slow=137`, `quick=0` |
+| `[telemetry]` | **not rendered at all** | renders |
+
+137 is 128+SIGKILL, so a timeout is distinguishable from an ordinary
+non-zero exit. Native-scheduler only, and it says so rather than silently
+no-opping — the Makefile path would need `timeout(1)` in every recipe (a
+dependency aeb does not require) and would still be absent under
+`AEB_JOBS=1`. Implementing it in one scheduler rather than two is the
+whole reason the native path exists.
+
+The original sketch is kept below for the record.
+
 Sketch, **not designed, not promised**:
 
 - a `timeout(N)` setter on the driver side, or `AEB_NODE_TIMEOUT`;

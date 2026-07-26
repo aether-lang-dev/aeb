@@ -400,6 +400,30 @@ main() {
     // with less machinery).
     want_native = 0
     if string.equals(os.getenv("AEB_SCHED"), "native") == 1 { want_native = 1 }
+
+    // AEB_NODE_TIMEOUT=<secs> — a PER-NODE wall-clock cap, distinct from
+    // the trampoline's whole-build `--timeout`. The whole-build watchdog
+    // kills the entire process group, so one hung node takes healthy
+    // siblings with it (measured: a 10s node killed at 6s for a hung
+    // sibling's sin, with no [telemetry] rendered at all). A per-node cap
+    // bounds the culprit and lets everything else finish.
+    //
+    // Native scheduler only. The Makefile path would need `timeout(1)` in
+    // every recipe — an extra binary dependency aeb does not require, and
+    // it would still be absent under AEB_JOBS=1. Implementing it in one
+    // scheduler instead of two is the whole reason the native path exists.
+    node_timeout = 0
+    nt_env = os.getenv("AEB_NODE_TIMEOUT")
+    if string.length(nt_env) > 0 {
+        nt_v, _nte = string.to_int(string.trim(nt_env))
+        if nt_v > 0 { node_timeout = nt_v }
+    }
+    if node_timeout > 0 {
+        if want_native == 0 {
+            println("aeb-driver: AEB_NODE_TIMEOUT needs AEB_SCHED=native (ignored)")
+            node_timeout = 0
+        }
+    }
     if string.equals(jobs, "1") == 1 { want_native = 0 }
 
     have_make = 0
@@ -498,8 +522,46 @@ main() {
                     exit(1)
                 }
             } else {
-                // Drain: reap whichever finishes first.
-                rtok, rcode, rerr2 = os.wait_any(live)
+                // Drain: reap whichever finishes first. With a per-node
+                // budget, wait at most that long — wait_any_timeout's
+                // deadline is per CALL, so a node that has already burned
+                // part of its budget while a sibling ran is handled by the
+                // elapsed check below, not by the wait itself.
+                rtok = -1
+                rcode = -1
+                timed_out = 0
+                if node_timeout > 0 {
+                    rtok, rcode, timed_out, rerr3 = os.wait_any_timeout(live, node_timeout)
+                } else {
+                    rtok, rcode, rerr2 = os.wait_any(live)
+                }
+                if timed_out == 1 {
+                    // Nothing finished inside the budget: kill every node
+                    // that has outlived it, then loop to reap the corpses.
+                    // Killing only the OLDEST would be wrong when several
+                    // are hung; killing all under-budget ones would be
+                    // wrong when one is merely slow.
+                    now_ns = clock_ns()
+                    li = 0
+                    ln = list.size(live)
+                    while li < ln {
+                        ltok, _ = list.get(live, li)
+                        ltk = string.from_int(ltok)
+                        lseed = "0"
+                        if map.has(tok_start, ltk) == 1 { lseed, _ = map.get(tok_start, ltk) }
+                        lst_ns, _lse = string.to_long(lseed)
+                        elapsed_s = (now_ns - lst_ns) / 1000000000
+                        if elapsed_s >= node_timeout {
+                            lnode = ""
+                            if map.has(tok_node, ltk) == 1 { lnode, _ = map.get(tok_node, ltk) }
+                            println("aeb-driver: node ${lnode} exceeded AEB_NODE_TIMEOUT=${node_timeout}s; terminating")
+                            _kk = os.kill(ltok, 9)
+                        }
+                        li = li + 1
+                    }
+                    // Nothing reaped this pass; the kills land next loop.
+                    rtok = -1
+                }
                 rtk = string.from_int(rtok)
                 rnode = ""
                 if map.has(tok_node, rtk) == 1 { rnode, _ = map.get(tok_node, rtk) }
