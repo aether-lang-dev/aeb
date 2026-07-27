@@ -129,7 +129,12 @@ jobs:
           FETCH_VER="$(grep -v '^#' "$HOME_DIR/AETHER_FETCH" | tr -d '[:space:]')"
           curl -fsSL -o /tmp/ae.tgz \
             "https://github.com/aether-lang-org/aether/releases/download/v$FETCH_VER/aether-$FETCH_VER-linux-x86_64.tar.gz"
-          mkdir -p /tmp/aeth && tar xzf /tmp/ae.tgz -C /tmp/aeth --strip-components=1
+          # NO --strip-components: the Aether tarball has no top-level
+          # wrapper dir, so it extracts bin/ include/ lib/ share/ directly.
+          # Stripping a level flattens bin/ae to ./ae and the probe below
+          # then fails with "fetched aether cannot compile" — which is what
+          # happened on the first CI run. Verified against the real asset.
+          mkdir -p /tmp/aeth && tar xzf /tmp/ae.tgz -C /tmp/aeth
 
           # Probe by COMPILING, not by --version: the banner succeeds on a
           # toolchain whose aetherc is glibc-broken (v0.449.0 needed
