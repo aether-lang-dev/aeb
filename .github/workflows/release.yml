@@ -1,0 +1,188 @@
+name: release
+
+# Cut a GitHub Release for a v0.NNN tag, publishing the BOOTSTRAP PAYLOAD.
+#
+# What this ships and why it is deliberately small:
+#
+#   aeb-src-<tag>.tar.gz   the ~440 KB self-bootstrapping source payload —
+#                          the bash trampoline, tools/*.ae, lib/, and the
+#                          AETHER_PIN / AETHER_FETCH files. On a node with
+#                          a C compiler and a network this unpacks and
+#                          rebuilds aeb's tools on demand (measured: 11 of
+#                          27 tools, ~28s, build green).
+#   <asset>.sha256         so a node can VERIFY before it runs. Without
+#                          this, `curl | tar` is trust-me; with it, it is
+#                          verify-then-run, fail-closed.
+#
+# NOT shipped, on purpose: 27 per-platform tool binaries. They rebuild in
+# seconds from the source payload, and every extra asset is another
+# version-skew surface. The bootstrap chain is the product, not the bag of
+# binaries. (`aeb-cli-<os>-<arch>` will be added once aeb-cli can do the
+# pinned-Aether fetch itself — that logic is bash-only today, so a lone
+# aeb-cli binary cannot yet bootstrap. See
+# asks/release-and-node-bootstrap-plan.md gap 2.)
+#
+# Discipline copied from aeo's docs/releasing-aeo.md +
+# docs/operations/agent-host-setup.md: one tag -> one immutable asset set
+# -> SHA256s retained forever, a companion .sha256 per asset, and a run
+# summary printing the table to pin.
+#
+# Tags come from autotag.yml (every push to main -> next sequential
+# v0.NNN). This listens on the tag, so there is no loop.
+
+on:
+  push:
+    tags:
+      - 'v0.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag to (re)cut a release for'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve tag
+        id: tag
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Cutting release for $TAG"
+
+      # The payload is what a cold node needs to rebuild aeb, and nothing
+      # else. Excluding itests/ matters: it is 227 MB of fetched upstream
+      # projects, none of which a build node needs.
+      - name: Stage the bootstrap payload
+        id: stage
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          STAGE="aeb-src-$TAG"
+          mkdir -p "$STAGE"
+
+          cp aeb AETHER_PIN AETHER_FETCH Makefile LICENSE README.md "$STAGE/"
+          cp -r lib tools "$STAGE/"
+          # Ship the docs a node operator actually needs on the box.
+          mkdir -p "$STAGE/docs"
+          cp docs/aeb-host-vm-or-container-setup.md "$STAGE/docs/" || true
+
+          # No prebuilt binaries in the payload: the point is that it
+          # rebuilds. A stale binary here would be worse than none.
+          find "$STAGE/tools" -type f -perm -u+x ! -name '*.ae' ! -name '*.md' -delete || true
+
+          # Drop the Maven resolver: aeb-resolve.jar is 3.6 MB and its Java
+          # source tree another 3.7 MB — 7.3 MB of an otherwise 440 KB payload,
+          # for something ONLY lib/maven shells out to. No core tool
+          # references it (checked: aeb-main and aeb-link have zero hits), so
+          # a node that never builds a Java target never needs it. A Java
+          # node fetches the jar separately; making every node carry it to
+          # spare that one is the wrong trade.
+          rm -f "$STAGE/tools/aeb-resolve.jar"
+          rm -rf "$STAGE/tools/resolver"
+
+          tar czf "$STAGE.tar.gz" "$STAGE"
+          sha256sum "$STAGE.tar.gz" | tee "$STAGE.tar.gz.sha256"
+          echo "asset=$STAGE.tar.gz" >> "$GITHUB_OUTPUT"
+          echo "sha256=$(cut -d' ' -f1 "$STAGE.tar.gz.sha256")" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$STAGE.tar.gz" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      # A release whose payload cannot bootstrap is worse than no release:
+      # it looks official and fails on the user's node. So prove it here,
+      # on a runner with no aeb installed, before publishing. This is the
+      # regression test for the cold-bootstrap bug fixed in cc51d92 (the
+      # trampoline built aeb-main with no --lib and 2>/dev/null, so it
+      # died with E0301 and exited 0 with no output).
+      - name: Verify the payload actually bootstraps
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.tag.outputs.tag }}"
+          WORK="$(mktemp -d)"
+          tar xzf "aeb-src-$TAG.tar.gz" -C "$WORK"
+          HOME_DIR="$WORK/aeb-src-$TAG"
+
+          test ! -x "$HOME_DIR/tools/aeb-main" \
+            || { echo "payload contains a prebuilt aeb-main; it must rebuild"; exit 1; }
+
+          # Fetch the Aether the payload itself asks for, the same way a
+          # cold node would.
+          FETCH_VER="$(grep -v '^#' "$HOME_DIR/AETHER_FETCH" | tr -d '[:space:]')"
+          curl -fsSL -o /tmp/ae.tgz \
+            "https://github.com/aether-lang-org/aether/releases/download/v$FETCH_VER/aether-$FETCH_VER-linux-x86_64.tar.gz"
+          mkdir -p /tmp/aeth && tar xzf /tmp/ae.tgz -C /tmp/aeth --strip-components=1
+
+          # Probe by COMPILING, not by --version: the banner succeeds on a
+          # toolchain whose aetherc is glibc-broken (v0.449.0 needed
+          # GLIBC_2.38 and died on Debian 12 while --version worked).
+          printf 'main() { println("ok") \n return 0 }\n' > /tmp/probe.ae
+          /tmp/aeth/bin/ae run /tmp/probe.ae | grep -q ok \
+            || { echo "fetched aether cannot compile"; exit 1; }
+
+          mkdir -p "$WORK/proj/app"
+          printf '#!/usr/bin/env bash\necho BOOTSTRAPPED\n' > "$WORK/proj/app/t.sh"
+          chmod +x "$WORK/proj/app/t.sh"
+          cat > "$WORK/proj/app/.tests.ae" <<'EOF'
+          import build (start)
+          import bash (test, script)
+          aeb(cap) { b = build.start()
+              bash.test(b) { script("t.sh") } }
+          EOF
+
+          cd "$WORK/proj"
+          AETHER=/tmp/aeth/bin/ae "$HOME_DIR/aeb" app/.tests.ae | tee /tmp/out.txt
+          grep -q "1/1 PASS" /tmp/out.txt \
+            || { echo "payload did not bootstrap to a green build"; exit 1; }
+          echo "cold bootstrap OK: $(grep -c . /tmp/out.txt) lines"
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          files: |
+            aeb-src-${{ steps.tag.outputs.tag }}.tar.gz
+            aeb-src-${{ steps.tag.outputs.tag }}.tar.gz.sha256
+          fail_on_unmatched_files: true
+          body: |
+            Bootstrap payload for `${{ steps.tag.outputs.tag }}`.
+
+            **Verified in CI**: this tarball was unpacked on a clean runner,
+            fetched the Aether it pins, and rebuilt aeb to a green build —
+            so the payload is known to bootstrap, not merely known to exist.
+
+            ### Pin this
+
+            ```
+            ASSET=aeb-src-${{ steps.tag.outputs.tag }}.tar.gz
+            SHA=${{ steps.stage.outputs.sha256 }}
+            curl -fsSL .../releases/download/${{ steps.tag.outputs.tag }}/$ASSET -o $ASSET
+            echo "$SHA  $ASSET" | sha256sum -c -     # fail-closed
+            tar xzf $ASSET
+            ```
+
+            Then `aeb-src-${{ steps.tag.outputs.tag }}/aeb <target>` — it
+            fetches its own pinned Aether (private, never on `PATH`) and
+            rebuilds its tools on demand. See
+            `docs/aeb-host-vm-or-container-setup.md`.
+
+            | asset | sha256 | size |
+            |---|---|---|
+            | `aeb-src-${{ steps.tag.outputs.tag }}.tar.gz` | `${{ steps.stage.outputs.sha256 }}` | ${{ steps.stage.outputs.size }} |
+
+      - name: Summary
+        run: |
+          {
+            echo "## Release ${{ steps.tag.outputs.tag }}"
+            echo
+            echo "| asset | sha256 | size |"
+            echo "|---|---|---|"
+            echo "| \`${{ steps.stage.outputs.asset }}\` | \`${{ steps.stage.outputs.sha256 }}\` | ${{ steps.stage.outputs.size }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
