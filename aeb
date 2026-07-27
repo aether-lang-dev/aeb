@@ -13,9 +13,91 @@
 # as on modern Linux bash 4/5.
 set -eo pipefail
 
+# Did the USER pin $AETHER, or are we defaulting? Must be captured BEFORE the
+# default is applied — `AETHER="${AETHER:-ae}"` makes AETHER set either way,
+# so testing it afterwards can never distinguish the two (it can't; asked and
+# answered by a confused trace).
+_aeb_user_pinned_aether=0
+if [ -n "${AETHER+x}" ]; then _aeb_user_pinned_aether=1; fi
 AETHER="${AETHER:-ae}"
 AEB_HOME="$(cd "$(dirname "$0")" && pwd)"
 export AEB_HOME
+
+# --- aeb's OWN Aether: pinned, private, never the user's ------------------
+#
+# TWO Aethers, deliberately (asks/two-aethers-pinned-toolchain-vs-declared-dep.md):
+#
+#   1. THIS one compiles `.foo.ae` build files into aeb's orchestrator. It is
+#      an implementation detail of the aeb release — like the gcc that built
+#      your `make` binary — so aeb pins it (AETHER_PIN) and will fetch it into
+#      its own cache if what is on PATH is too old.
+#   2. The user's `ae` compiles the USER's program, inside aether.program().
+#      Untouched. Never shadowed, never upgraded, never on aeb's conscience.
+#      `which ae` answers the same before and after aeb runs.
+#
+# The failure this removes: aeb-driver calls os.spawn_proc (aether 0.442+).
+# On a box with 0.413 that surfaced as `E0301: Undefined function
+# 'os.spawn_proc'` inside a GENERATED file the user never wrote — followed by
+# a human bisecting Aether versions. Now aeb just fetches what it needs.
+#
+# Off switches, in precedence order:
+#   AETHER=<path>          explicit — you chose, aeb obeys, no pin check
+#   AEB_NO_FETCH=1         never download; assert the floor and explain
+_aeb_pin_file="$AEB_HOME/AETHER_PIN"
+_aeb_pin=""
+if [ -f "$_aeb_pin_file" ]; then
+    _aeb_pin=$(grep -v '^#' "$_aeb_pin_file" 2>/dev/null | tr -d '[:space:]')
+fi
+
+# `0.447.0` -> `447`, `1.2.0` -> `1002`. Aether versions as 0.x.y today (x
+# is the release train), so the minor is what moves — but folding major in
+# as major*1000 means a future 1.x sorts ABOVE 0.449 instead of below it,
+# which a naive minor-only compare gets backwards. Non-numeric or missing
+# fields degrade to 0 rather than trusting the string shape.
+_aeb_vnum() {
+    _vs=$(printf '%s' "${1:-}" | sed -e 's/^[Vv]//')
+    _vmaj=$(printf '%s' "$_vs" | sed -e 's/\..*$//')
+    _vmin=$(printf '%s' "$_vs" | sed -e 's/^[0-9]*\.//' -e 's/\..*$//')
+    case "$_vmaj" in ''|*[!0-9]*) _vmaj=0 ;; esac
+    case "$_vmin" in ''|*[!0-9]*) _vmin=0 ;; esac
+    printf '%s' "$(( _vmaj * 1000 + _vmin ))"
+}
+
+# Only when the user has NOT pinned $AETHER themselves and we know our floor.
+if [ -n "$_aeb_pin" ] && [ "$_aeb_user_pinned_aether" = "0" ]; then
+    _aeb_cache="${AEB_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/aeb}"
+    _aeb_priv="$_aeb_cache/toolchain/aether-$_aeb_pin"
+    if [ -x "$_aeb_priv/bin/ae" ]; then
+        # Already fetched on a previous run. Silent from here on.
+        AETHER="$_aeb_priv/bin/ae"
+    else
+        _aeb_have=$(command -v ae >/dev/null 2>&1 && ae --version 2>/dev/null | head -1 | sed -e 's/^ae //' -e 's/ .*$//' || printf '')
+        if [ "$(_aeb_vnum "$_aeb_have")" -lt "$(_aeb_vnum "$_aeb_pin")" ]; then
+            if [ "${AEB_NO_FETCH:-}" = "1" ]; then
+                echo "aeb: this aeb needs aether >= $_aeb_pin to compile its own build files" >&2
+                echo "aeb:   found ${_aeb_have:-none} on PATH; AEB_NO_FETCH=1 so nothing was fetched." >&2
+                echo "aeb:   install it, or unset AEB_NO_FETCH to let aeb fetch a private copy," >&2
+                echo "aeb:   or set AETHER=/path/to/ae to choose one explicitly." >&2
+                exit 2
+            fi
+            echo "aeb: fetching aether $_aeb_pin for aeb's own use (one-time, $_aeb_priv)" >&2
+            echo "aeb:   your own \`ae\` (${_aeb_have:-none}) is left alone." >&2
+            mkdir -p "$_aeb_priv"
+            _aeb_get="$_aeb_cache/toolchain/get-$_aeb_pin.sh"
+            if curl -sSL -o "$_aeb_get" \
+                 "https://raw.githubusercontent.com/aether-lang-org/aether/v$_aeb_pin/get.sh" 2>/dev/null \
+               && AETHER_REF="v$_aeb_pin" PREFIX="$_aeb_priv" sh "$_aeb_get" >"$_aeb_priv/fetch.log" 2>&1 \
+               && [ -x "$_aeb_priv/bin/ae" ]; then
+                AETHER="$_aeb_priv/bin/ae"
+                echo "aeb: aether $_aeb_pin ready." >&2
+            else
+                echo "aeb: could not fetch aether $_aeb_pin (see $_aeb_priv/fetch.log)." >&2
+                echo "aeb:   falling back to ${_aeb_have:-ae} on PATH — the build may fail with" >&2
+                echo "aeb:   'E0301: Undefined function' if it lacks a primitive aeb needs." >&2
+            fi
+        fi
+    fi
+fi
 # Absolute path to THIS trampoline, so a tool that needs to re-invoke aeb
 # (e.g. aeb-remote running `aeb --prereqs <target>` to derive a toolchain
 # image, ladder Rung 3) hits the same aeb, not a different one on PATH.
@@ -536,7 +618,28 @@ fi
 # --- Normal build: lazy-build the main tool ---
 AEB_MAIN_BIN="$AEB_HOME/tools/aeb-main"
 if [[ ! -x "$AEB_MAIN_BIN" ]]; then
-    "$AETHER" build "$AEB_HOME/tools/aeb-main.ae" -o "$AEB_MAIN_BIN" 2>/dev/null
+    # COLD BOOTSTRAP: no prebuilt aeb-main (a source-only ship, or a tree
+    # where `make install` never ran). Two details are load-bearing and
+    # were both missing until 2026-07-26 — the bug was invisible because
+    # `make install` normally pre-builds this binary, so the path only runs
+    # on a genuinely cold tree:
+    #
+    #   --lib "$AEB_HOME/tools" --lib "$AEB_HOME/lib"
+    #     aeb-main imports `build` (build._exe_suffix) and `aeblabel`. cwd
+    #     is the USER'S PROJECT here, not $AEB_HOME, and aetherc resolves
+    #     imports against cwd + --lib — so without these it fails with
+    #     `E0301: Undefined function 'build._exe_suffix'`.
+    #
+    #   no 2>/dev/null
+    #     that swallowed the E0301 and left an unbuilt binary, so the next
+    #     line exec'd something that did not exist and aeb died with no
+    #     output at all. A bootstrap that cannot bootstrap must SAY SO.
+    if ! "$AETHER" build "$AEB_HOME/tools/aeb-main.ae" -o "$AEB_MAIN_BIN" \
+             --lib "$AEB_HOME/tools" --lib "$AEB_HOME/lib"; then
+        echo "aeb: could not build tools/aeb-main from source (see the aetherc error above)." >&2
+        echo "aeb:   this is the cold-bootstrap path; \`make install\` normally pre-builds it." >&2
+        exit 1
+    fi
 fi
 
 if [[ -n "${AEB_TELEMETRY_JSON:-}" && -z "${AEB_VERSION:-}" ]]; then

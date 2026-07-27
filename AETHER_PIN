@@ -1,0 +1,15 @@
+# The Aether release aeb's OWN machinery is built against.
+#
+# This is NOT the Aether that compiles your program — that one is yours,
+# resolved from $AETHER / PATH, and aeb never touches it. This pin is only
+# for compiling `.foo.ae` build files into aeb's orchestrator, and is an
+# implementation detail of this aeb release (like the gcc that built your
+# `make` binary).
+#
+# aeb fetches this version into its own cache on first use if the ae on
+# PATH is older. See asks/two-aethers-pinned-toolchain-vs-declared-dep.md
+#
+# One bare version string. Bump when aeb starts calling a primitive that
+# an older Aether lacks (e.g. os.spawn_proc needed 0.442,
+# os.wait_any_timeout needed 0.447).
+0.447.0
