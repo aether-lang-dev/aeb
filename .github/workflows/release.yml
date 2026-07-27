@@ -30,15 +30,26 @@ name: release
 # Tags come from autotag.yml (every push to main -> next sequential
 # v0.NNN). This listens on the tag, so there is no loop.
 
+# TRIGGERED BY autotag.yml VIA workflow_call, not by the tag push itself.
+# GitHub suppresses workflow triggers for pushes made with the default
+# GITHUB_TOKEN (loop prevention), and autotag pushes tags with exactly that
+# token — so an `on: push: tags:` here would never fire. It is deliberately
+# absent rather than present-and-dead: a trigger that silently never runs is
+# worse than no trigger, because it reads as working. (Found by noticing
+# v0.276 existed with no release attached.)
 on:
-  push:
-    tags:
-      - 'v0.*'
+  workflow_call:
+    inputs:
+      tag:
+        description: 'Tag to cut a release for'
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
         description: 'Existing tag to (re)cut a release for'
         required: true
+        type: string
 
 permissions:
   contents: write
@@ -49,14 +60,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ inputs.tag }}
           fetch-depth: 0
           fetch-tags: true
 
       - name: Resolve tag
         id: tag
         run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          TAG="${{ inputs.tag }}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Cutting release for $TAG"
 

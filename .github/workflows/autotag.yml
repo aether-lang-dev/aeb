@@ -27,6 +27,8 @@ permissions:
 jobs:
   tag:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,12 +36,14 @@ jobs:
           fetch-tags: true
 
       - name: Tag next v0.NNN
+        id: tag
         run: |
           set -euo pipefail
 
           # Skip if this commit is already tagged v0.* (re-run / manual tag).
           if git tag --points-at HEAD | grep -q '^v0\.'; then
             echo "HEAD already carries a v0.* tag — nothing to do."
+            echo "tag=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
 
@@ -54,4 +58,27 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "$tag" -m "aeb $tag (auto-tagged from $(git rev-parse --short HEAD))"
           git push origin "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Tagged and pushed $tag"
+
+  # Cut the release for the tag we just pushed.
+  #
+  # WHY CALLED, NOT TRIGGERED. release.yml also declares `on: push: tags`,
+  # but that can NEVER fire for these tags: GitHub deliberately suppresses
+  # workflow triggers for pushes made with the default GITHUB_TOKEN, to
+  # stop workflows looping. So the tag landed (v0.276 -> 54297df) and
+  # release.yml simply never ran — no release, no .sha256, nothing to see.
+  # Diagnosed the hard way by looking for the missing asset.
+  #
+  # Options were: (a) push tags with a PAT so the trigger fires, (b) call
+  # the release workflow directly. (b) wins — no extra secret to hold,
+  # rotate or leak, and the chain is visible in one file instead of being
+  # an emergent property of token choice.
+  release:
+    needs: tag
+    if: needs.tag.outputs.tag != ''
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.tag.outputs.tag }}
+    permissions:
+      contents: write
