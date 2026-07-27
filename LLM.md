@@ -1031,6 +1031,31 @@ Agreed shape (Paul's framing) — **not yet implemented**:
 Still NO installer — states needs, observes presence, never provisions
 (`docs/build-prerequisites-and-provisioning.md`).
 
+**IMPLEMENTED (2026-07-27)** for Role 1, as TWO files, because two
+different clocks were being conflated:
+
+- **`AETHER_PIN`** — the FLOOR: oldest Aether that can compile aeb's own
+  sources. Moves only when aeb starts calling a primitive an older
+  Aether lacks; historically ~3 times across hundreds of releases. Bump
+  it in the same commit that introduces the call.
+- **`AETHER_FETCH`** — WHICH known-good release to download when the
+  floor is unmet. Can be newer for non-language reasons (today: glibc —
+  releases built on ubuntu-latest carry a GLIBC_2.38 floor whose
+  `aetherc` dies on Debian 12, while `ae --version` still succeeds).
+
+Conflating them bites immediately: bumping the PIN to chase a nicer
+release forces a needless fetch on everyone between the two versions
+(seen live — this box on 0.451 was told it needed 0.452). The cache dir
+is keyed on the FETCH version, not the floor, or a bumped AETHER_FETCH
+silently reuses the stale tree.
+
+**Cadence policy**: Aether cuts releases fast (seven on 2026-07-26).
+Don't chase it. aeb has no downstream user community yet, so staying
+near HEAD is cheap; when that changes, slow `AETHER_FETCH` down to
+soaked releases and leave `AETHER_PIN` as the sparse evidence-driven
+floor it already is. No mechanism change needed for that — only
+discipline about when the numbers move.
+
 The live objection: a hand-maintained floor DRIFTS, and a stale floor is
 worse than none. Mitigation is derive-don't-declare — the primitives aeb
 calls are greppable, so a test can assert they all exist in the pinned

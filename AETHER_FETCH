@@ -13,4 +13,29 @@
 # Keeping these separate means someone on 0.451 is NOT forced to re-fetch
 # just because a nicer release exists — their 0.451 already clears the
 # 0.447 floor.
+#
+# --- MAINTENANCE POLICY (2026-07-27) ---
+#
+# Aether currently cuts releases FAST — seven on 2026-07-26 alone. Chasing
+# that with a hand-edited file would be a full-time tic, so DON'T. The two
+# files move on deliberately different clocks:
+#
+#   AETHER_PIN    moves only when aeb starts calling a primitive an older
+#                 Aether lacks. Historically THREE times (0.410, 0.413,
+#                 0.442-ish) across hundreds of releases. Bump it in the
+#                 same commit that introduces the call, never speculatively.
+#
+#   AETHER_FETCH  moves when a known-good release is worth preferring for
+#                 reasons unrelated to language features — today glibc
+#                 portability. Bump on EVIDENCE (a release that fixes a
+#                 real portability problem), not on novelty. A newer number
+#                 here is not automatically better; it is another thing to
+#                 have tested.
+#
+# aeb has no downstream user community yet, so keeping close to HEAD is
+# cheap and we can afford to move fast. When that changes, the honest
+# move is to slow AETHER_FETCH down — pin it to a release that has been
+# soaked, and let AETHER_PIN keep being the sparse, evidence-driven floor
+# it already is. The mechanism does not need to change for that; only the
+# discipline about when these numbers move does.
 0.452.0
