@@ -66,7 +66,23 @@ _aeb_vnum() {
 # Only when the user has NOT pinned $AETHER themselves and we know our floor.
 if [ -n "$_aeb_pin" ] && [ "$_aeb_user_pinned_aether" = "0" ]; then
     _aeb_cache="${AEB_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/aeb}"
-    _aeb_priv="$_aeb_cache/toolchain/aether-$_aeb_pin"
+    # WHICH release to fetch is a separate question from the FLOOR.
+    # AETHER_PIN is the oldest Aether that can compile aeb's sources;
+    # AETHER_FETCH (optional) names a known-good release to download. They
+    # differ over glibc: releases built on ubuntu-latest carry a GLIBC_2.38
+    # floor whose `aetherc` dies on Debian 12 (2.36), while `ae --version`
+    # still succeeds — so a version-only probe calls it healthy. Aether's
+    # release.yml now pins ubuntu-22.04 (glibc 2.35).
+    #
+    # The cache dir is keyed on the FETCH version, not the floor: keying it
+    # on the floor made a bumped AETHER_FETCH silently reuse the older tree
+    # (seen: "fetching 0.452.0" landing in .../aether-0.447.0).
+    _aeb_fetch_ver="$_aeb_pin"
+    if [ -f "$AEB_HOME/AETHER_FETCH" ]; then
+        _aeb_fv=$(grep -v '^#' "$AEB_HOME/AETHER_FETCH" 2>/dev/null | tr -d '[:space:]')
+        if [ -n "$_aeb_fv" ]; then _aeb_fetch_ver="$_aeb_fv"; fi
+    fi
+    _aeb_priv="$_aeb_cache/toolchain/aether-$_aeb_fetch_ver"
     if [ -x "$_aeb_priv/bin/ae" ]; then
         # Already fetched on a previous run. Silent from here on.
         AETHER="$_aeb_priv/bin/ae"
@@ -80,18 +96,18 @@ if [ -n "$_aeb_pin" ] && [ "$_aeb_user_pinned_aether" = "0" ]; then
                 echo "aeb:   or set AETHER=/path/to/ae to choose one explicitly." >&2
                 exit 2
             fi
-            echo "aeb: fetching aether $_aeb_pin for aeb's own use (one-time, $_aeb_priv)" >&2
+            echo "aeb: fetching aether $_aeb_fetch_ver for aeb's own use (one-time, $_aeb_priv)" >&2
             echo "aeb:   your own \`ae\` (${_aeb_have:-none}) is left alone." >&2
             mkdir -p "$_aeb_priv"
-            _aeb_get="$_aeb_cache/toolchain/get-$_aeb_pin.sh"
+            _aeb_get="$_aeb_cache/toolchain/get-$_aeb_fetch_ver.sh"
             if curl -sSL -o "$_aeb_get" \
-                 "https://raw.githubusercontent.com/aether-lang-org/aether/v$_aeb_pin/get.sh" 2>/dev/null \
-               && AETHER_REF="v$_aeb_pin" PREFIX="$_aeb_priv" sh "$_aeb_get" >"$_aeb_priv/fetch.log" 2>&1 \
+                 "https://raw.githubusercontent.com/aether-lang-org/aether/v$_aeb_fetch_ver/get.sh" 2>/dev/null \
+               && AETHER_REF="v$_aeb_fetch_ver" PREFIX="$_aeb_priv" sh "$_aeb_get" >"$_aeb_priv/fetch.log" 2>&1 \
                && [ -x "$_aeb_priv/bin/ae" ]; then
                 AETHER="$_aeb_priv/bin/ae"
-                echo "aeb: aether $_aeb_pin ready." >&2
+                echo "aeb: aether $_aeb_fetch_ver ready." >&2
             else
-                echo "aeb: could not fetch aether $_aeb_pin (see $_aeb_priv/fetch.log)." >&2
+                echo "aeb: could not fetch aether $_aeb_fetch_ver (see $_aeb_priv/fetch.log)." >&2
                 echo "aeb:   falling back to ${_aeb_have:-ae} on PATH — the build may fail with" >&2
                 echo "aeb:   'E0301: Undefined function' if it lacks a primitive aeb needs." >&2
             fi

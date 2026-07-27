@@ -1,0 +1,16 @@
+# WHICH Aether release aeb downloads when AETHER_PIN is not satisfied.
+#
+# Separate from AETHER_PIN on purpose. The PIN is a FLOOR — the oldest
+# Aether that can compile aeb's sources. This is a KNOWN-GOOD release to
+# actually fetch, and it can be newer for reasons unrelated to language
+# features. Today that reason is glibc: releases built on ubuntu-latest
+# carry a GLIBC_2.38 floor whose `aetherc` dies on Debian 12 (glibc 2.36)
+# — while `ae --version` still succeeds, so a version-only probe reports
+# a healthy toolchain that cannot build. Aether's release.yml now pins
+# ubuntu-22.04 (glibc 2.35); 0.452.0 measures at GLIBC_2.34 and compiles
+# on Debian 12.
+#
+# Keeping these separate means someone on 0.451 is NOT forced to re-fetch
+# just because a nicer release exists — their 0.451 already clears the
+# 0.447 floor.
+0.452.0

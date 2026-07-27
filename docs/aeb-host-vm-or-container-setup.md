@@ -71,23 +71,37 @@ unbuilt until something invokes them, so you pay only for what you use.
 And Aether itself is a **2.8 MB binary tarball**, not a source build:
 
 ```
-https://github.com/aether-lang-org/aether/releases/download/v0.449.0/aether-0.449.0-linux-x86_64.tar.gz
+https://github.com/aether-lang-org/aether/releases/download/v0.452.0/aether-0.452.0-linux-x86_64.tar.gz
 ```
 
-Measured: **946 ms** to download and extract, versus **318 s** to build the
-same version from source. A 336× difference, and it ships the complete
+Measured: **~1 s** to download and extract, versus **318 s** to build the
+same version from source. A ~300× difference, and it ships the complete
 layout (`bin/`, `include/`, `lib/libaether.a`, `share/`). Assets exist for
 `linux-x86_64`, `macos-arm64`, `macos-x86_64`, and `windows-x86_64.zip`.
 
 So a genuinely cold node is **~1s of Aether + ~28s of aeb ≈ 30 seconds**.
 
-> **Verify before you celebrate.** The prebuilt Aether is glibc-coupled: on
-> Debian 12 (glibc 2.36) the v0.449.0 binary runs `ae --version` fine but
-> `aetherc` dies with `GLIBC_2.38 not found`. A node-setup script must
-> probe by **actually compiling something**, not by running `--version` —
-> the version check passes on a toolchain that cannot build. (Same class of
-> trap as an `os.exec` probe that reports success on a failed command.)
-> When the prebuilt binary fails that probe, fall back to the source build.
+> **Probe by compiling, not by `--version`.** This bit for real and the
+> fix is instructive. v0.449.0's `aetherc` needed `GLIBC_2.38` and died on
+> Debian 12 (glibc 2.36) — while `ae --version` reported success, because
+> the version banner does not invoke the compiler. A setup script that
+> checks `--version` would have declared that toolchain healthy.
+>
+> **Already fixed upstream**: Aether's `release.yml` pins the Linux build
+> to **`ubuntu-22.04` (glibc 2.35)** rather than `ubuntu-latest` (24.04 =
+> 2.39), precisely because "ubuntu-latest … broke the release on Debian 12
+> (glibc 2.36) and other still-current distros". glibc symbol versioning
+> is forward-only, so building on the *oldest* supported runner is what
+> makes a binary portable *forward*. Verified: v0.452.0's floor is
+> **GLIBC_2.34** and it compiles here; v0.449.0's was 2.38 and did not.
+> Their `docs/release-glibc-portability.md` records musl-static as the
+> longer-term plan.
+>
+> The lesson survives the fix: **a node-setup script must probe by
+> actually compiling something**, since `--version` succeeds on a
+> toolchain that cannot build. Same class of trap as an `os.exec` probe
+> that reports success on a failed command. When the probe fails, fall
+> back to the source build.
 
 ### Tier 3 — container-out: binaries made inside, used outside
 
