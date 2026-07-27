@@ -58,7 +58,7 @@ jobs:
   release:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
@@ -159,39 +159,66 @@ jobs:
             || { echo "payload did not bootstrap to a green build"; exit 1; }
           echo "cold bootstrap OK: $(grep -c . /tmp/out.txt) lines"
 
+      # Published with `gh release create`, NOT softprops/action-gh-release.
+      #
+      # WHY: that was the only third-party action in this repo, and it ran
+      # in the job holding `contents: write` — the exact shape of the
+      # tj-actions/changed-files compromise (Mar 2025). A `@v2` tag is
+      # MUTABLE: whoever controls that account can change what runs under
+      # it, on the run that publishes our artifacts.
+      #
+      # SHA-pinning would fix the mutability, but `gh` is preinstalled on
+      # every runner and authenticates with the same GITHUB_TOKEN, so the
+      # dependency buys nothing here. Removing it means: no third-party
+      # code in the release path, no allowlist entry needed if the org
+      # enables "select non-aether-lang-org actions", and no pin to keep
+      # fresh. The remaining `actions/checkout` is GitHub-owned.
       - name: Publish
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          files: |
-            aeb-src-${{ steps.tag.outputs.tag }}.tar.gz
-            aeb-src-${{ steps.tag.outputs.tag }}.tar.gz.sha256
-          fail_on_unmatched_files: true
-          body: |
-            Bootstrap payload for `${{ steps.tag.outputs.tag }}`.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          SHA256: ${{ steps.stage.outputs.sha256 }}
+        run: |
+          set -euo pipefail
+          ASSET="aeb-src-$TAG.tar.gz"
+          test -f "$ASSET" && test -f "$ASSET.sha256"
 
-            **Verified in CI**: this tarball was unpacked on a clean runner,
-            fetched the Aether it pins, and rebuilt aeb to a green build —
-            so the payload is known to bootstrap, not merely known to exist.
+          cat > /tmp/notes.md <<EOF
+          Bootstrap payload for \`$TAG\`.
 
-            ### Pin this
+          **Verified in CI**: this tarball was unpacked on a clean runner,
+          fetched the Aether it pins, probed that toolchain by *compiling*
+          (not \`--version\`), and rebuilt aeb to a green build — so the
+          payload is known to bootstrap, not merely known to exist.
 
-            ```
-            ASSET=aeb-src-${{ steps.tag.outputs.tag }}.tar.gz
-            SHA=${{ steps.stage.outputs.sha256 }}
-            curl -fsSL .../releases/download/${{ steps.tag.outputs.tag }}/$ASSET -o $ASSET
-            echo "$SHA  $ASSET" | sha256sum -c -     # fail-closed
-            tar xzf $ASSET
-            ```
+          ### Pin this
 
-            Then `aeb-src-${{ steps.tag.outputs.tag }}/aeb <target>` — it
-            fetches its own pinned Aether (private, never on `PATH`) and
-            rebuilds its tools on demand. See
-            `docs/aeb-host-vm-or-container-setup.md`.
+          \`\`\`
+          ASSET=$ASSET
+          SHA=$SHA256
+          curl -fsSL .../releases/download/$TAG/\$ASSET -o \$ASSET
+          echo "\$SHA  \$ASSET" | sha256sum -c -     # fail-closed
+          tar xzf \$ASSET
+          \`\`\`
 
-            | asset | sha256 | size |
-            |---|---|---|
-            | `aeb-src-${{ steps.tag.outputs.tag }}.tar.gz` | `${{ steps.stage.outputs.sha256 }}` | ${{ steps.stage.outputs.size }} |
+          Then \`aeb-src-$TAG/aeb <target>\` — it fetches its own pinned
+          Aether (private, never on \`PATH\`) and rebuilds its tools on
+          demand. See \`docs/aeb-host-vm-or-container-setup.md\`.
+
+          | asset | sha256 |
+          |---|---|
+          | \`$ASSET\` | \`$SHA256\` |
+          EOF
+
+          # --clobber so a re-cut of the same tag replaces assets rather
+          # than failing half-published.
+          gh release create "$TAG" \
+            --title "aeb $TAG" \
+            --notes-file /tmp/notes.md \
+            --repo "$GITHUB_REPOSITORY" \
+            "$ASSET" "$ASSET.sha256" \
+          || gh release upload "$TAG" "$ASSET" "$ASSET.sha256" \
+               --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Summary
         run: |
