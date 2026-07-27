@@ -4,7 +4,7 @@ name: release
 #
 # What this ships and why it is deliberately small:
 #
-#   aeb-src-<tag>.tar.gz   the ~440 KB self-bootstrapping source payload —
+#   aeb-bootstrap.tar.gz   the ~445 KB self-bootstrapping source payload —
 #                          the bash trampoline, tools/*.ae, lib/, and the
 #                          AETHER_PIN / AETHER_FETCH files. On a node with
 #                          a C compiler and a network this unpacks and
@@ -78,7 +78,20 @@ jobs:
         id: stage
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
-          STAGE="aeb-src-$TAG"
+          # NAMING. Family convention (aeo): <artifact>-<variant>, with the
+          # TAG carrying the version — aeo ships aeo-agent-linux-x86_64-static,
+          # not aeo-agent-v0.1.7-linux-x86_64. Matching that here.
+          #
+          # The version was in the name until v0.279 and it read as
+          # inconsistent beside GitHub's own auto-attached assets, which use
+          # a third convention entirely and CANNOT be renamed or suppressed:
+          #   aether-lang-org-aeb-v0.279-0-gf505afd.tar.gz   ("Source code")
+          # Three schemes on one page invites grabbing the wrong tarball —
+          # and the wrong one here is materially wrong: GitHub's is the WHOLE
+          # repo (itests/, the 7.3 MB Maven resolver) with NO published sha,
+          # versus our 445 KB verified bootstrap payload. "bootstrap" in the
+          # name says which is which at a glance.
+          STAGE="aeb-bootstrap"
           mkdir -p "$STAGE"
 
           cp aeb AETHER_PIN AETHER_FETCH Makefile LICENSE README.md "$STAGE/"
@@ -118,8 +131,8 @@ jobs:
           set -euo pipefail
           TAG="${{ steps.tag.outputs.tag }}"
           WORK="$(mktemp -d)"
-          tar xzf "aeb-src-$TAG.tar.gz" -C "$WORK"
-          HOME_DIR="$WORK/aeb-src-$TAG"
+          tar xzf "aeb-bootstrap.tar.gz" -C "$WORK"
+          HOME_DIR="$WORK/aeb-bootstrap"
 
           test ! -x "$HOME_DIR/tools/aeb-main" \
             || { echo "payload contains a prebuilt aeb-main; it must rebuild"; exit 1; }
@@ -180,11 +193,17 @@ jobs:
           SHA256: ${{ steps.stage.outputs.sha256 }}
         run: |
           set -euo pipefail
-          ASSET="aeb-src-$TAG.tar.gz"
+          ASSET="aeb-bootstrap.tar.gz"
           test -f "$ASSET" && test -f "$ASSET.sha256"
 
           cat > /tmp/notes.md <<EOF
           Bootstrap payload for \`$TAG\`.
+
+          > Use **\`aeb-bootstrap.tar.gz\`** below — not GitHub's
+          > auto-attached *Source code* assets. Those are the whole repo
+          > (including \`itests/\` and the 7.3 MB Maven resolver) and carry
+          > no published checksum. This one is the minimal payload a build
+          > node needs, with a SHA to verify against.
 
           **Verified in CI**: this tarball was unpacked on a clean runner,
           fetched the Aether it pins, probed that toolchain by *compiling*
@@ -201,7 +220,7 @@ jobs:
           tar xzf \$ASSET
           \`\`\`
 
-          Then \`aeb-src-$TAG/aeb <target>\` — it fetches its own pinned
+          Then \`aeb-bootstrap/aeb <target>\` — it fetches its own pinned
           Aether (private, never on \`PATH\`) and rebuilds its tools on
           demand. See \`docs/aeb-host-vm-or-container-setup.md\`.
 
