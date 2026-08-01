@@ -168,12 +168,40 @@ jobs:
             echo "fetchver=$(grep -v '^#' "$STAGE/AETHER_FETCH" | tr -d '[:space:]')"
           } >> "$GITHUB_OUTPUT"
 
+      # THIS IS NOT A TEST SUITE, AND MUST NOT BECOME ONE.
+      #
+      # Cutting a release deliberately runs NO unit tests and NO itests —
+      # not tests/run.sh, not presubmit-smoke, none of it. Whether aeb's
+      # SDKs, tools and cache wiring work is ci.yml's job on main, answered
+      # on this very commit; re-running it at tag time would re-answer a
+      # question already answered, and slow every release to do it.
+      #
+      # What this step checks is the ARTIFACT, which is a different claim
+      # and one CI structurally cannot make: the tarball does not exist
+      # until the step above builds it. Everything below is about the
+      # payload, never about aeb's behaviour —
+      #
+      #   * does it match what the release notes say it is (no stray
+      #     executables under a "source only" description)?
+      #   * does the Aether it pins actually exist and compile?
+      #   * does THIS tarball bootstrap on a machine with no aeb?
+      #   * does the `make install` path the notes document work?
+      #
+      # The tiny bash.test fixture below is not testing aeb; it is the
+      # smallest proof that the unpacked payload reaches a working state.
+      # It could as well be `aeb --list`.
+      #
+      # Three real bugs shipped or nearly shipped through this gap, all of
+      # them invisible to a green main:
+      #   * --strip-components flattened bin/ (caught by the compile probe)
+      #   * veto/ + sandbox/ missing from staging broke `make install` —
+      #     SHIPPED in v0.280, because verify only ran aeb in place
+      #   * the cold-bootstrap bug fixed in cc51d92: the trampoline built
+      #     aeb-main with no --lib and 2>/dev/null, so it died with E0301
+      #     and exited 0 with no output
+      #
       # A release whose payload cannot bootstrap is worse than no release:
-      # it looks official and fails on the user's node. So prove it here,
-      # on a runner with no aeb installed, before publishing. This is the
-      # regression test for the cold-bootstrap bug fixed in cc51d92 (the
-      # trampoline built aeb-main with no --lib and 2>/dev/null, so it
-      # died with E0301 and exited 0 with no output).
+      # it looks official and fails on the user's node.
       - name: Verify the payload actually bootstraps
         run: |
           set -euo pipefail
