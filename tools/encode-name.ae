@@ -28,8 +28,8 @@ extern exit(code: int)
 //
 // The implementation was inlined here (and in those two) as
 // `string_replace_all`, which collides with a C symbol std.string gained in
-// aether 0.465.0: "multiple definition of `string_replace_all'", a link
-// failure that broke `make` outright on any aether >= 0.465.
+// aether 0.463.0: "multiple definition of `string_replace_all'", a link
+// failure that broke `make` outright on any aether >= 0.463.
 
 main() {
     argc = aether_args_count()

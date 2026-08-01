@@ -17,7 +17,7 @@ import aeblabel (file_to_label, infer_type, encode_name)
 
 // encode_name + its replace-all helper come from aeblabel too (imported
 // above). They were local copies named `string_replace_all` — which
-// collides with a C symbol std.string gained in aether 0.465.0, a hard
+// collides with a C symbol std.string gained in aether 0.463.0, a hard
 // link error. The Windows rationale for keeping them shell-free (a
 // `printf | sed` shell-out returns empty under cmd.exe, yielding an
 // unparseable orchestrator) moved with them.

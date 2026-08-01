@@ -138,7 +138,7 @@ cd itests
 Aether's std already exports as a C symbol.
 
 Three tools (`aeb-link`, `gen-orchestrator`, `encode-name`) each carried a
-local helper named `string_replace_all`. Aether **0.465.0** added a C
+local helper named `string_replace_all`. Aether **0.463.0** added a C
 function with exactly that name, and two definitions of one symbol is a
 hard link error — `make` stopped working outright on any newer Aether.
 Nothing caught it: the unit suite never builds those tools, and CI pins an

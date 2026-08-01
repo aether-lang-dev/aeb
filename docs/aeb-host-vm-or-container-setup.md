@@ -72,7 +72,7 @@ And Aether itself is a **binary tarball where one is published**, with a
 source build as the fallback:
 
 ```
-https://github.com/aether-lang-dev/aether/releases/download/v0.452.0/aether-0.452.0-linux-x86_64.tar.gz
+https://github.com/aether-lang-dev/aether/releases/download/v0.463.0/aether-0.463.0-linux-x86_64.tar.gz
 ```
 
 Measured (v0.472.0, one box): **under 1 s** to download and extract, versus
@@ -119,6 +119,9 @@ does not.
 > is forward-only, so building on the *oldest* supported runner is what
 > makes a binary portable *forward*. Verified: v0.452.0's floor is
 > **GLIBC_2.34** and it compiles here; v0.449.0's was 2.38 and did not.
+> Re-checked when AETHER_PIN moved to 0.463.0 (for `string.replace_all`):
+> both 0.463.0 and 0.472.0 still measure **GLIBC_2.34**, so the bump costs
+> no portability.
 > Their `docs/release-glibc-portability.md` records musl-static as the
 > longer-term plan.
 >

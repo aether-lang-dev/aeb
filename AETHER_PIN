@@ -11,7 +11,7 @@
 #
 # One bare version string. Bump when aeb starts calling a primitive that
 # an older Aether lacks (e.g. os.spawn_proc needed 0.442,
-# os.wait_any_timeout needed 0.447).
+# os.wait_any_timeout needed 0.447, string.replace_all needed 0.463).
 #
 # This is a FLOOR, not a preference: it is the oldest Aether that can
 # compile aeb's own sources. Anything newer on PATH is accepted as-is.
@@ -24,4 +24,4 @@
 # now pins ubuntu-22.04 (glibc 2.35) and 0.452.0 measures at GLIBC_2.34.
 # That affects WHICH RELEASE TO FETCH when the pin is not satisfied, not
 # what the floor is — so it belongs in the fetch logic, not here.
-0.447.0
+0.463.0

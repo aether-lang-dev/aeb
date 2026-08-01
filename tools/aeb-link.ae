@@ -369,7 +369,7 @@ _resolve_aether_include(aether_dir: string) {
 // encode_name + its replace-all helper now live in aeblabel (imported
 // above), alongside file_to_label/infer_type. They were local copies named
 // `string_replace_all`, which collides with a C symbol std.string gained in
-// aether 0.465.0 — a hard link error, not a style issue.
+// aether 0.463.0 — a hard link error, not a style issue.
 
 // First word of a space-separated string
 first_word(s: string) {

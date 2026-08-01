@@ -32,10 +32,18 @@
 #                 here is not automatically better; it is another thing to
 #                 have tested.
 #
+# MUST BE >= AETHER_PIN. This names the release aeb DOWNLOADS when the pin
+# is unsatisfied, so a value below the floor would fetch a toolchain that
+# cannot compile aeb — the fetch would "succeed" and the build would then
+# fail with E0301 in a generated file, which is exactly the confusion the
+# pin exists to prevent. Raised from 0.452.0 to match the 0.463.0 floor
+# (string.replace_all). Checked: 0.463.0 keeps the GLIBC_2.34 floor that
+# made 0.452.0 the safe choice, and publishes all five platform assets.
+#
 # aeb has no downstream user community yet, so keeping close to HEAD is
 # cheap and we can afford to move fast. When that changes, the honest
 # move is to slow AETHER_FETCH down — pin it to a release that has been
 # soaked, and let AETHER_PIN keep being the sparse, evidence-driven floor
 # it already is. The mechanism does not need to change for that; only the
 # discipline about when these numbers move does.
-0.452.0
+0.463.0

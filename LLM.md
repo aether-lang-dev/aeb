@@ -1055,10 +1055,14 @@ different clocks were being conflated:
 
 - **`AETHER_PIN`** — the FLOOR: oldest Aether that can compile aeb's own
   sources. Moves only when aeb starts calling a primitive an older
-  Aether lacks; historically ~3 times across hundreds of releases. Bump
-  it in the same commit that introduces the call.
+  Aether lacks; historically ~4 times across hundreds of releases
+  (0.410, 0.413, 0.442-ish, 0.447, and 0.463 for `string.replace_all`).
+  Bump it in the same commit that introduces the call.
 - **`AETHER_FETCH`** — WHICH known-good release to download when the
-  floor is unmet. Can be newer for non-language reasons (today: glibc —
+  floor is unmet. MUST be >= the PIN (a lower value would fetch a
+  toolchain that cannot compile aeb, "succeeding" and then failing with
+  E0301 in a generated file). Can be newer for non-language reasons
+  (today: glibc —
   releases built on ubuntu-latest carry a GLIBC_2.38 floor whose
   `aetherc` dies on Debian 12, while `ae --version` still succeeds).
 

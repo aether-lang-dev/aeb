@@ -3,7 +3,7 @@
 #
 # THE BUG THIS PREVENTS. tools/aeb-link.ae, tools/gen-orchestrator.ae and
 # tools/encode-name.ae each defined a local helper called
-# `string_replace_all`. Aether 0.465.0 added a C function with exactly that
+# `string_replace_all`. Aether 0.463.0 added a C function with exactly that
 # name to std.string's runtime, and two definitions of one symbol is a hard
 # link error:
 #
@@ -11,7 +11,7 @@
 #   multiple definition of `string_replace_all';
 #   aeb-link.c:(.text+0x2e70): first defined here
 #
-# `make` then failed outright on any aether >= 0.465 — not a warning, not a
+# `make` then failed outright on any aether >= 0.463 — not a warning, not a
 # deprecation, a build that stops. Nothing caught it: the unit suite never
 # builds those tools, and CI pinned an older Aether, so it only surfaced
 # when someone happened to compile against a newer toolchain.
@@ -31,9 +31,14 @@
 # aeb-agent's `os_getpid_safe` — none of which std defines. Guessing by
 # namespace flags innocent code; comparing against the real list does not.
 #
-# A local helper that wants a name std has taken should use a leading
-# underscore — `_replace_all` — which is also the convention for
-# module-private functions.
+# TWO WAYS OUT when std takes a name you were using. Prefer the first:
+#   1. USE std's version, if AETHER_PIN is at or above the release that
+#      added it. That is what happened here — the local helper is gone and
+#      encode_name calls `string.replace_all` now that the pin is 0.463.0.
+#   2. RENAME with a leading underscore (`_replace_all`), which is also the
+#      convention for module-private functions. Necessary when the pin is
+#      older than the release that added the symbol, since calling it would
+#      fix new toolchains by breaking the pinned one.
 #
 # Needs an `ae` whose std/ tree it can read (AETHER, or `ae` on PATH). It
 # checks against THAT toolchain, so running it under a newer Aether is what
@@ -123,7 +128,7 @@ for src in srcs:
         # Module-scoped functions (cache.get_string -> cache_get_string,
         # aeb-main's run_capture -> a tool-local symbol) share a spelling
         # with a std *wrapper* but not with its emitted symbol; verified by
-        # building aeb-main under 0.465.0, which links clean. So require
+        # building aeb-main under 0.463.0, which links clean. So require
         # the name to look like std's <module>_<fn> C convention.
         if name in syms and re.match(r'(string|list|map|path|dir|file|fs|io|os|net|json|time|math|strbuilder)_', name):
             print(f"{src}:{i}: {name}")
@@ -143,7 +148,7 @@ fi
 # repeating, not just "a rule was broken".
 for f in tools/aeb-link.ae tools/gen-orchestrator.ae tools/encode-name.ae; do
     if grep -q "^string_replace_all(" "$f" 2>/dev/null; then
-        fail "$f defines string_replace_all again (collides with std.string >= 0.465.0)"
+        fail "$f defines string_replace_all again (collides with std.string >= 0.463.0)"
     fi
 done
 if [ "$FAILURES" -eq 0 ]; then
@@ -152,11 +157,17 @@ fi
 
 # And the shared implementation must still exist — the point was to have
 # ONE copy, not zero. A deletion would make the checks above pass vacuously.
-if grep -q "^encode_name(" tools/aeblabel/module.ae 2>/dev/null \
-   && grep -q "^_replace_all(" tools/aeblabel/module.ae 2>/dev/null; then
-    pass "aeblabel still holds the single shared encode_name/_replace_all"
+#
+# Only encode_name is checked now: its `_replace_all` helper is gone,
+# replaced by std's own `string.replace_all` once AETHER_PIN reached
+# 0.463.0 (the first release that has it). This assertion used to require
+# the helper too, and correctly failed when it was removed — kept as a
+# reminder that "the canonical copy exists" is the invariant, not "these
+# specific two functions exist".
+if grep -q "^encode_name(" tools/aeblabel/module.ae 2>/dev/null; then
+    pass "aeblabel still holds the single shared encode_name"
 else
-    fail "aeblabel is missing encode_name/_replace_all (the canonical copy)"
+    fail "aeblabel is missing encode_name (the canonical copy)"
 fi
 
 echo
