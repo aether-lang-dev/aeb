@@ -189,3 +189,50 @@ If the goal is "Windows works, bash trampoline gone":
    Windows fallback (junctions or copies).
 5. **VCS abstraction for `aeb gcheckout`** — unblocks Mercurial. Lower
    priority because git is a fine default.
+
+## Audit: aeb helpers vs std (2026-08-01)
+
+Prompted by `string_replace_all` — where a local helper duplicated
+something std had gained. Swept every top-level function aeb defines
+against std's full exported/extern symbol set (~1355 names, read from the
+installed toolchain) to find others.
+
+**Method note**: matching by name alone produced ~46 hits, nearly all
+noise — SDK setters (`release`, `path`, `bin`, `arg`) that merely share a
+spelling with a std function and compile to `<module>_<name>`, so they
+never collide or duplicate. The signal is in the *underscore-prefixed
+private helpers*: those exist because someone needed a utility, which is
+exactly where std may now have one.
+
+| aeb helper | std equivalent | Verdict |
+|---|---|---|
+| `_index_of_from` (tools/aebcli) | `string.index_of_from` | **REMOVED** — identical over 7 cases |
+| `_dirname` / `_basename` / `_path_join` (lib/build) | `path.*` | **KEEP** — semantics differ, see below |
+| `_dirname` (aeb-query, affected-targets) | `path.dirname` | **KEEP** — differs from std AND from lib/build's |
+| `_to_int` (lib/agent) | `string.to_int` | **KEEP** — deliberately lenient |
+| `_csv_split` (lib/agent) | none | not a duplicate (splits + trims + drops empties) |
+| `_abs` (aeb-trace) | none | shells out to `pwd` |
+
+**Why the path helpers stay.** std.path is *not* a drop-in replacement —
+measured on 0.463.0:
+
+| input | aeb (lib/build) | std.path |
+|---|---|---|
+| `dirname("foo/bar/")` | `foo` | `foo/bar` |
+| `basename("foo/bar/")` | `bar` | `""` |
+| `join("a", "/b")` | `/b` | `a//b` |
+
+aeb's versions ignore trailing separators, honour an absolute right-hand
+side, and understand Windows drive prefixes (`C:\foo` → `C:`). These
+derive build labels and target directories — the addressing contract — so
+a silent semantic change there would misroute artifacts, not just look
+untidy. Swapping them needs std to match, or a deliberate migration with
+the label tests as the gate.
+
+**Worth noting**: `aeb-query`'s `_dirname` returns `""` for a bare name
+where `lib/build`'s returns `"."`. That divergence predates this audit and
+is a latent inconsistency, not something std would fix.
+
+**`_to_int` is a different contract, not a worse one.** std's fails closed
+(`"12abc"` → error, `""` → error); aeb's is lenient by design (`"12abc"` →
+12, `""` → 0) for parsing agent fields where a partial value is wanted.
