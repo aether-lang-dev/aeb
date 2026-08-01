@@ -1162,8 +1162,26 @@ main() {
     }
 
     // --- Find the aether toolchain dir (where libaether.a lives) ---
-    aether_dir_cmd = string.concat("dirname $(command -v ", string.concat(aether_bin, ")"))
+    //
+    // GUARDED: when `command -v <bin>` finds nothing it prints nothing, and
+    // a bare `dirname $(...)` then runs with NO OPERAND — which does not
+    // fail quietly, it prints "dirname: missing operand" and yields an
+    // empty string. That empty value was passed positionally to aeb-link,
+    // shifting every later argument left, so the real symptom was
+    // aeb-link's usage banner rather than "no aether found". Seen on an
+    // INSTALLED aeb with no `ae` on PATH (the in-place payload escapes it
+    // because the trampoline's private-toolchain fetch sets $AETHER to an
+    // absolute path). `|| true` keeps the empty case quiet; the
+    // empty-check below turns it into a diagnosis.
+    aether_dir_cmd = string.concat("dirname $(command -v ", string.concat(aether_bin, ") 2>/dev/null || true"))
     aether_dir = run_capture(aether_dir_cmd)
+    if string.length(string.trim(aether_dir)) == 0 {
+        println("aeb: cannot locate the aether toolchain — '${aether_bin}' is not on PATH.")
+        println("aeb:   aeb needs an `ae` to compile Aether sources and to link against")
+        println("aeb:   libaether.a. Install it, or point AETHER at one:")
+        println("aeb:     AETHER=/path/to/ae aeb <target>")
+        exit(1)
+    }
 
     // --- Exec aeb-link to do the build + run ---
     cmd = string.concat(aeb_link_bin, " ")

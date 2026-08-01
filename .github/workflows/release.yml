@@ -98,7 +98,15 @@ jobs:
           mkdir -p "$STAGE"
 
           cp aeb AETHER_PIN AETHER_FETCH Makefile LICENSE README.md "$STAGE/"
-          cp -r lib tools "$STAGE/"
+          # veto/ + sandbox/ are 4 KB each and the shipped Makefile's
+          # `install` target copies BOTH unconditionally. Omitting them made
+          # `make install` fail outright on the released payload —
+          # `cp: cannot stat 'veto'` → exit 1, and $PREFIX/bin/aeb was never
+          # created, so the tarball could be unpacked and run in place but
+          # never installed. Found by actually running `make install` from a
+          # published tarball (v0.280); the CI verify step below had missed
+          # it because it only ever ran aeb IN PLACE.
+          cp -r lib tools veto sandbox "$STAGE/"
           # Ship the docs a node operator actually needs on the box.
           mkdir -p "$STAGE/docs"
           cp docs/aeb-host-vm-or-container-setup.md "$STAGE/docs/" || true
@@ -123,6 +131,21 @@ jobs:
           echo "sha256=$(cut -d' ' -f1 "$STAGE.tar.gz.sha256")" >> "$GITHUB_OUTPUT"
           echo "size=$(du -h "$STAGE.tar.gz" | cut -f1)" >> "$GITHUB_OUTPUT"
 
+          # Inventory for the release notes, COUNTED FROM THE REAL PAYLOAD
+          # rather than written by hand — a hardcoded "27 tools" in prose
+          # goes stale the first time someone adds one, and nothing would
+          # catch it. `exe` is the one that must stay 0: the whole claim of
+          # this payload is that it is source that rebuilds, so a stray
+          # binary here is a bug, not a bonus.
+          {
+            echo "n_tools=$(find "$STAGE/tools" -maxdepth 1 -name '*.ae' | wc -l | tr -d ' ')"
+            echo "n_sdk=$(find "$STAGE/lib" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')"
+            echo "n_exe=$(find "$STAGE" -type f -perm -u+x ! -name '*.ae' ! -name '*.md' ! -name aeb | wc -l | tr -d ' ')"
+            echo "unpacked=$(du -sh "$STAGE" | cut -f1)"
+            echo "pin=$(grep -v '^#' "$STAGE/AETHER_PIN" | tr -d '[:space:]')"
+            echo "fetchver=$(grep -v '^#' "$STAGE/AETHER_FETCH" | tr -d '[:space:]')"
+          } >> "$GITHUB_OUTPUT"
+
       # A release whose payload cannot bootstrap is worse than no release:
       # it looks official and fails on the user's node. So prove it here,
       # on a runner with no aeb installed, before publishing. This is the
@@ -139,6 +162,17 @@ jobs:
 
           test ! -x "$HOME_DIR/tools/aeb-main" \
             || { echo "payload contains a prebuilt aeb-main; it must rebuild"; exit 1; }
+
+          # The release notes state "source only — 0 executables". Assert it
+          # rather than trust the staging step's `find -delete`, because the
+          # notes are a promise to whoever downloads this: a shipped binary
+          # under a source-only description is the kind of mismatch that
+          # erodes trust in every other claim on the page. (The bash
+          # trampoline `aeb` is the one intended executable and is excluded.)
+          STRAY="$(find "$HOME_DIR" -type f -perm -u+x ! -name '*.ae' ! -name '*.md' ! -name aeb)"
+          test -z "$STRAY" || {
+            echo "payload contains executables but is described as source-only:"
+            echo "$STRAY"; exit 1; }
 
           # Fetch the Aether the payload itself asks for, the same way a
           # cold node would: the trampoline also tries the prebuilt asset
@@ -180,6 +214,36 @@ jobs:
             || { echo "payload did not bootstrap to a green build"; exit 1; }
           echo "cold bootstrap OK: $(grep -c . /tmp/out.txt) lines"
 
+          # --- AND the OTHER way to use it: `make install` ----------------
+          #
+          # The step above proves the payload runs IN PLACE. That is only
+          # half of what the release notes tell people to do, and the half
+          # it skipped was broken: the shipped Makefile's install target
+          # copies veto/ and sandbox/, which staging did not include, so
+          # `make install` died with `cp: cannot stat 'veto'` and never
+          # created $PREFIX/bin/aeb. Shipped that way in v0.280 and was
+          # only found by hand. So: install to a scratch prefix and run the
+          # RESULT, from a directory that is not the payload.
+          INST="$WORK/prefix"
+          make -C "$HOME_DIR" install PREFIX="$INST" AETHER=/tmp/aeth/bin/ae \
+            >/tmp/install.log 2>&1 \
+            || { echo "make install FAILED:"; tail -25 /tmp/install.log; exit 1; }
+
+          test -x "$INST/bin/aeb" \
+            || { echo "make install produced no $INST/bin/aeb"; exit 1; }
+
+          # Run the installed aeb on a fresh project, from somewhere else
+          # entirely — an installed aeb that only works next to its source
+          # tree is not installed.
+          mkdir -p "$WORK/proj2/app"
+          cp "$WORK/proj/app/t.sh" "$WORK/proj2/app/t.sh"
+          cp "$WORK/proj/app/.tests.ae" "$WORK/proj2/app/.tests.ae"
+          cd "$WORK/proj2"
+          AETHER=/tmp/aeth/bin/ae "$INST/bin/aeb" app/.tests.ae | tee /tmp/out2.txt
+          grep -q "1/1 PASS" /tmp/out2.txt \
+            || { echo "installed aeb did not reach a green build"; exit 1; }
+          echo "make install OK: $INST/bin/aeb builds green from an unrelated dir"
+
       # Published with `gh release create`, NOT softprops/action-gh-release.
       #
       # WHY: that was the only third-party action in this repo, and it ran
@@ -205,32 +269,119 @@ jobs:
           test -f "$ASSET" && test -f "$ASSET.sha256"
 
           cat > /tmp/notes.md <<EOF
-          Bootstrap payload for \`$TAG\`.
+          ## Download this
 
-          > Use **\`aeb-bootstrap.tar.gz\`** below — not GitHub's
-          > auto-attached *Source code* assets. Those are the whole repo
-          > (including \`itests/\` and the 7.3 MB Maven resolver) and carry
-          > no published checksum. This one is the minimal payload a build
-          > node needs, with a SHA to verify against.
+          **[\`aeb-bootstrap.tar.gz\`](../../releases/download/$TAG/$ASSET)**
+          ($SIZE) — plus \`$ASSET.sha256\` to verify it.
 
-          **Verified in CI**: this tarball was unpacked on a clean runner,
-          fetched the Aether it pins, probed that toolchain by *compiling*
-          (not \`--version\`), and rebuilt aeb to a green build — so the
-          payload is known to bootstrap, not merely known to exist.
+          Ignore GitHub's auto-attached *Source code* assets below. Those
+          are the **whole repository** — including \`itests/\` (hundreds of
+          MB of fetched upstream projects) and the 7.3 MB Maven resolver —
+          and carry **no published checksum**.
 
-          ### Pin this
+          ## What's inside
 
+          **Source only. There are no executables in this tarball** — not
+          for Linux, not for any platform. Nothing here is compiled ahead of
+          time; the payload *builds itself* on first use (see below).
+
+          | | |
+          |---|---|
+          | \`aeb\` | the entry point — a bash script, not a binary |
+          | \`tools/*.ae\` | $N_TOOLS Aether **sources** for aeb's own tools |
+          | \`lib/\` | $N_SDK SDK modules (the \`import java\`, \`import rust\`, … you write against) |
+          | \`AETHER_PIN\` / \`AETHER_FETCH\` | which Aether this release needs ($PIN floor, $FETCHVER fetched) |
+          | \`Makefile\`, \`LICENSE\`, \`README.md\`, \`docs/\` | the usual |
+          | **prebuilt binaries** | **$N_EXE** |
+
+          $SIZE compressed, ~$UNPACKED unpacked.
+
+          Deliberately **not** shipped: per-platform tool binaries. They
+          rebuild from these sources in seconds, and every extra artifact is
+          another version-skew surface. One tarball works on every platform
+          because there is nothing platform-specific in it.
+
+          ## What you need on the box
+
+          - **a C compiler and \`make\`** — aeb compiles through C
+          - **\`curl\`** and network access on first run
+          - **\`ae\` is NOT required** to install aeb. It fetches its own
+            pinned Aether into \`~/.cache/aeb/toolchain/\`, private, **never
+            on \`PATH\`** — your own \`ae\`, if you have one, is untouched.
+
+          > **But building *Aether* programs does need your own \`ae\`.**
+          > aeb's private copy compiles aeb's own machinery only. A target
+          > using \`aether.program(b)\` shells out to the \`ae\` on your
+          > \`PATH\`, and fails with \`sh: ae: not found\` if there isn't
+          > one. Targets in other languages (\`bash.test\`, \`java\`,
+          > \`rust\`, …) have no such requirement. Two Aethers, on purpose —
+          > see \`docs/aeb-host-vm-or-container-setup.md\`.
+
+          ## Download and verify
+
+          \`\`\`bash
+          TAG=$TAG
+          BASE=https://github.com/$GITHUB_REPOSITORY/releases/download/\$TAG
+
+          curl -fsSL -O \$BASE/$ASSET
+          curl -fsSL -O \$BASE/$ASSET.sha256
+          sha256sum -c $ASSET.sha256      # fail-closed; stop here if it fails
+          tar xzf $ASSET                  # -> ./aeb-bootstrap/
           \`\`\`
-          ASSET=$ASSET
-          SHA=$SHA256
-          curl -fsSL .../releases/download/$TAG/\$ASSET -o \$ASSET
-          echo "\$SHA  \$ASSET" | sha256sum -c -     # fail-closed
-          tar xzf \$ASSET
+
+          The published \`.sha256\` is a standard \`sha256sum\` file, so
+          \`-c\` checks it directly — no need to paste the hash by hand.
+
+          ## Then what — two ways to use it
+
+          You now have a directory of **sources**. Pick one:
+
+          **A. Install it** (recommended for a workstation or a long-lived
+          build node). Per-user, into \`~/.local\` — **no \`sudo\`**:
+
+          \`\`\`bash
+          cd aeb-bootstrap
+          make install                    # PREFIX defaults to ~/.local
+          # or: make install PREFIX=/opt/aeb
+
+          export PATH="\$HOME/.local/bin:\$PATH"   # if it isn't already
+          aeb --version
           \`\`\`
 
-          Then \`aeb-bootstrap/aeb <target>\` — it fetches its own pinned
-          Aether (private, never on \`PATH\`) and rebuilds its tools on
-          demand. See \`docs/aeb-host-vm-or-container-setup.md\`.
+          This compiles the tools and copies the runtime tree to
+          \`\$PREFIX/share/aeb/\`, leaving \`\$PREFIX/bin/aeb\` on your
+          \`PATH\`. **After that the unpacked directory can be deleted** —
+          the install does not point back at it.
+
+          > Do **not** \`sudo make install\`. The prefix is per-user, so it
+          > is never needed, and doing it once leaves root-owned binaries in
+          > the unpacked tree that later non-root runs cannot overwrite.
+
+          **B. Run it in place** (throwaway containers, CI steps, trying it
+          out). No install step — the tarball *is* the installation:
+
+          \`\`\`bash
+          ./aeb-bootstrap/aeb --version
+          ./aeb-bootstrap/aeb path/to/.build.ae
+          \`\`\`
+
+          Keep the directory: this mode runs out of wherever you unpacked
+          it. Put it somewhere durable (\`/opt\`, \`/srv\`) rather than
+          \`~/Downloads\`.
+
+          **First run takes a minute or two** either way: it fetches the
+          pinned Aether and compiles the aeb tools it needs (only those —
+          the rest stay unbuilt until something invokes them). Later runs
+          are silent and immediate.
+
+          ## Verified in CI
+
+          Not merely uploaded. Before publishing, this exact tarball was
+          unpacked on a clean runner, fetched the Aether it pins, probed
+          that toolchain by **compiling** (not \`--version\` — a banner can
+          succeed on an \`aetherc\` that is glibc-broken), and rebuilt aeb
+          to a **green build**. The source-only claim above is asserted in
+          CI too, not just written here.
 
           | asset | sha256 |
           |---|---|
