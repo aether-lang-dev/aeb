@@ -228,3 +228,95 @@ encode_name(input: string) {
     // aren't chased through to the caller).
     return string.concat(s, "")
 }
+
+// --- Edges-file / path helpers shared by the graph-walking tools ---------
+//
+// `tools/aeb-query.ae` and `tools/affected-targets.ae` both parse the same
+// edges file and walk the same directory ancestry, and both carried
+// byte-identical copies of the three functions below. That is the
+// three-copy hazard this module exists to end (see the header) — caught by
+// the std-vs-aeb helper audit, which noticed the duplicate `_dirname`.
+//
+// `_build_indices` deliberately stays local to each tool: the two versions
+// genuinely differ (affected-targets also registers a dep as a known
+// target, since deps-of-deps may have no first-column row of their own in
+// target-mode edges). Same name, different contract — not a copy.
+
+// _walk_dirname(p) — parent directory, or "" at the top.
+//
+// DELIBERATELY NOT `path.dirname` OR build's `_dirname`, and the
+// difference is load-bearing rather than sloppy. Both of those return "."
+// for a bare name; this returns "". The callers walk UP the ancestry with
+//
+//     while ... { if string.length(cur) == 0 { done = 1 }
+//                 else { cur = _walk_dirname(cur) } }
+//
+// so "" is the loop's TERMINATION SENTINEL. Traced with "."-semantics
+// substituted in, `a/b/c.ae` walks a/b -> a -> "." -> "." -> "." forever.
+// Anyone "fixing" this to match POSIX dirname(1) hangs `aeb --since` and
+// `aeb query`. Hence the distinct name: it is a walk helper, not a
+// general-purpose dirname.
+//
+// Forward slash only — edges-file paths are repo-relative and always
+// written with '/', so no Windows separator handling is needed here.
+_walk_dirname(p: string) {
+    n = string.length(p)
+    last = 0 - 1
+    i = 0
+    while i < n {
+        ch = string.substring(p, i, i + 1)
+        if string.equals(ch, "/") == 1 {
+            last = i
+        }
+        i = i + 1
+    }
+    if last < 0 { return "" }
+    return string.substring(p, 0, last)
+}
+
+// split_lines(buf) — newline-separated buffer to a list, dropping a
+// trailing newline's empty final element (`start < n` guard). Blank lines
+// in the MIDDLE are preserved.
+split_lines(buf: string) {
+    lines = list.new()
+    n = string.length(buf)
+    start = 0
+    i = 0
+    while i < n {
+        ch = string.substring(buf, i, i + 1)
+        if string.equals(ch, "\n") == 1 {
+            line = string.substring(buf, start, i)
+            list.add(lines, line)
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        list.add(lines, string.substring(buf, start, n))
+    }
+    return lines
+}
+
+// split_tokens(line) — space-separated fields, runs of spaces collapsed
+// and empties dropped (`i > start` guard). Matches how the edges file
+// writes a node and its deps on one line.
+split_tokens(line: string) {
+    tokens = list.new()
+    n = string.length(line)
+    start = 0
+    i = 0
+    while i < n {
+        ch = string.substring(line, i, i + 1)
+        if string.equals(ch, " ") == 1 {
+            if i > start {
+                list.add(tokens, string.substring(line, start, i))
+            }
+            start = i + 1
+        }
+        i = i + 1
+    }
+    if start < n {
+        list.add(tokens, string.substring(line, start, n))
+    }
+    return tokens
+}

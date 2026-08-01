@@ -31,36 +31,22 @@ import std.list
 import std.map
 import std.path
 
+// Shared with the other graph-walking tool — one canonical copy.
+// NB _walk_dirname returns "" (not ".") at the top; that is the
+// ancestor-walk loop's termination sentinel. See aeblabel.
+import aeblabel (_walk_dirname, split_lines, split_tokens)
+
 extern println(s: string)
 extern exit(code: int)
 
 // Split a buffer on '\n' into a list. Trailing empty line ignored.
-_split_lines(buf: string) {
-    lines = list.new()
-    n = string.length(buf)
-    start = 0
-    i = 0
-    while i < n {
-        ch = string.substring(buf, i, i + 1)
-        if string.equals(ch, "\n") == 1 {
-            line = string.substring(buf, start, i)
-            list.add(lines, line)
-            start = i + 1
-        }
-        i = i + 1
-    }
-    if start < n {
-        list.add(lines, string.substring(buf, start, n))
-    }
-    return lines
-}
 
 // Pure (no shell) sort -u of a newline buffer -> sorted-unique newline string.
 // Was `printf '%s\n' '${keys_buf}' | sort -u` — broken under cmd.exe on Windows.
 // Byte-wise insertion sort + adjacent dedup; deterministic across locales.
 _sort_unique(buf: string) {
     if string.length(buf) == 0 { return "" }
-    lines = _split_lines(buf)
+    lines = split_lines(buf)
     // drop empties
     clean = list.new()
     cn0 = list.size(lines)
@@ -101,43 +87,9 @@ _sort_unique(buf: string) {
 }
 
 // Split a single edges line "<file> <dep1> <dep2> ..." into a list.
-_split_tokens(line: string) {
-    tokens = list.new()
-    n = string.length(line)
-    start = 0
-    i = 0
-    while i < n {
-        ch = string.substring(line, i, i + 1)
-        if string.equals(ch, " ") == 1 {
-            if i > start {
-                list.add(tokens, string.substring(line, start, i))
-            }
-            start = i + 1
-        }
-        i = i + 1
-    }
-    if start < n {
-        list.add(tokens, string.substring(line, start, n))
-    }
-    return tokens
-}
 
 // dirname: everything before the last '/'. Returns "" for paths
 // without a slash (i.e. the path is at the root).
-_dirname(p: string) {
-    n = string.length(p)
-    last = -1
-    i = 0
-    while i < n {
-        ch = string.substring(p, i, i + 1)
-        if string.equals(ch, "/") == 1 {
-            last = i
-        }
-        i = i + 1
-    }
-    if last < 0 { return "" }
-    return string.substring(p, 0, last)
-}
 
 // Build adjacency maps from edges-text.
 //   forward[A] = list of files A depends on
@@ -153,19 +105,19 @@ _build_indices(edges_text: string) {
     all_targets = map.new()
     dir_to_targets = map.new()
 
-    lines = _split_lines(edges_text)
+    lines = split_lines(edges_text)
     n = list.size(lines)
     i = 0
     while i < n {
         line, _ = list.get(lines, i)
         if string.length(line) > 0 {
-            tokens = _split_tokens(line)
+            tokens = split_tokens(line)
             tn = list.size(tokens)
             if tn >= 1 {
                 src, _ = list.get(tokens, 0)
                 if map.has(all_targets, src) == 0 {
                     map.put(all_targets, src, "1")
-                    d = _dirname(src)
+                    d = _walk_dirname(src)
                     if map.has(dir_to_targets, d) == 0 {
                         map.put(dir_to_targets, d, list.new())
                     }
@@ -193,7 +145,7 @@ _build_indices(edges_text: string) {
                     // own directory for affected-target purposes.
                     if map.has(all_targets, dep) == 0 {
                         map.put(all_targets, dep, "1")
-                        dd = _dirname(dep)
+                        dd = _walk_dirname(dep)
                         if map.has(dir_to_targets, dd) == 0 {
                             map.put(dir_to_targets, dd, list.new())
                         }
@@ -240,7 +192,7 @@ owning_targets(changed_path: string, indices: ptr) {
     // has at least one build-file (the nearest enclosing target),
     // or when we've passed the root (cur was already "" and we
     // didn't match — no enclosing build-file exists).
-    cur = _dirname(changed_path)
+    cur = _walk_dirname(changed_path)
     done = 0
     while done == 0 {
         if map.has(dir_to_targets, cur) == 1 {
@@ -257,7 +209,7 @@ owning_targets(changed_path: string, indices: ptr) {
         if string.length(cur) == 0 {
             done = 1
         } else {
-            cur = _dirname(cur)
+            cur = _walk_dirname(cur)
         }
     }
     return out
@@ -322,7 +274,7 @@ affected_set(changed_paths: ptr, indices: ptr) {
     if string.length(keys_buf) == 0 { return out }
     sorted_text = _sort_unique(keys_buf)
     if string.length(sorted_text) == 0 { return out }
-    sorted_lines = _split_lines(sorted_text)
+    sorted_lines = split_lines(sorted_text)
     sn = list.size(sorted_lines)
     si = 0
     while si < sn {
@@ -357,7 +309,7 @@ main() {
 
     indices = _build_indices(edges_text)
     changed_paths = list.new()
-    cp_lines = _split_lines(string.trim(changed_text))
+    cp_lines = split_lines(string.trim(changed_text))
     cn = list.size(cp_lines)
     ci = 0
     while ci < cn {
