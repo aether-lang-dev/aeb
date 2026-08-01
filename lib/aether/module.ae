@@ -2047,7 +2047,10 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     rc = build._sh(gcc_with_capture)
     if rc != 0 {
         build._sh("cat ${gcc_stderr_path} >&2 2>/dev/null")
-        println("${mod_dir}: gcc link failed")
+        // Name the log. The replay above goes to stderr, so anyone who
+        // redirected it (or scrolled past a multi-node build) needs the
+        // path to go back to — issue #13 asked for exactly this.
+        println("${mod_dir}: gcc link failed (see ${gcc_stderr_path})")
         stderr_text, _serr = io.read_file(gcc_stderr_path)
         if string.length(stderr_text) > 0 {
             _emit_extern_hints(ctx, source_dir, stderr_text)

@@ -2750,13 +2750,14 @@ _label_to_target_dir(root: string, module_dir: string) {
 }
 
 // _format_telemetry_line(label, type, wall_ms, cache, test_passed,
-//                        test_failed, has_test_result)
+//                        test_failed, has_test_result, status)
 //   — one line per module in the stdout summary. Pure: just string
 // assembly. Tested in tests/test_telemetry_render.ae.
 //
 // Format:
 //   "  <type>:<pad> <label><pad> <wall>s [<cache>]"
 //   "  <type>:<pad> <label><pad> <wall>s [<cache>] <P>/<T> PASS|FAIL"
+//   "  <type>:<pad> <label><pad> <wall>s [<cache>] FAILED"
 //
 // Type is one of compile/test/dist; rendered as left-justified column.
 // Wall is float seconds with 2 decimals. Cache is the per-target
@@ -2764,6 +2765,20 @@ _label_to_target_dir(root: string, module_dir: string) {
 // trailing "<P>/<T> PASS" or "<P>/<T> FAIL" is appended (P passed
 // out of T total, where T = passed + failed). Cache and test-result
 // are independent — a test row can have both [hit] and 17/17 PASS.
+//
+// `status` ("passed"|"failed"|"skipped"|"") reddens a NON-test row.
+// Before this, a build node that failed at gcc/link rendered the
+// EXACT line a successful build renders — same `[miss]`, same timing,
+// no verdict — because only test rows had a verdict channel (the
+// pass/fail counts). Two real incidents followed from that (issue
+// #13): a "successful" build ran stale binaries from a previous good
+// build, and a clean-tree one produced no binaries while 50+ suites
+// reported NO BINARY. The exit code was honest both times and didn't
+// help, because interactive use pipes through `tail`/`grep` — which
+// drops the exit code and shows only these lines. A test row keeps
+// its counts trailer (that already carries the verdict); everything
+// else gets a bare "FAILED".
+
 // _label_display(label) — the clean human label for a telemetry/summary
 // row: strip the LITERAL "<type>:" prefix (the type is shown in its own column).
 // "test:javatests/velar" → "javatests/velar"; "install:tools/x" → "tools/x".
@@ -2771,7 +2786,21 @@ _label_display(label: string) {
     return _label_dir(label)
 }
 
-_format_telemetry_line(label: string, type_word: string, wall_ms: int, cache: string, test_passed: int, test_failed: int, has_test_result: int) {
+// _status_is_failed(status) — 1 when a record's status means failure.
+// TWO vocabularies reach here and both are load-bearing: the in-process
+// orchestrator writes the session words ("passed"/"failed", from
+// build.status_of), while aeb-driver writes the JSON words
+// ("pass"/"fail"/"skipped") it also feeds to the telemetry JSON. Neither
+// is wrong, so match both rather than picking a winner and silently
+// under-reporting failures in whichever path loses. (_telemetry_status
+// already tolerates both for the same reason.)
+_status_is_failed(status: string) {
+    if string.equals(status, "failed") == 1 { return 1 }
+    if string.equals(status, "fail") == 1 { return 1 }
+    return 0
+}
+
+_format_telemetry_line(label: string, type_word: string, wall_ms: int, cache: string, test_passed: int, test_failed: int, has_test_result: int, status: string) {
     // Label column: pad to 32 chars for visual alignment of the
     // duration. Truncates if longer (no point fighting it).
     label_col = label
@@ -2809,10 +2838,22 @@ _format_telemetry_line(label: string, type_word: string, wall_ms: int, cache: st
 
     base = string.concat(string.concat(string.concat(string.concat("  ", type_col), " "), string.concat(label_col, " ")), string.concat(string.concat(wall_str, " ["), string.concat(cache, "]")))
 
-    if has_test_result == 0 { return base }
+    if has_test_result == 0 {
+        // No counts channel — so the ONLY place a failure can show is
+        // here. Say it plainly rather than letting the row read green.
+        if _status_is_failed(status) == 1 {
+            return string.concat(base, " FAILED")
+        }
+        return base
+    }
     total = test_passed + test_failed
     verdict = "PASS"
     if test_failed > 0 { verdict = "FAIL" }
+    // A node can carry green counts and STILL have failed — a post-build
+    // hook that exits non-zero, a dep(git:) pin mismatch, a link step
+    // after the tests ran. Counts alone would render "17/17 PASS" on a
+    // red node; the session status is the authority, so it wins.
+    if _status_is_failed(status) == 1 { verdict = "FAIL" }
     trailer = string.concat(string.concat(" ", string.from_int(test_passed)), string.concat("/", string.from_int(total)))
     trailer = string.concat(trailer, " ")
     trailer = string.concat(trailer, verdict)
@@ -2842,6 +2883,11 @@ _format_telemetry_line(label: string, type_word: string, wall_ms: int, cache: st
 // doesn't provide per-test granularity yet).
 render_telemetry(records: ptr, total_ms: int) {
     out = "[telemetry]\n"
+    // Roll-up accumulators: the block's LAST lines have to state the
+    // verdict, because `aeb | tail` is how this gets read interactively
+    // and a per-row marker scrolls away on a big build (issue #13).
+    n_failed = 0
+    failed_labels = ""
     n = list.size(records)
     i = 0
     while i < n {
@@ -2863,9 +2909,22 @@ render_telemetry(records: ptr, total_ms: int) {
             failed, _ = string.to_int(tf_s)
             has_test_result = 1
         }
-        line = _format_telemetry_line(_label_display(label), type_word, wall_ms, cache, passed, failed, has_test_result)
+        // The node's session status ("passed"/"failed"/"skipped"), absent
+        // on synthetic/legacy records — "" then, which renders as before.
+        status = ""
+        if map.has(rec, "status") == 1 {
+            status, _ = map.get(rec, "status")
+        }
+        line = _format_telemetry_line(_label_display(label), type_word, wall_ms, cache, passed, failed, has_test_result, status)
         out = string.concat(out, line)
         out = string.concat(out, "\n")
+        if _status_is_failed(status) == 1 {
+            n_failed = n_failed + 1
+            failed_labels = string.concat(failed_labels, "\n  ")
+            failed_labels = string.concat(failed_labels, type_word)
+            failed_labels = string.concat(failed_labels, ": ")
+            failed_labels = string.concat(failed_labels, _label_display(label))
+        }
 
         // Indent failed-test names under the FAIL line, if any.
         if failed > 0 {
@@ -2904,6 +2963,19 @@ render_telemetry(records: ptr, total_ms: int) {
     cs_str = string.from_int(cs)
     if cs < 10 { cs_str = string.concat("0", cs_str) }
     out = string.concat(out, string.concat(string.concat("total: ", string.from_int(secs)), string.concat(string.concat(".", cs_str), "s wall")))
+    // Verdict last. A green run says nothing extra (silence is the
+    // success signal, and every existing green-output assertion keeps
+    // passing); a red one names what failed, on the final lines.
+    if n_failed > 0 {
+        out = string.concat(out, "\nFAILED: ")
+        out = string.concat(out, string.from_int(n_failed))
+        if n_failed == 1 {
+            out = string.concat(out, " target")
+        } else {
+            out = string.concat(out, " targets")
+        }
+        out = string.concat(out, failed_labels)
+    }
     return out
 }
 

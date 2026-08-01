@@ -529,7 +529,20 @@ main() {
     // nodes from the count, and any non-canonical type (.install.ae,
     // .essais.ae, .構築.ae) was invisible. The summary now speaks the
     // repo's own filename vocabulary, per docs/filename-is-the-route.md.
-    println(counts_line(files))
+    //
+    // UNBUFFERED (io.stdout_write, not println): this is a PLAN echo — it
+    // announces what is about to be built. But aeb-link's stdout is a pipe,
+    // so stdio block-buffers it and the whole block flushed at process exit,
+    // landing AFTER the driver's telemetry. On a failing build that put
+    //     aeb: 1 build
+    //       build: app
+    // as the last two lines on screen, where it reads as a success summary —
+    // the same "output says fine, reality says broken" trap as issue #13's
+    // telemetry row. Writing straight to fd 1 keeps the plan where it belongs:
+    // before the work it describes. Nothing buffered precedes it here (the
+    // earlier println()s are usage/error paths that exit), so bypassing stdio
+    // cannot reorder anything ahead of it.
+    _pc = io.stdout_write(string.concat(counts_line(files), "\n"))
 
     // --- Per-file transform + aetherc compile ---
     c_files = list.new()
@@ -553,7 +566,9 @@ main() {
         // relabelled build→compile and printed NOTHING for non-canonical
         // types (.install.ae, .essais.ae, …), so those nodes were invisible
         // in the pre-build listing too.
-        println("  ${type}: ${display}")
+        // Unbuffered for the same reason as counts_line above: these lines
+        // belong to the plan echo and must not drift past the build's output.
+        _pl = io.stdout_write("  ${type}: ${display}\n")
 
         // transform-ae <src> <fname> <label> <out> <aeb-lib> <aeb-home>
         tr_cmd = string.concat(transform_ae, " ")

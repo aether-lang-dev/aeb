@@ -38,46 +38,46 @@ main() {
     // --- _format_telemetry_line: column widths + decimal seconds ---
     // type column is 8 chars (compile: + 1 pad), label column is 32.
     _assert_eq("line: compile / short label / 1.21s / miss",
-        _format_telemetry_line("ae/svnserver", "compile", 1210, "miss", 0, 0, 0),
+        _format_telemetry_line("ae/svnserver", "compile", 1210, "miss", 0, 0, 0, ""),
         "  compile: ae/svnserver                     1.21s [miss]")
 
     _assert_eq("line: test / short label / 0.01s / hit",
-        _format_telemetry_line("ae/wc", "test", 10, "hit", 0, 0, 0),
+        _format_telemetry_line("ae/wc", "test", 10, "hit", 0, 0, 0, ""),
         "  test:    ae/wc                            0.01s [hit]")
 
     _assert_eq("line: dist / 0.00s / n/a",
-        _format_telemetry_line("dist:foo", "dist", 0, "n/a", 0, 0, 0),
+        _format_telemetry_line("dist:foo", "dist", 0, "n/a", 0, 0, 0, ""),
         "  dist:    dist:foo                         0.00s [n/a]")
 
     // --- decimal-seconds rounding (cs = round(ms/10)) ---
     _assert_eq("line: 999ms rounds to 1.00s",
-        _format_telemetry_line("x", "compile", 999, "miss", 0, 0, 0),
+        _format_telemetry_line("x", "compile", 999, "miss", 0, 0, 0, ""),
         "  compile: x                                1.00s [miss]")
 
     _assert_eq("line: 1000ms = 1.00s",
-        _format_telemetry_line("x", "compile", 1000, "miss", 0, 0, 0),
+        _format_telemetry_line("x", "compile", 1000, "miss", 0, 0, 0, ""),
         "  compile: x                                1.00s [miss]")
 
     _assert_eq("line: 1234ms = 1.23s",
-        _format_telemetry_line("x", "compile", 1234, "miss", 0, 0, 0),
+        _format_telemetry_line("x", "compile", 1234, "miss", 0, 0, 0, ""),
         "  compile: x                                1.23s [miss]")
 
     _assert_eq("line: 1235ms rounds to 1.24s",
-        _format_telemetry_line("x", "compile", 1235, "miss", 0, 0, 0),
+        _format_telemetry_line("x", "compile", 1235, "miss", 0, 0, 0, ""),
         "  compile: x                                1.24s [miss]")
 
     _assert_eq("line: 5ms = 0.01s (rounds up)",
-        _format_telemetry_line("x", "compile", 5, "miss", 0, 0, 0),
+        _format_telemetry_line("x", "compile", 5, "miss", 0, 0, 0, ""),
         "  compile: x                                0.01s [miss]")
 
     _assert_eq("line: 4ms = 0.00s (rounds down)",
-        _format_telemetry_line("x", "compile", 4, "miss", 0, 0, 0),
+        _format_telemetry_line("x", "compile", 4, "miss", 0, 0, 0, ""),
         "  compile: x                                0.00s [miss]")
 
     // --- long label exceeds padding column → no truncation, just no padding ---
     long_label = "ae/path/to/some/very/deep/module:with-tag"
     _assert_eq("line: long label flows past the 32-col pad",
-        _format_telemetry_line(long_label, "compile", 100, "miss", 0, 0, 0),
+        _format_telemetry_line(long_label, "compile", 100, "miss", 0, 0, 0, ""),
         "  compile: ae/path/to/some/very/deep/module:with-tag 0.10s [miss]")
 
     // --- render_telemetry: full block. Types are LITERAL now (build/seed/test);
@@ -105,24 +105,24 @@ main() {
 
     // --- _format_telemetry_line: with test-result trailer ---
     _assert_eq("line: test row with PASS trailer",
-        _format_telemetry_line("ae/wc", "test", 3030, "n/a", 17, 0, 1),
+        _format_telemetry_line("ae/wc", "test", 3030, "n/a", 17, 0, 1, ""),
         "  test:    ae/wc                            3.03s [n/a] 17/17 PASS")
 
     _assert_eq("line: test row with FAIL trailer (any failures → FAIL verdict)",
-        _format_telemetry_line("ae/svn", "test", 5400, "n/a", 28, 2, 1),
+        _format_telemetry_line("ae/svn", "test", 5400, "n/a", 28, 2, 1, ""),
         "  test:    ae/svn                           5.40s [n/a] 28/30 FAIL")
 
     _assert_eq("line: test row with all-fail trailer",
-        _format_telemetry_line("flaky", "test", 100, "miss", 0, 5, 1),
+        _format_telemetry_line("flaky", "test", 100, "miss", 0, 5, 1, ""),
         "  test:    flaky                            0.10s [miss] 0/5 FAIL")
 
     _assert_eq("line: test row with cache hit AND results",
-        _format_telemetry_line("cached", "test", 50, "hit", 14, 0, 1),
+        _format_telemetry_line("cached", "test", 50, "hit", 14, 0, 1, ""),
         "  test:    cached                           0.05s [hit] 14/14 PASS")
 
     // has_test_result=0 → no trailer (fallback to no-results shape).
     _assert_eq("line: has_test_result=0 → no trailer",
-        _format_telemetry_line("legacy", "test", 100, "n/a", 99, 99, 0),
+        _format_telemetry_line("legacy", "test", 100, "n/a", 99, 99, 0, ""),
         "  test:    legacy                           0.10s [n/a]")
 
     // --- render_telemetry: mixed records, some with results ---
@@ -185,6 +185,72 @@ main() {
     expected_single = "[telemetry]\n  test:    ae/x                             1.00s [n/a] 0/1 FAIL\n          - the only test\ntotal: 1.00s wall"
     _assert_eq("render: single failed name, no message",
         render_telemetry(single, 1000), expected_single)
+
+    // --- issue #13: a FAILED build row must not render success-shaped ---
+    // Before this, a gcc/link failure produced the byte-identical line a
+    // green build produces, so `aeb | tail` read as success while no
+    // binary existed. Both status vocabularies are exercised: the
+    // in-process orchestrator writes "failed", aeb-driver writes "fail".
+    _assert_eq("line: failed build row gets FAILED (orchestrator vocab)",
+        _format_telemetry_line("examples/icons_demo", "build", 5380, "miss", 0, 0, 0, "failed"),
+        "  build:   examples/icons_demo              5.38s [miss] FAILED")
+
+    _assert_eq("line: failed build row gets FAILED (driver vocab)",
+        _format_telemetry_line("examples/icons_demo", "build", 5380, "miss", 0, 0, 0, "fail"),
+        "  build:   examples/icons_demo              5.38s [miss] FAILED")
+
+    _assert_eq("line: passed status renders unchanged (no trailer)",
+        _format_telemetry_line("x", "build", 100, "miss", 0, 0, 0, "passed"),
+        "  build:   x                                0.10s [miss]")
+
+    _assert_eq("line: skipped status renders unchanged (not a failure)",
+        _format_telemetry_line("x", "build", 0, "n/a", 0, 0, 0, "skipped"),
+        "  build:   x                                0.00s [n/a]")
+
+    // A test node that fails BEFORE its tests run (gcc/link) has no counts
+    // marker → has_test_result=0 → the same bare FAILED.
+    _assert_eq("line: test node that failed to build gets FAILED",
+        _format_telemetry_line("ae/wc", "test", 200, "miss", 0, 0, 0, "failed"),
+        "  test:    ae/wc                            0.20s [miss] FAILED")
+
+    // Green counts + failed status (post-build hook, dep pin mismatch):
+    // the session status is the authority, so the verdict is FAIL.
+    _assert_eq("line: green counts but failed status → FAIL verdict",
+        _format_telemetry_line("ae/wc", "test", 3030, "n/a", 17, 0, 1, "failed"),
+        "  test:    ae/wc                            3.03s [n/a] 17/17 FAIL")
+
+    // --- render_telemetry: the roll-up after `total:` (survives `| tail`) ---
+    failing = list.new()
+    fr = _record("examples/icons_demo", "build", 5380, "miss")
+    map.put(fr, "status", "failed")
+    list.add(failing, fr)
+    _assert_eq("render: single failure names itself on the last lines",
+        render_telemetry(failing, 5410),
+        "[telemetry]\n  build:   examples/icons_demo              5.38s [miss] FAILED\ntotal: 5.41s wall\nFAILED: 1 target\n  build: examples/icons_demo")
+
+    two_bad = list.new()
+    ok_rec = _record("ae/ok", "build", 100, "hit")
+    map.put(ok_rec, "status", "passed")
+    list.add(two_bad, ok_rec)
+    b1 = _record("ae/bad1", "build", 200, "miss")
+    map.put(b1, "status", "failed")
+    list.add(two_bad, b1)
+    b2 = _record("test:ae/bad2", "test", 300, "miss")
+    map.put(b2, "status", "fail")
+    list.add(two_bad, b2)
+    _assert_eq("render: two failures, plural + type-qualified labels",
+        render_telemetry(two_bad, 600),
+        "[telemetry]\n  build:   ae/ok                            0.10s [hit]\n  build:   ae/bad1                          0.20s [miss] FAILED\n  test:    ae/bad2                          0.30s [miss] FAILED\ntotal: 0.60s wall\nFAILED: 2 targets\n  build: ae/bad1\n  test: ae/bad2")
+
+    // An all-green run must be byte-identical to before — silence is the
+    // success signal, and every existing green assertion depends on it.
+    all_green = list.new()
+    g1 = _record("ae/a", "build", 100, "miss")
+    map.put(g1, "status", "passed")
+    list.add(all_green, g1)
+    _assert_eq("render: green run emits no roll-up",
+        render_telemetry(all_green, 100),
+        "[telemetry]\n  build:   ae/a                             0.10s [miss]\ntotal: 0.10s wall")
 
     // --- JSON renderers: telemetry records ---
     json_records = list.new()

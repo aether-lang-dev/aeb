@@ -63,6 +63,34 @@ cd itests
 AETHER=/path/to/ae ./presubmit-smoke.sh
 ```
 
+## Build-failure visibility smoke test
+
+`build-failure-visibility.sh` is the regression harness for
+[issue #13](https://github.com/aether-lang-dev/aeb/issues/13): a node whose
+gcc/link step failed used to render the byte-identical telemetry row a
+successful build renders — same `[miss]`, same timing, no verdict — because
+only *test* rows had a verdict channel (their pass/fail counts). It builds
+an `aether.program` with a deliberately broken `extra_source` `.c` (the
+route through lib/aether's manual aetherc+gcc path, where the reported
+failures happened) and asserts the row says `FAILED`, that the summary
+block's last lines still say so, that the roll-up names the target, that no
+binary was actually produced, and that the gcc stderr log is named — on
+**both** driver paths, since the parallel and sequential drivers write
+different status vocabularies (`"fail"` vs `"failed"`). A final round
+asserts the other direction: a green build stays quiet.
+
+Assertions are about bytes on stdout, not `$?`. The exit code was correct
+throughout the original incidents; the harm came from output that read as
+success when piped through `tail`/`grep` (which replaces the exit code) or
+simply read on screen.
+
+Needs a C toolchain and a working `ae`; fetches nothing.
+
+```bash
+cd itests
+AETHER=/path/to/ae ./build-failure-visibility.sh
+```
+
 ## Projects
 
 | Directory | Language | Upstream | What aeb replaces |
