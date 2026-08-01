@@ -8,6 +8,8 @@ import std.map
 import std.path
 import std.dir
 
+import aeblabel (encode_name)
+
 // Tests for encode_name — converts file paths to C-safe function names
 // Mirrors the bash: / → _    _ → __   - → _H_   . → _D_
 
@@ -15,16 +17,16 @@ import std.dir
 // became a Go-style (output, err) wrapper, so the single-string extern is
 // os_exec_raw. No local extern redeclarations needed.
 
-// encode_name via sed (same transform as the bash script)
-// Matches the bash encode_name in aeb and tools/gen-orchestrator.ae:
-//   / → _    __ → __   - → _H_   . → _D_
-// (single _ is NOT doubled; bash preserves it as-is)
-encode_name(input: string) {
-    cmd = "printf '%s' '"
-    cmd = string_concat(cmd, input)
-    cmd = string_concat(cmd, "' | sed 's/__/DBLUND/g; s|/|_|g; s/-/_H_/g; s/\\./_D_/g; s/DBLUND/__/g'")
-    return string_trim(os_exec_raw(cmd))
-}
+// TESTS THE REAL IMPLEMENTATION (aeblabel.encode_name), imported below.
+//
+// It used to define its OWN sed-based encode_name right here and assert
+// against that — a fourth copy testing itself. It would have passed with
+// the shipped implementation deleted, and it could not have caught drift
+// between the (then three) inlined copies, which is exactly what it looked
+// like it was for.
+//
+// The sed version is also not portable: `printf | sed` returns empty under
+// cmd.exe, which is why the shipped code is pure string ops.
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {

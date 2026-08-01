@@ -178,3 +178,79 @@ file_to_label(file: string) {
     }
     return string.concat(string.concat(type, ":"), dir)
 }
+
+// --- Name encoding -------------------------------------------------------
+//
+// encode_name(path) — turn a build-file path into a C-identifier-safe
+// name for the generated orchestrator's function symbols.
+//
+// WHY IT LIVES HERE. This and its `_replace_all` helper were copy-pasted
+// into tools/aeb-link.ae, tools/gen-orchestrator.ae and
+// tools/encode-name.ae — the same three-copy hazard this module was
+// created to end, and with drift already visible (one copy had picked up
+// explanatory comments the others lacked).
+//
+// It also had to move for a HARD reason, not just tidiness. The local
+// copies were named `string_replace_all`, and aether 0.465.0 added a C
+// function with exactly that name to std.string's runtime. Two
+// definitions of one symbol is a link error:
+//
+//   multiple definition of `string_replace_all';
+//   aeb-link.c:(.text+0x2e70): first defined here
+//
+// which broke `make` outright on any aether >= 0.465. The helper below is
+// `_replace_all` — underscore-prefixed and NOT in the `string_` namespace,
+// so it cannot collide with a future std symbol the same way.
+//
+// NOT switched to the new native `string_replace_all` (verified to have
+// identical semantics, including the empty-needle guard): it does not
+// exist in AETHER_PIN 0.452.0, so calling it would fix 0.465 by breaking
+// the version aeb actually pins. A local implementation works on both.
+
+// _replace_all(haystack, find, replace) — every occurrence, left to right.
+// An empty `find` returns the input unchanged rather than looping forever.
+//
+// PURE string ops, no shell, and that is load-bearing: encode_name used to
+// shell out to `printf '%s' | sed`, which returns EMPTY on Windows (cmd.exe
+// cannot run the POSIX pipeline). Every extern/call name then came out
+// blank and produced an unparseable orchestrator (`extern (s: ptr)`). Pure
+// ops are also faster and identical across platforms.
+_replace_all(haystack: string, find: string, replace: string) {
+    flen = string.length(find)
+    if flen == 0 { return string.substring(haystack, 0, string.length(haystack)) }
+    out = string.concat("", "")
+    rest = haystack
+    while string.length(rest) > 0 {
+        idx = string.index_of(rest, find)
+        if idx < 0 {
+            return string.concat(out, rest)
+        }
+        out = string.concat(out, string.substring(rest, 0, idx))
+        out = string.concat(out, replace)
+        rest = string.substring(rest, idx + flen, string.length(rest))
+    }
+    return string.concat(out, "")
+}
+
+// encode_name(input) — path → C-identifier-safe symbol name.
+//
+//   app/.build.ae  →  app_D_build_D_ae   (after the / and . passes)
+//
+// The sentinel round-trip protects literal "__" in the input: it is
+// swapped out first and back last, so a real double underscore survives
+// the "/"→"_" pass instead of becoming indistinguishable from an encoded
+// separator. The sentinel starts with a digit (no encoded token does) and
+// uses only characters that are never substituted, so real input cannot
+// contain that exact run.
+encode_name(input: string) {
+    sentinel = "0DBLUND0"
+    s = _replace_all(input, "__", sentinel)
+    s = _replace_all(s, "/", "_")
+    s = _replace_all(s, "-", "_H_")
+    s = _replace_all(s, ".", "_D_")
+    s = _replace_all(s, sentinel, "__")
+    // Wrap the final return in an extern string fn so Aether's type
+    // inference sees encode_name as returning string (user-fn return types
+    // aren't chased through to the caller).
+    return string.concat(s, "")
+}

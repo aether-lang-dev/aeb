@@ -132,6 +132,41 @@ cd itests
 ./toolchain-fetch.sh --live   # + one real download
 ```
 
+## std symbol-collision check
+
+`std-symbol-collision.sh` stops aeb sources from defining a function that
+Aether's std already exports as a C symbol.
+
+Three tools (`aeb-link`, `gen-orchestrator`, `encode-name`) each carried a
+local helper named `string_replace_all`. Aether **0.465.0** added a C
+function with exactly that name, and two definitions of one symbol is a
+hard link error — `make` stopped working outright on any newer Aether.
+Nothing caught it: the unit suite never builds those tools, and CI pins an
+older Aether, so it only surfaced when someone compiled against a newer
+toolchain.
+
+It reads the **actual** exported/extern symbol set (~1355 names) out of
+whichever toolchain is in play, so running under a newer Aether is what
+gives early warning about names std has just taken. Two earlier drafts
+were wrong in instructive ways: matching by *prefix* flagged innocent code
+(`path_dep`, `file_to_label`, `os_getpid_safe` — none of which std
+defines), and matching every std name flagged ~50 SDK setters (`get`,
+`run`, `path`) that compile to `<module>_<name>` and cannot collide. Only
+the fully-qualified `<stdmodule>_<fn>` form is a real hazard.
+
+`lib/veto_trace_os/std/` is excluded deliberately — it is a drop-in shadow
+of `std.os` for veto tracing, so matching std's names is the point, and it
+is never linked alongside the real one. In CI a missing std tree **fails**
+rather than skips, so the step cannot go green having checked nothing.
+
+Mutation-checked: reintroducing `string_replace_all` in `aeb-link.ae`
+trips two assertions.
+
+```bash
+cd itests
+./std-symbol-collision.sh
+```
+
 ## Projects
 
 | Directory | Language | Upstream | What aeb replaces |

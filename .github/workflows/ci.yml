@@ -99,5 +99,15 @@ jobs:
           ae build "$RUNNER_TEMP/probe.ae" -o "$RUNNER_TEMP/probe"
           "$RUNNER_TEMP/probe"
 
+
+      # Needs the toolchain: it reads that Aether's std/ to learn which C
+      # symbols exist. Catches the class of bug that broke `make` outright
+      # on aether >= 0.465 — three tools each defined a local
+      # `string_replace_all`, and 0.465.0 added a C function with exactly
+      # that name, so the linker saw two definitions. Checking against the
+      # toolchain CI installs means a newly-added std symbol surfaces here
+      # rather than in someone's build.
+      - name: Check for std symbol collisions
+        run: itests/std-symbol-collision.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

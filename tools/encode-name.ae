@@ -18,43 +18,18 @@
 import std.string
 import std.os
 
+import aeblabel (encode_name)
+
 extern println(s: string)
 extern exit(code: int)
 
-// string_replace_all(haystack, find, replace)
-// Pure-Aether scan-and-replace. find must be non-empty.
-string_replace_all(haystack: string, find: string, replace: string) {
-    flen = string.length(find)
-    if flen == 0 { return string.substring(haystack, 0, string.length(haystack)) }
-    out = ""
-    rest = haystack
-    while string.length(rest) > 0 {
-        idx = string.index_of(rest, find)
-        if idx < 0 {
-            return string.concat(out, rest)
-        }
-        out = string.concat(out, string.substring(rest, 0, idx))
-        out = string.concat(out, replace)
-        rest = string.substring(rest, idx + flen, string.length(rest))
-    }
-    return string.concat(out, "")
-}
-
-encode_name(input: string) {
-    // Sentinel chosen so it can't appear in any encoded form: starts with
-    // a digit (no encoded token starts with a digit) and uses characters
-    // that we never substitute. Real input cannot contain this exact run.
-    sentinel = "0DBLUND0"
-    s = string_replace_all(input, "__", sentinel)
-    s = string_replace_all(s, "/", "_")
-    s = string_replace_all(s, "-", "_H_")
-    s = string_replace_all(s, ".", "_D_")
-    s = string_replace_all(s, sentinel, "__")
-    // Wrap final return in an extern string fn so Aether's type inference
-    // sees encode_name as returning string (user-fn return types aren't
-    // chased through to the caller).
-    return string.concat(s, "")
-}
+// encode_name comes from aeblabel — the single canonical copy, shared with
+// aeb-link and gen-orchestrator. This file is now just the CLI wrapper.
+//
+// The implementation was inlined here (and in those two) as
+// `string_replace_all`, which collides with a C symbol std.string gained in
+// aether 0.465.0: "multiple definition of `string_replace_all'", a link
+// failure that broke `make` outright on any aether >= 0.465.
 
 main() {
     argc = aether_args_count()
