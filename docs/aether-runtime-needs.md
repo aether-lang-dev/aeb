@@ -3,19 +3,25 @@
 > **STATUS (re-audited 2026-08-01 against aether 0.472.0).** Most of this
 > file has been overtaken by events. Section A is **fully shipped**, so
 > the bash trampoline is no longer blocked on upstream; section B's
-> filesystem primitives are **all shipped**. Three items remain genuinely
+> filesystem primitives are **all shipped**. Two items remain genuinely
 > open upstream — see **Priority** near the end for the current list and
 > for what is now aeb-side work.
 >
-> Two cautions for whoever audits this next:
-> * **Verify by CALLING, not by grepping.** The `fs` wrappers are exported
->   as `fs.<op>` over `fs_<op>_raw` externs, so searching for the names as
->   written in section B ("fs_mkdir_p") reports *absent* when they exist.
->   This audit made that mistake first.
+> Two cautions for whoever audits this next. **Both were learned the hard
+> way during this very audit, which reported two things absent that had
+> shipped:**
+> * **Verify by CALLING, not by grepping — and search EVERY module, not
+>   the one whose name matches.** Two separate misses here: the `fs`
+>   wrappers are exported as `fs.<op>` over `fs_<op>_raw` externs (so
+>   "fs_mkdir_p" greps as absent), and the entire path surface lives in
+>   `std.fs`, not `std.path` — `path_clean`, `path_rel`,
+>   `path_is_within_base`, `join_clean` and friends. A pass that read
+>   `std/path/module.ae` alone wrote up `path_normalize` as an open ask
+>   when `fs.path_clean` had shipped. A sibling review caught it.
 > * **"std has a function with this name" does not mean aeb should use
->   it.** std's `path.join`/`dirname`/`basename` differ from aeb's on
->   trailing separators, absolute right-hand sides, and Windows drive
->   prefixes — see the audit at the end of this file.
+>   it.** std's `fs.path_join`/`path_dirname`/`path_basename` differ from
+>   aeb's on trailing separators, absolute right-hand sides, and Windows
+>   drive prefixes — see the audit at the end of this file.
 
 `aeb` is now a bash trampoline (~600 lines — it also carries the
 build-level process-group reap + `--timeout` watchdog, plus the
@@ -115,15 +121,30 @@ the gaps are:
 2. **Path separator handling** — every tool uses `/` literally in
    `string_concat` calls. PARTIALLY SHIPPED as of 0.472.0:
    ```
-   path_join(a, b)        ✅ present
-   path_is_absolute(p)    ✅ present (not originally asked for; useful here)
-   path_normalize(p)      ❌ still absent
-   path_separator()       ❌ still absent
+   fs.path_join(a, b)     ✅ present
+   fs.path_is_absolute(p) ✅ present
+   fs.path_clean(p)       ✅ present — LEXICAL normalize (a/b/../c -> a/c),
+                             no filesystem access, so it works on paths
+                             that do not exist yet. `fs.clean` is the
+                             wrapper; `fs.join_clean(a, b)` joins then
+                             cleans. Also `fs.path_rel`,
+                             `fs.path_is_within_base`.
+   path_separator()       ❌ absent — but not worth asking for: path_join
+                             emits "/" (accepted by nearly every Windows
+                             API) and `os.platform()` already lets a
+                             caller branch.
    ```
-   Note aeb does NOT simply want `path.join` here — its own `_path_join`
-   honours an absolute right-hand side and Windows drive prefixes, where
-   std's returns `a//b`. See the audit at the end of this file. The
-   remaining upstream ask is `path_normalize` / `path_separator`.
+   **NOTE THE MODULE.** All of this lives in `std.fs`, NOT `std.path`. An
+   earlier pass of this audit checked `std/path/module.ae`, found no
+   `path_normalize`, and wrote it up as an open upstream ask. A sibling
+   review caught it. Verified since by calling: `/nope/x/../y` ->
+   `/nope/y` on a nonexistent path.
+
+   Note aeb does NOT simply want `fs.path_join` here — its own
+   `_path_join` honours an absolute right-hand side and Windows drive
+   prefixes, where std's returns `a//b`. See the audit at the end of this
+   file. **Nothing in C2 is an upstream ask any more**; adopting
+   `fs.clean` at aeb's ~16 hand-rolled concat sites is aeb-side work.
 
 3. **Process launching** — ✅ **SHIPPED.** The argv-based launch this
    asked for landed in aether 0.124 as `os.run_capture(prog, argv, env)`
@@ -215,12 +236,12 @@ Still open UPSTREAM, in rough value order:
 1. **`fs_glob` Windows backend** — the POSIX `dirent`/`fnmatch` walker.
    Still the highest-value open item: the only thing in `tools/` that
    absolutely will not run on native Windows.
-2. **`fs_is_socket` + `os_user_id`** — the Podman-socket probe (C5).
-   Check `fs.try_stat`/`fs_get_stat_kind` first; it may already cover the
-   socket half, leaving only the uid.
-3. **`path_normalize` / `path_separator`** — the rest of C2. Note aeb
-   deliberately keeps its own `_path_join` (absolute-RHS + Windows drive
-   handling that std's lacks); see the audit below.
+2. **A socket test + `os_user_id`** — the Podman-socket probe (C5).
+   CHECKED: `fs.try_stat`/`fs_get_stat_kind` does NOT cover it. Its kind
+   encoding is `1=file, 2=dir, 3=symlink, 4=other`, and a real AF_UNIX
+   socket and a real FIFO both return 4 — verified. So either extend that
+   encoding (`5=socket, …`) or add `fs.is_socket`. `os_user_id` has no
+   equivalent under any spelling.
 Now aeb-SIDE work, not upstream asks:
 
 - **Collapse the bash trampoline into `aeb.ae`.** `aether_argv0`,
@@ -229,6 +250,11 @@ Now aeb-SIDE work, not upstream asks:
 - **Migrate `aeb-init` off `ln`/`readlink`/`test -L`** onto `fs.symlink` /
   `fs.readlink` / `fs.unlink` / `fs_is_symlink`.
 - **Migrate remaining `os.system` string-builders** onto `os.run_capture`.
+- **Adopt `fs.clean` / `fs.join_clean`** at the ~16 sites in `tools/` that
+  hand-roll `string.concat(..., "/")`. Lexical, so it is safe on paths
+  that do not exist yet. Does NOT replace aeb's own `_path_join` /
+  `_dirname` / `_basename` — their divergence from std is deliberate and
+  measured (see the audit below).
 
 **NOTE ON FILING.** None of the open items above have ever been filed as
 aether issues — this file is where they have lived. The repo convention
@@ -260,10 +286,12 @@ exactly where std may now have one.
 | `_csv_split` (lib/agent) | none | not a duplicate (splits + trims + drops empties) |
 | `_abs` (aeb-trace) | none | shells out to `pwd` |
 
-**Why the path helpers stay.** std.path is *not* a drop-in replacement —
-measured on 0.463.0:
+**Why the path helpers stay.** std's are *not* a drop-in replacement —
+measured on 0.463.0. (They live in `std.fs` as `path_join`/`path_dirname`/
+`path_basename`, not in `std.path`; an earlier pass of this audit looked
+in the wrong module and drew a wrong conclusion from it.)
 
-| input | aeb (lib/build) | std.path |
+| input | aeb (lib/build) | std (`std.fs`) |
 |---|---|---|
 | `dirname("foo/bar/")` | `foo` | `foo/bar` |
 | `basename("foo/bar/")` | `bar` | `""` |
