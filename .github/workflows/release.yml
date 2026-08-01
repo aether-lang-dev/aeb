@@ -263,9 +263,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
           SHA256: ${{ steps.stage.outputs.sha256 }}
+          # EVERY variable the notes heredoc interpolates must be listed
+          # here. The step runs under `set -u`, so one missing name aborts
+          # it before `gh` is ever invoked — which shows up as a Publish
+          # failure with NO gh output at all, easy to misread as an auth or
+          # API problem. (Exactly that: the inventory vars below were added
+          # to the notes without being wired in, and v0.281 tagged but
+          # never published.)
+          ASSET: ${{ steps.stage.outputs.asset }}
+          SIZE: ${{ steps.stage.outputs.size }}
+          N_TOOLS: ${{ steps.stage.outputs.n_tools }}
+          N_SDK: ${{ steps.stage.outputs.n_sdk }}
+          N_EXE: ${{ steps.stage.outputs.n_exe }}
+          UNPACKED: ${{ steps.stage.outputs.unpacked }}
+          PIN: ${{ steps.stage.outputs.pin }}
+          FETCHVER: ${{ steps.stage.outputs.fetchver }}
         run: |
           set -euo pipefail
-          ASSET="aeb-bootstrap.tar.gz"
+          # ASSET comes from the stage step's output (see env: above), so
+          # the name is defined in exactly one place rather than repeated
+          # here and drifting from what was actually staged.
           test -f "$ASSET" && test -f "$ASSET.sha256"
 
           cat > /tmp/notes.md <<EOF

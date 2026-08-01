@@ -41,6 +41,18 @@ jobs:
       - name: Checkout aeb
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # Runs FIRST and costs ~1s: it needs no toolchain, and the failure it
+      # catches is otherwise only discoverable by cutting a release.
+      #
+      # release.yml's steps run under `set -euo pipefail`, so ONE unset
+      # variable aborts a step before any command in it executes — the
+      # Publish step then fails with no `gh` output at all, which reads
+      # like an auth problem. v0.281 tagged but never published exactly
+      # that way: the notes grew seven inventory variables that were
+      # computed in the stage step and never passed to Publish.
+      - name: Lint workflow env wiring
+        run: python3 tools/check-workflow-env.py .github/workflows/*.yml
+
       # JDK so test_java_cache's _jdk_version() (`javac -version`) is
       # non-empty; harmless for every other test.
       - name: Set up JDK
