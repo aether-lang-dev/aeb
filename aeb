@@ -101,7 +101,7 @@ if [ -n "$_aeb_pin" ] && [ "$_aeb_user_pinned_aether" = "0" ]; then
             mkdir -p "$_aeb_priv"
             _aeb_get="$_aeb_cache/toolchain/get-$_aeb_fetch_ver.sh"
             if curl -sSL -o "$_aeb_get" \
-                 "https://raw.githubusercontent.com/aether-lang-org/aether/v$_aeb_fetch_ver/get.sh" 2>/dev/null \
+                 "https://raw.githubusercontent.com/aether-lang-dev/aether/v$_aeb_fetch_ver/get.sh" 2>/dev/null \
                && AETHER_REF="v$_aeb_fetch_ver" PREFIX="$_aeb_priv" sh "$_aeb_get" >"$_aeb_priv/fetch.log" 2>&1 \
                && [ -x "$_aeb_priv/bin/ae" ]; then
                 AETHER="$_aeb_priv/bin/ae"

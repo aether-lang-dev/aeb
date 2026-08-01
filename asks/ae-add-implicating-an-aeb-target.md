@@ -6,7 +6,7 @@ forward direction, not a request to implement now.
 
 **Concrete worked example throughout:** zsync. We want
 `aeb` to depend on a zsync `.so`, fetched + built from
-`github.com/aether-lang-org/zsync-port`, without vendoring its source.
+`github.com/aether-lang-dev/zsync-port`, without vendoring its source.
 
 ## Two mechanisms that don't know about each other today
 
@@ -31,7 +31,7 @@ What if a fetched repo could carry **aeb targets** (the `.name.ae` /
 **resolvable + buildable** — not just its source importable?
 
 ```
-ae add github.com/aether-lang-org/zsync-port@v0.7.1
+ae add github.com/aether-lang-dev/zsync-port@v0.7.1
   → fetches the repo (as today)
   → discovers its aeb targets, e.g.  zsync:client  zsync:server
      (from cmd/zsync/.build.ae etc., the literal-type model)

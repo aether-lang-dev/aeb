@@ -45,7 +45,7 @@ just has to be gettable.
 
 ### 1. aeb has no releases at all — the blocker
 
-`github.com/aether-lang-org/aeb/releases` is **empty**. `autotag.yml` tags
+`github.com/aether-lang-dev/aeb/releases` is **empty**. `autotag.yml` tags
 every push to `main` (`v0.242`) but cuts no release, so the only fetchable
 artifact is GitHub's auto-generated source tarball for a tag. That happens
 to work — it is exactly the 1.7 MB self-bootstrap above — but it is

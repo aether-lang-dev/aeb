@@ -64,7 +64,7 @@ prior crash's leaked slots are cleared at startup.
 The slot is an atomic lock-dir (`mkdir`-based — race-safe across the server's
 worker threads *and* across processes; co-located agents key their slots by port).
 The idiomatic actor-owned-state version awaits a synchronous actor `call`
-([aether#736](https://github.com/aether-lang-org/aether/issues/736)); the lock-dir
+([aether#736](https://github.com/aether-lang-dev/aether/issues/736)); the lock-dir
 ships now and is crash-robust.
 
 **Per-slot tree isolation:** slot `i` builds in **`<workdir>/<i>`** (its own

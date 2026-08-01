@@ -82,7 +82,7 @@ _scope_from_env() {
 // exactly one caller wins a create, the rest get EEXIST) — race-safe across
 // threads AND processes, no app-level mutex (Aether has none; the idiomatic
 // actor-owned-state version awaits a synchronous actor `call`, filed as
-// github.com/aether-lang-org/aether/issues/736; lockdir ships now).
+// github.com/aether-lang-dev/aether/issues/736; lockdir ships now).
 //
 // CAPACITY (--max-jobs N, AEB_AGENT_MAX_JOBS): N slots → up to N concurrent
 // builds; a dispatch claims the first free slot-<i>, else `busy`. A big box

@@ -14,14 +14,14 @@ toolchain** (`ae`). aeb's own `tools/*.ae` are compiled with `ae build`.
 
 ```sh
 # One-liner: install the latest tag to ~/.local (no sudo).
-curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/install.sh | sh
 
 # Pin an exact version (reproducible — recommended for CI):
-curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh \
+curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/install.sh \
   | AEB_REF=v0.001 sh
 
 # Or from a clone:
-git clone https://github.com/aether-lang-org/aeb.git
+git clone https://github.com/aether-lang-dev/aeb.git
 cd aeb && make install            # PREFIX defaults to ~/.local
 ```
 
@@ -35,7 +35,7 @@ scaffolds a starter).
 
 | Need | For |
 |---|---|
-| **Aether toolchain** (`ae` / `aetherc`) | building aeb's tools — the one hard dep. See [aether's bootstrap-from-source](https://github.com/aether-lang-org/aether/blob/main/docs/bootstrap-from-source.md). |
+| **Aether toolchain** (`ae` / `aetherc`) | building aeb's tools — the one hard dep. See [aether's bootstrap-from-source](https://github.com/aether-lang-dev/aether/blob/main/docs/bootstrap-from-source.md). |
 | **bash** (3.2+) | the `aeb` trampoline (POSIX-level; macOS bash 3.2 works) |
 | **GNU make** | two distinct roles: the install is make-based, **and** the node driver uses it at *build* time to schedule nodes in parallel. Without it every build still works, just serially (see below). |
 | **C compiler** (`gcc`/`clang`) | aeb shells out to it for C / Aether-program / generated-header targets |
@@ -90,7 +90,7 @@ Full write-up: [`windows-cross-platform-notes.md`](windows-cross-platform-notes.
 ### A. `install.sh` (fetch a pinned tarball)
 
 ```sh
-curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/install.sh | sh
 ```
 
 Knobs (env vars):
@@ -102,14 +102,14 @@ Knobs (env vars):
 | `AETHER` | `ae` | the Aether toolchain to build with |
 
 The script resolves the ref, downloads
-`github.com/aether-lang-org/aeb/archive/<ref>.tar.gz` (GitHub generates a
+`github.com/aether-lang-dev/aeb/archive/<ref>.tar.gz` (GitHub generates a
 source tarball for every tag/branch/commit — no release upload needed),
 and runs `make install`. It runs **no tests**.
 
 ### B. From a clone
 
 ```sh
-git clone https://github.com/aether-lang-org/aeb.git
+git clone https://github.com/aether-lang-dev/aeb.git
 cd aeb
 make install                        # to ~/.local
 make install PREFIX=/usr/local      # system-wide (needs write perms)
@@ -147,7 +147,7 @@ build doesn't drift:
 
 ```sh
 # In CI, before running the build:
-curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh \
+curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/install.sh \
   | AEB_REF=v0.042 PREFIX="$PWD/.aeb-toolchain" sh
 export PATH="$PWD/.aeb-toolchain/bin:$PATH"
 aeb --since "$GITHUB_BASE_REF" --scan '.tests.ae'
@@ -181,7 +181,7 @@ GNU make, and an installed `ae` on PATH.
 
 ```sh
 # Install a pinned aeb to a writable prefix (no sudo).
-curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh \
+curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/install.sh \
   | AEB_REF=v0.001 PREFIX="$PWD/.aeb" sh
 
 # Verify (success signals to assert on):
@@ -209,5 +209,5 @@ Rules of thumb:
 - [README.md](../README.md) — what aeb is, the CLI flags
   (`--since`, `--scan`, `--shard`, `--timeout`, …).
 - aether's
-  [bootstrap-from-source](https://github.com/aether-lang-org/aether/blob/main/docs/bootstrap-from-source.md)
+  [bootstrap-from-source](https://github.com/aether-lang-dev/aether/blob/main/docs/bootstrap-from-source.md)
   — install the prerequisite toolchain.

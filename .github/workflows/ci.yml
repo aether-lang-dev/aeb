@@ -9,7 +9,7 @@ name: CI
 # cache/SDK test tolerates an absent toolchain by design.
 #
 # aeb is written in Aether, so CI must first obtain `ae`. We build it from
-# the aether repo (aether-lang-org/aether) with its own supported
+# the aether repo (aether-lang-dev/aether) with its own supported
 # `install.sh` — the same path a developer uses — pinned by the
 # `aether_ref` input (default: main, which carries the fixes aeb depends
 # on). aether's CI build recipe (ubuntu-22.04 + gcc/make/bc/pkg-config/
@@ -59,7 +59,7 @@ jobs:
       - name: Checkout aether toolchain source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          repository: aether-lang-org/aether
+          repository: aether-lang-dev/aether
           ref: ${{ github.event.inputs.aether_ref || 'main' }}
           path: aether-src
           fetch-depth: 0   # install.sh derives its version via git describe

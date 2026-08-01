@@ -413,7 +413,7 @@ _last_index_of(s: string, needle: string) {
 
 // _git_pkg_slug(repo, ref_or_sha) — a content-addressed-ish dir name for the
 // fetched tree under target/_pkg/, derived from the repo path tail + ref/sha.
-// e.g. ("github.com/aether-lang-org/zsync-port", "a298837") ->
+// e.g. ("github.com/aether-lang-dev/zsync-port", "a298837") ->
 // "zsync-port@a298837". Pure; keeps fetched trees out of the source tree.
 _git_pkg_slug(repo: string, pin: string) {
     tail = repo

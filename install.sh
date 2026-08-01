@@ -2,7 +2,7 @@
 # aeb installer — fetch a pinned aeb source tarball and `make install`.
 #
 # Usage:
-#   curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh | sh
+#   curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/install.sh | sh
 #   AEB_REF=v0.042 sh install.sh
 #   AEB_REF=v0.042 PREFIX="$HOME/.local" AETHER=/opt/ae/bin/ae sh install.sh
 #
@@ -13,13 +13,13 @@
 #   AETHER    the Aether `ae` toolchain to build aeb with.
 #             Default: `ae` on PATH. aeb is written in Aether, so this is
 #             a hard prerequisite — install it first if absent (see
-#             https://github.com/aether-lang-org/aether).
+#             https://github.com/aether-lang-dev/aether).
 #
 # Note: aeb tags are pinnable markers, NOT sem-ver compatibility promises
 # (a higher v0.NNN just means "later"). Pin AEB_REF for reproducible CI.
 set -eu
 
-REPO="aether-lang-org/aeb"
+REPO="aether-lang-dev/aeb"
 PREFIX="${PREFIX:-$HOME/.local}"
 AETHER="${AETHER:-ae}"
 
@@ -35,7 +35,7 @@ have make || die "GNU make is required."
 if ! have "$AETHER"; then
     die "the Aether toolchain '$AETHER' was not found.
      aeb is written in Aether and needs 'ae' to build. Install it first
-     (https://github.com/aether-lang-org/aether, docs/bootstrap-from-source.md)
+     (https://github.com/aether-lang-dev/aether, docs/bootstrap-from-source.md)
      or point AETHER at an existing one: AETHER=/path/to/ae sh install.sh"
 fi
 

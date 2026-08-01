@@ -86,6 +86,9 @@ jobs:
           # inconsistent beside GitHub's own auto-attached assets, which use
           # a third convention entirely and CANNOT be renamed or suppressed:
           #   aether-lang-org-aeb-v0.279-0-gf505afd.tar.gz   ("Source code")
+          # (verbatim from v0.279, hence the pre-rename org in the name —
+          # GitHub derives it from the owner, so today's reads
+          # aether-lang-dev-aeb-...; left as-cut so the example stays true)
           # Three schemes on one page invites grabbing the wrong tarball —
           # and the wrong one here is materially wrong: GitHub's is the WHOLE
           # repo (itests/, the 7.3 MB Maven resolver) with NO published sha,
@@ -141,7 +144,7 @@ jobs:
           # cold node would.
           FETCH_VER="$(grep -v '^#' "$HOME_DIR/AETHER_FETCH" | tr -d '[:space:]')"
           curl -fsSL -o /tmp/ae.tgz \
-            "https://github.com/aether-lang-org/aether/releases/download/v$FETCH_VER/aether-$FETCH_VER-linux-x86_64.tar.gz"
+            "https://github.com/aether-lang-dev/aether/releases/download/v$FETCH_VER/aether-$FETCH_VER-linux-x86_64.tar.gz"
           # NO --strip-components: the Aether tarball has no top-level
           # wrapper dir, so it extracts bin/ include/ lib/ share/ directly.
           # Stripping a level flattens bin/ae to ./ae and the probe below
@@ -184,7 +187,7 @@ jobs:
       # every runner and authenticates with the same GITHUB_TOKEN, so the
       # dependency buys nothing here. Removing it means: no third-party
       # code in the release path, no allowlist entry needed if the org
-      # enables "select non-aether-lang-org actions", and no pin to keep
+      # enables "select non-aether-lang-dev actions", and no pin to keep
       # fresh. The remaining `actions/checkout` is GitHub-owned.
       - name: Publish
         env:

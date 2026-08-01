@@ -30,7 +30,7 @@ local target.
 ## The one-liner, decomposed
 
 ```
-dep(b, "git:github.com/aether-lang-org/zsync-port@main#cmd/zsync:zsync=a298837195fe60df567c66ff4922e0e5baceee6a")
+dep(b, "git:github.com/aether-lang-dev/zsync-port@main#cmd/zsync:zsync=a298837195fe60df567c66ff4922e0e5baceee6a")
         └─┬─┘└──────────────┬──────────────┘└─┬─┘ └──────┬──────┘ └────────────────┬────────────────┘
         scheme            repo               ref      synonym                    sha-pin
 ```
@@ -38,7 +38,7 @@ dep(b, "git:github.com/aether-lang-org/zsync-port@main#cmd/zsync:zsync=a29883719
 | field | example | role | maps to |
 |---|---|---|---|
 | `git:` | `git:` | scheme — classifies this dep | (parser branch) |
-| repo | `github.com/aether-lang-org/zsync-port` | the remote | `fetch.git repo(...)` |
+| repo | `github.com/aether-lang-dev/zsync-port` | the remote | `fetch.git repo(...)` |
 | `@ref` | `@main` (or `@0.7.1`) | branch/tag — a **fetch hint, NOT the contract** | `fetch.git ref(...)` |
 | `#synonym` | `#cmd/zsync:zsync` | **THE TARGET** to build in the fetched tree | `synonym_relpath` rooted at the clone |
 | `=sha` | `=a298837…` | the **immutable contract** (supply-chain pin) | `fetch.git commit(...)` |
@@ -177,7 +177,7 @@ the synonym as a second arg instead of after `#`.
 
 ## Acceptance
 
-`dep(b, "git:github.com/aether-lang-org/zsync-port@main#cmd/zsync:zsync=a298837…")`
+`dep(b, "git:github.com/aether-lang-dev/zsync-port@main#cmd/zsync:zsync=a298837…")`
 fetches zsync pinned, resolves `cmd/zsync:zsync` → `<tree>/cmd/zsync/.zsync.ae`,
 builds it, and links/threads its artifact exactly as a local dep — with a hard
 build failure if the pinned sha doesn't match. Worked example: zsync (which must

@@ -71,7 +71,7 @@ unbuilt until something invokes them, so you pay only for what you use.
 And Aether itself is a **2.8 MB binary tarball**, not a source build:
 
 ```
-https://github.com/aether-lang-org/aether/releases/download/v0.452.0/aether-0.452.0-linux-x86_64.tar.gz
+https://github.com/aether-lang-dev/aether/releases/download/v0.452.0/aether-0.452.0-linux-x86_64.tar.gz
 ```
 
 Measured: **~1 s** to download and extract, versus **318 s** to build the
@@ -194,7 +194,7 @@ Auth is HMAC-signed, expiring, purpose-bound lease tokens
 
 ## What GitHub Releases should hold
 
-**Today: nothing.** `github.com/aether-lang-org/aeb/releases` is empty —
+**Today: nothing.** `github.com/aether-lang-dev/aeb/releases` is empty —
 there are tags (`v0.242`) and no release cut, so all a node can fetch is
 GitHub's auto-generated `source.zip`. That happens to work (Tier 2 above
 is exactly "unzip the source and let it build itself"), but it is

@@ -1,6 +1,6 @@
 # Aether: expose the per-function effect / purity analysis externally (for aeb's veto)
 
-**Upstream issue:** https://github.com/aether-lang-org/aether/issues/889
+**Upstream issue:** https://github.com/aether-lang-dev/aether/issues/889
 
 **Filed by:** aeb Claude, 2026-06-26. An enhancement request TO the Aether
 maintainer — something aeb would consume, not an aeb-internal task.

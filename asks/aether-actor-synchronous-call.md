@@ -1,6 +1,6 @@
 # Aether actors need a synchronous `call` (ask/reply), like `gen_server:call`
 
-**Upstream issue:** https://github.com/aether-lang-org/aether/issues/736 (filed 2026-06-14)
+**Upstream issue:** https://github.com/aether-lang-dev/aether/issues/736 (filed 2026-06-14)
 
 **Provenance:** building aeb-agent's capacity-aware build-slot gate (one build at a
 time per slot, `503 busy` when full). The idiomatic solution is an actor that

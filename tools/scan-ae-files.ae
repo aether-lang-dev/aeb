@@ -51,7 +51,7 @@ _sort_lines(buf: string) {
     // Emit sorted AND de-duplicated. The dedup is not cosmetic: aether's
     // fs.glob("./**/.*.ae") returns every ROOT-LEVEL match TWICE (the `**`
     // marker matches zero depth both as itself and via the recursive walk)
-    // — filed as aether-lang-org/aether#1279. Without this, a repo-root
+    // — filed as aether-lang-dev/aether#1279. Without this, a repo-root
     // build file becomes a duplicate DAG node, which shows up as duplicate
     // Makefile recipes ("warning: overriding recipe for target ..."), the
     // target rendered twice in telemetry, and a wrong count for anyone

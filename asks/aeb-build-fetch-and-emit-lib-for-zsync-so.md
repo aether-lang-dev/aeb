@@ -46,7 +46,7 @@ aeb(cap) {
 
     // 1. go-get the zsync sources by pinned ref (github serves any ref as a tarball)
     fetch.archive(b) {
-        url("https://github.com/aether-lang-org/zsync-port/archive/<sha>.tar.gz")
+        url("https://github.com/aether-lang-dev/zsync-port/archive/<sha>.tar.gz")
         sha256("<digest>")
         extract_to("target/_vendor/zsync")
         strip_components(1)

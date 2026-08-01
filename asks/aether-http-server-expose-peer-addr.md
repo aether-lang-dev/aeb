@@ -18,7 +18,7 @@ Aether maintainers picked it up from triage).
 build server; we wanted an **in-agent source-IP allow-list** (`--allow-from
 <cidr>`) as defense-in-depth on top of lease/token auth, and found the handler
 has no trustworthy way to learn the client's IP.
-**Aether:** `github.com/aether-lang-org/aether`, source `std/net/aether_http_server.c`
+**Aether:** `github.com/aether-lang-dev/aether`, source `std/net/aether_http_server.c`
 (server impl) + `std/http/module.ae` (the externs surface).
 **Severity:** feature gap, not a bug. Not blocking — bind-address + host firewall
 + auth already cover the threat model — but the data is *right there* and a

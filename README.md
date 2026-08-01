@@ -152,15 +152,15 @@ java/components/vowelbase/.build.ae
 
 ## Installing
 
-aeb is written in Aether, so it needs the [Aether toolchain](https://github.com/aether-lang-org/aether)
+aeb is written in Aether, so it needs the [Aether toolchain](https://github.com/aether-lang-dev/aether)
 (`ae`) first. Then, to a no-sudo prefix (`~/.local`):
 
 ```bash
 # Latest tag (or pin one for CI: AEB_REF=v0.042):
-curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/install.sh | sh
+curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/install.sh | sh
 
 # Or from a clone:
-git clone https://github.com/aether-lang-org/aeb.git && cd aeb && make install
+git clone https://github.com/aether-lang-dev/aeb.git && cd aeb && make install
 ```
 
 Ensure `~/.local/bin` is on your `PATH`. Full guide — pinning in CI,

@@ -279,7 +279,7 @@ the exact two-path divergence the native scheduler exists to remove, and
 the "green build that proves nothing" shape this repo keeps hitting.
 
 Filed upstream as
-[aether#1278](https://github.com/aether-lang-org/aether/issues/1278):
+[aether#1278](https://github.com/aether-lang-dev/aether/issues/1278):
 `os.wait_any_timeout(tokens, secs)` plus a contract that timeout/kill
 accept spawn *tokens* on every platform.
 

@@ -68,7 +68,7 @@ Promote + generalize aether-ui's bootstrap into the aeb repo so there's ONE
 tested one-go path (consumers, CI, and the toolchain images all use it):
 
 ```
-curl -sSL https://raw.githubusercontent.com/aether-lang-org/aeb/main/bootstrap.sh | sh
+curl -sSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/bootstrap.sh | sh
 ```
 
 1. **ensure `ae`**: if `ae` absent OR `< AETHER_MIN` (read from Layer 1, fetched

@@ -33,7 +33,7 @@ ARG AEB_REF=main
 # (aeb-main, aeb-link, …) with the in-image ae/aetherc and copies the
 # runtime tree (lib/ + tools/) under the prefix.
 RUN git clone --depth 1 --branch "${AEB_REF}" \
-        https://github.com/aether-lang-org/aeb.git /opt/aeb \
+        https://github.com/aether-lang-dev/aeb.git /opt/aeb \
  && rm -rf /opt/aeb/itests \
  && make -C /opt/aeb install PREFIX=/usr/local \
  && aeb --version

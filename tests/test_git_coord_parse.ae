@@ -20,8 +20,8 @@ _ok(label: string, cond: int) {
 
 main() {
     // Full coordinate: repo + ref + synonym + sha
-    full = "git:github.com/aether-lang-org/zsync-port@main#cmd/zsync:zsync=a298837195fe60df567c66ff4922e0e5baceee6a"
-    _eq("full repo",    _git_repo(full),    "github.com/aether-lang-org/zsync-port")
+    full = "git:github.com/aether-lang-dev/zsync-port@main#cmd/zsync:zsync=a298837195fe60df567c66ff4922e0e5baceee6a"
+    _eq("full repo",    _git_repo(full),    "github.com/aether-lang-dev/zsync-port")
     _eq("full ref",     _git_ref(full),     "main")
     _eq("full synonym", _git_synonym(full), "cmd/zsync:zsync")
     _eq("full sha",     _git_sha(full),     "a298837195fe60df567c66ff4922e0e5baceee6a")
