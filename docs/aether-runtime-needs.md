@@ -1,5 +1,22 @@
 # Aether enhancements wanted by `aeb`
 
+> **STATUS (re-audited 2026-08-01 against aether 0.472.0).** Most of this
+> file has been overtaken by events. Section A is **fully shipped**, so
+> the bash trampoline is no longer blocked on upstream; section B's
+> filesystem primitives are **all shipped**. Four items remain genuinely
+> open upstream — see **Priority** near the end for the current list and
+> for what is now aeb-side work.
+>
+> Two cautions for whoever audits this next:
+> * **Verify by CALLING, not by grepping.** The `fs` wrappers are exported
+>   as `fs.<op>` over `fs_<op>_raw` externs, so searching for the names as
+>   written in section B ("fs_mkdir_p") reports *absent* when they exist.
+>   This audit made that mistake first.
+> * **"std has a function with this name" does not mean aeb should use
+>   it.** std's `path.join`/`dirname`/`basename` differ from aeb's on
+>   trailing separators, absolute right-hand sides, and Windows drive
+>   prefixes — see the audit at the end of this file.
+
 `aeb` is now a bash trampoline (~600 lines — it also carries the
 build-level process-group reap + `--timeout` watchdog, plus the
 `--vet`/`--sandbox`/remote-agent dispatch arms) plus a suite of
@@ -28,31 +45,28 @@ would let `aeb` run unmodified on Windows.
 
 ## A. Make the bash trampoline disappear
 
-The trampoline exists because of three things Aether can't currently express
-without shelling out:
+> **✅ ALL THREE SHIPPED — this section is no longer blocked on Aether.**
+> Re-audited 2026-08-01 against 0.472.0 and functionally tested, not just
+> grepped. What remains is aeb-side work, not an upstream ask.
 
-1. **Resolve the running binary's directory** — to find the sibling
-   `tools/` folder. Bash does `AEB_HOME="$(cd "$(dirname "$0")" && pwd)"`.
-   Aether equivalent wanted:
+1. ✅ **Resolve the running binary's directory.** `aether_argv0()` is
+   declared in `std/os` and `fs.realpath(p)` in `std/fs` (returns a
+   3-tuple: path, rc, err). Both verified working.
    ```
    extern aether_argv0() -> string         // path the OS launched us with
-   extern realpath(p: string) -> string    // canonicalize symlinks etc.
+   fs.realpath(p) -> (string, int, string) // canonicalize symlinks etc.
    ```
 
-2. **Replace the current process** — the trampoline finishes with `exec
-   "$AEB_MAIN_BIN" ...`. Without execv, an Aether-language `aeb` would
-   either spawn a child (extra process layer, double signal handling) or
-   inline aeb-main into itself. Neither is bad but a real `execv` is
-   simpler:
-   ```
-   extern os_execv(prog: string, args: ptr) -> int   // returns only on failure
-   ```
+2. ✅ **Replace the current process.** `os_execv` is exported from
+   `std/os`.
 
-3. **Read environment variables** — Aether already has `os_getenv`, so this
-   one is solved. Listed for completeness.
+3. ✅ **Read environment variables** — `os_getenv`, solved long ago.
+   Listed for completeness.
 
-If we get (1) and (2), the bash trampoline collapses into a self-bootstrapping
-`aeb.ae` that the user runs directly, and the `#!/bin/bash` line goes away.
+**So the bash trampoline can collapse into a self-bootstrapping `aeb.ae`
+whenever someone does the work.** That is now an aeb task, and
+`tools/aeb-cli` is already most of it (see the note at the top of this
+file). Nothing here is waiting on upstream.
 
 ## B. Reduce per-call subprocess forks inside the tools
 
@@ -60,19 +74,29 @@ The tools all live as separate native binaries that the bash
 trampoline (or each other) `exec` into. Inside each tool, several `os_system`
 / `os_exec` calls remain that could become native:
 
-| Pattern                        | Used in                                     | What's needed                       |
+> **✅ EVERY FILESYSTEM PRIMITIVE ASKED FOR HERE HAS SHIPPED.** Re-audited
+> 2026-08-01 against 0.472.0. The remaining work is aeb-side: migrating
+> the call sites off `os.system` string-building. Nothing upstream.
+>
+> Note the earlier audit nearly got this wrong — the wrappers exist under
+> `fs.<op>` with `fs_<op>_raw` externs beneath, so a grep for the exact
+> names in this table ("fs_mkdir_p") reports *absent*. They were verified
+> by CALLING them, not by name.
+
+| Pattern                        | Used in                                     | Status                              |
 |--------------------------------|---------------------------------------------|-------------------------------------|
-| `mkdir -p`                     | aeb-init, aeb-link, aeb-main                | `extern fs_mkdir_p(path) -> int`    |
-| `ln -s` / `rm` / `readlink`    | aeb-init                                    | `extern fs_symlink(target, link) -> int`, `fs_readlink(p) -> string`, `fs_unlink(p)` |
-| `dirname $(command -v ...)`    | aeb-link, aeb-main                          | `extern os_which(name) -> string`   |
-| `test -L` / `[[ -L ]]`         | aeb-init                                    | `extern fs_is_symlink(p) -> int`    |
+| `mkdir -p`                     | aeb-init, aeb-link, aeb-main                | ✅ `fs.mkdir_p(path)`               |
+| `ln -s` / `rm` / `readlink`    | aeb-init                                    | ✅ `fs.symlink`, `fs.readlink`, `fs.unlink` |
+| `dirname $(command -v ...)`    | aeb-link, aeb-main                          | ✅ `os.which(name)`                 |
+| `test -L` / `[[ -L ]]`         | aeb-init                                    | ✅ `fs_is_symlink(p)` (raw extern; no wrapper yet) |
 | `git sparse-checkout add ...`  | gcheckout                                   | unavoidable shell-out, but see (D)  |
 | `gcc -O2 ...` (the link step)  | aeb-link                                    | unavoidable shell-out (gcc/clang)   |
 | `find ...` (already gone)      | scan-ae-files uses fs_glob                  | done                                |
 | `sed`/`grep`/`awk` (gone)      | encode-name, extract-deps, topo-sort, etc.  | done                                |
 
-Most of these are simple POSIX wrappers and would also benefit any other
-Aether program that touches the filesystem.
+All verified by calling them on 0.472.0: `mkdir_p` created a nested tree,
+`symlink`/`readlink` round-tripped, `realpath` resolved `a/b/../b/c`,
+`unlink` removed the link, `os.which("sh")` returned `/usr/bin/sh`.
 
 ## C. Things needed so Windows isn't left behind
 
@@ -89,14 +113,17 @@ the gaps are:
      branch.
 
 2. **Path separator handling** — every tool uses `/` literally in
-   `string_concat` calls. The Aether stdlib's `path_join` already exists
-   but isn't used; auditing every concat to use it would be a one-pass
-   refactor on top of:
+   `string_concat` calls. PARTIALLY SHIPPED as of 0.472.0:
    ```
-   extern path_join(a: string, b: string) -> string
-   extern path_normalize(p: string) -> string
-   extern path_separator() -> string
+   path_join(a, b)        ✅ present
+   path_is_absolute(p)    ✅ present (not originally asked for; useful here)
+   path_normalize(p)      ❌ still absent
+   path_separator()       ❌ still absent
    ```
+   Note aeb does NOT simply want `path.join` here — its own `_path_join`
+   honours an absolute right-hand side and Windows drive prefixes, where
+   std's returns `a//b`. See the audit at the end of this file. The
+   remaining upstream ask is `path_normalize` / `path_separator`.
 
 3. **Process launching** — ✅ **SHIPPED.** The argv-based launch this
    asked for landed in aether 0.124 as `os.run_capture(prog, argv, env)`
@@ -122,12 +149,13 @@ the gaps are:
 5. **Podman/Docker socket detection** — only relevant when a build's tests
    use TestContainers. The trampoline currently does
    `[[ -S "/run/user/$(id -u)/podman/podman.sock" ]]` and exports
-   `DOCKER_HOST`. Trivial to port to Aether once `fs_is_socket` /
-   `os_user_id` exist:
+   `DOCKER_HOST`. **STILL BLOCKED** (re-checked 0.472.0): neither exists.
    ```
-   extern fs_is_socket(path: string) -> int
-   extern os_user_id() -> int
+   extern fs_is_socket(path: string) -> int   ❌ absent
+   extern os_user_id() -> int                 ❌ absent
    ```
+   `fs.try_stat` + `fs_get_stat_kind` may already answer the socket half;
+   worth checking before filing.
 
 6. **`gcc` invocation** — the link step assumes a POSIX shell line. On
    Windows we'd point at `gcc.exe` (MinGW) or `cl.exe` (MSVC). The argv
@@ -175,20 +203,39 @@ These were in the previous iteration of this doc and have since landed:
 
 ## Priority
 
-If the goal is "Windows works, bash trampoline gone":
+**Re-audited 2026-08-01 against 0.472.0.** Items 1, 3 and 4 of the previous
+list have all shipped — so most of what this file asked for is done, and
+the bulk of the remaining work is aeb-side rather than upstream.
 
-1. ~~**`os_run` argv-based launcher**~~ — ✅ **SHIPPED** as
-   `os.run_capture` / `os.run_pipe*` (aether 0.124). Was the highest-value
-   item; the remaining work is aeb-side (migrate the rest of the
-   `os.system` string-builders onto it).
-2. **`fs_glob` Windows backend** — currently the only thing in `tools/`
-   that absolutely won't run on Windows. Now the highest-value *open* item.
-3. **`aether_argv0` + `os_execv`** — lets the bash trampoline disappear.
-4. **`fs_symlink` / `fs_is_symlink` / `fs_readlink`** — lets `aeb-init`
-   stop shelling out to `ln`/`readlink`/`test -L` and gives `--init` a
-   Windows fallback (junctions or copies).
-5. **VCS abstraction for `aeb gcheckout`** — unblocks Mercurial. Lower
+Still open UPSTREAM, in rough value order:
+
+1. **`fs_glob` Windows backend** — the POSIX `dirent`/`fnmatch` walker.
+   Still the highest-value open item: the only thing in `tools/` that
+   absolutely will not run on native Windows.
+2. **`fs_is_socket` + `os_user_id`** — the Podman-socket probe (C5).
+   Check `fs.try_stat`/`fs_get_stat_kind` first; it may already cover the
+   socket half, leaving only the uid.
+3. **`path_normalize` / `path_separator`** — the rest of C2. Note aeb
+   deliberately keeps its own `_path_join` (absolute-RHS + Windows drive
+   handling that std's lacks); see the audit below.
+4. **VCS abstraction for `aeb gcheckout`** — unblocks Mercurial. Lower
    priority because git is a fine default.
+
+Now aeb-SIDE work, not upstream asks:
+
+- **Collapse the bash trampoline into `aeb.ae`.** `aether_argv0`,
+  `fs.realpath` and `os_execv` all exist; `tools/aeb-cli` is already most
+  of the implementation.
+- **Migrate `aeb-init` off `ln`/`readlink`/`test -L`** onto `fs.symlink` /
+  `fs.readlink` / `fs.unlink` / `fs_is_symlink`.
+- **Migrate remaining `os.system` string-builders** onto `os.run_capture`.
+
+**NOTE ON FILING.** None of the open items above have ever been filed as
+aether issues — this file is where they have lived. The repo convention
+for an upstream ask is `asks/aether-*.md` carrying an `**Upstream
+issue:**` link (see `asks/aether-actor-synchronous-call.md`). The open
+items should move to that shape; this file should keep only aeb's own
+status and history.
 
 ## Audit: aeb helpers vs std (2026-08-01)
 
