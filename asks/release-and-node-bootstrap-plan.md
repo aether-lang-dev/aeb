@@ -32,10 +32,24 @@ just has to be gettable.
   with `E0301` and exited 0 with no output.)
 - **aeb fetches its own pinned Aether**, privately, never on `PATH`.
   `AETHER_PIN` (floor) / `AETHER_FETCH` (which release) split, cache keyed
-  on the fetch version.
+  on the fetch version. **Prefers the prebuilt tarball, falls back to a
+  source build** — see below.
 - **Aether ships prebuilt tarballs** for linux-x86_64, macos-arm64,
-  macos-x86_64, windows-x86_64 — ~1 s to fetch+extract vs 318 s to build.
-  Built on `ubuntu-22.04` for a portable glibc floor.
+  macos-x86_64, windows-x86_64, and (since 0.472.0) freebsd-x86_64 —
+  measured under 1 s to fetch+extract vs 69 s to build, and no C compiler
+  needed on the node. Built on `ubuntu-22.04` for a portable glibc floor.
+
+  *Corrected 2026-08-01*: this bullet previously read as though the
+  prebuilt was what aeb fetched. It was not. The trampoline shelled out to
+  upstream's `get.sh`, which is a **source** installer (source tarball +
+  `make install`) — it has no platform detection and cannot consume a
+  prebuilt at all. Only `release.yml`'s verify step used the fast path,
+  under a comment claiming it did so "the same way a cold node would",
+  which was untrue. The trampoline now tries the prebuilt first and falls
+  back to `get.sh`. The fallback is not vestigial: there is **no
+  `linux-arm64` asset**, so a Pi or Graviton node still builds from
+  source, and upstream publishes no `.sha256`, so the compile probe — not
+  a hash — is the integrity gate on the fast path.
 - **`tools/aeb-cli` drives a real build end to end.** Verified: `aeb-cli
   app/.tests.ae` → `1/1 PASS`. The native entrypoint is not hypothetical.
 - **`aeb-agent` exists** with lease auth, `/ping` capability reporting,

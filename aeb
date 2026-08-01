@@ -43,6 +43,9 @@ export AEB_HOME
 # Off switches, in precedence order:
 #   AETHER=<path>          explicit — you chose, aeb obeys, no pin check
 #   AEB_NO_FETCH=1         never download; assert the floor and explain
+#   AEB_FETCH_SOURCE=1     skip the prebuilt tarball, build from source.
+#                          For reproducing a source-only node, or when you
+#                          do not want to trust an unchecksummed download.
 _aeb_pin_file="$AEB_HOME/AETHER_PIN"
 _aeb_pin=""
 if [ -f "$_aeb_pin_file" ]; then
@@ -98,16 +101,136 @@ if [ -n "$_aeb_pin" ] && [ "$_aeb_user_pinned_aether" = "0" ]; then
             fi
             echo "aeb: fetching aether $_aeb_fetch_ver for aeb's own use (one-time, $_aeb_priv)" >&2
             echo "aeb:   your own \`ae\` (${_aeb_have:-none}) is left alone." >&2
-            mkdir -p "$_aeb_priv"
-            _aeb_get="$_aeb_cache/toolchain/get-$_aeb_fetch_ver.sh"
-            if curl -sSL -o "$_aeb_get" \
-                 "https://raw.githubusercontent.com/aether-lang-dev/aether/v$_aeb_fetch_ver/get.sh" 2>/dev/null \
-               && AETHER_REF="v$_aeb_fetch_ver" PREFIX="$_aeb_priv" sh "$_aeb_get" >"$_aeb_priv/fetch.log" 2>&1 \
-               && [ -x "$_aeb_priv/bin/ae" ]; then
-                AETHER="$_aeb_priv/bin/ae"
-                echo "aeb: aether $_aeb_fetch_ver ready." >&2
+            mkdir -p "$_aeb_cache/toolchain"
+            _aeb_ok=0
+            # The log lives OUTSIDE $_aeb_priv on purpose: the prebuilt path
+            # rm -rf's that dir to swap in the staged tree, which would take
+            # an inside-log with it — and the failure message below points
+            # users at this file precisely when things went wrong.
+            _aeb_log="$_aeb_cache/toolchain/fetch-$_aeb_fetch_ver.log"
+            : >"$_aeb_log" 2>/dev/null || true
+
+            # --- Attempt 1: the PREBUILT release tarball -------------------
+            #
+            # Measured on one box, v0.472.0: prebuilt = under 1 s; source
+            # build via get.sh = 69 s AND needs a C compiler + GNU make on
+            # the node. Upstream publishes linux-x86_64, macos-arm64,
+            # macos-x86_64, windows-x86_64 and (since 0.472.0) freebsd-x86_64.
+            #
+            # This is attempt ONE, not the only path, because the asset set
+            # varies by release and by platform: freebsd appeared only in
+            # 0.472.0, and there is no linux-arm64 asset at all (a Pi or a
+            # Graviton node has nothing to download). Anything unmapped or
+            # unpublished falls through to the source build below, which is
+            # why that path stays.
+            #
+            # NOT VERIFIED AGAINST A PUBLISHED CHECKSUM — upstream ships no
+            # .sha256 alongside these assets (checked). So the integrity gate
+            # here is the COMPILE PROBE below, not a hash. Stated plainly
+            # rather than implied: this trusts TLS + GitHub, the same trust
+            # the source path already places in the tarball it downloads.
+            _aeb_os=""
+            _aeb_ext="tar.gz"
+            case "$(uname -s)" in
+                Linux)   _aeb_os="linux" ;;
+                Darwin)  _aeb_os="macos" ;;
+                FreeBSD) _aeb_os="freebsd" ;;
+                # MSYS/MinGW/Cygwin all report a compound name here.
+                MINGW*|MSYS*|CYGWIN*) _aeb_os="windows"; _aeb_ext="zip" ;;
+            esac
+            _aeb_arch=""
+            case "$(uname -m)" in
+                x86_64|amd64)  _aeb_arch="x86_64" ;;
+                arm64|aarch64) _aeb_arch="arm64" ;;
+            esac
+            # macos-arm64 exists; linux-arm64 does not. Only ask for a
+            # combination upstream actually publishes — a 404 costs a
+            # round-trip and muddies the fetch log for no gain.
+            _aeb_asset=""
+            if [ -n "$_aeb_os" ] && [ -n "$_aeb_arch" ]; then
+                case "$_aeb_os-$_aeb_arch" in
+                    linux-x86_64|macos-arm64|macos-x86_64|windows-x86_64|freebsd-x86_64)
+                        _aeb_asset="aether-$_aeb_fetch_ver-$_aeb_os-$_aeb_arch.$_aeb_ext" ;;
+                esac
+            fi
+
+            if [ -n "$_aeb_asset" ] && [ "${AEB_FETCH_SOURCE:-}" != "1" ]; then
+                _aeb_tmp="$_aeb_cache/toolchain/.dl-$_aeb_fetch_ver.$$"
+                rm -rf "$_aeb_tmp"; mkdir -p "$_aeb_tmp"
+                printf 'trying prebuilt asset: %s\n' "$_aeb_asset" >>"$_aeb_log" 2>&1
+                if curl -fsSL -o "$_aeb_tmp/$_aeb_asset" \
+                     "https://github.com/aether-lang-dev/aether/releases/download/v$_aeb_fetch_ver/$_aeb_asset" \
+                     >>"$_aeb_log" 2>&1; then
+                    # NO --strip-components: these archives have no wrapper
+                    # dir, they extract bin/ include/ lib/ share/ directly.
+                    # Stripping a level flattens bin/ae to ./ae and the probe
+                    # below then fails — this exact bug hit release.yml's
+                    # verify step on its first CI run.
+                    if [ "$_aeb_ext" = "zip" ]; then
+                        ( cd "$_aeb_tmp" && unzip -q "$_aeb_asset" ) >>"$_aeb_log" 2>&1 || true
+                    else
+                        tar xzf "$_aeb_tmp/$_aeb_asset" -C "$_aeb_tmp" >>"$_aeb_log" 2>&1 || true
+                    fi
+                    # PROBE BY COMPILING, not by `--version`. A prebuilt can
+                    # pass the version banner and still be unable to compile:
+                    # v0.449.0's aetherc needed GLIBC_2.38 and died on Debian
+                    # 12 (glibc 2.36) while `ae --version` answered happily.
+                    # A version-only check would install that and hand the
+                    # user a toolchain that fails at first build. Since there
+                    # is no published checksum, this probe is ALSO the only
+                    # integrity signal we get — so it is not optional.
+                    if [ -x "$_aeb_tmp/bin/ae" ]; then
+                        printf 'main() { println("aeb_probe_ok") \n return 0 }\n' \
+                            > "$_aeb_tmp/_probe.ae"
+                        if "$_aeb_tmp/bin/ae" run "$_aeb_tmp/_probe.ae" 2>>"$_aeb_log" \
+                             | grep -q aeb_probe_ok; then
+                            rm -f "$_aeb_tmp/_probe.ae" "$_aeb_tmp/$_aeb_asset"
+                            # Populate the real dir only after the probe
+                            # passes, so a half-extracted or broken toolchain
+                            # never becomes the cached one a later run trusts
+                            # (the `-x $_aeb_priv/bin/ae` short-circuit above
+                            # would happily reuse it forever).
+                            rm -rf "$_aeb_priv"
+                            if mv "$_aeb_tmp" "$_aeb_priv" 2>>"$_aeb_log"; then
+                                AETHER="$_aeb_priv/bin/ae"
+                                _aeb_ok=1
+                                echo "aeb: aether $_aeb_fetch_ver ready (prebuilt $_aeb_os-$_aeb_arch)." >&2
+                            fi
+                        fi
+                    fi
+                fi
+                rm -rf "$_aeb_tmp"
+                if [ "$_aeb_ok" = "0" ]; then
+                    echo "aeb:   no usable prebuilt for $_aeb_os-$_aeb_arch; building from source (~1-2 min)." >&2
+                fi
+            elif [ "${AEB_FETCH_SOURCE:-}" = "1" ]; then
+                echo "aeb:   AEB_FETCH_SOURCE=1 — skipping the prebuilt, building from source." >&2
             else
-                echo "aeb: could not fetch aether $_aeb_fetch_ver (see $_aeb_priv/fetch.log)." >&2
+                echo "aeb:   no prebuilt published for $(uname -s)/$(uname -m); building from source (~1-2 min)." >&2
+            fi
+
+            # --- Attempt 2: build from source via upstream's get.sh --------
+            #
+            # The fallback that makes the above safe to try: it works on any
+            # platform upstream has no asset for (linux-arm64 today), and on
+            # any release whose asset set is incomplete. Costs ~69 s and a C
+            # compiler, which is the price of not being locked to the five
+            # published targets.
+            if [ "$_aeb_ok" = "0" ]; then
+                mkdir -p "$_aeb_priv"
+                _aeb_get="$_aeb_cache/toolchain/get-$_aeb_fetch_ver.sh"
+                if curl -sSL -o "$_aeb_get" \
+                     "https://raw.githubusercontent.com/aether-lang-dev/aether/v$_aeb_fetch_ver/get.sh" 2>/dev/null \
+                   && AETHER_REF="v$_aeb_fetch_ver" PREFIX="$_aeb_priv" sh "$_aeb_get" >>"$_aeb_log" 2>&1 \
+                   && [ -x "$_aeb_priv/bin/ae" ]; then
+                    AETHER="$_aeb_priv/bin/ae"
+                    _aeb_ok=1
+                    echo "aeb: aether $_aeb_fetch_ver ready (built from source)." >&2
+                fi
+            fi
+
+            if [ "$_aeb_ok" = "0" ]; then
+                echo "aeb: could not fetch aether $_aeb_fetch_ver (see $_aeb_log)." >&2
                 echo "aeb:   falling back to ${_aeb_have:-ae} on PATH — the build may fail with" >&2
                 echo "aeb:   'E0301: Undefined function' if it lacks a primitive aeb needs." >&2
             fi

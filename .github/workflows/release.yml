@@ -141,7 +141,12 @@ jobs:
             || { echo "payload contains a prebuilt aeb-main; it must rebuild"; exit 1; }
 
           # Fetch the Aether the payload itself asks for, the same way a
-          # cold node would.
+          # cold node would: the trampoline also tries the prebuilt asset
+          # first. (That was NOT true until 2026-08-01 — this step used the
+          # prebuilt while the trampoline shelled out to get.sh and built
+          # from source, so this comment described an intent rather than
+          # the shipped behaviour. The trampoline now matches, and falls
+          # back to a source build where no asset exists, e.g. linux-arm64.)
           FETCH_VER="$(grep -v '^#' "$HOME_DIR/AETHER_FETCH" | tr -d '[:space:]')"
           curl -fsSL -o /tmp/ae.tgz \
             "https://github.com/aether-lang-dev/aether/releases/download/v$FETCH_VER/aether-$FETCH_VER-linux-x86_64.tar.gz"

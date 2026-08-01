@@ -68,18 +68,43 @@ Measured on a clean tree, no prebuilt binaries at all:
 build passed. The other 16 (`aeb-agent`, `aeb-vet`, `aeb-sbom`, …) stay
 unbuilt until something invokes them, so you pay only for what you use.
 
-And Aether itself is a **2.8 MB binary tarball**, not a source build:
+And Aether itself is a **binary tarball where one is published**, with a
+source build as the fallback:
 
 ```
 https://github.com/aether-lang-dev/aether/releases/download/v0.452.0/aether-0.452.0-linux-x86_64.tar.gz
 ```
 
-Measured: **~1 s** to download and extract, versus **318 s** to build the
-same version from source. A ~300× difference, and it ships the complete
-layout (`bin/`, `include/`, `lib/libaether.a`, `share/`). Assets exist for
-`linux-x86_64`, `macos-arm64`, `macos-x86_64`, and `windows-x86_64.zip`.
+Measured (v0.472.0, one box): **under 1 s** to download and extract, versus
+**69 s** to build the same version from source — and the source path also
+needs a C compiler and GNU make on the node, which the prebuilt does not.
+The archive ships the complete layout (`bin/`, `include/`,
+`lib/libaether.a`, `share/`) with no wrapper directory, so it extracts in
+place.
 
-So a genuinely cold node is **~1s of Aether + ~28s of aeb ≈ 30 seconds**.
+Published assets today: `linux-x86_64`, `macos-arm64`, `macos-x86_64`,
+`windows-x86_64.zip`, and — since 0.472.0 only — `freebsd-x86_64`.
+
+**The asset set is not a constant, which is why the source path stays.**
+FreeBSD appeared mid-series, and there is **no `linux-arm64` asset at all**
+— a Raspberry Pi or a Graviton node has nothing to download. So the
+trampoline tries the prebuilt first and falls back to building from source
+when the platform is unmapped, the asset is unpublished, or the download
+fails. Neither path is "the" path; the fast one is an optimisation over the
+one that always works.
+
+So a genuinely cold node is **~1s of Aether + ~28s of aeb ≈ 30 seconds**
+where a prebuilt exists, and roughly **70s + 28s ≈ 100 seconds** where one
+does not.
+
+> **No published checksum.** Upstream ships no `.sha256` beside these
+> assets (checked at 0.472.0), so aeb cannot verify the download against a
+> published hash the way it verifies its *own* release payload. The
+> integrity gate on this path is the compile probe below — which is a
+> weaker guarantee than a hash, and is stated here rather than glossed.
+> Fetching over TLS from GitHub is the same trust the source path already
+> places in the tarball *it* downloads, so this is not a step down from
+> what came before; it is just not a step up.
 
 > **Probe by compiling, not by `--version`.** This bit for real and the
 > fix is instructive. v0.449.0's `aetherc` needed `GLIBC_2.38` and died on
@@ -102,6 +127,15 @@ So a genuinely cold node is **~1s of Aether + ~28s of aeb ≈ 30 seconds**.
 > toolchain that cannot build. Same class of trap as an `os.exec` probe
 > that reports success on a failed command. When the probe fails, fall
 > back to the source build.
+>
+> **The trampoline does this.** It extracts a downloaded prebuilt into a
+> temp dir, compiles a one-line program with it, and only then moves the
+> tree into the cache. A toolchain that downloads cleanly but cannot
+> compile never becomes the cached one — which matters more than it
+> sounds, because the cache is checked with `-x .../bin/ae` on every
+> later run, so a bad tree admitted once would be reused forever.
+> Verified against a deliberately corrupted archive: rejected, not cached,
+> fell through to source.
 
 ### Tier 3 — container-out: binaries made inside, used outside
 
@@ -158,9 +192,18 @@ the *unbounded* case (everyone else's toolchains); aeb fetching its own
 single pinned dependency is bounded and known at release time. See
 `../asks/two-aethers-pinned-toolchain-vs-declared-dep.md`.
 
-Off switches: `AETHER=/path/to/ae` (explicit, no pin check) or
+It tries the **prebuilt release tarball** for the node's platform first
+and **falls back to building from source** (upstream's `get.sh`) when
+there is no asset for that platform, the download fails, or the downloaded
+toolchain fails the compile probe. The fetch is logged to
+`~/.cache/aeb/toolchain/fetch-<ver>.log`, which is where the failure
+message points.
+
+Off switches: `AETHER=/path/to/ae` (explicit, no pin check),
 `AEB_NO_FETCH=1` (assert the floor and explain, exit 2 — never a silent
-`E0301` from a generated file).
+`E0301` from a generated file), or `AEB_FETCH_SOURCE=1` (skip the
+prebuilt and build from source — for reproducing a source-only node, or
+when you would rather not trust an unchecksummed download).
 
 ---
 

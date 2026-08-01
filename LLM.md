@@ -1015,18 +1015,29 @@ its ae was 0.413.0, aeb's driver needs 0.442, and the failure surfaced
 as a compile error in a generated file rather than "this aeb needs
 ae >= 0.442".
 
-Agreed shape (Paul's framing) — **not yet implemented**:
+Agreed shape (Paul's framing) — **Role 1 shipped, Role 2 not yet**:
 
 - **aeb's own compilation is PINNED to the aeb release**, and aeb may
-  **quietly go-get that Aether for its own private use** — built into
-  aeb's cache dir (`~/.cache/aeb/toolchain/aether-<ver>/`), never on
-  `PATH`, never in a system or user prefix. `which ae` must answer the
-  same before and after aeb runs; the user's `ae` is what
-  `aether.program` uses and is never touched. `aether/get.sh` already
-  takes `AETHER_REF` + `PREFIX`, so this is wiring, not invention. This
-  does NOT contradict "never provisions": that rule is about the
-  UNBOUNDED case (every toolchain × distro × version). aeb fetching its
-  OWN single pinned dependency is bounded and known at release time.
+  **quietly go-get that Aether for its own private use** — into aeb's
+  cache dir (`~/.cache/aeb/toolchain/aether-<ver>/`), never on `PATH`,
+  never in a system or user prefix. `which ae` must answer the same
+  before and after aeb runs; the user's `ae` is what `aether.program`
+  uses and is never touched. This does NOT contradict "never provisions":
+  that rule is about the UNBOUNDED case (every toolchain × distro ×
+  version). aeb fetching its OWN single pinned dependency is bounded and
+  known at release time.
+
+  **Role 1 SHIPPED** (the trampoline, `aeb:~100-230`). It tries the
+  **prebuilt release asset** for the node's platform first (<1 s, no C
+  compiler needed), then falls back to upstream's `get.sh` — which is a
+  **source** installer (~69 s). Both are needed: there is no
+  `linux-arm64` asset, so ARM Linux nodes take the source path. A
+  downloaded prebuilt is staged in a temp dir and must pass a
+  **compile probe** before it is moved into the cache — `--version`
+  is not enough (v0.449.0's `aetherc` needed GLIBC_2.38 and died on
+  Debian 12 while the banner succeeded), and since upstream publishes
+  **no `.sha256`**, that probe is also the only integrity gate. Escape
+  hatch: `AEB_FETCH_SOURCE=1`.
 - **A target that builds Aether code DECLARES its Aether**, via the
   existing `prereq(b, "aether:0.410")`. `aether` becomes a canonical
   token beside `jdk`/`node`/`rust` (with `ae` a rejected misname), so

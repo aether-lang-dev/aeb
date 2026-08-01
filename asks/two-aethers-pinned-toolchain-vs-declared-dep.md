@@ -82,14 +82,24 @@ manage it — is **left completely alone**. It remains what
 `ae` themselves. aeb never upgrades it, never shadows it, never has an
 opinion about it.
 
-First run on a machine prints one line and takes a few minutes:
+First run on a machine prints one line and takes a few seconds:
 
 ```
 aeb: fetching aether 0.449.0 for aeb's own use (one-time, ~/.cache/aeb/toolchain)
+aeb: aether 0.449.0 ready (prebuilt linux-x86_64).
 ```
 
-Every subsequent run is silent. The mechanism already exists upstream —
-`aether/get.sh` takes exactly the two knobs needed:
+Every subsequent run is silent.
+
+**As shipped (2026-08-01), two mechanisms in order.** The prebuilt release
+asset first — measured under 1 s, and no C compiler needed on the node:
+
+```
+https://github.com/aether-lang-dev/aether/releases/download/v<ver>/aether-<ver>-<os>-<arch>.tar.gz
+```
+
+Falling back to upstream's `get.sh`, which takes exactly the two knobs
+needed:
 
 ```bash
 AETHER_REF=v0.449.0 PREFIX=~/.cache/aeb/toolchain/aether-0.449.0 sh get.sh
@@ -97,6 +107,14 @@ AETHER_REF=v0.449.0 PREFIX=~/.cache/aeb/toolchain/aether-0.449.0 sh get.sh
 
 so this is wiring, not invention. `ae version install` proves the fetch
 path works too.
+
+The fallback is load-bearing, not decorative: `get.sh` is a **source**
+installer (source tarball + `make install`, ~69 s), and it is the only
+thing that works where no asset exists — there is no `linux-arm64` asset,
+so a Pi or Graviton node takes this path today. Note the original version
+of this ask assumed `get.sh` *was* the mechanism, and the trampoline was
+built that way; every node therefore paid the source-build cost until the
+prebuilt attempt was added in front of it.
 
 **What this buys, concretely.** The winbaz failure disappears entirely.
 Instead of `E0301: Undefined function 'os.spawn_proc'` from a generated
