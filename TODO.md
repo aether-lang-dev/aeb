@@ -577,6 +577,37 @@ helper that picks the command by repo type (probe for `.git` /
 `.hg` / `.jj` / `.svn`), feeding the same `_changed.txt` the
 affected-targets tool already consumes — no change to the walk.
 
+### `aeb gcheckout` is Git-only (same shape as the `--since` item above)
+
+`gcheckout` walks the dep DAG to a list of directories, then shells out to
+`git sparse-checkout add`. The walk is entirely VCS-agnostic; only the
+final "narrow the working copy to these dirs" call is Git-specific.
+Analogues exist elsewhere: Mercurial's `narrowhg` extension, Subversion's
+`svn update --set-depth`, jj's own mechanism.
+
+**This is aeb's problem, not Aether's.** It sat in
+`docs/aether-runtime-needs.md` § D as an upstream ask — one option there
+was a runtime `extern vcs_sparse_add(repo, path)` implemented per VCS in
+the Aether stdlib. That is the wrong layer: Aether is a language runtime
+and has no business knowing about Mercurial or Subversion, and it would
+be a large, drifting surface added for exactly one consumer. Moved here
+2026-08-01.
+
+The right shape is the same one the `--since` item above wants, so do
+them together and share the probe:
+
+- a `_repo_kind(root)` helper that probes for `.git` / `.hg` / `.jj` /
+  `.svn` once, and
+- a per-kind command table for the two operations that need it —
+  `changed_files(ref)` (for `--since`) and `sparse_add(dirs)` (for
+  `gcheckout`), plus the init/reset analogues.
+
+A `.aebvcs` strategy file at repo root — naming the shell command per
+operation — is a reasonable escape hatch for a VCS aeb does not know,
+and keeps the whole thing out of the runtime. Untested against anything
+but Git today, so whoever does this should pick ONE second VCS and prove
+it end to end rather than writing four command tables blind.
+
 ### Local content-addressed cache (done across all artifact SDKs)
 
 `lib/cache/` ships sha256+zlib content-addressable storage under

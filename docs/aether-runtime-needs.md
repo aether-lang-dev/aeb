@@ -3,7 +3,7 @@
 > **STATUS (re-audited 2026-08-01 against aether 0.472.0).** Most of this
 > file has been overtaken by events. Section A is **fully shipped**, so
 > the bash trampoline is no longer blocked on upstream; section B's
-> filesystem primitives are **all shipped**. Four items remain genuinely
+> filesystem primitives are **all shipped**. Three items remain genuinely
 > open upstream — see **Priority** near the end for the current list and
 > for what is now aeb-side work.
 >
@@ -163,21 +163,24 @@ the gaps are:
    Out of scope for `aeb` itself but worth noting that Aether's own
    compiler assumes gcc-compatible flags.
 
-## D. VCS abstraction (so `aeb gcheckout` isn't Git-only)
+## D. VCS abstraction — MOVED OUT (not an Aether ask)
 
-`aeb gcheckout` shells out directly to `git sparse-checkout`. Mercurial has
-the `narrowhg` extension; Subversion has `svn update --set-depth`; jj has
-its own thing. The dep-walking logic is VCS-agnostic — it produces a list
-of directory paths to include. Wanted:
+**Moved to `TODO.md` on 2026-08-01, under the `--since` VCS item it
+belongs beside.**
 
-- Either a runtime `extern vcs_sparse_add(repo, path) -> int` that the
-  Aether stdlib implements per VCS, or
-- A pluggable strategy file (`.aebvcs` at repo root) that names the
-  shell command to run for each directory addition (and the analogues
-  for init / reset).
+This section asked for a runtime `extern vcs_sparse_add(repo, path)`
+implemented per VCS in the Aether stdlib, so `aeb gcheckout` could narrow
+a working copy under Mercurial/Subversion/jj as well as Git.
 
-The first is cleaner; the second is a one-day fix that'd unblock Mercurial
-users immediately.
+That is the wrong layer. **Aether is a language runtime and has no
+business knowing about VCS technologies** — it would be a large, drifting
+surface (four tools × their flags × their versions) added for exactly one
+consumer, and every other Aether program would carry it. The alternative
+the section itself offered — a per-repo-kind command table on aeb's side,
+with a `.aebvcs` escape hatch — needs nothing from upstream at all.
+
+Kept as a stub rather than deleted so the section letters in this file
+stay stable and anyone following an old reference lands here.
 
 ## E. Already done
 
@@ -218,9 +221,6 @@ Still open UPSTREAM, in rough value order:
 3. **`path_normalize` / `path_separator`** — the rest of C2. Note aeb
    deliberately keeps its own `_path_join` (absolute-RHS + Windows drive
    handling that std's lacks); see the audit below.
-4. **VCS abstraction for `aeb gcheckout`** — unblocks Mercurial. Lower
-   priority because git is a fine default.
-
 Now aeb-SIDE work, not upstream asks:
 
 - **Collapse the bash trampoline into `aeb.ae`.** `aether_argv0`,
