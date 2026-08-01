@@ -2,9 +2,12 @@ name: CI
 
 # Build the Aether toolchain from source, then run aeb's unit test suite
 # (tests/run.sh) on every push to main and every PR. This is the quality
-# gate the repo was missing: until now only `autotag.yml` ran, so nothing
-# verified that the SDKs, tools, and cache wiring actually compile and pass
-# their assertions. The suite is fast and needs no language toolchains
+# gate the repo was missing: for a long time the only workflow was the
+# now-removed `autotag.yml`, so nothing verified that the SDKs, tools, and
+# cache wiring actually compile and pass their assertions. Since releases
+# became explicit-tag-only, this is what a push to main runs — so it is
+# the ONLY thing standing between a bad commit and a tag someone cuts from
+# it. The suite is fast and needs no language toolchains
 # beyond a JDK (test_java_cache probes `javac -version`); every other
 # cache/SDK test tolerates an absent toolchain by design.
 #

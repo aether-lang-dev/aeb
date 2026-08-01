@@ -27,23 +27,29 @@ name: release
 # -> SHA256s retained forever, a companion .sha256 per asset, and a run
 # summary printing the table to pin.
 #
-# Tags come from autotag.yml (every push to main -> next sequential
-# v0.NNN). This listens on the tag, so there is no loop.
-
-# TRIGGERED BY autotag.yml VIA workflow_call, not by the tag push itself.
-# GitHub suppresses workflow triggers for pushes made with the default
-# GITHUB_TOKEN (loop prevention), and autotag pushes tags with exactly that
-# token — so an `on: push: tags:` here would never fire. It is deliberately
-# absent rather than present-and-dead: a trigger that silently never runs is
-# worse than no trigger, because it reads as working. (Found by noticing
-# v0.276 existed with no release attached.)
+# A RELEASE IS AN EXPLICIT ACT. You push a tag; this cuts the release.
+# Pushing to main does not create one — main just runs CI.
+#
+# It used to: autotag.yml tagged every push to main with the next
+# sequential v0.NNN and chained here via workflow_call, so a release
+# existed per commit (v0.276..v0.282 in two working days). That coupled
+# "a commit happened" to "a version exists", which is not the same claim
+# — and made every notification and every release-page entry cheap enough
+# to ignore. autotag.yml is gone; the numbering is yours to choose.
+#
+# HISTORICAL NOTE, because it will look like a bug otherwise: the
+# `on: push: tags:` below was previously ABSENT on purpose, with a comment
+# saying it could never fire. That was true THEN and is false NOW, and the
+# difference is who pushes the tag. GitHub suppresses workflow triggers for
+# pushes made with the default GITHUB_TOKEN (loop prevention), and autotag
+# pushed tags with exactly that token — so the trigger would have been
+# present-and-dead. A tag pushed by a HUMAN (or any PAT/deploy key) is an
+# ordinary push and does trigger. With autotag gone, tags only come from
+# people, so the trigger is live again.
 on:
-  workflow_call:
-    inputs:
-      tag:
-        description: 'Tag to cut a release for'
-        required: true
-        type: string
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
@@ -58,16 +64,32 @@ jobs:
   release:
     runs-on: ubuntu-22.04
     steps:
+      # Two ways in, so the ref has two sources:
+      #   push:tags        -> github.ref_name is the tag ("v0.281")
+      #   workflow_dispatch-> inputs.tag names an existing tag to (re)cut
+      # inputs.tag is EMPTY on a tag push, so `|| github.ref_name` picks the
+      # right one. Without the fallback, checkout silently takes the default
+      # branch and the release would be cut from main rather than the tag.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: ${{ inputs.tag }}
+          ref: ${{ inputs.tag || github.ref_name }}
           fetch-depth: 0
           fetch-tags: true
 
       - name: Resolve tag
         id: tag
         run: |
-          TAG="${{ inputs.tag }}"
+          set -euo pipefail
+          TAG="${{ inputs.tag || github.ref_name }}"
+          # Fail loudly rather than publishing something named "" or "main".
+          # A release cut from the wrong ref is worse than no release: it
+          # looks official and ships the wrong bytes.
+          case "$TAG" in
+            v*) ;;
+            *) echo "refusing to release from ref '$TAG' — expected a v* tag"; exit 1 ;;
+          esac
+          git rev-parse -q --verify "refs/tags/$TAG" >/dev/null \
+            || { echo "tag '$TAG' does not exist"; exit 1; }
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Cutting release for $TAG"
 
