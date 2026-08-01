@@ -91,6 +91,47 @@ cd itests
 AETHER=/path/to/ae ./build-failure-visibility.sh
 ```
 
+## Toolchain-fetch smoke test
+
+`toolchain-fetch.sh` pins how the trampoline obtains aeb's **private,
+pinned Aether** — prefer the prebuilt release asset, fall back to a source
+build via upstream's `get.sh`.
+
+It exists because nothing tested this and it silently drifted: the
+trampoline built from source (~69 s, needs a C compiler) while
+`release.yml` fetched the prebuilt (<1 s) under a comment claiming it did
+so "the same way a cold node would", and
+`../docs/aeb-host-vm-or-container-setup.md` asserted "Aether itself is a
+2.8 MB binary tarball, not a source build". Three places, two behaviours,
+no test to notice.
+
+`curl` is stubbed on `PATH` and serves local fixtures, so the default run
+is **offline and takes seconds** — every property under test is about what
+the trampoline does with what it receives (which URL it asks for, whether
+it probes before caching, what it does when the probe fails), none of
+which needs GitHub. `--live` adds the one thing a stub cannot prove: that
+the asset URL actually resolves.
+
+The load-bearing assertion is the **compile probe**. Upstream publishes no
+`.sha256`, so that probe is the only integrity gate on the fast path — and
+the cache is consulted with a bare `-x .../bin/ae` on every later run, so
+a bad tree admitted once is reused forever. The fixture is an archive that
+unpacks cleanly with an executable `bin/ae` that cannot compile: exactly
+the v0.449.0 shape, where `--version` succeeded on a `aetherc` that needed
+`GLIBC_2.38` and died on Debian 12.
+
+Mutation-checked — reverting to source-only fails 5 assertions, swapping
+the compile probe for `--version` fails 3, and moving the fetch log back
+inside the directory the success path deletes fails 3 (that last one is
+not cosmetic: it breaks caching outright, since `mv`'s stderr redirect
+targets a path inside the just-removed directory).
+
+```bash
+cd itests
+./toolchain-fetch.sh          # offline, stubbed
+./toolchain-fetch.sh --live   # + one real download
+```
+
 ## Projects
 
 | Directory | Language | Upstream | What aeb replaces |
