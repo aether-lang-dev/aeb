@@ -164,6 +164,11 @@ These were in the previous iteration of this doc and have since landed:
   `string_index_of`, `string_substring`, `string_concat`, `string_trim`,
   `string_ends_with`, `string_starts_with`, `string_length`, plus a
   userland `string_replace_all` in `tools/encode-name.ae` (~12 lines).
+  *(Superseded 2026-08-01: aether 0.463.0 added a native
+  `string.replace_all`, whose C symbol collided with that userland copy
+  and broke the link. aeb now uses the native one and keeps no copy —
+  `AETHER_PIN` is 0.463.0 for exactly this. See
+  `itests/std-symbol-collision.sh`.)*
 - ✅ `aeb` migration itself — encode-name, infer-type, file-to-label,
   resolve-dep, extract-deps, scan-ae-files, topo-sort, aeb-link,
   aeb-init, aeb-main, gcheckout all in Aether.
