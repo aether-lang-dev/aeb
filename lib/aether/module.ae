@@ -455,8 +455,8 @@ _expand_source_globs(builder_map: ptr, source_dir: string) {
         p, _ = list.get(patterns, ip)
         resolved = p
         if string.length(p) > 0 {
-            pf = string.substring(p, 0, 1)
-            if string.equals(pf, "/") == 0 {
+            _absq = _is_abs_path(p)
+            if _absq == 0 {
                 resolved = path.join(source_dir, p)
             }
         }
@@ -729,8 +729,8 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
                 ef, _ = list.get(extras, ie)
                 resolved = ef
                 if string.length(ef) > 0 {
-                    first = string.substring(ef, 0, 1)
-                    if string.equals(first, "/") == 0 {
+                    _absq = _is_abs_path(ef)
+                    if _absq == 0 {
                         resolved = path.join(source_dir, ef)
                     }
                 }
@@ -891,6 +891,35 @@ _has_manual_overrides(builder_map: ptr) {
 
 // Resolved user include_dir entries (absolute paths). Empty list when
 // none declared.
+// _is_abs_path(p) — is `p` absolute, on any host we build on?
+//
+// POSIX: a leading "/". Windows: a drive-letter prefix ("C:/" or "C:\\"),
+// and UNC ("\\\\server\\share"). MSYS presents its own paths as "/c/...",
+// which the POSIX arm already covers.
+//
+// Every "relative → source_dir, absolute passes through" site must use
+// this. Testing only for "/" silently treats "C:/Users/..." as relative and
+// joins it to source_dir, producing "<dir>/C:/Users/..." — a path that
+// cannot exist, and which gcc reports as `Invalid argument` rather than
+// anything pointing at the build system. That cost the aether-ui line a
+// whole platform (see asks/windows-absolute-paths-joined-to-source-dir.md).
+_is_abs_path(p: string) {
+    n = string.length(p)
+    if n == 0 { return 0 }
+    if string.equals(string.substring(p, 0, 1), "/") == 1 { return 1 }
+    if n >= 2 {
+        if string.equals(string.substring(p, 0, 2), "\\\\") == 1 { return 1 }
+    }
+    if n >= 3 {
+        if string.equals(string.substring(p, 1, 2), ":") == 1 {
+            c2 = string.substring(p, 2, 3)
+            if string.equals(c2, "/") == 1 { return 1 }
+            if string.equals(c2, "\\") == 1 { return 1 }
+        }
+    }
+    return 0
+}
+
 _resolved_user_include_dirs(builder_map: ptr, source_dir: string) {
     out = list.new()
     if builder_map == null { return out }
@@ -902,7 +931,7 @@ _resolved_user_include_dirs(builder_map: ptr, source_dir: string) {
         d, _ = list.get(dirs, i)
         rd = d
         if string.length(d) > 0 {
-            if string.equals(string.substring(d, 0, 1), "/") == 0 {
+            if _is_abs_path(d) == 0 {
                 rd = path.join(source_dir, d)
             }
         }
@@ -927,7 +956,7 @@ _node_lib_dirs(builder_map: ptr, source_dir: string) {
         d, _ = list.get(dirs, i)
         rd = d
         if string.length(d) > 0 {
-            if string.equals(string.substring(d, 0, 1), "/") == 0 {
+            if _is_abs_path(d) == 0 {
                 rd = path.join(source_dir, d)
             }
         }
@@ -1419,7 +1448,7 @@ _last_slash(s: string) {
 _canonical_path(p: string) {
     if string.length(p) == 0 { return p }
     is_abs = 0
-    if string.equals(string.substring(p, 0, 1), "/") == 1 { is_abs = 1 }
+    if _is_abs_path(p) == 1 { is_abs = 1 }
     // Walk segments by chopping `rest` with index_of/substring,
     // accumulating the canonical path into one owned string `acc`
     // (cf. _extract_undefined_refs's single-scratch-string idiom).
@@ -1492,8 +1521,8 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
         rel, _ = list.get(regens, i)
         abs_p = rel
         if string.length(rel) > 0 {
-            first = string.substring(rel, 0, 1)
-            if string.equals(first, "/") == 0 {
+            _absq = _is_abs_path(rel)
+            if _absq == 0 {
                 abs_p = path.join(source_dir, rel)
             }
         }
@@ -1516,8 +1545,8 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
         relx, _ = list.get(regens, j)
         abs_x = relx
         if string.length(relx) > 0 {
-            fx = string.substring(relx, 0, 1)
-            if string.equals(fx, "/") == 0 {
+            _absq = _is_abs_path(relx)
+            if _absq == 0 {
                 abs_x = path.join(source_dir, relx)
             }
         }
@@ -1599,8 +1628,8 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
         // expansion pass has run.
         ae_abs = rel
         if string.length(rel) > 0 {
-            first = string.substring(rel, 0, 1)
-            if string.equals(first, "/") == 0 {
+            _absq = _is_abs_path(rel)
+            if _absq == 0 {
                 ae_abs = path.join(source_dir, rel)
             }
         }
@@ -1977,8 +2006,8 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
                 ef, _ = list.get(extras, ie)
                 resolved = ef
                 if string.length(ef) > 0 {
-                    first = string.substring(ef, 0, 1)
-                    if string.equals(first, "/") == 0 {
+                    _absq = _is_abs_path(ef)
+                    if _absq == 0 {
                         resolved = path.join(source_dir, ef)
                     }
                 }
@@ -2524,8 +2553,8 @@ builder driver_test(ctx: ptr) {
             // Resolve relative to workspace root.
             resolved = decl_path
             if string.length(decl_path) > 0 {
-                first = string.substring(decl_path, 0, 1)
-                if string.equals(first, "/") == 0 {
+                _absq = _is_abs_path(decl_path)
+                if _absq == 0 {
                     resolved = path.join(root, decl_path)
                 }
             }
