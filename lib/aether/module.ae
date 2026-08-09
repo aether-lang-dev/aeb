@@ -1187,6 +1187,9 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
             build.fail(ctx, "ae build (containerized) failed")
             return rc
         }
+        // Same delegation as the local path below — the toolchain in the
+        // container owns the staleness decision, so aeb reports "n/a".
+        build._record_cache(ctx, "n/a")
         return 0
     }
 
@@ -1204,6 +1207,14 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
         build.fail(ctx, "ae build failed")
         return rc
     }
+    // This path delegates staleness to `ae build`'s own incremental cache, so
+    // aeb has no cache decision to report — "n/a" is exactly what the marker
+    // vocabulary means by that. Recording nothing left `_read_cache_outcome`
+    // to default a MISSING marker to "n/a" too, which happened to render the
+    // same; but then every `aether.program` on the default path printed a
+    // marker it had never written, and a genuine miss was indistinguishable
+    // from "this SDK does not cache". Say it explicitly.
+    build._record_cache(ctx, "n/a")
     return 0
 }
 
@@ -1918,6 +1929,13 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // cache and skip aetherc + gcc entirely. Best-effort: any error
     // computing the key (unreadable input file, hashing failure)
     // falls through to the live build path.
+    //
+    // The outcome recorded here is PROVISIONAL — see the `_record_cache`
+    // call after the link below. A marker written on the way IN says only
+    // "the cache did not answer"; it cannot say the build happened,
+    // because the build has not run yet. `[miss]` has to mean "rebuilt",
+    // so the authoritative write is the one at the end.
+    // (asks/fanout-reports-miss-but-skips-rebuild.md)
     cache_key = ""
     if cache.available() == 1 {
         ck, kerr = _cache_key_for_aether_link(builder_map, source_dir, src_path, lib_dir, dup_flag, shared_libs)
@@ -1934,12 +1952,27 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
                 return 0
             }
             // grc != "" means miss or transport error — fall through.
+        } else {
+            // A key we could not compute is NOT a cache miss — it means an
+            // input could not be hashed (unreadable file, vanished mid-scan,
+            // sandbox denial). Silently treating it as a miss is what made an
+            // intermittent hashing failure undiagnosable across a 79-target
+            // parallel fan-out: the row rendered exactly like a normal
+            // rebuild. Say it, name the reason, and record a DISTINCT outcome
+            // so the telemetry cannot spell it `[miss]`.
+            //
+            // aether >= 0.506.0 makes `kerr` worth printing: it names the
+            // path and the cause ("/x/y.ae: Permission denied") instead of a
+            // bare "cannot read file". NB the message is borrowed from
+            // thread-local storage and is only valid until this thread's next
+            // failed read — so it is formatted into the line HERE, never
+            // stashed for later.
+            println("${mod_dir}: cache key not computable (${kerr}) — building without cache")
+            build._record_cache(ctx, "key-error")
         }
     }
     if cache.available() == 0 {
         build._record_cache(ctx, "unavailable")
-    } else {
-        build._record_cache(ctx, "miss")
     }
 
     // Phase 1: aetherc src.ae → src.c
@@ -2096,6 +2129,22 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
         if string.length(perr) > 0 {
             println("${mod_dir}: aether cache write failed: ${perr}")
         }
+    }
+
+    // AUTHORITATIVE cache outcome. Reached only after aetherc AND gcc both
+    // succeeded, so `[miss]` here means what a reader assumes it means: this
+    // node was rebuilt. Recording it on the way in (where the cache declined)
+    // let a node that then did no work render the exact row a real rebuild
+    // renders — 79 lines of `[miss]` read as a full rebuild while eight
+    // binaries had not moved.
+    //
+    // Deliberately does NOT overwrite "key-error": that outcome describes the
+    // cache decision (an input could not be hashed), which stays true even
+    // though the build went on to succeed. It renders distinctly so the row
+    // cannot be mistaken for a clean rebuild, and it is the breadcrumb back to
+    // the unhashable input.
+    if string.equals(build._read_cache_outcome(build._get(ctx, "target_dir")), "key-error") == 0 {
+        build._record_cache(ctx, "miss")
     }
     return 0
 }

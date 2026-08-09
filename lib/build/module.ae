@@ -1848,9 +1848,27 @@ _run_project(ctx: ptr, bmap: ptr, default_step: string, is_test: int) {
 
 // _record_cache(ctx, outcome) — SDK builders call this after a
 // cache decision so the orchestrator can read it post-build for
-// telemetry. `outcome` is one of: "hit", "miss", "unavailable",
-// or "n/a" (the SDK doesn't participate in caching). Idempotent:
-// last writer wins.
+// telemetry. `outcome` is one of:
+//
+//   "hit"         restored from cache; no compile ran
+//   "miss"        REBUILT — write this only once the build has actually
+//                 succeeded, never on the way in when the cache merely
+//                 declined to answer (see below)
+//   "key-error"   an input could not be hashed, so no key could be
+//                 computed; the build ran uncached
+//   "unavailable" the cache itself is unavailable
+//   "n/a"         this SDK does not participate in caching (e.g. the
+//                 `ae build` shell-out, where the toolchain owns staleness)
+//
+// Idempotent: last writer wins.
+//
+// **`"miss"` must mean "rebuilt".** It used to be recorded at the point the
+// cache declined — i.e. BEFORE aetherc and gcc ran — so any node that then
+// did no work rendered the identical row a real rebuild renders. A fan-out
+// printed 79 `[miss]` lines that read as a full rebuild while eight binaries
+// had not moved. If you are adding a cache path to an SDK, record the miss
+// after the work, not before it.
+// (asks/fanout-reports-miss-but-skips-rebuild.md)
 //
 // The orchestrator reads via _read_cache_outcome(target_dir).
 _record_cache(ctx: ptr, outcome: string) {

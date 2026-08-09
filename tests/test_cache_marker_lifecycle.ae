@@ -1,0 +1,128 @@
+// Tests for the cache-outcome MARKER lifecycle in lib/build/module.ae:
+//   _record_cache(ctx, outcome)      → writes target/<module>/.aeb_cache
+//   _read_cache_outcome(target_dir)  → reads it back ("n/a" when absent)
+//
+// Why this file exists. The marker's vocabulary is the whole basis of the
+// `[hit]` / `[miss]` column in the telemetry block, and `[miss]` was for a
+// long time recorded on the way INTO the build — at the point the cache
+// declined to answer, before aetherc and gcc had run. Any node that then did
+// no work rendered the exact row a successful rebuild renders. A 79-target
+// fan-out printed 79 `[miss]` lines that read as a full rebuild while eight
+// binaries had not moved, and the contradiction (a sub-0.1s `[miss]` on a
+// target that normally takes 16s) was not expressible as a failure anywhere.
+//
+// The contract these tests pin:
+//   1. the round-trip works for every word in the vocabulary,
+//   2. "key-error" is a DISTINCT word — a cache key that could not be
+//      computed must not render as an ordinary miss,
+//   3. a missing marker reads "n/a", never "miss" (absence of a decision is
+//      not evidence of a rebuild),
+//   4. last-writer-wins, which is what lets _compile_and_link overwrite a
+//      provisional outcome with the authoritative one after the link.
+//
+// See asks/fanout-reports-miss-but-skips-rebuild.md.
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+import build (_record_cache, _read_cache_outcome, _format_telemetry_line)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if actual == expected {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected: '${expected}'")
+        println("  actual:   '${actual}'")
+    }
+}
+
+_assert_neq(label: string, a: string, b: string) {
+    if a == b {
+        println("FAIL: ${label}")
+        println("  both were: '${a}'")
+    } else {
+        println("PASS: ${label}")
+    }
+}
+
+// A minimal ctx: _record_cache only reads "target_dir" off it.
+_ctx_for(td: string) {
+    c = map.new()
+    map.put(c, "target_dir", td)
+    return c
+}
+
+main() {
+    raw, _err = os.exec("mktemp -d")
+    tdir = string.trim(raw)
+
+    // --- absent marker reads "n/a", NOT "miss" ---------------------------
+    // Load-bearing: a node that never recorded an outcome has made no cache
+    // decision. Defaulting that to "miss" would assert a rebuild happened.
+    empty_td = path.join(tdir, "never-written")
+    _assert_eq("absent marker reads n/a",
+               _read_cache_outcome(empty_td), "n/a")
+
+    // --- round-trip for every word in the vocabulary ---------------------
+    td_hit = path.join(tdir, "m-hit")
+    _record_cache(_ctx_for(td_hit), "hit")
+    _assert_eq("round-trip: hit", _read_cache_outcome(td_hit), "hit")
+
+    td_miss = path.join(tdir, "m-miss")
+    _record_cache(_ctx_for(td_miss), "miss")
+    _assert_eq("round-trip: miss", _read_cache_outcome(td_miss), "miss")
+
+    td_ke = path.join(tdir, "m-keyerror")
+    _record_cache(_ctx_for(td_ke), "key-error")
+    _assert_eq("round-trip: key-error", _read_cache_outcome(td_ke), "key-error")
+
+    td_un = path.join(tdir, "m-unavail")
+    _record_cache(_ctx_for(td_un), "unavailable")
+    _assert_eq("round-trip: unavailable", _read_cache_outcome(td_un), "unavailable")
+
+    td_na = path.join(tdir, "m-na")
+    _record_cache(_ctx_for(td_na), "n/a")
+    _assert_eq("round-trip: n/a", _read_cache_outcome(td_na), "n/a")
+
+    // --- key-error is DISTINCT from miss ---------------------------------
+    // The bug this file exists for: an unhashable input made the key
+    // computation fail, and that was silently folded into "miss". The two
+    // must stay separable, at the marker AND in the rendered row.
+    _assert_neq("key-error is not miss",
+                _read_cache_outcome(td_ke), _read_cache_outcome(td_miss))
+
+    line_ke = _format_telemetry_line("apps/sketchpad", "build", 30,
+                                     "key-error", 0, 0, 0, "passed")
+    line_miss = _format_telemetry_line("apps/sketchpad", "build", 30,
+                                       "miss", 0, 0, 0, "passed")
+    _assert_neq("rendered rows differ: key-error vs miss", line_ke, line_miss)
+    _assert_eq("key-error renders its own marker",
+               line_ke,
+               "  build:   apps/sketchpad                   0.03s [key-error]")
+
+    // --- last-writer-wins ------------------------------------------------
+    // _compile_and_link records a provisional outcome before the build and
+    // the authoritative one after it; that overwrite has to stick.
+    td_seq = path.join(tdir, "m-seq")
+    ctx_seq = _ctx_for(td_seq)
+    _record_cache(ctx_seq, "unavailable")
+    _record_cache(ctx_seq, "miss")
+    _assert_eq("last writer wins", _read_cache_outcome(td_seq), "miss")
+
+    // --- a blank marker degrades to n/a ----------------------------------
+    // A truncated/interrupted write must not read as a decision.
+    td_blank = path.join(tdir, "m-blank")
+    build._mkdirs(td_blank)
+    _e = io.write_file(path.join(td_blank, ".aeb_cache"), "")
+    _assert_eq("blank marker reads n/a", _read_cache_outcome(td_blank), "n/a")
+
+    os.system("rm -rf '${tdir}'")
+    println("cache marker lifecycle tests done")
+}
