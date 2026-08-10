@@ -317,7 +317,7 @@ builder kotlinc(ctx: ptr) {
         if string.length(kerr) == 0 {
             cache_key = ck
             tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = string.trim(tmp_raw)
+            tmp_tar = build._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
@@ -482,7 +482,7 @@ builder kotlinc_test(ctx: ptr) {
         if string.length(kerr) == 0 {
             cache_key = ck
             tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = string.trim(tmp_raw)
+            tmp_tar = build._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {

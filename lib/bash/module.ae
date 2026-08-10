@@ -512,10 +512,12 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     // Write item list and runner script to temp files via
     // fs.write_atomic — bypasses any shell heredoc/quoting hazards
     // when the body contains $1, ${1%%|*}, etc.
+    // Native form: both paths are written with fs.write_atomic below, a native
+    // call that cannot see an MSYS `/tmp/...` path. See build._tar_dir's note.
     list_file_raw, _lf = build._sh_capture("mktemp")
-    list_file = string.trim(list_file_raw)
+    list_file = build._to_native_path(string.trim(list_file_raw))
     runner_raw, _rf = build._sh_capture("mktemp")
-    runner_file = string.trim(runner_raw)
+    runner_file = build._to_native_path(string.trim(runner_raw))
 
     list_body = string.concat(items, "\n")
     _ewl = fs.write_atomic(list_file, list_body, string.length(list_body))

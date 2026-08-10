@@ -578,7 +578,7 @@ _dotnet_cache_restore(ctx: ptr, argfile: string, fingerprint: string, config: st
     map.put(ctx, "_dotnet_cache_key", ck)
     bin_dir = path.join(path.join(source_dir, "bin"), config)
     tmp_raw, _terr = build._sh_capture("mktemp")
-    tmp_tar = string.trim(tmp_raw)
+    tmp_tar = build._to_native_path(string.trim(tmp_raw))
     if string.length(tmp_tar) > 0 {
         grc = cache.get(ck, tmp_tar)
         if string.length(grc) == 0 {

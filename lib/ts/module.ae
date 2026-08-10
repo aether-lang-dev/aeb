@@ -161,7 +161,9 @@ _ts_out_dir(builder_map: ptr, target_dir: string) {
 // so incremental state is redundant. Returns (tar_path, "") or ("",err).
 _tar_out_dir_no_tsbuildinfo(src_dir: string) {
     tmp_raw, _err = build._sh_capture("mktemp")
-    tmp = string.trim(tmp_raw)
+    // Native form — the tarball is later read by cache.put via fs.read_binary,
+    // which cannot see an MSYS `/tmp/...` path. See build._tar_dir's note.
+    tmp = build._to_native_path(string.trim(tmp_raw))
     if string.length(tmp) == 0 {
         return "", "mktemp failed"
     }
@@ -546,7 +548,7 @@ builder tsc(ctx: ptr) {
         if string.length(kerr) == 0 {
             cache_key = ck
             tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = string.trim(tmp_raw)
+            tmp_tar = build._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {

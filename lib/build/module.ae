@@ -2064,7 +2064,16 @@ _read_argfile_lines(argfile_path: string) {
 // SDK (java, kotlin, scala, ts, dotnet, clojure).
 _tar_dir(src_dir: string) {
     tmp_raw, _err = _sh_capture("mktemp")
-    tmp = string.trim(tmp_raw)
+    // NATIVE FORM. `mktemp` is a shell tool and answers in the shell's
+    // vocabulary — `/tmp/tmp.AtDQtjvxxs` on MSYS. That path is fine for the
+    // `tar` below (a shell command), but the tarball it names is then handed
+    // to cache.put, which reads it with fs.read_binary — a NATIVE Win32 call
+    // that cannot see MSYS paths (see _to_native_path). So every dir-tree
+    // caching SDK — java, kotlin, scala, ts, dotnet, clojure, groovy — failed
+    // to populate its cache on Windows, silently: cache.put returned a read
+    // error the callers log at most, and the next build simply missed again.
+    // Measured: dir.exists("/tmp/tmp.X")=0 vs dir.exists("C:/msys64/tmp/tmp.X")=1.
+    tmp = _to_native_path(string.trim(tmp_raw))
     if string.length(tmp) == 0 {
         return "", "mktemp failed"
     }
