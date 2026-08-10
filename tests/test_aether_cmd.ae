@@ -24,6 +24,26 @@ _assert_eq(label: string, actual: string, expected: string) {
     }
 }
 
+_assert_contains(label: string, haystack: string, needle: string) {
+    if string.index_of(haystack, needle) >= 0 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected to contain: '${needle}'")
+        println("  actual:              '${haystack}'")
+    }
+}
+
+_assert_not_contains(label: string, haystack: string, needle: string) {
+    if string.index_of(haystack, needle) < 0 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+        println("  expected NOT to contain: '${needle}'")
+        println("  actual:                  '${haystack}'")
+    }
+}
+
 _link_opts(c_path: string, bin_path: string, lib_dir: string, inc_flags: string,
            extras_str: string, extra_link: string, rpath_link: string,
            user_flags: string, dup_flag: string) {
@@ -77,7 +97,26 @@ main() {
         "-Wl,--allow-multiple-definition")
     _assert_eq("link: minimal",
         aether_link_cmd(o1),
-        "gcc -O2 -pipe -w target/_aeb/main.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) -Wl,--allow-multiple-definition")
+        "gcc -O2 -pipe -w target/_aeb/main.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) -Wl,--allow-multiple-definition")
+
+    // --- sysdeps: ONE pkg-config invocation PER MODULE ---------------
+    // `pkg-config --libs zlib openssl` is all-or-nothing: a missing .pc for
+    // EITHER module makes it print nothing and exit 1, so a missing zlib.pc
+    // silently took -lcrypto down with it and the MINGW64 orchestrator link
+    // died on five undefined EVP_* symbols with OpenSSL installed and fine
+    // (asks/windows-orchestrator-link-missing-openssl.md). `2>/dev/null` hid
+    // the error, so nothing pointed at the lost flag.
+    //
+    // Pin the shape, not just the current string: separate invocations mean
+    // one missing .pc costs only its own flags. Recombining them into a
+    // single call is the regression this guards.
+    link_min = aether_link_cmd(o1)
+    _assert_contains("sysdeps: zlib queried on its own",
+        link_min, "$(pkg-config --libs zlib 2>/dev/null)")
+    _assert_contains("sysdeps: openssl queried on its own",
+        link_min, "$(pkg-config --libs openssl 2>/dev/null)")
+    _assert_not_contains("sysdeps: never one all-or-nothing invocation",
+        link_min, "zlib openssl")
 
     // --- aether_link_cmd: with one extra source (relative) ---
     o2 = _link_opts(
@@ -87,7 +126,7 @@ main() {
         "-Wl,--allow-multiple-definition")
     _assert_eq("link: one extra_source",
         aether_link_cmd(o2),
-        "gcc -O2 -pipe -w target/_aeb/main.c /repo/contrib/extra.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) -Wl,--allow-multiple-definition")
+        "gcc -O2 -pipe -w target/_aeb/main.c /repo/contrib/extra.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) -Wl,--allow-multiple-definition")
 
     // --- aether_link_cmd: with user link_flags ---
     o3 = _link_opts(
@@ -96,14 +135,14 @@ main() {
         "-Wl,--allow-multiple-definition")
     _assert_eq("link: user link_flags",
         aether_link_cmd(o3),
-        "gcc -O2 -pipe -w main.c -L/lib -laether   -pthread -lm -o out/bin -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) -Wl,--allow-multiple-definition")
+        "gcc -O2 -pipe -w main.c -L/lib -laether   -pthread -lm -o out/bin -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) -Wl,--allow-multiple-definition")
 
     // --- aether_link_cmd: macOS dup_flag (empty) ---
     o4 = _link_opts(
         "main.c", "out/bin", "/lib", "", "", "", "", "", "")
     _assert_eq("link: macOS (no dup_flag)",
         aether_link_cmd(o4),
-        "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) ")
+        "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) ")
 
     // --- aether_link_cmd: with shared-lib deps + rpath ---
     o5 = _link_opts(
@@ -112,7 +151,7 @@ main() {
         "-Wl,--allow-multiple-definition")
     _assert_eq("link: shared lib + rpath",
         aether_link_cmd(o5),
-        "gcc -O2 -pipe -w main.c -L/lib -laether /repo/target/rust/libfoo.so -Wl,-rpath,/repo/target/rust -o out/bin -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) -Wl,--allow-multiple-definition")
+        "gcc -O2 -pipe -w main.c -L/lib -laether /repo/target/rust/libfoo.so -Wl,-rpath,/repo/target/rust -o out/bin -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) -Wl,--allow-multiple-definition")
 
     // --- aether_link_cmd: with -I include block (FHS install) ---
     o6 = _link_opts(
@@ -122,7 +161,7 @@ main() {
         "-Wl,--allow-multiple-definition")
     _assert_eq("link: nested -I block",
         aether_link_cmd(o6),
-        "gcc -O2 -pipe -w -I/inc/runtime -I/inc/runtime/actors -I/inc/std main.c -L/lib -laether   -o out/bin -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) -Wl,--allow-multiple-definition")
+        "gcc -O2 -pipe -w -I/inc/runtime -I/inc/runtime/actors -I/inc/std main.c -L/lib -laether   -o out/bin -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) -Wl,--allow-multiple-definition")
 
     // --- aether_link_cmd: kitchen sink ---
     o7 = _link_opts(
@@ -136,7 +175,7 @@ main() {
         "-Wl,--allow-multiple-definition")
     _assert_eq("link: kitchen sink",
         aether_link_cmd(o7),
-        "gcc -O2 -pipe -w $(find /home/u/.local/include/aether -type d -print | sed 's|^|-I|') target/_aeb/main.c /repo/contrib/sqlite.c /repo/ae/svn/auth_generated.c -L/home/u/.local/lib/aether -laether /repo/target/rust/libnative.so -Wl,-rpath,/repo/target/rust -pthread -o target/hello/bin/svn -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) -Wl,--allow-multiple-definition")
+        "gcc -O2 -pipe -w $(find /home/u/.local/include/aether -type d -print | sed 's|^|-I|') target/_aeb/main.c /repo/contrib/sqlite.c /repo/ae/svn/auth_generated.c -L/home/u/.local/lib/aether -laether /repo/target/rust/libnative.so -Wl,-rpath,/repo/target/rust -pthread -o target/hello/bin/svn -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) -Wl,--allow-multiple-definition")
 
     // --- aether_link_cmd: --coverage flag swaps -O2 → -O0 -g and inserts --coverage ---
     o_cov = _link_opts(
@@ -144,7 +183,7 @@ main() {
     map_put(o_cov, "coverage", "1")
     _assert_eq("link: coverage replaces -O2 with -O0 -g and inserts --coverage",
         aether_link_cmd(o_cov),
-        "gcc -O0 -g -pipe -w --coverage main.c -L/lib -laether   -o out/bin -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) ")
+        "gcc -O0 -g -pipe -w --coverage main.c -L/lib -laether   -o out/bin -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) ")
 
     // Coverage="" (or missing) → default -O2, no --coverage.
     o_nocov = _link_opts(
@@ -152,7 +191,7 @@ main() {
     map_put(o_nocov, "coverage", "")
     _assert_eq("link: coverage=\"\" → default -O2, no --coverage",
         aether_link_cmd(o_nocov),
-        "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm $(pkg-config --libs zlib openssl 2>/dev/null) ")
+        "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null) ")
 
     println("aether cmd tests done")
 }

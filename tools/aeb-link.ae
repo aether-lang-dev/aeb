@@ -686,12 +686,31 @@ main() {
     // libaether.a unconditionally references zlib/openssl symbols
     // when the Aether toolchain was built with them detected. Pull
     // the link flags from pkg-config; no-op when libs absent.
-    sysdeps = " $(pkg-config --libs zlib openssl 2>/dev/null)"
+    //
+    // ONE INVOCATION PER MODULE, deliberately. `pkg-config --libs zlib
+    // openssl` is ALL-OR-NOTHING: if either .pc is missing it prints
+    // nothing and exits 1, so a missing zlib.pc silently took -lcrypto
+    // down with it — and `2>/dev/null` hid the error. That is exactly how
+    // the MINGW64 orchestrator link failed with five undefined EVP_*
+    // symbols while OpenSSL was installed and working on the box
+    // (asks/windows-orchestrator-link-missing-openssl.md). Querying each
+    // module separately degrades per-module instead of collapsing the set.
+    sysdeps = " $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null)"
     // libaether pulls Windows system libs its crypto/net code needs
     // (BCryptGenRandom -> bcrypt, winsock -> ws2_32); no pkg-config .pc for
     // these, so add them explicitly. Empty off Windows.
+    //
+    // -lcrypto -lssl -lz are named here too, as a BELT-AND-BRACES for the
+    // pkg-config substitutions above. MinGW's ld does no transitive
+    // resolution for static archives — every symbol libaether.a needs must
+    // be on the command line — so if pkg-config is absent or its .pc files
+    // are missing, the substitutions expand to nothing and the link dies on
+    // undefined EVP_* with no hint that a flag was lost. Naming them is
+    // safe: a duplicate -l is a no-op to ld, and these three are exactly
+    // what libaether's crypto/compress code links against. Off Windows the
+    // toolchain resolves them transitively, so this stays Windows-only.
     winsysdeps = ""
-    if _is_windows_link() == 1 { winsysdeps = " -lbcrypt -lws2_32" }
+    if _is_windows_link() == 1 { winsysdeps = " -lbcrypt -lws2_32 -lssl -lcrypto -lz" }
     if _is_macos_link() == 1 {
         cc = string.concat(cc, " -pthread -lm")
         cc = string.concat(cc, sysdeps)

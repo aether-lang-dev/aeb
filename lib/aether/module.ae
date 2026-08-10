@@ -1306,7 +1306,11 @@ aether_link_cmd(opts: ptr) {
     // distros). Pull the link flags from pkg-config at gcc time;
     // no-op if the libs aren't installed (then the symbols won't be
     // referenced either, since libaether builds without them).
-    sysdeps = " $(pkg-config --libs zlib openssl 2>/dev/null)"
+    //
+    // ONE INVOCATION PER MODULE — `pkg-config --libs zlib openssl` is
+    // all-or-nothing, so a missing zlib.pc silently drops -lcrypto too.
+    // See the twin comment in tools/aeb-link.ae.
+    sysdeps = " $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null)"
     return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str} -L${lib_dir} -laether ${extra_link} ${rpath_link}${user_flags} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
 }
 
