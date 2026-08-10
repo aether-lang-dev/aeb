@@ -33,8 +33,17 @@ _assert_int(label: string, actual: int, expected: int) {
 
 main() {
     // --- 1. Sandbox the test cache so it doesn't touch the real one ---
+    // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
+    // ("/tmp/tmp.XXXX" under MSYS), but std.fs/std.file are native Win32 calls
+    // that cannot see MSYS paths — dir.exists("/tmp/tmp.X") is 0 while
+    // dir.exists("C:/msys64/tmp/tmp.X") is 1. Without this the whole suite
+    // below fails on Windows for an environment reason rather than a real
+    // defect in lib/cache. No-op off Windows (cygpath absent → unchanged).
     tmp_root, _ = os.exec("mktemp -d")
     tmp_root = string.trim(tmp_root)
+    _nat, _nerr = os.exec("cygpath -m ${tmp_root}")
+    _nat = string.trim(_nat)
+    if string.length(_nat) > 0 { tmp_root = _nat }
     serr = io.setenv("AEB_CACHE_DIR", tmp_root)
     if string.length(serr) > 0 {
         println("SKIP: cannot set AEB_CACHE_DIR: ${serr}")

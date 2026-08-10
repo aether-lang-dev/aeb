@@ -45,8 +45,21 @@ _assert_nonempty(label: string, s: string) {
 }
 
 _mktempdir() {
+    // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
+    // ("/tmp/tmp.XXXX" under MSYS), but std.fs/std.dir/std.file are native
+    // Win32 calls that cannot see MSYS paths — dir.exists("/tmp/tmp.X") is 0
+    // while dir.exists("C:/msys64/tmp/tmp.X") is 1. Without this the suite
+    // fails on Windows for an environment reason, not a real defect.
+    // No-op off Windows: cygpath is absent, so the value passes through.
     raw, _err = os.exec("mktemp -d")
-    return string.trim(raw)
+    d = string.trim(raw)
+    // NO quotes, NO redirect: os.exec routes through cmd.exe on Windows,
+    // which does not honour POSIX single quotes or `2>/dev/null` — with them
+    // the call returns EMPTY and the path silently stays POSIX. Bare works.
+    nat, _nerr = os.exec("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
 }
 
 _write(path: string, content: string) {
