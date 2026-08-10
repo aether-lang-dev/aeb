@@ -1338,7 +1338,53 @@ _resolve_aether_dir() {
     // Through the chokepoint: `command -v` is a POSIX shell builtin cmd.exe
     // lacks, so on Windows it must run under sh.
     raw, _eerr = _sh_capture("command -v ${ae}")
-    return _dirname(string.trim(raw))
+    return _to_native_path(_dirname(string.trim(raw)))
+}
+
+// _to_native_path(p) — MSYS/Cygwin POSIX path -> the native form Aether's
+// stdlib can actually stat. No-op off Windows, and no-op for a path that is
+// already native.
+//
+// THE Windows path law, measured on winbaz 2026-08-10:
+//
+//     fs.exists("/c/Users/paul/scm/aether/build/libaether.a")  -> 0
+//     fs.exists("C:/Users/paul/scm/aether/build/libaether.a")  -> 1
+//     dir.exists("/c/Users/paul/scm/aether/runtime")           -> 0
+//     dir.exists("C:/Users/paul/scm/aether/runtime")           -> 1
+//
+// std.fs / std.dir / std.file are NATIVE Win32 calls. An MSYS `/c/...` path is
+// a fiction maintained by the MSYS layer for its own processes; a native stat
+// sees no such thing and reports "does not exist" for every one of them. `sh`
+// still accepts both, so a command line built from POSIX paths RUNS fine —
+// which is why this hid for so long: only the aeb-side `exists` probes lied,
+// and each one failed by silently choosing a fallback.
+//
+// That is the shared root of a run of Windows bugs: `command -v ae` yields
+// `/c/.../build`, every `<dir>/../share/aether` and `<dir>/libaether.a` probe
+// built from it returns 0, and the caller concludes the layout is absent. The
+// -I block came back EMPTY and gcc died on `aether_panic.h: No such file or
+// directory`. Normalise once here, at the single place the toolchain dir is
+// resolved, so every downstream probe sees a path the stdlib can stat.
+_to_native_path(p: string) {
+    if _is_windows() == 0 { return p }
+    if string.length(p) == 0 { return p }
+    // Already native (`C:/...`, `\\server\share`) — leave alone.
+    if _is_abs_native(p) == 1 { return p }
+    if string.starts_with(p, "/") == 0 { return p }
+    nat, nerr = _sh_capture("cygpath -m '${p}'")
+    if string.length(nerr) > 0 { return p }
+    t = string.trim(nat)
+    if string.length(t) == 0 { return p }
+    return t
+}
+
+// _is_abs_native(p) — a Windows-native absolute path: drive letter (`C:/`,
+// `C:\`) or UNC (`\\host\share`). Mirrors lib/aether's _is_abs_path.
+_is_abs_native(p: string) {
+    if string.length(p) < 2 { return 0 }
+    if string.starts_with(p, "\\\\") == 1 { return 1 }
+    if string.equals(string.substring(p, 1, 2), ":") == 1 { return 1 }
+    return 0
 }
 
 // build/ dir of a validated dev tree — where its aetherc and
@@ -1397,6 +1443,26 @@ _resolve_aether_include(aether_dir: string) {
     cand = string.concat(aether_dir, "/../include/aether")
     if dir.exists(cand) == 1 {
         return cand
+    }
+    // DEV TREE: `ae` run straight out of an Aether checkout's build/ dir. Its
+    // headers are not installed anywhere — they sit at <root>/runtime/... and
+    // <root>/std/... beside the build dir, so BOTH probes above miss and the
+    // whole -I block came back empty. gcc then died on the first bare include
+    // (`aether_panic.h: No such file or directory`) with nothing saying a
+    // search path had been dropped.
+    //
+    // Identified the same way _aether_dev_root does it — build/libaether.a
+    // exists — so a dev checkout is recognised rather than guessed at. The
+    // caller (_aether_include_flags) already knows how to -I a dev tree; it
+    // just never got told this was one.
+    //
+    // Measured on winbaz: `ae` at C:/Users/paul/scm/aether/build with no
+    // ../share/aether and no ../include/aether.
+    dev_root = string.concat(aether_dir, "/..")
+    if fs.exists(string.concat(aether_dir, "/libaether.a")) == 1 {
+        if dir.exists(string.concat(dev_root, "/runtime")) == 1 {
+            return dev_root
+        }
     }
     return ""
 }

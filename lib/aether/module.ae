@@ -1039,6 +1039,30 @@ _all_extra_include_dirs(ctx: ptr, builder_map: ptr, source_dir: string) {
 // mangled or empty. Quoting each dir also makes a space-in-path install work,
 // which the sed form never did.
 // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+// _flags_from_lines(text) — newline-separated, ALREADY-PREFIXED flags joined
+// into one run. The find pipeline's sed emits `-I<dir>` per line, so this only
+// joins; it must not prefix again. (Twin of aeb-link's _flags_from_lines_link.)
+_flags_from_lines(text: string) {
+    out = ""
+    rest = text
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        f = string.trim(line)
+        if string.length(f) > 0 {
+            out = string.concat(out, string.concat(" ", f))
+        }
+    }
+    return out
+}
+
 _inc_flags_from_lines(text: string) {
     out = ""
     rest = text
@@ -2208,11 +2232,19 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // cmd.exe cannot perform and would mangle. Run it through the chokepoint
     // now and splice the literal -I run.
     // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+    // HEADER-BEARING DIRS ONLY, not every dir under the root. When inc_root is
+    // a dev checkout (see build._resolve_aether_include) a bare `-type d` sweep
+    // pulls in .git/, asks/, benchmarks/ and hundreds more that hold no .h —
+    // which is how the link line once measured 39 KB / 621 args and blew
+    // Windows' ~32 KB CreateProcess ceiling
+    // (asks/windows-gcc-argument-list-too-long.md). Find the headers, strip to
+    // their parent dirs, dedup. Same shape aeb-link already uses.
     inc_root = _resolve_aether_include(ae_dir)
     inc_flags = ""
     if string.length(inc_root) > 0 {
-        inc_raw, _ierr = build._sh_capture("find ${inc_root} -type d -print")
-        inc_flags = _inc_flags_from_lines(inc_raw)
+        find_inc = "find ${inc_root} -type d -name .git -prune -o -type d -name build -prune -o -name *.h -print | sed -e s,/[^/]*$,, -e s,^,-I, | sort -u"
+        inc_raw, _ierr = build._sh_capture(find_inc)
+        inc_flags = _flags_from_lines(inc_raw)
     }
     // Plus the user/dep extra include dirs (Gap 1) — so an extra_source
     // wrapper .c that #includes a project or generated-table header
