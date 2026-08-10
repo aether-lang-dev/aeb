@@ -1227,6 +1227,19 @@ _sh(cmd: string) {
     werr = io.write_file(scriptf, cmd)
     if string.length(werr) > 0 {
         // Fall back to the inline wrap if the temp write failed.
+        //
+        // SAY SO. This fallback cannot carry the command shapes the script
+        // path handles — cmd.exe mangles the POSIX `'\''` escape, which
+        // surfaces as `sh: -c: line 1: unexpected EOF while looking for
+        // matching "'"` and kills the build with an error that names neither
+        // the command nor this branch. Two Windows asks reported that EOF
+        // without anything indicating the temp write had failed first, so the
+        // silence cost real diagnosis time. A warning here turns "the shell
+        // choked" into "the temp script could not be written, and here is
+        // where and why". (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+        println("aeb: WARNING cannot write temp script ${scriptf}: ${werr}")
+        println("aeb:   falling back to `sh -c` quoting, which mangles nested quotes on Windows.")
+        println("aeb:   set TMP or TEMP to a writable directory to restore the reliable path.")
         return os.system(_sh_wrap(cmd))
     }
     rc = os.system(string.concat("sh ", scriptf))
@@ -1249,6 +1262,12 @@ _sh_capture(cmd: string) {
     scriptf = _sh_script_path(cmd)
     werr = io.write_file(scriptf, cmd)
     if string.length(werr) > 0 {
+        // Same warning as _sh: this fallback is lossy, and it is now on the
+        // critical path — pkg-config and the -I find both resolve through
+        // here, so a silent degradation produces an empty flag set and an
+        // opaque link failure downstream.
+        println("aeb: WARNING cannot write temp script ${scriptf}: ${werr}")
+        println("aeb:   falling back to `sh -c` quoting; resolved flags may come back empty.")
         out, err = os.exec(_sh_wrap(cmd))
         return out, err
     }
