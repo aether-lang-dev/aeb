@@ -671,7 +671,13 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
     // This also makes the import-closure scan's stdlib/contrib skip
     // correct: a stdlib .ae change ships inside the rebuilt
     // libaether.a, whose hash now moves the key.
-    aetherc_bin = path.join(_resolve_aether_dir(), "aetherc")
+    // .exe on Windows — same suffix rule as the compile step's `aetherc`.
+    // Without it `file.exists` is 0 on Windows and the compiler's content
+    // silently drops OUT of the cache key, so a rebuilt-from-source toolchain
+    // would serve stale binaries there. The guard reads as "tolerating
+    // synthetic test inputs"; it must not quietly mean "always skip on
+    // Windows". (asks/windows-fanout-aetherc-invoked-as-directory.md)
+    aetherc_bin = path.join(_resolve_aether_dir(), string.concat("aetherc", build._exe_suffix()))
     if file.exists(aetherc_bin) == 1 {
         ach, acherr = cache.hash_file(aetherc_bin)
         if string.length(acherr) > 0 {
@@ -1871,7 +1877,12 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     target_dir = build._get(ctx, "target_dir")
 
     ae_dir = _resolve_aether_dir()
-    aetherc = path.join(ae_dir, "aetherc")
+    // .exe on Windows: the file on disk is aetherc.exe, and every OTHER site
+    // that names a tool binary already suffixes (tools/aeb-link.ae's `esuf`,
+    // and the bin_path composition further down this same file). This one did
+    // not, so the composed command named a file that does not exist.
+    // (asks/windows-fanout-aetherc-invoked-as-directory.md)
+    aetherc = path.join(ae_dir, string.concat("aetherc", build._exe_suffix()))
 
     // Phase 0a: expand regen entries to cover every transitive
     // project-local sibling import. Without this the consumer has to
@@ -1991,11 +2002,27 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // Absent the env var (e.g. a direct lib/aether unit invocation),
     // fall back to no --lib, preserving prior behaviour for the
     // self-contained-entry case.
-    lib_flag = ""
-    compile_lib_env = os.getenv("AEB_COMPILE_LIB")
-    if string.length(compile_lib_env) > 0 {
-        lib_flag = " --lib ${compile_lib_env}"
-    }
+    // ONE `--lib` FLAG PER ENTRY — never the separator-joined value verbatim.
+    //
+    // AEB_COMPILE_LIB is PATH-style (`<aeb_lib><sep><repo_root>`), and the
+    // separator is `;` on Windows. Splicing that straight onto a command line
+    // hands `sh` a statement separator, so the single command
+    //
+    //     aetherc --lib C:/…/lib;C:/…/aether-ui src.ae out.c
+    //
+    // ran as TWO: `aetherc --lib C:/…/lib` (too few positional args, so it
+    // printed its usage text and exited non-zero) followed by
+    // `C:/…/aether-ui src.ae out.c` (the repo root in command position —
+    // "Is a directory"). Both halves of that symptom came from this one
+    // splice. tools/aeb-link.ae already emits repeated flags for exactly this
+    // reason and says so where it builds the value; this consumer did not
+    // honour it. Same fix, same rationale: aetherc's first `--lib` resets the
+    // chain and each subsequent one appends, so repeated flags compose into
+    // the identical search path with no shell-quoting fragility.
+    // (asks/windows-fanout-aetherc-invoked-as-directory.md)
+    // _ae_build_lib_flags is the existing splitter (the `ae build` shell-out
+    // path was hardened against this same trap; this consumer was missed).
+    lib_flag = _ae_build_lib_flags(os.getenv("AEB_COMPILE_LIB"))
     // Per-node lib() dirs, appended AFTER the env path so a node only ADDS to
     // the orchestrator's search path. Lets an app import sibling modules from a
     // repo subdir other than its source dir / root (e.g. aevg/apps/* importing

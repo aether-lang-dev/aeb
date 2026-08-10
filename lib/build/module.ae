@@ -1203,7 +1203,23 @@ _sh_script_path(cmd: string) {
 // NEVER parses the command's contents, so nothing can be mangled. This makes
 // every SDK shell-out a pure os.system→_sh swap: NO per-command quote surgery,
 // NO inner-quote-drop, and space-in-path-safe. On POSIX, pass through verbatim.
+// AEB_SH_TRACE=1 echoes every composed command before it runs, and AEB_SH_KEEP=1
+// preserves the Windows temp script instead of deleting it. Both exist because
+// this chokepoint is where Windows bugs surface and where they are hardest to
+// see: the failing command lives in a /tmp/_aeb_sh_<pid>_<n>.sh that is deleted
+// on exit, so a report can quote the ERROR but never the command line that
+// caused it. Two consecutive Windows asks stalled on exactly that
+// (asks/windows-fanout-aetherc-invoked-as-directory.md asked for this flag by
+// name). Mirrors AEB_LINK_TRACE in tools/aeb-link.ae, which is what let the
+// previous round be settled in one look.
+_sh_trace(cmd: string) {
+    if string.equals(os.getenv("AEB_SH_TRACE"), "1") == 1 {
+        println("[aeb-sh trace] ${cmd}")
+    }
+}
+
 _sh(cmd: string) {
+    _sh_trace(cmd)
     if _is_windows() == 0 {
         return os.system(cmd)
     }
@@ -1214,6 +1230,10 @@ _sh(cmd: string) {
         return os.system(_sh_wrap(cmd))
     }
     rc = os.system(string.concat("sh ", scriptf))
+    if string.equals(os.getenv("AEB_SH_KEEP"), "1") == 1 {
+        println("[aeb-sh kept] ${scriptf}")
+        return rc
+    }
     _d = fs.delete(scriptf)
     return rc
 }
@@ -1221,6 +1241,7 @@ _sh(cmd: string) {
 // _sh_capture(cmd) — os.exec variant of _sh. Same temp-script mechanism;
 // returns (stdout, err) like os.exec.
 _sh_capture(cmd: string) {
+    _sh_trace(cmd)
     if _is_windows() == 0 {
         out, err = os.exec(cmd)
         return out, err
