@@ -299,6 +299,101 @@ _sh_link(cmd: string) {
     return rc
 }
 
+// _sh_capture_link(cmd) — os.exec through the same Windows chokepoint as
+// _sh_link. Needed so pkg-config can be RESOLVED here rather than emitted as
+// `$(...)` into the gcc line (see _resolve_sysdeps_link).
+_sh_capture_link(cmd: string) {
+    if string.equals(os.getenv("AEB_LINK_TRACE"), "1") == 1 {
+        println(string.concat("[aeb-link trace] ", cmd))
+    }
+    if _is_windows_link() == 0 {
+        out, err = os.exec(cmd)
+        return out, err
+    }
+    scriptf = _sh_script_path_link(cmd)
+    werr = io.write_file(scriptf, cmd)
+    if string.length(werr) > 0 {
+        out2, err2 = os.exec(_sh_wrap_link(cmd))
+        return out2, err2
+    }
+    out3, err3 = os.exec(string.concat("sh ", scriptf))
+    _d = fs.delete(scriptf)
+    return out3, err3
+}
+
+// _pkg_config_libs_link(module) / _resolve_sysdeps_link() — the aeb-link twin
+// of lib/aether's _resolve_sysdeps. Same three fixes, same rationale; inlined
+// because aeb-link is deliberately standalone (it cannot import the SDK it is
+// in the middle of compiling). Keep the two in step.
+//   1. resolve NOW instead of emitting `$(pkg-config …)` into a command line
+//      whose shell we do not control — on MSYS2 that reached cmd.exe, which
+//      cannot substitute, so the flags were absent and the orchestrator link
+//      died on undefined deflate/EVP_*/pcre2_*;
+//   2. include pcre2 (libaether.a's aether_regex.o references pcre2_*);
+//   3. seed PKG_CONFIG_PATH with /mingw64/lib/pkgconfig on Windows, since the
+//      pkg-config on PATH searches /usr/lib/pkgconfig and the .pc files are
+//      not there.
+// (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+// _flags_from_lines_link(text) — newline-separated flags -> one space-joined
+// run. The sed in the find pipeline already prefixes each line with `-I`, so
+// this only joins; it does not re-prefix. Blank lines dropped.
+_flags_from_lines_link(text: string) {
+    out = ""
+    rest = text
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        f = string.trim(line)
+        if string.length(f) > 0 {
+            out = string.concat(out, string.concat(" ", f))
+        }
+    }
+    return out
+}
+
+_pkg_config_libs_link(mod: string) {
+    out, err = _sh_capture_link(string.concat("pkg-config --libs ", string.concat(mod, " 2>/dev/null")))
+    if string.length(err) > 0 { return "" }
+    return string.trim(out)
+}
+
+_resolve_sysdeps_link() {
+    if _is_windows_link() == 1 {
+        existing = os.getenv("PKG_CONFIG_PATH")
+        mingw = "/mingw64/lib/pkgconfig"
+        if string.length(existing) == 0 {
+            _sp = os.setenv("PKG_CONFIG_PATH", mingw)
+        } else {
+            if string.index_of(existing, mingw) < 0 {
+                _sp2 = os.setenv("PKG_CONFIG_PATH", string.concat(existing, string.concat(_lib_sep_link(), mingw)))
+            }
+        }
+    }
+    out = ""
+    mods = list.new()
+    list.add(mods, "zlib")
+    list.add(mods, "openssl")
+    list.add(mods, "libpcre2-8")
+    n = list.size(mods)
+    i = 0
+    while i < n {
+        m, _ = list.get(mods, i)
+        flags = _pkg_config_libs_link(m)
+        if string.length(flags) > 0 {
+            out = string.concat(out, string.concat(" ", flags))
+        }
+        i = i + 1
+    }
+    return out
+}
+
 // Resolve the directory containing libaether.a. Aether's own driver
 // (tools/ae.c) probes these locations, so we mirror that:
 //   1. ${aether_dir}/../lib/aether/libaether.a   (FHS install — current default)
@@ -663,9 +758,21 @@ main() {
         //
         //  - `.git`/`build` are still pruned: it keeps the find fast, and
         //    `build/` in a dev tree holds generated headers we do not want.
-        cc = string.concat(cc, " $(find ")
-        cc = string.concat(cc, inc_root)
-        cc = string.concat(cc, " -type d -name .git -prune -o -type d -name build -prune -o -name *.h -print | sed -e s,/[^/]*$,, -e s,^,-I, | sort -u)")
+        //  - RESOLVED IN aeb, not left as `$(...)` on the gcc line. The
+        //    quote-free sed above makes the expression survive the cmd.exe
+        //    layer, but survival still assumes a POSIX shell EXPANDS it — and
+        //    when the command reaches cmd.exe directly (or falls back to the
+        //    `sh -c '...'` wrap) it does not, leaving the -I block empty with
+        //    no diagnostic. Running the pipeline here through the capture
+        //    chokepoint and splicing the literal flags is shell-agnostic. The
+        //    find/prune/sed/sort pipeline is UNCHANGED — it still runs, just
+        //    now via _sh_capture_link, so the 32 KB arg-limit work above is
+        //    preserved exactly.
+        //    (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+        find_cmd = string.concat("find ", inc_root)
+        find_cmd = string.concat(find_cmd, " -type d -name .git -prune -o -type d -name build -prune -o -name *.h -print | sed -e s,/[^/]*$,, -e s,^,-I, | sort -u")
+        inc_raw, _ferr = _sh_capture_link(find_cmd)
+        cc = string.concat(cc, _flags_from_lines_link(inc_raw))
     }
 
     if string.length(libaether_dir) == 0 {
@@ -687,15 +794,14 @@ main() {
     // when the Aether toolchain was built with them detected. Pull
     // the link flags from pkg-config; no-op when libs absent.
     //
-    // ONE INVOCATION PER MODULE, deliberately. `pkg-config --libs zlib
-    // openssl` is ALL-OR-NOTHING: if either .pc is missing it prints
-    // nothing and exits 1, so a missing zlib.pc silently took -lcrypto
-    // down with it — and `2>/dev/null` hid the error. That is exactly how
-    // the MINGW64 orchestrator link failed with five undefined EVP_*
-    // symbols while OpenSSL was installed and working on the box
-    // (asks/windows-orchestrator-link-missing-openssl.md). Querying each
-    // module separately degrades per-module instead of collapsing the set.
-    sysdeps = " $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null)"
+    // RESOLVED HERE, not emitted as `$(pkg-config …)`. Embedding the
+    // substitution only works if a POSIX shell runs the string; on MSYS2 it
+    // reached cmd.exe, which cannot perform it, so the flags came out ABSENT
+    // and the link died on undefined deflate/EVP_*/pcre2_* with pkg-config's
+    // stderr swallowed by a `2>/dev/null` cmd.exe never interpreted. Still one
+    // invocation per module (d55f064) — `--libs zlib openssl` is
+    // all-or-nothing, so a missing zlib.pc would drop -lcrypto too.
+    sysdeps = _resolve_sysdeps_link()
     // libaether pulls Windows system libs its crypto/net code needs
     // (BCryptGenRandom -> bcrypt, winsock -> ws2_32); no pkg-config .pc for
     // these, so add them explicitly. Empty off Windows.

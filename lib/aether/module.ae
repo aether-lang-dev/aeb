@@ -1032,6 +1032,36 @@ _all_extra_include_dirs(ctx: ptr, builder_map: ptr, source_dir: string) {
 }
 
 // " -I'<dir>'" block for a resolved dir list. Pure.
+// _inc_flags_from_lines(text) — newline-separated dir list -> " -I'<dir>'" run.
+// The resolved-in-aeb replacement for `$(find … | sed 's|^|-I|')`: that form
+// needed a POSIX shell to expand the substitution AND to survive the embedded
+// single quotes, and cmd.exe can do neither, so on MSYS2 the -I block came out
+// mangled or empty. Quoting each dir also makes a space-in-path install work,
+// which the sed form never did.
+// (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+_inc_flags_from_lines(text: string) {
+    out = ""
+    rest = text
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        d = string.trim(line)
+        if string.length(d) > 0 {
+            out = string.concat(out, " -I'")
+            out = string.concat(out, d)
+            out = string.concat(out, "'")
+        }
+    }
+    return out
+}
+
 _inc_flags_from_dirs(dirs: ptr) {
     out = ""
     n = list.size(dirs)
@@ -1105,6 +1135,72 @@ _ae_build_cmd_delegated(ae_build_args: string, root: string, image: string, work
 // repeated-flag fragment " --lib a --lib b". Empty in → "". Repeated flags (not
 // a joined --lib value) keep it Windows-shell-safe (aetherc's first --lib resets
 // the chain, each subsequent appends). Pure string assembly.
+// _pkg_config_libs(module) — resolved `--libs` for ONE pkg-config module, or
+// "" when it has no .pc. Runs pkg-config NOW, through the chokepoint, and
+// returns literal flags; the caller splices text, never `$(...)`.
+//
+// One invocation per module (d55f064): `pkg-config --libs a b` is
+// all-or-nothing, so a missing a.pc silently drops b's flags too.
+_pkg_config_libs(mod: string) {
+    out, err = build._sh_capture("pkg-config --libs ${mod} 2>/dev/null")
+    if string.length(err) > 0 { return "" }
+    return string.trim(out)
+}
+
+// _resolve_sysdeps() — the literal `-l…` run for libaether's external deps,
+// resolved in aeb rather than emitted as shell substitution.
+//
+// THREE things this fixes, all measured on winbaz
+// (asks/windows-pkg-config-substitution-runs-in-cmd.md):
+//
+//  1. `$(pkg-config …)` embedded in the gcc string is only substituted if a
+//     POSIX shell runs that string. On MSYS2 it reached cmd.exe, which cannot
+//     do it — so the flags were ABSENT, not wrong, and the link failed on
+//     undefined deflate/EVP_*/pcre2_* with pkg-config's own stderr swallowed
+//     by a `2>/dev/null` cmd.exe never interpreted. Resolving here is
+//     shell-agnostic.
+//  2. pcre2 was missing from the list. libaether.a references pcre2_* from
+//     aether_regex.o alongside zlib and openssl, so even a correct
+//     substitution on a correct search path still failed to link.
+//  3. On MSYS2 the pkg-config on PATH is /usr/bin/pkg-config, which searches
+//     /usr/lib/pkgconfig — while the 183 .pc files live in
+//     /mingw64/lib/pkgconfig. Seed PKG_CONFIG_PATH with the mingw64 tree on
+//     Windows so the lookup finds them. Appended, never replacing: an
+//     operator-set PKG_CONFIG_PATH keeps priority.
+//
+// A module with no .pc contributes nothing rather than voiding the set. That
+// is the right default: if libaether was built without a dep, it does not
+// reference its symbols either.
+_resolve_sysdeps() {
+    if build._is_windows() == 1 {
+        existing = os.getenv("PKG_CONFIG_PATH")
+        mingw = "/mingw64/lib/pkgconfig"
+        if string.length(existing) == 0 {
+            _sp = os.setenv("PKG_CONFIG_PATH", mingw)
+        } else {
+            if string.index_of(existing, mingw) < 0 {
+                _sp2 = os.setenv("PKG_CONFIG_PATH", string.concat(existing, string.concat(build._path_sep(), mingw)))
+            }
+        }
+    }
+    out = ""
+    mods = list.new()
+    list.add(mods, "zlib")
+    list.add(mods, "openssl")
+    list.add(mods, "libpcre2-8")
+    n = list.size(mods)
+    i = 0
+    while i < n {
+        m, _ = list.get(mods, i)
+        flags = _pkg_config_libs(m)
+        if string.length(flags) > 0 {
+            out = string.concat(out, string.concat(" ", flags))
+        }
+        i = i + 1
+    }
+    return out
+}
+
 _ae_build_lib_flags(compile_lib: string) {
     if string.length(compile_lib) == 0 { return "" }
     sep = build._path_sep()
@@ -1307,16 +1403,22 @@ aether_link_cmd(opts: ptr) {
         opt_flags = "-O0 -g"
         cov_flag = " --coverage"
     }
-    // libaether.a unconditionally references zlib/openssl symbols
-    // when the Aether toolchain was built with them detected (most
-    // distros). Pull the link flags from pkg-config at gcc time;
-    // no-op if the libs aren't installed (then the symbols won't be
-    // referenced either, since libaether builds without them).
+    // libaether.a unconditionally references zlib/openssl/pcre2 symbols when
+    // the Aether toolchain was built with them detected (most distros). The
+    // flags arrive here ALREADY RESOLVED — as literal `-lz -lssl …` text, not
+    // as `$(pkg-config …)` for a shell to expand. See _resolve_sysdeps.
     //
-    // ONE INVOCATION PER MODULE — `pkg-config --libs zlib openssl` is
-    // all-or-nothing, so a missing zlib.pc silently drops -lcrypto too.
-    // See the twin comment in tools/aeb-link.ae.
-    sysdeps = " $(pkg-config --libs zlib 2>/dev/null) $(pkg-config --libs openssl 2>/dev/null)"
+    // Emitting the substitution was portable only as long as a POSIX shell ran
+    // the string; on MSYS2 it reached cmd.exe, which cannot perform `$(...)`
+    // or honour `2>/dev/null`, so the flags came out ABSENT rather than wrong
+    // and the link died on undefined deflate/EVP_*/pcre2_* with nothing
+    // pointing at why. Resolving in aeb is shell-agnostic and lets a missing
+    // .pc be reported instead of failing opaquely at link time.
+    // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+    sysdeps = ""
+    if map.has(opts, "sysdeps") == 1 {
+        sysdeps, _ = map.get(opts, "sysdeps")
+    }
     return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str} -L${lib_dir} -laether ${extra_link} ${rpath_link}${user_flags} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
 }
 
@@ -2101,10 +2203,16 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // -I: real installs nest headers under include/aether/{runtime,std}/...
     // Generated C uses bare #include names, so add -I for every dir.
     // (lib_dir + dup_flag were resolved above for the cache-key step.)
+    // RESOLVED HERE, for the same reason as sysdeps above: `$(find … | sed
+    // 's|^|-I|')` is command substitution AND single quotes on one line, which
+    // cmd.exe cannot perform and would mangle. Run it through the chokepoint
+    // now and splice the literal -I run.
+    // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
     inc_root = _resolve_aether_include(ae_dir)
     inc_flags = ""
     if string.length(inc_root) > 0 {
-        inc_flags = " $(find ${inc_root} -type d -print | sed 's|^|-I|')"
+        inc_raw, _ierr = build._sh_capture("find ${inc_root} -type d -print")
+        inc_flags = _inc_flags_from_lines(inc_raw)
     }
     // Plus the user/dep extra include dirs (Gap 1) — so an extra_source
     // wrapper .c that #includes a project or generated-table header
@@ -2127,6 +2235,11 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     _eo8 = map.put(opts, "user_flags", user_flags)
     _eo9 = map.put(opts, "dup_flag", dup_flag)
     _eo10 = map.put(opts, "coverage", coverage)
+    // Resolve pkg-config HERE (one shell-out per module, through the
+    // chokepoint) and hand aether_link_cmd literal flags. Keeps that builder
+    // pure/testable and keeps `$(...)` off a command line whose shell we do
+    // not control. (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+    _eo11 = map.put(opts, "sysdeps", _resolve_sysdeps())
     gcc_cmd = aether_link_cmd(opts)
     // Capture gcc stderr to a per-module file so a link failure can
     // be mined for `undefined reference` symbols (Option B in
