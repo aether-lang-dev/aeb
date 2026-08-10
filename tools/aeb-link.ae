@@ -275,7 +275,21 @@ _sh_hash_link(s: string) {
 _sh_script_path_link(cmd: string) {
     tmp = _sh_slashes_link(os.getenv("TMP"))
     if string.length(tmp) == 0 { tmp = _sh_slashes_link(os.getenv("TEMP")) }
-    if string.length(tmp) == 0 { tmp = "/tmp" }
+    if string.length(tmp) == 0 { tmp = _sh_slashes_link(os.getenv("TMPDIR")) }
+    if string.length(tmp) == 0 {
+        // Native-form fallback — see the twin in lib/build's _sh_script_path.
+        // A bare "/tmp" is MSYS-only; io.write_file is a native fopen and
+        // cannot resolve it, which drops us into the lossy `sh -c` fallback.
+        // aeb-link runs BEFORE the driver, so this one fails first.
+        tmp = "/tmp"
+        if _is_windows_link() == 1 {
+            nat, nerr = os.exec("cygpath -m /tmp")
+            if string.length(nerr) == 0 {
+                nat = string.trim(nat)
+                if string.length(nat) > 0 { tmp = nat }
+            }
+        }
+    }
     name = string.concat("_aeb_link_", string.concat(string.from_int(os.getpid()),
            string.concat("_", string.concat(string.from_int(_sh_hash_link(cmd)), ".sh"))))
     return string.concat(tmp, string.concat("/", name))

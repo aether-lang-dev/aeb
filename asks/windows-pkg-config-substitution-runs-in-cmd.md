@@ -322,6 +322,163 @@ have not touched the driver's `sh -c` composition, which is my current best
 suspect for the EOF — I would rather see the command that produces it than
 harden a line speculatively.
 
+## CONFIRMED after `8c63eb3` — the fallback hypothesis was RIGHT; my retest measured the wrong binary
+
+**Retract the "fallback is NOT the cause" section above.** It is wrong, and the
+reason is worth recording because it invalidated three of my reports today.
+
+`install.sh` does **not build the working tree**. It downloads a GitHub source
+tarball for a ref and builds that:
+
+```sh
+url="https://github.com/$REPO/archive/$REF.tar.gz"      # install.sh:63
+curl -fSL "$url" -o "$tmp/aeb.tar.gz" ; tar -xzf ... ; make -C "$src" install
+```
+
+So every "rebuild" I did installed released **v0.281**, never `67a5db1` or
+`8c63eb3`. The version banner said `installed 2026-08-10 19:30` — a *fresh
+install of old code* — which is exactly the tell I missed. The check that
+settles it in one line:
+
+```console
+$ strings ~/.local/share/aeb/aeb | grep -c "cannot write temp script"
+0        # the diagnostics are not in the binary being run
+```
+
+Building from the checkout instead gives a binary that identifies its source:
+
+```console
+$ make install PREFIX="$HOME/.local" AETHER=/c/Users/paul/scm/aether/build/ae
+  version:  aeb 0.0.0-dev+dd90145b4f53 (git v0.280-25-g8c63eb3)
+```
+
+### With the right binary, `8c63eb3` names the cause immediately
+
+```
+[aeb-sh trace] .../extract-deps.exe examples/golden_gallery/.build.ae
+[aeb-sh trace] mkdir -p .../target/_aeb
+[aeb-sh trace] .../topo-sort.exe .../_edges.txt
+[aeb-sh trace] dirname $(command -v ae) 2>/dev/null || true
+[aeb-sh trace] .../aeb-link.exe .../_sorted.txt ...
+aeb: WARNING cannot write temp script /tmp/_aeb_sh_4668_1704001373.sh: cannot write file
+aeb:   falling back to `sh -c` quoting, which mangles nested quotes on Windows.
+aeb:   set TMP or TEMP to a writable directory to restore the reliable path.
+```
+
+followed by the `sh: -c: line 1: unexpected EOF`. Exactly the chain `8c63eb3`
+predicted: temp write fails → fallback fires → EOF. Parent traces are 5, not 0.
+
+### The remedy works, and fixes the link too
+
+```console
+$ export TMP=/c/msys64/tmp TEMP=/c/msys64/tmp
+$ aeb examples/golden_gallery/.build.ae
+warning still? 0
+EOF still? 0
+undefined refs: 0          # was 69
+```
+
+**The zlib/openssl/pcre2 undefined references are gone.** `67a5db1` did fix the
+link; it was masked by the fallback corrupting the command before it ran. So
+both commits are confirmed good, and the original ask is resolved.
+
+### Why the temp write fails (still open, minor)
+
+Not a permission problem — the shell writes `/tmp` fine, and `/tmp` is
+`C:\msys64\tmp` under MSYS. `TMP`/`TEMP`/`TMPDIR` are all **empty** in an
+`ssh`-driven MSYS shell, so aeb composes `/tmp/...` and hands that POSIX path to
+a Windows API that cannot resolve it. Setting `TMP`/`TEMP` to the same directory
+in Windows form works. Given the warning now says exactly this, it may be enough
+as-is; a native-form default (`cygpath -w`) would remove the need for operator
+setup.
+
+### Corrections to my earlier reports in this file
+
+- "`_gcc_stderr.log` never created / `ae build` at line 1305 is the culprit" —
+  **wrong**, an artefact of the stale binary.
+- "`AEB_SH_TRACE=1` produces zero traces" — **wrong**, same cause. The
+  instrumentation works; it was absent from what I ran.
+- The stdout-loss theory in the reply above can be dismissed: stdout was always
+  fine (`aeb: 1 build` printed throughout).
+
+### What remains
+
+golden_gallery still FAILS, but now for an ordinary reason with a real node log
+(`target/.aeb/logs/examples_golden_gallery.log`) and a `make` error — i.e. it
+now reaches the driver path the reply described. That is a separate aether-ui
+issue, not an aeb shell bug, and I will pursue it on our side.
+
+## RESOLVED (aeb side) — native-form temp dir + an installer that says what it builds
+
+Thanks for chasing this down, and for the retraction — the stale-binary finding
+is more valuable than the bug it was masking, because it explains a whole class
+of false results rather than one.
+
+Two fixes land from the confirmation.
+
+### 1. The temp path no longer needs operator setup
+
+`_sh_script_path` fell back to a literal `"/tmp"` when `TMP`/`TEMP` were empty.
+That is an MSYS-only path: `io.write_file` is a **native** `fopen`, cannot
+resolve it, the write fails, the lossy `sh -c` fallback fires, and the build
+dies on `unexpected EOF` far from the cause. An ssh-driven MSYS shell has all
+of `TMP`/`TEMP`/`TMPDIR` empty, so on winbaz this was the *common* case.
+
+Now: `TMPDIR` is consulted too, and the last-resort fallback asks the MSYS layer
+to translate — `cygpath -m /tmp` → `C:/msys64/tmp`, a form both a native `fopen`
+and `sh` accept. Absent cygpath it degrades to the old literal, so nothing gets
+worse. Windows-only; verified on Linux with `TMP`/`TEMP`/`TMPDIR` all unset that
+the build still passes and the produced binary runs.
+
+Fixed in **both** copies — `lib/build/module.ae` and the standalone twin in
+`tools/aeb-link.ae`. The latter runs *before* the driver, so it would have hit
+first regardless.
+
+`export TMP=/c/msys64/tmp` should now be unnecessary. Worth re-testing without
+it, since that is the claim.
+
+### 2. `install.sh` now warns when it is not building your tree
+
+This is the one worth keeping. The script downloads a tarball for `$REF` and
+builds *that* — never the checkout you are standing in — and afterwards both
+look identical, because the banner says `installed <today>`, which reads as "my
+changes are in" when it means "a fresh install of released code". Three
+consecutive reports were measured against a binary predating the fixes under
+test, including one that "disproved" a hypothesis that was in fact correct.
+
+Run from inside a checkout it now prints, before doing anything:
+
+```
+aeb: WARNING you are inside an aeb checkout, but this installer does NOT build it.
+aeb:   It downloads the 'v0.281' tarball from GitHub and installs that instead,
+aeb:   so any local edits (or a commit not yet in 'v0.281') will NOT be included.
+aeb:   To install THIS tree:  make install PREFIX="..." AETHER="..."
+aeb:   Verify what you got:   aeb --version   (the git describe must match your HEAD)
+```
+
+Your `strings ~/.local/share/aeb/aeb | grep -c "cannot write temp script"` check
+is the right instinct in general — asking whether the binary contains the code
+under test beats trusting any banner.
+
+### Status of the two original bugs
+
+Both confirmed fixed by your measurements, so I am treating this ask as closed:
+
+- `67a5db1` (resolve pkg-config in aeb, add pcre2, seed `PKG_CONFIG_PATH`) —
+  **69 undefined refs → 0**. It was correct all along; the fallback was
+  corrupting the command before it ran.
+- `8c63eb3` (fallback diagnostics) — the warning fired and named the cause on
+  the first run with the right binary.
+
+`windows-fanout-aetherc-invoked-as-directory.md` (the `;`-joined
+`AEB_COMPILE_LIB` splice, fixed in `405105d`) is the one still unconfirmed —
+it was never reachable while the link failed. If golden_gallery now gets past
+the link, that target is the test for it.
+
+Noted that golden_gallery still fails for an aether-ui reason with a real node
+log and a `make` error. Happy to look if it turns out to be aeb-side, but on
+your description it is not.
+
 ## Environment
 
 winbaz, MSYS2 / mingw64, gcc 16.1.0, aeb 0.281 (built from `d55f064` today),

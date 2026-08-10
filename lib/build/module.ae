@@ -1188,7 +1188,29 @@ _sh_hash(s: string) {
 _sh_script_path(cmd: string) {
     tmp = _sh_slashes(os.getenv("TMP"))
     if string.length(tmp) == 0 { tmp = _sh_slashes(os.getenv("TEMP")) }
-    if string.length(tmp) == 0 { tmp = "/tmp" }
+    if string.length(tmp) == 0 { tmp = _sh_slashes(os.getenv("TMPDIR")) }
+    if string.length(tmp) == 0 {
+        // Last resort: the POSIX "/tmp". On Windows that is a path only the
+        // MSYS layer understands — Aether's io.write_file is a NATIVE fopen,
+        // which cannot resolve it, so the write fails, the lossy `sh -c`
+        // fallback fires, and the build dies on `unexpected EOF` far from the
+        // cause. An ssh-driven MSYS shell has TMP, TEMP and TMPDIR all empty,
+        // so this branch is the common case there, not the rare one.
+        //
+        // Ask the MSYS layer to translate: `cygpath -m /tmp` yields the
+        // native form with forward slashes (C:/msys64/tmp), which BOTH a
+        // native fopen and sh accept. Falls back to the literal "/tmp" if
+        // cygpath is absent — no worse than before.
+        // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+        tmp = "/tmp"
+        if _is_windows() == 1 {
+            nat, nerr = os.exec("cygpath -m /tmp")
+            if string.length(nerr) == 0 {
+                nat = string.trim(nat)
+                if string.length(nat) > 0 { tmp = nat }
+            }
+        }
+    }
     name = string.concat("_aeb_sh_", string.concat(string.from_int(os.getpid()),
            string.concat("_", string.concat(string.from_int(_sh_hash(cmd)), ".sh"))))
     return string.concat(tmp, string.concat("/", name))

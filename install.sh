@@ -54,6 +54,24 @@ if [ -z "$REF" ]; then
     fi
 fi
 
+# Loud warning when run from INSIDE an aeb checkout. This script always
+# downloads a source tarball for $REF and builds THAT — it never builds the
+# tree you are standing in. Both look identical afterwards: the version banner
+# says "installed <today>", which reads as "my changes are in" when it actually
+# means "a fresh install of released code".
+#
+# That cost a full round-trip of false results on the Windows line: three
+# consecutive bug reports were measured against a binary that predated the
+# fixes being tested, including one that "disproved" a hypothesis which was in
+# fact correct. `make install` is what builds the working tree.
+if [ -f ./Makefile ] && [ -f ./aeb ] && [ -d ./lib ] && [ -d ./tools ]; then
+    echo "aeb: WARNING you are inside an aeb checkout, but this installer does NOT build it." >&2
+    echo "aeb:   It downloads the '$REF' tarball from GitHub and installs that instead," >&2
+    echo "aeb:   so any local edits (or a commit not yet in '$REF') will NOT be included." >&2
+    echo "aeb:   To install THIS tree:  make install PREFIX=\"$PREFIX\" AETHER=\"$AETHER\"" >&2
+    echo "aeb:   Verify what you got:   aeb --version   (the git describe must match your HEAD)" >&2
+fi
+
 say "installing aeb @ $REF  ->  PREFIX=$PREFIX  (AETHER=$AETHER)"
 
 tmp=$(mktemp -d)
