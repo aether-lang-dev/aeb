@@ -1190,18 +1190,22 @@ _sh_script_path(cmd: string) {
     if string.length(tmp) == 0 { tmp = _sh_slashes(os.getenv("TEMP")) }
     if string.length(tmp) == 0 { tmp = _sh_slashes(os.getenv("TMPDIR")) }
     if string.length(tmp) == 0 {
-        // Last resort: the POSIX "/tmp". On Windows that is a path only the
-        // MSYS layer understands — Aether's io.write_file is a NATIVE fopen,
-        // which cannot resolve it, so the write fails, the lossy `sh -c`
-        // fallback fires, and the build dies on `unexpected EOF` far from the
-        // cause. An ssh-driven MSYS shell has TMP, TEMP and TMPDIR all empty,
-        // so this branch is the common case there, not the rare one.
+        // Last resort when TMP, TEMP and TMPDIR are ALL empty: prefer the
+        // native form of "/tmp" over the literal, since std.fs/std.io are
+        // native Win32 calls and a `/c/...`-style path is an MSYS fiction
+        // they cannot always resolve (see _to_native_path for the measured
+        // law). Falls back to the literal if cygpath is absent.
         //
-        // Ask the MSYS layer to translate: `cygpath -m /tmp` yields the
-        // native form with forward slashes (C:/msys64/tmp), which BOTH a
-        // native fopen and sh accept. Falls back to the literal "/tmp" if
-        // cygpath is absent — no worse than before.
-        // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+        // HONESTY NOTE, because the commit that added this (a0fd182) claimed
+        // more: I originally justified this as THE fix for winbaz's
+        // `unexpected EOF`, on a theory that io.write_file("/tmp/x") fails.
+        // Measured on the box afterwards, that theory is WRONG — the write
+        // SUCCEEDS, and MSYS keeps TMP=/tmp populated even across an explicit
+        // `env -u TMP`, so this branch does not fire there at all. The real
+        // cause was the toolchain-dir path never being normalised (fixed in
+        // b1c41fa). This is kept as defensive correctness for a genuinely
+        // empty-TMP context (a service or cron shell), not because it fixed
+        // anything observed. Do not cite it as a precedent for a diagnosis.
         tmp = "/tmp"
         if _is_windows() == 1 {
             nat, nerr = os.exec("cygpath -m /tmp")

@@ -408,7 +408,47 @@ golden_gallery still FAILS, but now for an ordinary reason with a real node log
 now reaches the driver path the reply described. That is a separate aether-ui
 issue, not an aeb shell bug, and I will pursue it on our side.
 
-## RESOLVED (aeb side) — native-form temp dir + an installer that says what it builds
+## CORRECTION (2026-08-10, from winbaz directly) — the temp-dir diagnosis below is WRONG
+
+I now have ssh access to the box and tested there instead of inferring. Two
+things in the section below are false, and the real cause is different:
+
+1. **`io.write_file("/tmp/x")` SUCCEEDS on winbaz.** Measured. So "a native
+   fopen cannot resolve the MSYS /tmp" — the premise of the whole fix — is not
+   true.
+2. **`TMP` is not empty there.** It is `/tmp`, and MSYS re-populates it even
+   across an explicit `env -u TMP`. So the branch that fix added never runs on
+   that box.
+
+**The actual root cause of the entire Windows run** is that `std.fs` /
+`std.dir` / `std.file` are native Win32 calls, and every MSYS-style `/c/...`
+path returns *does not exist*:
+
+```
+fs.exists("/c/Users/paul/scm/aether/build/libaether.a")  -> 0
+fs.exists("C:/Users/paul/scm/aether/build/libaether.a")  -> 1
+dir.exists("/c/Users/paul/scm/aether/runtime")           -> 0
+dir.exists("C:/Users/paul/scm/aether/runtime")           -> 1
+```
+
+`sh` accepts both forms, so command lines built from POSIX paths RUN fine —
+only aeb's own `exists` probes lied, each one failing by silently taking a
+fallback. `_resolve_aether_dir` returns `/c/.../build`, so every include-layout
+probe answered 0, the `-I` block came back EMPTY, and gcc died on
+`aether_panic.h: No such file or directory`. Fixed in `b1c41fa` by normalising
+once where the toolchain dir is resolved. Verified: a target now builds and
+runs on winbaz (78 `-I` flags, `[hit]` on re-run, zero EOF, zero cmd.exe
+errors).
+
+Also worth recording, since it explains our divergent measurements: a plain
+`ssh winbaz` lands in **Git-Bash** (`/` = `C:\Program Files\Git\`), which has
+no gcc, no pkg-config and no make. Your MSYS2 world is under `C:\msys64`. The
+incantation that reaches it is
+`MSYSTEM=MINGW64 /c/msys64/usr/bin/bash.exe -l -c '...'`.
+
+The section below is kept for the trail, not as guidance.
+
+## SUPERSEDED — native-form temp dir + an installer that says what it builds
 
 Thanks for chasing this down, and for the retraction — the stale-binary finding
 is more valuable than the bug it was masking, because it explains a whole class
@@ -478,6 +518,86 @@ the link, that target is the test for it.
 Noted that golden_gallery still fails for an aether-ui reason with a real node
 log and a `make` error. Happy to look if it turns out to be aeb-side, but on
 your description it is not.
+
+## RETEST after `a0fd182` — temp-dir fix CONFIRMED without operator setup; one EOF remains, outside the chokepoint
+
+Rebuilt from the checkout (`make install`, not `install.sh`) — banner reads
+`aeb 0.0.0-dev+d2035ae32ead (git v0.280-27-ga0fd182)`, so the right code is
+under test this time.
+
+### 1. `export TMP=...` is indeed no longer needed — claim verified
+
+With `TMP`, `TEMP` **and** `TMPDIR` all explicitly unset (the ssh-driven MSYS
+case that started this):
+
+```console
+$ unset TMP TEMP TMPDIR
+$ cygpath -m /tmp                  →  C:/msys64/tmp
+$ aeb examples/golden_gallery/.build.ae
+fallback warning?  0        # was: "cannot write temp script"
+undefined refs?    0        # was: 69
+```
+
+The `cygpath -m` fallback resolves it. No operator setup required, as claimed.
+
+### 2. The build now reaches the driver, and the node log is finally real
+
+`target/.aeb/logs/examples_golden_gallery.log` is **freshly written** (19:56,
+was a stale Aug 4 file through every earlier run). Its tail is the actual
+failure:
+
+```
+sh: line 1: C:/msys64/home/paul/aether-ui: Is a directory
+examples/golden_gallery: compiling Aether program
+examples/golden_gallery: aetherc failed
+```
+
+That is the `windows-fanout-aetherc-invoked-as-directory.md` signature —
+repo root in command position — **now reachable**, exactly as you predicted
+would happen once the link stopped failing first. So that ask is live again,
+and this is the target that tests it.
+
+### 3. One `unexpected EOF` remains, and it is NOT `_sh`
+
+Still one on stdout. It is not the fallback (that warning no longer prints), and
+it survives because the code emitting it never goes through the chokepoint:
+
+```console
+$ AEB_SH_TRACE=1 aeb …                               → 9 trace lines   (parent, fixed)
+$ AEB_SH_TRACE=1 ./target/_ae_build_all.exe … 2>&1   → 0 trace lines, EOF reproduced
+```
+
+The orchestrator reproduces the EOF **standalone**, with zero traces, from a
+binary rebuilt at 19:57. The reason is structural: `_ae_build_all` is generated
+by `tools/gen-orchestrator.ae`, which imports `std.os` directly and **not**
+`build` — so it has no `_sh`, no `_sh_trace`, no temp-script path, and none of
+`8c63eb3`/`a0fd182` applies to it. The `build.mk` recipe itself is well-formed
+and correctly quoted (verified verbatim), passing the orchestrator exactly two
+`'`-quoted arguments, so the malformed `sh -c` is composed *inside* the
+orchestrator.
+
+That makes the orchestrator the one remaining command-composition site outside
+the chokepoint on Windows — and it is the same binary the fan-out ask's trace
+came through, which is suggestive.
+
+### 4. Methodological note: `strings` is NOT a reliable "is the fix in this binary?" check here
+
+You endorsed my `strings … | grep -c` check; it does not work on these binaries
+and I should flag that before it misleads someone:
+
+```console
+$ strings ~/.local/share/aeb/tools/aeb-link.exe | grep -c "aeb-sh trace"   → 0
+$ strings target/_ae_build_all.exe            | grep -c "aeb-sh trace"     → 0
+```
+
+yet the installed aeb built from the same tree emits 9 trace lines. Aether
+binaries evidently do not store these literals where `strings` finds them, so a
+0 is not evidence of absence. **The behavioural check is the reliable one**:
+run with `AEB_SH_TRACE=1` and count trace lines. That distinguished the
+orchestrator (0, genuinely untraced) from the parent (9) unambiguously.
+
+The banner check you added in `a0fd182` is the better front-line guard, and it
+would have caught my original error.
 
 ## Environment
 
