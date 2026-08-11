@@ -71,5 +71,22 @@ main() {
         encode_name("common"),
         "common")
 
+    // Root-level target: ".build.ae" (label ".") would encode to a
+    // LEADING-underscore "_D_build_D_ae", which aetherc escapes to
+    // "ae_D_build_D_ae" (0.516 reserved-namespace fix) — desyncing the
+    // orchestrator extern from the definition and breaking the link with an
+    // `undefined reference`. encode_name now mirrors that escape so the two
+    // stay in sync. A subdir target ("foo/.build.ae") is letter-leading and is
+    // untouched. Regression guard for the root-label link bug.
+    _assert_eq("root-level .build.ae escapes leading underscore",
+        encode_name(".build.ae"),
+        "ae_D_build_D_ae")
+    _assert_eq("root-level .tests.ae likewise",
+        encode_name(".tests.ae"),
+        "ae_D_tests_D_ae")
+    _assert_eq("subdir target unaffected (letter-leading)",
+        encode_name("foo/.build.ae"),
+        "foo__D_build_D_ae")
+
     println("encode_name tests done")
 }

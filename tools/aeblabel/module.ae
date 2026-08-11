@@ -223,6 +223,25 @@ encode_name(input: string) {
     s = string.replace_all(s, "-", "_H_")
     s = string.replace_all(s, ".", "_D_")
     s = string.replace_all(s, sentinel, "__")
+    // The result is used verbatim as a C FUNCTION NAME (the per-node module
+    // entry) — both the definition (transform-ae renames the user's main() to
+    // it) and the orchestrator's `extern`. A name that LEADS WITH '_' desyncs
+    // those two: aetherc escapes a leading-underscore top-level function OUT of
+    // C's reserved namespace by prefixing "ae" (the 0.516 cf4f2bd5 fix — `_write`
+    // once collided with MSVCRT's `_write`), so the .o defines `ae_D_build_D_ae`
+    // while the orchestrator externs `_D_build_D_ae` → `undefined reference`.
+    // The only path that produces a leading '_' is one whose FIRST char is '.'
+    // (a leading '.' → '_D_'), i.e. a ROOT-level target like ".build.ae" (label
+    // "."). Mirror the compiler's own escape here so the name aeb generates is
+    // already the one aetherc will emit, keeping definition and extern in sync.
+    // (Corner: a real file literally named "ae.build.ae" at the repo root would
+    // encode to the same "ae_D_build_D_ae" — accepted as a documented, absurd
+    // collision that mirrors the compiler's namespace exactly.)
+    if string.length(s) > 0 {
+        if string.equals(string.substring(s, 0, 1), "_") == 1 {
+            s = string.concat("ae", s)
+        }
+    }
     // Wrap the final return in an extern string fn so Aether's type
     // inference sees encode_name as returning string (user-fn return types
     // aren't chased through to the caller).
