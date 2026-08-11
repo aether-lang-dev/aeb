@@ -87,8 +87,7 @@ cp_tree_cmd(src_abs: string, dst_abs: string) {
 // lib/fetch's `_resolve_path`.
 _resolve_path(source_dir: string, p: string) {
     if string.length(p) == 0 { return p }
-    first = string.substring(p, 0, 1)
-    if string.equals(first, "/") == 1 { return p }
+    if build._is_abs_path(p) == 1 { return p }
     return path.join(source_dir, p)
 }
 

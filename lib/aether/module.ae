@@ -909,21 +909,12 @@ _has_manual_overrides(builder_map: ptr) {
 // cannot exist, and which gcc reports as `Invalid argument` rather than
 // anything pointing at the build system. That cost the aether-ui line a
 // whole platform (see asks/windows-absolute-paths-joined-to-source-dir.md).
+//
+// Delegates to the single canonical predicate in lib/build so the rule lives
+// in exactly one place; the local wrapper is kept because callers here invoke
+// it bare (dozens of sites) and to preserve the ask-doc trail above.
 _is_abs_path(p: string) {
-    n = string.length(p)
-    if n == 0 { return 0 }
-    if string.equals(string.substring(p, 0, 1), "/") == 1 { return 1 }
-    if n >= 2 {
-        if string.equals(string.substring(p, 0, 2), "\\\\") == 1 { return 1 }
-    }
-    if n >= 3 {
-        if string.equals(string.substring(p, 1, 2), ":") == 1 {
-            c2 = string.substring(p, 2, 3)
-            if string.equals(c2, "/") == 1 { return 1 }
-            if string.equals(c2, "\\") == 1 { return 1 }
-        }
-    }
-    return 0
+    return build._is_abs_path(p)
 }
 
 _resolved_user_include_dirs(builder_map: ptr, source_dir: string) {

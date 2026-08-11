@@ -13,6 +13,7 @@
 // enumeration variant of the bug can't return silently.
 
 import aether (_expand_transitive_regens)
+import build (_sh, _sh_capture)
 import std.string
 import std.os
 import std.list
@@ -26,6 +27,19 @@ _assert(label: string, cond: int) {
     } else {
         println("FAIL: ${label}")
     }
+}
+
+// Native-form tmpdir via the _sh chokepoint. _expand_transitive_regens walks
+// the fixture tree with native std.fs calls that cannot see MSYS "/tmp/.."
+// paths on Windows, and a raw os.system("mkdir -p /tmp/..") routes through
+// cmd.exe (no POSIX mkdir) and never creates it. No-op off Windows.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
 }
 
 // Returns 1 if the regen list contains an entry whose suffix matches
@@ -76,8 +90,8 @@ _regen_size(bm: ptr) {
 }
 
 main() {
-    base = "/tmp/aeb_test_transitive_regen"
-    os.system("rm -rf ${base}; mkdir -p ${base}/app ${base}/client ${base}/util ${base}/working_copy ${base}/other")
+    base = _mktempdir()
+    _sh("rm -rf '${base}'; mkdir -p '${base}/app' '${base}/client' '${base}/util' '${base}/working_copy' '${base}/other'")
 
     // Layout: app/main.ae --(import client)--> client/module.ae
     //                       --(import util)--> util/module.ae
@@ -86,11 +100,11 @@ main() {
     // other/ is unrelated — nothing imports it, must NOT be picked up.
     appdir = "${base}/app"
     entry = "${base}/app/main.ae"
-    os.system("printf 'import client\\nmain() {}\\n' > ${entry}")
-    os.system("printf 'import util\\nimport working_copy\\nfoo() { return 1 }\\n' > ${base}/client/module.ae")
-    os.system("printf 'bar() { return 1 }\\n' > ${base}/util/module.ae")
-    os.system("printf 'import std.fs\\nbaz() { return 1 }\\n' > ${base}/working_copy/module.ae")
-    os.system("printf 'unrelated() { return 1 }\\n' > ${base}/other/module.ae")
+    _sh("printf 'import client\\nmain() {}\\n' > '${entry}'")
+    _sh("printf 'import util\\nimport working_copy\\nfoo() { return 1 }\\n' > '${base}/client/module.ae'")
+    _sh("printf 'bar() { return 1 }\\n' > '${base}/util/module.ae'")
+    _sh("printf 'import std.fs\\nbaz() { return 1 }\\n' > '${base}/working_copy/module.ae'")
+    _sh("printf 'unrelated() { return 1 }\\n' > '${base}/other/module.ae'")
 
     // --- Test 1: explicit regen names client, expansion finds the rest.
     bm = map.new()
@@ -141,14 +155,14 @@ main() {
 
     // --- Test 4: std.* / contrib.* imports are skipped (not project-
     // local). Build a fresh fixture importing only stdlib + contrib.
-    os.system("rm -rf ${base}/stdonly; mkdir -p ${base}/stdonly")
+    _sh("rm -rf '${base}/stdonly'; mkdir -p '${base}/stdonly'")
     stdentry = "${base}/stdonly/main.ae"
-    os.system("printf 'import std.string\\nimport std.os\\nimport contrib.aeocha\\nmain() {}\\n' > ${stdentry}")
+    _sh("printf 'import std.string\\nimport std.os\\nimport contrib.aeocha\\nmain() {}\\n' > '${stdentry}'")
     bm3 = map.new()
     _expand_transitive_regens(bm3, "${base}/stdonly", stdentry)
     _assert("std.* / contrib.* are not added to regen",
         _regen_size(bm3) == 0)
 
-    os.system("rm -rf ${base}")
+    _sh("rm -rf '${base}'")
     println("transitive regen expansion tests done")
 }

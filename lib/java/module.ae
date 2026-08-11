@@ -569,9 +569,12 @@ _read_classpath_files(builder_map: ptr, source_dir: string) {
     while i < n {
         rel, _ = list.get(cfs, i)
         p = rel
+        // Absolute paths pass through; relative resolve against source_dir.
+        // build._is_abs_path is host-aware — on Windows an absolute path leads
+        // with a drive prefix ("C:/..."), not "/", so a bare leading-slash test
+        // would mangle it into a non-existent path via path.join.
         if string.length(rel) > 0 {
-            first = string.substring(rel, 0, 1)
-            if string.equals(first, "/") == 0 {
+            if build._is_abs_path(rel) == 0 {
                 p = path.join(source_dir, rel)
             }
         }

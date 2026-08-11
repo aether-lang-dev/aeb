@@ -17,8 +17,37 @@ import std.dir
 import std.cryptography
 
 import approval (jira_check_script, approval_json_check_script, canonicalize_attestation, attestation_evidence_json, _shell_quote)
+import build (_sh, _sh_capture)
 
 extern println(s: string)
+
+// Native-form tmpdir via the _sh chokepoint. This test writes fake curl/bash
+// scripts (native fs.write_atomic), chmods and runs them under a real shell,
+// and reads back evidence files natively — all of which must agree on ONE path
+// form. On Windows the native C:/.. form is the only one both worlds see, and a
+// raw os.system("mkdir -p /tmp/..") routes through cmd.exe and never creates
+// it. No-op off Windows.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
+}
+
+// _posix_path(p) — the POSIX/MSYS form ("/c/..") of a native path. Needed when
+// a path goes into a ':'-separated PATH: a native "C:/.." carries a colon that
+// the shell reads as a PATH separator, so `PATH=C:/msys64/..:$PATH` splits into
+// bogus entries "C" and "/msys64/.." and the dir is never searched. cygpath -u
+// converts it. No-op off Windows (cygpath absent → passthrough).
+_posix_path(p: string) {
+    raw, err = _sh_capture("cygpath -u ${p}")
+    if string.length(err) > 0 { return p }
+    t = string.trim(raw)
+    if string.length(t) == 0 { return p }
+    return t
+}
 
 _assert_contains(label: string, haystack: string, needle: string) {
     if string.index_of(haystack, needle) >= 0 {
@@ -83,13 +112,12 @@ main() {
     _assert_contains("fails no-go", script, "approval.jira: NOT APPROVED")
     _assert_contains("success message", script, "approval.jira: approved")
 
-    root = "/tmp/aeb-approval-test"
-    os.system(string.concat("rm -rf ", root))
-    os.system(string.concat("mkdir -p ", string.concat(root, "/bin")))
+    root = _mktempdir()
+    _sh(string.concat("mkdir -p ", string.concat(root, "/bin")))
     fake_curl = "#!/usr/bin/env bash\nout=\"\"\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = \"-o\" ]; then shift; out=\"$1\"; fi\n  shift || true\ndone\ncat > \"$out\" <<'JSON'\n{\"key\":\"REL-1234\",\"fields\":{\"status\":{\"name\":\"Approved\"},\"labels\":[\"release-approved\",\"cab-ok\"],\"Risk\":{\"value\":\"Accepted\"},\"customfield_123\":\"Approved\"}}\nJSON\n"
     curl_path = string.concat(root, "/bin/curl")
     fs.write_atomic(curl_path, fake_curl, string.length(fake_curl))
-    os.system(string.concat("chmod +x ", curl_path))
+    _sh(string.concat("chmod +x ", curl_path))
     script_path = string.concat(root, "/check.sh")
     evidence_path = string.concat(root, "/evidence.json")
     run_script = jira_check_script("https://jira.example.com", "REL-1234",
@@ -97,10 +125,14 @@ main() {
                                    labels, fields,
                                    evidence_path, "30")
     fs.write_atomic(script_path, run_script, string.length(run_script))
-    os.system(string.concat("chmod +x ", script_path))
-    cmd = string.concat("PATH=", string.concat(root, "/bin:$PATH JIRA_TOKEN=fake-token bash "))
+    _sh(string.concat("chmod +x ", script_path))
+    // POSIX form for the PATH prepend — a native "C:/..bin" would split on its
+    // own colon inside a ':'-separated PATH and the fake curl would never be
+    // found (the real curl would run instead). See _posix_path.
+    bin_posix = _posix_path(string.concat(root, "/bin"))
+    cmd = string.concat("PATH=", string.concat(bin_posix, ":$PATH JIRA_TOKEN=fake-token bash "))
     cmd = string.concat(cmd, script_path)
-    run_out, run_err = os.exec(cmd)
+    run_out, run_err = _sh_capture(cmd)
     _assert_eq("fake jira execution stderr", string.trim(run_err), "")
     _assert_contains("fake jira execution approved", run_out, "approval.jira: approved REL-1234")
     evidence_body, _rerr = fs.read(evidence_path)
@@ -125,8 +157,8 @@ main() {
                                                 generic_evidence, "30")
     generic_script_path = string.concat(root, "/generic-check.sh")
     fs.write_atomic(generic_script_path, generic_script, string.length(generic_script))
-    os.system(string.concat("chmod +x ", generic_script_path))
-    generic_out, generic_err = os.exec(string.concat("bash ", generic_script_path))
+    _sh(string.concat("chmod +x ", generic_script_path))
+    generic_out, generic_err = _sh_capture(string.concat("bash ", generic_script_path))
     _assert_eq("generic approval stderr", string.trim(generic_err), "")
     _assert_contains("generic approval stdout", generic_out, "approval.command: approved release-1")
     generic_body, _gerr = fs.read(generic_evidence)

@@ -19,6 +19,7 @@ import std.path
 import std.dir
 
 import build
+import build (_sh, _sh_capture)
 import aether (_resolve_libaether_dir, _resolve_aether_include)
 
 _assert_eq(label: string, actual: string, expected: string) {
@@ -40,12 +41,11 @@ _mktempdir() {
     // while dir.exists("C:/msys64/tmp/tmp.X") is 1. Without this the suite
     // fails on Windows for an environment reason, not a real defect.
     // No-op off Windows: cygpath is absent, so the value passes through.
-    raw, _err = os.exec("mktemp -d")
+    raw, _err = _sh_capture("mktemp -d")
     d = string.trim(raw)
-    // NO quotes, NO redirect: os.exec routes through cmd.exe on Windows,
-    // which does not honour POSIX single quotes or `2>/dev/null` — with them
-    // the call returns EMPTY and the path silently stays POSIX. Bare works.
-    nat, _nerr = os.exec("cygpath -m ${d}")
+    // _sh_capture routes through a real POSIX shell on Windows (temp .sh +
+    // `sh <file>`), so mktemp/cygpath run correctly instead of via cmd.exe.
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
     n = string.trim(nat)
     if string.length(n) > 0 { return n }
     return d
@@ -55,25 +55,25 @@ _mktempdir() {
 
 // FHS: $prefix/{bin,lib/aether,include/aether}
 _setup_fhs(root: string) {
-    os.system("mkdir -p '${root}/bin' '${root}/lib/aether' '${root}/include/aether/runtime' '${root}/include/aether/std'")
-    os.system("touch '${root}/lib/aether/libaether.a'")
+    _sh("mkdir -p '${root}/bin' '${root}/lib/aether' '${root}/include/aether/runtime' '${root}/include/aether/std'")
+    _sh("touch '${root}/lib/aether/libaether.a'")
 }
 
 // Flat: $prefix/{bin,lib} with libaether.a directly at lib/
 _setup_flat(root: string) {
-    os.system("mkdir -p '${root}/bin' '${root}/lib'")
-    os.system("touch '${root}/lib/libaether.a'")
+    _sh("mkdir -p '${root}/bin' '${root}/lib'")
+    _sh("touch '${root}/lib/libaether.a'")
 }
 
 // Next-to-driver: libaether.a sits in the same dir as ae/aetherc
 _setup_next_to_driver(root: string) {
-    os.system("mkdir -p '${root}/bin'")
-    os.system("touch '${root}/bin/libaether.a'")
+    _sh("mkdir -p '${root}/bin'")
+    _sh("touch '${root}/bin/libaether.a'")
 }
 
 // Empty bin dir, no libaether.a anywhere — neither resolver finds it.
 _setup_empty(root: string) {
-    os.system("mkdir -p '${root}/bin'")
+    _sh("mkdir -p '${root}/bin'")
 }
 
 main() {
@@ -92,7 +92,7 @@ main() {
         _resolve_aether_include(fhs_bin),
         string.concat(fhs_bin, "/../include/aether"))
 
-    os.system("rm -rf '${fhs}'")
+    _sh("rm -rf '${fhs}'")
 
     // --- Flat install: lib/libaether.a, no include tree ---
     flat = _mktempdir()
@@ -106,7 +106,7 @@ main() {
     _assert_eq("Flat: no include/aether → empty",
         _resolve_aether_include(flat_bin), "")
 
-    os.system("rm -rf '${flat}'")
+    _sh("rm -rf '${flat}'")
 
     // --- Next-to-driver: libaether.a beside ae/aetherc ---
     ntd = _mktempdir()
@@ -116,7 +116,7 @@ main() {
     _assert_eq("Next-to-driver: libaether.a found in bin/",
         _resolve_libaether_dir(ntd_bin), ntd_bin)
 
-    os.system("rm -rf '${ntd}'")
+    _sh("rm -rf '${ntd}'")
 
     // --- Empty: no libaether.a, no include — both probes return "" ---
     empty = _mktempdir()
@@ -128,7 +128,7 @@ main() {
     _assert_eq("Empty install: include not found → empty",
         _resolve_aether_include(empty_bin), "")
 
-    os.system("rm -rf '${empty}'")
+    _sh("rm -rf '${empty}'")
 
     // --- FHS preferred over flat when both exist ---
     // (lib/aether/libaether.a is checked before lib/libaether.a)
@@ -141,7 +141,7 @@ main() {
         _resolve_libaether_dir(both_bin),
         string.concat(both_bin, "/../lib/aether"))
 
-    os.system("rm -rf '${both}'")
+    _sh("rm -rf '${both}'")
 
     // NOTE: $AETHER_INCLUDE env-var override is exercised by the
     // resolver but not directly testable here — the current Aether

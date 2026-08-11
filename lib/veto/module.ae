@@ -662,8 +662,7 @@ builder check(ctx: ptr) {
         return 1
     }
     tgt = tgt_rel
-    first = string.substring(tgt_rel, 0, 1)
-    if string.equals(first, "/") == 0 { tgt = path.join(source_dir, tgt_rel) }
+    if build._is_abs_path(tgt_rel) == 0 { tgt = path.join(source_dir, tgt_rel) }
 
     lib_roots = list.new()
     if _builder != null {

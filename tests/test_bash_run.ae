@@ -17,6 +17,7 @@
 // this fails loudly.
 
 import build
+import build (_sh, _sh_capture)
 import bash
 import bash (script)
 import std.string
@@ -33,18 +34,32 @@ _assert(label: string, cond: int) {
     }
 }
 
+// Native-form tmpdir via the _sh chokepoint. On Windows the raw
+// os.system("mkdir -p ...") routes through cmd.exe (which cannot run POSIX
+// mkdir/printf), so the fixture would never be created and file.exists would
+// see nothing. Route setup through _sh, which writes a temp .sh and runs it
+// under a real shell. cygpath -m gives the native form std.file needs.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
+}
+
 main() {
-    base = "/tmp/aeb_test_bash_run"
-    os.system("rm -rf ${base}; mkdir -p ${base}")
+    base = _mktempdir()
+    _sh("rm -rf '${base}'; mkdir -p '${base}'")
 
     marker = "${base}/marker"
     scr = "${base}/probe.sh"
     // probe.sh just touches the marker — an absolute path, so
     // bash's _resolve_script_path uses it verbatim.
-    os.system("printf 'touch ${marker}\\n' > ${scr}")
+    _sh("printf 'touch ${marker}\\n' > '${scr}'")
 
     // --- bash.run dispatches ---
-    os.system("rm -f ${marker}")
+    _sh("rm -f '${marker}'")
     s1 = build.session(".")
     b1 = build.begin(s1, "m_run")
     bash.run(b1) {
@@ -53,7 +68,7 @@ main() {
     _assert("bash.run dispatched and ran its script", file.exists(marker))
 
     // --- bash.test dispatches ---
-    os.system("rm -f ${marker}")
+    _sh("rm -f '${marker}'")
     s2 = build.session(".")
     b2 = build.begin(s2, "m_test")
     bash.test(b2) {
@@ -61,6 +76,6 @@ main() {
     }
     _assert("bash.test dispatched and ran its script", file.exists(marker))
 
-    os.system("rm -rf ${base}")
+    _sh("rm -rf '${base}'")
     println("bash builder dispatch tests done")
 }

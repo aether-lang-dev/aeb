@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import build (_sh, _sh_capture, _path_sep)
 // Tests for javac_cmd() — command string builder
 
 import java (javac_cmd, classpath_file, _read_classpath_files)
@@ -21,6 +21,20 @@ _assert_eq(label: string, actual: string, expected: string) {
         println("  expected: ${expected}")
         println("  actual:   ${actual}")
     }
+}
+
+// Native-form tmpdir. `mktemp -d` speaks the SHELL's vocabulary
+// ("/tmp/tmp.XXXX" under MSYS), but std.file/std.io are native Win32 calls
+// that cannot see MSYS paths — file.exists("/tmp/tmp.X") is 0 while
+// file.exists("C:/msys64/tmp/tmp.X") is 1. Route through _sh_capture so the
+// commands reach a real POSIX shell on Windows. No-op off Windows.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
 }
 
 main() {
@@ -133,25 +147,36 @@ main() {
 
     // --- classpath_file: pre-resolved classpath, no resolver invocation
     // (the bootstrap path for building aeb's own resolver). ---
-    os.system("mkdir -p /tmp/aeb_cpf_test")
-    _w1 = io.write_file("/tmp/aeb_cpf_test/a.cp", "/m2/x.jar:/m2/y.jar\n")
-    _w2 = io.write_file("/tmp/aeb_cpf_test/b.cp", "/m2/z.jar")
+    // Native tmpdir + _sh chokepoint: _read_classpath_files reads via native
+    // file.exists/io.read_file, so the dir the shell creates and the path the
+    // reader stats must be the SAME native form on Windows. A raw
+    // os.system("mkdir -p /tmp/...") routes through cmd.exe and never creates
+    // it; io.read_file then finds nothing. See lib/build _sh docstring.
+    cpf_dir = _mktempdir()
+    _sh("mkdir -p '${cpf_dir}'")
+    _w1 = io.write_file("${cpf_dir}/a.cp", "/m2/x.jar:/m2/y.jar\n")
+    _w2 = io.write_file("${cpf_dir}/b.cp", "/m2/z.jar")
+    // The join BETWEEN files uses the host classpath separator (_cp_append →
+    // _path_sep()): ':' on POSIX, ';' on Windows. Build the expectation the
+    // same way so it holds on every host. The separators WITHIN a file's
+    // stored line ("/m2/x.jar:/m2/y.jar") are literal content, not re-joined.
+    sep = _path_sep()
     cpb = map_new()
     classpath_file(cpb, "a.cp")
     classpath_file(cpb, "b.cp")
     _assert_eq("classpath_file joins file contents",
-        _read_classpath_files(cpb, "/tmp/aeb_cpf_test"),
-        "/m2/x.jar:/m2/y.jar:/m2/z.jar")
+        _read_classpath_files(cpb, cpf_dir),
+        string.concat("/m2/x.jar:/m2/y.jar", string.concat(sep, "/m2/z.jar")))
     // absolute path passes through; missing file contributes nothing
     cpb2 = map_new()
-    classpath_file(cpb2, "/tmp/aeb_cpf_test/a.cp")
+    classpath_file(cpb2, "${cpf_dir}/a.cp")
     classpath_file(cpb2, "nope.cp")
     _assert_eq("classpath_file abs + missing",
-        _read_classpath_files(cpb2, "/tmp/aeb_cpf_test"),
+        _read_classpath_files(cpb2, cpf_dir),
         "/m2/x.jar:/m2/y.jar")
     _assert_eq("no classpath_file -> empty",
-        _read_classpath_files(map_new(), "/tmp/aeb_cpf_test"), "")
-    os.system("rm -rf /tmp/aeb_cpf_test")
+        _read_classpath_files(map_new(), cpf_dir), "")
+    _sh("rm -rf '${cpf_dir}'")
 
     println("javac_cmd tests done")
 }

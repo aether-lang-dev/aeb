@@ -404,11 +404,11 @@ _collect_scripts(source_dir: string) {
 
 _resolve_script_path(source_dir: string, script_ref: string) {
     // If absolute, leave alone; otherwise resolve relative to module dir.
-    if string.length(script_ref) > 0 {
-        first = string.substring(script_ref, 0, 1)
-        if string.equals(first, "/") == 1 {
-            return script_ref
-        }
+    // build._is_abs_path is host-aware — on Windows an absolute path leads with
+    // a drive prefix ("C:/..."), not "/", so a bare leading-slash test would
+    // mangle it via path.join and the script would silently never run.
+    if build._is_abs_path(script_ref) == 1 {
+        return script_ref
     }
     return path.join(source_dir, script_ref)
 }

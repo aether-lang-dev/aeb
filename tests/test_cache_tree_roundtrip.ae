@@ -22,6 +22,7 @@ import std.path
 import std.dir
 
 import build
+import build (_sh, _sh_capture)
 import cache
 
 _assert(label: string, cond: int) {
@@ -42,12 +43,11 @@ _mktempdir() {
     // while dir.exists("C:/msys64/tmp/tmp.X") is 1. Without this the suite
     // fails on Windows for an environment reason, not a real defect.
     // No-op off Windows: cygpath is absent, so the value passes through.
-    raw, _err = os.exec("mktemp -d")
+    raw, _err = _sh_capture("mktemp -d")
     d = string.trim(raw)
-    // NO quotes, NO redirect: os.exec routes through cmd.exe on Windows,
-    // which does not honour POSIX single quotes or `2>/dev/null` — with them
-    // the call returns EMPTY and the path silently stays POSIX. Bare works.
-    nat, _nerr = os.exec("cygpath -m ${d}")
+    // _sh_capture routes through a real POSIX shell on Windows (temp .sh +
+    // `sh <file>`), so mktemp/cygpath run correctly instead of via cmd.exe.
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
     n = string.trim(nat)
     if string.length(n) > 0 { return n }
     return d
@@ -59,12 +59,12 @@ _mktempdir() {
 // binary file containing a NUL + a high byte (0xff) created via shell
 // so the test exercises binary-safe tar/zlib, not aether string escapes.
 _stage_tree(root: string) {
-    os.system("mkdir -p '${root}/com/example/sub' '${root}/mod_name'")
+    _sh("mkdir -p '${root}/com/example/sub' '${root}/mod_name'")
     fs.write_atomic("${root}/com/example/A.class", "AAAA-bytes\n", 11)
     fs.write_atomic("${root}/top.txt", "top\n", 4)
     // 64 arbitrary bytes (NULs + high bytes likely) — proves the
     // tar+zlib round-trip is binary-safe, not just text-safe.
-    os.system("head -c 64 /dev/urandom > '${root}/com/example/sub/B.class'")
+    _sh("head -c 64 /dev/urandom > '${root}/com/example/sub/B.class'")
     return 0
 }
 
@@ -97,36 +97,39 @@ main() {
     tar1, terr = build._tar_dir(src)
     _assert("_tar_dir ok", _eq_str(terr, ""))
     perr = cache.put(key, tar1)
-    os.system("rm -f '${tar1}'")
+    _sh("rm -f '${tar1}'")
     _assert("cache.put ok", _eq_str(perr, ""))
     _assert("has: hit after put", cache.has(key))
 
-    // Fetch into a fresh tar, untar into a clean restore dir.
-    tar2_raw, _e = os.exec("mktemp")
-    tar2 = string.trim(tar2_raw)
+    // Fetch into a fresh tar, untar into a clean restore dir. The dest lives
+    // inside `tmp` (already native on Windows) rather than a bare `mktemp` —
+    // cache.get writes it via native fs.write_atomic, which cannot write an MSYS
+    // "/tmp/.." path on Windows (see _to_native_path), so a raw mktemp path
+    // would silently fail to be written and the untar below would find nothing.
+    tar2 = path.join(tmp, "fetch.tar")
     gerr = cache.get(key, tar2)
     _assert("cache.get ok (hit)", _eq_str(gerr, ""))
 
     restore = path.join(tmp, "restore")
     uerr = build._untar_into(tar2, restore)
-    os.system("rm -f '${tar2}'")
+    _sh("rm -f '${tar2}'")
     _assert("_untar_into ok", _eq_str(uerr, ""))
 
     // The restored tree must be byte-identical to the source (diff -r
     // exit 0). This is the real end-to-end assertion: the bytes that
     // went into the cache come back out unchanged through tar+zlib.
-    diff_rc = os.system("diff -r '${src}' '${restore}' >/dev/null 2>&1")
+    diff_rc = _sh("diff -r '${src}' '${restore}' >/dev/null 2>&1")
     _assert("restored tree byte-identical to source (diff -r)", _eq0(diff_rc))
 
     // Spot-check the binary file with the embedded NUL survived intact.
-    b_ok = os.system("cmp -s '${src}/com/example/sub/B.class' '${restore}/com/example/sub/B.class'")
+    b_ok = _sh("cmp -s '${src}/com/example/sub/B.class' '${restore}/com/example/sub/B.class'")
     _assert("binary file with embedded NUL round-trips", _eq0(b_ok))
 
     // get for a missing key reports "miss" (not a silent empty success).
-    miss_dest_raw, _e2 = os.exec("mktemp")
-    miss_dest = string.trim(miss_dest_raw)
+    // Native dest inside tmp, same reason as tar2 above.
+    miss_dest = path.join(tmp, "miss.bin")
     miss = cache.get("0000000000000000000000000000000000000000000000000000000000000000", miss_dest)
-    os.system("rm -f '${miss_dest}'")
+    _sh("rm -f '${miss_dest}'")
     _assert("cache.get missing key -> 'miss'", _eq_str(miss, "miss"))
 
     // --- _record_cache / _read_cache_outcome marker round-trip ---
@@ -142,7 +145,7 @@ main() {
     _assert("_read_cache_outcome absent -> n/a",
         _eq_str(build._read_cache_outcome(path.join(tmp, "no_marker")), "n/a"))
 
-    os.system("rm -rf '${tmp}'")
+    _sh("rm -rf '${tmp}'")
     println("cache tree round-trip done")
     return 0
 }

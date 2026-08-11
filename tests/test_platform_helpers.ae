@@ -9,7 +9,7 @@
 // arithmetic) — their cross-module return type isn't inferred as int, so `+`
 // is rejected but `== 1` typechecks (the same idiom every SDK uses on them).
 
-import build (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix)
+import build (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix, _is_abs_path)
 import std.string
 
 extern println(s: string)
@@ -71,6 +71,23 @@ main() {
     _no("'/abs/posix' (posix absolute)",       _has_windows_drive_prefix("/abs/posix"))
     _no("'12:34' (digit, not a letter)",       _has_windows_drive_prefix("12:34"))
     _no("'' (empty)",                          _has_windows_drive_prefix(""))
+
+    // --- _is_abs_path(): the canonical host-aware "is this absolute?" the SDKs
+    //     use to decide resolve-against-source_dir vs pass-through. Pure string
+    //     analysis — same on every host. Both POSIX '/' AND Windows drive/UNC
+    //     must read as absolute; a Windows abs path is 'C:/..', never '/..', so
+    //     a bare leading-slash test (what these sites used before) would mangle
+    //     it into '<dir>/C:/..'. This is the regression guard for that class. ---
+    _ok("'/abs/posix' is absolute",             _is_abs_path("/abs/posix"))
+    _ok("'C:/Users/x' (drive, fwd slash)",      _is_abs_path("C:/Users/x"))
+    _ok("'C:\\Users\\x' (drive, backslash)",    _is_abs_path("C:\\Users\\x"))
+    _ok("'d:/tmp' (lower-case drive)",          _is_abs_path("d:/tmp"))
+    _ok("'C:' (bare cwd-relative drive)",       _is_abs_path("C:"))
+    _ok("'\\\\host\\share' (UNC)",              _is_abs_path("\\\\host\\share"))
+    _no("'rel/path' (bare relative)",           _is_abs_path("rel/path"))
+    _no("'a.cp' (bare filename)",               _is_abs_path("a.cp"))
+    _no("'./rel' (dot-relative)",               _is_abs_path("./rel"))
+    _no("'' (empty)",                           _is_abs_path(""))
 
     // --- _cp_append(): conditional classpath join with the host separator.
     //     Expectations built from _path_sep() so the test holds on every host.

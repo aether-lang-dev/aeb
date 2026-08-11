@@ -178,8 +178,7 @@ _resolve_bundle_path(builder_map: ptr, root: string) {
         if map.has(builder_map, "ruby_bundle_path") == 1 {
             p, _ = map.get(builder_map, "ruby_bundle_path")
             if string.length(p) > 0 {
-                first = string.substring(p, 0, 1)
-                if string.equals(first, "/") == 1 { return p }
+                if build._is_abs_path(p) == 1 { return p }
                 return path.join(root, p)
             }
         }

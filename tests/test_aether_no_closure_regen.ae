@@ -28,6 +28,7 @@
 import aether (_expand_transitive_regens)
 import aether (_has_manual_overrides)
 import aether (no_closure_regen)
+import build (_sh, _sh_capture)
 import std.string
 import std.os
 import std.list
@@ -41,6 +42,19 @@ _assert(label: string, cond: int) {
     } else {
         println("FAIL: ${label}")
     }
+}
+
+// Native-form tmpdir via the _sh chokepoint. _expand_transitive_regens walks
+// the fixture tree with native std.fs calls that cannot see MSYS "/tmp/.."
+// paths on Windows, and a raw os.system("mkdir -p /tmp/..") routes through
+// cmd.exe (no POSIX mkdir) and never creates it. No-op off Windows.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
 }
 
 _regen_contains(bm: ptr, needle: string) {
@@ -76,8 +90,8 @@ _maybe_expand(bm: ptr, appdir: string, entry: string) {
 }
 
 main() {
-    base = "/tmp/aeb_test_no_closure_regen"
-    os.system("rm -rf ${base}; mkdir -p ${base}/app ${base}/ui ${base}/util")
+    base = _mktempdir()
+    _sh("rm -rf '${base}'; mkdir -p '${base}/app' '${base}/ui' '${base}/util'")
 
     // Layout: app/main.ae --(import ui)--> ui/module.ae (extern-backed:
     // its bodies live in C, can't be --emit=lib'd) --(import util)-->
@@ -85,9 +99,9 @@ main() {
     // this test; what matters is whether the closure walk reaches it.
     appdir = "${base}/app"
     entry = "${base}/app/main.ae"
-    os.system("printf 'import ui\\nmain() {}\\n' > ${entry}")
-    os.system("printf 'import util\\nextern ui_init()\\nrender() { return 1 }\\n' > ${base}/ui/module.ae")
-    os.system("printf 'helper() { return 1 }\\n' > ${base}/util/module.ae")
+    _sh("printf 'import ui\\nmain() {}\\n' > '${entry}'")
+    _sh("printf 'import util\\nextern ui_init()\\nrender() { return 1 }\\n' > '${base}/ui/module.ae'")
+    _sh("printf 'helper() { return 1 }\\n' > '${base}/util/module.ae'")
 
     // --- Test 1: the setter records the flag.
     bm = map.new()
@@ -148,6 +162,6 @@ main() {
     _assert("flagged: ui NOT auto-added next to explicit regen",
         1 - _regen_contains(mixed, "/ui/module.ae"))
 
-    os.system("rm -rf ${base}")
+    _sh("rm -rf '${base}'")
     println("no_closure_regen opt-out tests done")
 }

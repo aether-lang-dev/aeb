@@ -10,6 +10,7 @@
 
 import aether (_extract_undefined_refs, _find_extern_definer, _emit_extern_hints)
 import build
+import build (_sh, _sh_capture)
 import std.string
 import std.os
 import std.list
@@ -23,6 +24,21 @@ _assert(label: string, cond: int) {
     } else {
         println("FAIL: ${label}")
     }
+}
+
+// Native-form tmpdir routed through the _sh chokepoint. _find_extern_definer
+// walks the tree with native std.fs/std.dir calls, which cannot see MSYS
+// "/tmp/.." paths on Windows — and a raw os.system("mkdir -p /tmp/..") routes
+// through cmd.exe and never creates the fixture anyway. _sh writes a temp .sh
+// and runs it under a real shell; cygpath -m gives the native form. No-op off
+// Windows.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
 }
 
 main() {
@@ -56,14 +72,14 @@ main() {
     _assert("no matches → empty list", list.size(syms4) == 0)
 
     // --- Test 5: _find_extern_definer end-to-end with a synthetic project.
-    base = "/tmp/aeb_test_extern_diag"
-    os.system("rm -rf ${base}; mkdir -p ${base}/repos ${base}/util ${base}/app")
+    base = _mktempdir()
+    _sh("rm -rf '${base}'; mkdir -p '${base}/repos' '${base}/util' '${base}/app'")
     // Synthesize module_generated.c files containing function definitions.
-    os.system("printf 'AetherString repo_primary_hash(AetherString repo) {\\n    return repo;\\n}\\n' > ${base}/repos/module_generated.c")
-    os.system("printf 'int util_helper(int x) {\\n    return x;\\n}\\n' > ${base}/util/module_generated.c")
+    _sh("printf 'AetherString repo_primary_hash(AetherString repo) {\\n    return repo;\\n}\\n' > '${base}/repos/module_generated.c'")
+    _sh("printf 'int util_helper(int x) {\\n    return x;\\n}\\n' > '${base}/util/module_generated.c'")
     // Companion module.ae files so the resolver can find them.
-    os.system("printf 'main() {}\\n' > ${base}/repos/module.ae")
-    os.system("printf 'helper() {}\\n' > ${base}/util/module.ae")
+    _sh("printf 'main() {}\\n' > '${base}/repos/module.ae'")
+    _sh("printf 'helper() {}\\n' > '${base}/util/module.ae'")
 
     found = _find_extern_definer(base, "repo_primary_hash")
     _assert("locates definer under repos/", string.index_of(found, "/repos/module.ae") >= 0)
@@ -87,9 +103,9 @@ main() {
     // assert no crash and exercise the codepath. The hint text itself
     // is then inspected by eye in iteration; the failure mode we care
     // about is a runtime crash from the substring reassignment bug.
-    os.system("mkdir -p ${base}/repos")
-    os.system("printf 'int my_extern_sym(int x) { return x; }\\n' > ${base}/repos/module_generated.c")
-    os.system("printf 'main() {}\\n' > ${base}/repos/module.ae")
+    _sh("mkdir -p '${base}/repos'")
+    _sh("printf 'int my_extern_sym(int x) { return x; }\\n' > '${base}/repos/module_generated.c'")
+    _sh("printf 'main() {}\\n' > '${base}/repos/module.ae'")
     ctx = map.new()
     map.put(ctx, "root", base)
     fake_stderr = "/usr/bin/ld: app.c:(.text+0x100): undefined reference to `my_extern_sym'\ncollect2: error: ld returned 1 exit status\n"
@@ -106,6 +122,6 @@ main() {
     rc8 = _emit_extern_hints(ctx, "${base}/app", "")
     _assert("_emit_extern_hints empty stderr → 0", rc8 == 0)
 
-    os.system("rm -rf ${base}")
+    _sh("rm -rf '${base}'")
     println("extern diagnostics tests done")
 }

@@ -24,6 +24,8 @@ import std.map
 import std.path
 import std.dir
 
+import build (_sh, _sh_capture)
+
 extern println(s: string)
 
 _assert_eq(label: string, actual: string, expected: string) {
@@ -43,12 +45,12 @@ _mktempdir() {
     // while dir.exists("C:/msys64/tmp/tmp.X") is 1. Without this the suite
     // fails on Windows for an environment reason, not a real defect.
     // No-op off Windows: cygpath is absent, so the value passes through.
-    raw, _err = os.exec("mktemp -d")
+    raw, _err = _sh_capture("mktemp -d")
     d = string.trim(raw)
     // NO quotes, NO redirect: os.exec routes through cmd.exe on Windows,
     // which does not honour POSIX single quotes or `2>/dev/null` — with them
     // the call returns EMPTY and the path silently stays POSIX. Bare works.
-    nat, _nerr = os.exec("cygpath -m ${d}")
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
     n = string.trim(nat)
     if string.length(n) > 0 { return n }
     return d
@@ -59,7 +61,7 @@ _abs_bin() {
     if string.length(extract_bin) == 0 {
         extract_bin = "tools/extract-deps"
     }
-    abs_raw, _e1 = os.exec("readlink -f '${extract_bin}'")
+    abs_raw, _e1 = _sh_capture("readlink -f '${extract_bin}'")
     return string.trim(abs_raw)
 }
 
@@ -67,7 +69,7 @@ _abs_bin() {
 _run_prereqs(workdir: string, target: string) {
     abs_bin = _abs_bin()
     if string.length(abs_bin) == 0 { return "ERROR: extract-deps not found" }
-    raw, _e2 = os.exec("cd '${workdir}' && '${abs_bin}' --prereqs '${target}'")
+    raw, _e2 = _sh_capture("cd '${workdir}' && '${abs_bin}' --prereqs '${target}'")
     return string.trim(raw)
 }
 
@@ -75,14 +77,14 @@ _run_prereqs(workdir: string, target: string) {
 _run_deps(workdir: string, target: string) {
     abs_bin = _abs_bin()
     if string.length(abs_bin) == 0 { return "ERROR: extract-deps not found" }
-    raw, _e2 = os.exec("cd '${workdir}' && '${abs_bin}' '${target}'")
+    raw, _e2 = _sh_capture("cd '${workdir}' && '${abs_bin}' '${target}'")
     return string.trim(raw)
 }
 
 // Sort whitespace-separated tokens so assertions don't depend on order.
 _normalise(out: string) {
     if string.length(out) == 0 { return out }
-    sorted_raw, _err = os.exec("printf '%s' '${out}' | tr ' ' '\\n' | grep -v '^$' | sort | tr '\\n' ' ' | sed 's/ $//'")
+    sorted_raw, _err = _sh_capture("printf '%s' '${out}' | tr ' ' '\\n' | grep -v '^$' | sort | tr '\\n' ' ' | sed 's/ $//'")
     return string.trim(sorted_raw)
 }
 
@@ -91,7 +93,7 @@ _ensure_built() {
     if file.exists("tools/extract-deps") == 1 { return 0 }
     ae_bin = os.getenv("AETHER")
     if string.length(ae_bin) == 0 { ae_bin = "ae" }
-    os.system("${ae_bin} build tools/extract-deps.ae -o tools/extract-deps --lib lib --lib tools >/dev/null 2>&1")
+    _sh("${ae_bin} build tools/extract-deps.ae -o tools/extract-deps --lib lib --lib tools >/dev/null 2>&1")
     return 0
 }
 
@@ -131,6 +133,6 @@ main() {
     out_none = _run_prereqs(root, ".noprq.ae")
     _assert_eq("prereqs: none declared -> empty", out_none, "")
 
-    os.system("rm -rf '${root}'")
+    _sh("rm -rf '${root}'")
     println("extract-deps prereqs tests done")
 }

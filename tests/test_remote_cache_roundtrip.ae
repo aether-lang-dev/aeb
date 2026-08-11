@@ -19,6 +19,7 @@ import std.path
 import std.dir
 
 import cache
+import build (_sh, _sh_capture)
 
 _assert(label: string, cond: int) {
     if cond == 1 { println("PASS: ${label}") }
@@ -35,12 +36,11 @@ _mktempdir() {
     // while dir.exists("C:/msys64/tmp/tmp.X") is 1. Without this the suite
     // fails on Windows for an environment reason, not a real defect.
     // No-op off Windows: cygpath is absent, so the value passes through.
-    raw, _err = os.exec("mktemp -d")
+    raw, _err = _sh_capture("mktemp -d")
     d = string.trim(raw)
-    // NO quotes, NO redirect: os.exec routes through cmd.exe on Windows,
-    // which does not honour POSIX single quotes or `2>/dev/null` — with them
-    // the call returns EMPTY and the path silently stays POSIX. Bare works.
-    nat, _nerr = os.exec("cygpath -m ${d}")
+    // _sh_capture routes through a real POSIX shell on Windows (temp .sh +
+    // `sh <file>`), so mktemp/cygpath run correctly instead of via cmd.exe.
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
     n = string.trim(nat)
     if string.length(n) > 0 { return n }
     return d
@@ -78,7 +78,7 @@ main() {
     // A binary artifact (NULs + high bytes) so we also prove binary-safe
     // transfer through the remote store.
     artifact = path.join(tmp, "artifact.bin")
-    os.system("head -c 96 /dev/urandom > '${artifact}'")
+    _sh("head -c 96 /dev/urandom > '${artifact}'")
     parts = list.new()
     list.add(parts, "remote-roundtrip")
     list.add(parts, artifact)
@@ -100,7 +100,7 @@ main() {
     gerr = cache.get(key, dest)
     _assert("B: get ok (served via remote)", _eq_str(gerr, ""))
     _assert("B: restored artifact byte-identical to original",
-        _eq0(os.system("cmp -s '${artifact}' '${dest}'")))
+        _eq0(_sh("cmp -s '${artifact}' '${dest}'")))
     _assert("B: remote pull populated the LOCAL store",
         file.exists(_sharded(localB, key)))
 
@@ -114,7 +114,7 @@ main() {
     _use_local(localC)
     _remote_on(remote_url, "read")
     art2 = path.join(tmp, "artifact2.bin")
-    os.system("head -c 32 /dev/urandom > '${art2}'")
+    _sh("head -c 32 /dev/urandom > '${art2}'")
     p2 = list.new(); list.add(p2, "remote-roundtrip-2"); list.add(p2, art2)
     key2, _k2 = cache.hash_inputs(p2)
     _p2err = cache.put(key2, art2)
@@ -122,7 +122,7 @@ main() {
         _eq0(file.exists(_sharded(remote, key2))))
 
     _remote_off()
-    os.system("rm -rf '${tmp}'")
+    _sh("rm -rf '${tmp}'")
     println("remote cache round-trip done")
     return 0
 }

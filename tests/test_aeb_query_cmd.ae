@@ -15,6 +15,8 @@ import std.map
 import std.path
 import std.dir
 
+import build (_sh, _sh_capture)
+
 extern println(s: string)
 
 _assert_eq(label: string, actual: string, expected: string) {
@@ -27,8 +29,26 @@ _assert_eq(label: string, actual: string, expected: string) {
     }
 }
 
+// Native-form tmpdir via the _sh chokepoint. This test builds a tool into the
+// dir, writes an edges fixture with native io.write_file, and runs the tool —
+// all of which need ONE path form. On Windows io.write_file("/tmp/..") FAILS
+// (native Win32 cannot see MSYS paths) and os.system(".. >/dev/null") routes
+// through cmd.exe. The native C:/.. form + _sh chokepoint fix both. No-op off
+// Windows.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
+}
+
 _run(cmd: string) {
-    out, err = os.exec(cmd)
+    // _sh_capture routes through a real POSIX shell on Windows: the single
+    // quotes around 'deps(...)' and the tool's native C:/.. path reach the tool
+    // intact, instead of cmd.exe mangling them.
+    out, err = _sh_capture(cmd)
     if string.length(err) > 0 {
         return string.concat("ERR:", err)
     }
@@ -36,13 +56,14 @@ _run(cmd: string) {
 }
 
 main() {
-    tool = "/tmp/aeb-query-test"
+    tmp = _mktempdir()
+    tool = string.concat(tmp, "/aeb-query-test")
     // Build aeb-query with the harness's chosen compiler ($AETHER,
     // exported by tests/run.sh), not bare `ae` from PATH — the two can
     // differ (an overridden toolchain, or a broken PATH `ae`).
     ae_bin = os.getenv("AETHER")
     if string.length(ae_bin) == 0 { ae_bin = "ae" }
-    build_rc = os.system(string.concat(ae_bin, string.concat(" build tools/aeb-query.ae -o ", string.concat(tool, " >/dev/null 2>&1"))))
+    build_rc = _sh(string.concat(ae_bin, string.concat(" build tools/aeb-query.ae -o ", string.concat(tool, " >/dev/null 2>&1"))))
     if build_rc != 0 {
         println("FAIL: build aeb-query")
         return 0
@@ -55,7 +76,7 @@ main() {
     edges = string.concat(edges, "libs/core/.build.ae libs/util/.build.ae\n")
     edges = string.concat(edges, "libs/util/.build.ae \n")
     edges = string.concat(edges, "libs/testkit/.build.ae libs/util/.build.ae\n")
-    edges_path = "/tmp/aeb-query-edges.txt"
+    edges_path = string.concat(tmp, "/aeb-query-edges.txt")
     werr = io.write_file(edges_path, edges)
     if string.length(werr) > 0 {
         println("FAIL: write edges fixture")

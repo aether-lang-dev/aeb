@@ -302,8 +302,7 @@ _format_is_zip(fmt: string) {
 // inputs; relative paths join source_dir. Pure.
 _resolve_path(source_dir: string, p: string) {
     if string.length(p) == 0 { return p }
-    first = string.substring(p, 0, 1)
-    if string.equals(first, "/") == 1 { return p }
+    if build._is_abs_path(p) == 1 { return p }
     return path.join(source_dir, p)
 }
 

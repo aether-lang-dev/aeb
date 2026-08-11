@@ -737,8 +737,7 @@ builder package_existing(ctx: ptr) {
     }
     pyproject_abs = pyproject_rel
     if string.length(pyproject_rel) > 0 {
-        first = string.substring(pyproject_rel, 0, 1)
-        if string.equals(first, "/") == 0 {
+        if build._is_abs_path(pyproject_rel) == 0 {
             pyproject_abs = path.join(source_dir, pyproject_rel)
         }
     }
@@ -812,8 +811,7 @@ builder codegen(ctx: ptr) {
         if map.has(_builder, "codegen_cwd") == 1 {
             rel, _ = map.get(_builder, "codegen_cwd")
             if string.length(rel) > 0 {
-                first = string.substring(rel, 0, 1)
-                if string.equals(first, "/") == 1 {
+                if build._is_abs_path(rel) == 1 {
                     cwd = rel
                 } else {
                     cwd = path.join(source_dir, rel)
@@ -1057,8 +1055,7 @@ _codegen_format_output_list(cwd: string, outputs: ptr) {
 // joined against cwd; absolute passes through.
 _codegen_resolve(cwd: string, p: string) {
     if string.length(p) == 0 { return p }
-    first = string.substring(p, 0, 1)
-    if string.equals(first, "/") == 1 { return p }
+    if build._is_abs_path(p) == 1 { return p }
     return path.join(cwd, p)
 }
 

@@ -187,8 +187,7 @@ dotnet_pack_cmd(csproj: string, config: string, out_dir: string) {
 // tests/test_dotnet_cmd.ae.
 _resolve_csproj_path(source_dir: string, csproj_rel: string) {
     if string.length(csproj_rel) == 0 { return "" }
-    first = string.substring(csproj_rel, 0, 1)
-    if string.equals(first, "/") == 1 { return csproj_rel }
+    if build._is_abs_path(csproj_rel) == 1 { return csproj_rel }
     return path.join(source_dir, csproj_rel)
 }
 

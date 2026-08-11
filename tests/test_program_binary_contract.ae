@@ -7,7 +7,7 @@
 // Offline: writes fake artifact files under <root>/target/<dep>/ and
 // reads them back through the resolver.
 
-import build (program_binary_of)
+import build (program_binary_of, _sh, _sh_capture)
 import std.string
 import std.os
 import std.io
@@ -24,19 +24,33 @@ _assert(label: string, cond: int) {
     }
 }
 
+// Native-form tmpdir via the _sh chokepoint. program_binary_of reads its
+// fakes through native file.exists/io.read_file, so the dir the shell creates
+// must be the SAME native form. On Windows a raw os.system("mkdir -p /tmp/..")
+// routes through cmd.exe (no POSIX mkdir) and never creates it. No-op off
+// Windows. See lib/build _sh docstring.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
+}
+
 // Write `content` to <root>/target/build/<dep>/<key>. A bare-name dep
 // resolves to the "build" buildtype under the target/<buildtype>/<dir>
 // layout (docs/filename-is-the-route.md), so fakes must live where
 // _read_dep_artifact (via _dep_target_dir) now looks.
 _put_artifact(root: string, dep: string, key: string, content: string) {
     d = path.join(path.join(path.join(root, "target"), "build"), dep)
-    os.system("mkdir -p '${d}'")
+    _sh("mkdir -p '${d}'")
     _w = io.write_file(path.join(d, key), content)
 }
 
 main() {
-    base = "/tmp/aeb_test_program_binary_contract"
-    os.system("rm -rf ${base}; mkdir -p ${base}")
+    base = _mktempdir()
+    _sh("rm -rf '${base}'; mkdir -p '${base}'")
     ctx = map.new()
     map.put(ctx, "root", base)
 
@@ -65,6 +79,6 @@ main() {
     _assert("missing dep resolves to empty",
         string.equals(program_binary_of(ctx, "nope"), ""))
 
-    os.system("rm -rf ${base}")
+    _sh("rm -rf '${base}'")
     println("program-binary contract tests done")
 }

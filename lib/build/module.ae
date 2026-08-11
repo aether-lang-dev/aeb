@@ -880,6 +880,27 @@ _has_windows_drive_prefix(s: string) {
     return 0
 }
 
+// _is_abs_path(p) — THE canonical "is this path absolute?" predicate, host-
+// aware. An SDK deciding whether to resolve a path against its module dir must
+// use THIS, not a bare leading-'/' test: on Windows a genuine absolute path
+// leads with a drive prefix ("C:/...", "C:\\...") or a UNC root ("\\\\host\\share"),
+// NOT '/', so a '/'-only check silently misclassifies every real Windows
+// absolute path as relative and path.join mangles it into a non-existent path.
+// POSIX absolute paths start with '/'. This unifies the three near-duplicate
+// copies that existed before (_is_abs_native here, lib/aether's _is_abs_path,
+// and the scattered inline leading-'/' checks in the language SDKs).
+_is_abs_path(p: string) {
+    if string.length(p) == 0 { return 0 }
+    if string.starts_with(p, "/") == 1 { return 1 }
+    // Windows-native shapes. Cheap to check on every host; a POSIX path never
+    // matches these (a leading '\\' or "X:" is not a POSIX absolute root, and
+    // a POSIX filename that happens to contain them is exceedingly unusual —
+    // and would already be broken by any shell-out on such a name).
+    if string.starts_with(p, "\\\\") == 1 { return 1 }
+    if _has_windows_drive_prefix(p) == 1 { return 1 }
+    return 0
+}
+
 // --- Native cross-platform path helpers ------------------------------
 //
 // Pure string analysis — NO `dirname`/`basename` shell-out (the
@@ -2077,12 +2098,24 @@ _tar_dir(src_dir: string) {
     if string.length(tmp) == 0 {
         return "", "mktemp failed"
     }
-    cmd = "tar -cf '${tmp}' -C '${src_dir}' . 2>&1"
+    // --force-local on Windows: the native tarball path is "C:/..", and GNU tar
+    // reads "C:" as a REMOTE host spec (rsync-style host:path), failing with
+    // "tar: Cannot connect to C: resolve failed". --force-local tells tar every
+    // colon is part of a local path. Windows-only — BSD tar (macOS) lacks the
+    // flag, and off-Windows the path never carries a drive-letter colon anyway.
+    cmd = "tar ${_tar_local_flag()}-cf '${tmp}' -C '${src_dir}' . 2>&1"
     out, eerr = _sh_capture(cmd)
     if string.length(eerr) > 0 {
         return "", string.concat("tar failed: ", eerr)
     }
     return tmp, ""
+}
+
+// _tar_local_flag() — "--force-local " on Windows (see _tar_dir), "" elsewhere.
+// Trailing space so it slots straight before the tar mode flag.
+_tar_local_flag() {
+    if _is_windows() == 1 { return "--force-local " }
+    return ""
 }
 
 // _untar_into(tar_path, dest_dir) — untar a tarball into a directory.
@@ -2093,7 +2126,9 @@ _untar_into(tar_path: string, dest_dir: string) {
     _sh("rm -rf '${dest_dir}'")
     merr = fs.mkdir_p(dest_dir)
     if string.length(merr) > 0 { return merr }
-    cmd = "tar -xf '${tar_path}' -C '${dest_dir}' 2>&1"
+    // --force-local: the native tar path is "C:/.." which GNU tar otherwise
+    // reads as a remote host spec (see _tar_dir). Windows-only.
+    cmd = "tar ${_tar_local_flag()}-xf '${tar_path}' -C '${dest_dir}' 2>&1"
     out, _eerr = _sh_capture(cmd)
     if string.length(out) > 0 {
         // tar prints to stdout via 2>&1 only on error; success is silent.
