@@ -11,8 +11,8 @@ PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 SHAREDIR ?= $(PREFIX)/share/aeb
 
-TOOLS := tools/aeb-main tools/aeb-init tools/aeb-link tools/aeb-graph tools/affected-targets tools/gcheckout tools/gen-orchestrator tools/file-to-label
-INSTALL_TOOLS := tools/aeb-main tools/aeb-init tools/aeb-link tools/aeb-graph tools/affected-targets tools/gcheckout
+TOOLS := tools/aeb-main tools/aeb-link tools/aeb-graph tools/affected-targets tools/gcheckout tools/gen-orchestrator tools/file-to-label
+INSTALL_TOOLS := tools/aeb-main tools/aeb-link tools/aeb-graph tools/affected-targets tools/gcheckout
 
 # --lib tools makes the shared `aeblabel` module (tools/aeblabel/
 # module.ae) importable by the tools that consume it (aeb-link,

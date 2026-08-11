@@ -136,23 +136,15 @@ main() {
         }
     }
 
-    // --init short-circuit (the bash inspects $1 only): lazy-build aeb-init and
-    // hand off to it with AEB_HOME as its sole arg. A top-level MODE, not a
-    // build flag — it scaffolds .aeb/ + the SDK symlinks and does no build, so
-    // it bypasses the directive plan entirely, mirroring the bash arm.
+    // --init is obsolete: aeb resolves its SDKs from its own install
+    // ($AEB_HOME/lib) unconditionally — no per-project .aeb/lib symlink farm to
+    // scaffold. Mirror the trampoline's guidance arm.
     if argc >= 2 {
         if string.equals(aether_args_get(1), "--init") == 1 {
-            aether_i = os.getenv("AETHER")
-            if string.length(aether_i) == 0 { aether_i = "ae" }
-            init_bin = string.concat(aeb_home, "/tools/aeb-init")
-            if file.exists(init_bin) == 0 {
-                isrc = string.concat(aeb_home, "/tools/aeb-init.ae")
-                _ibc = build._sh("'${aether_i}' build '${isrc}' -o '${init_bin}' 2>/dev/null")
-            }
-            iargv = list.new()
-            _ia = list.add(iargv, string.concat(aeb_home, ""))
-            icode, _io = os.run_supervised(init_bin, iargv, null, 1, 1, 0, 1)
-            exit(icode)
+            println("aeb: --init is obsolete — aeb builds against its own SDK (${aeb_home}/lib);")
+            println("aeb:   no per-project .aeb/lib is needed. Just run 'aeb <target>'.")
+            println("aeb:   If a previous init left a .aeb/lib symlink farm, remove it: rm -rf .aeb/lib")
+            exit(0)
         }
     }
 
