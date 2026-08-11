@@ -45,12 +45,10 @@ main() {
     aeb_home   = aether_args_get(2)
     root       = aether_args_get(3)
 
-    // Trusted --lib roots for origin scoping: aeb's own SDK tree, plus the
-    // per-project .aeb/lib if present. Nodes from these are exempt.
+    // Trusted --lib root for origin scoping: aeb's own installed SDK tree.
+    // Nodes from it are exempt. (No .aeb/lib — aeb has one SDK source now.)
     lib_roots = list.new()
     list.add(lib_roots, path.join(aeb_home, "lib"))
-    proj_lib = path.join(root, ".aeb/lib")
-    if file.exists(proj_lib) == 1 { list.add(lib_roots, proj_lib) }
 
     // The aetherc binary to emit ASTs with: prefer the sibling next to the
     // ae bin; fall back to "aetherc" on PATH.

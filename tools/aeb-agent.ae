@@ -521,8 +521,6 @@ _veto_ast(repo: string, target: string, image: string) {
     // transitively shells out (java→javac) is spuriously vetoed.
     aether_std = _agent_aether_std()
     if string.length(aether_std) > 0 { list.add(lib_roots, aether_std) }
-    proj_lib = path.join(repo, ".aeb/lib")
-    if file.exists(proj_lib) == 1 { list.add(lib_roots, proj_lib) }
 
     // run_on=podman: the agent host may be toolchain-less, so the veto's
     // aetherc --emit=ast must run IN the container too (the build already
@@ -568,8 +566,6 @@ _veto_ast_in_container(repo: string, target: string, rules: ptr, image: string) 
     list.add(lib_roots, "/usr/local/share/aeb/lib")
     list.add(lib_roots, "/usr/local/bin/../share/aether")
     list.add(lib_roots, "/usr/local/share/aether")
-    // The prepared tree's own .aeb/lib resolves under /work in-container.
-    list.add(lib_roots, "/work/.aeb/lib")
 
     mnt = string.concat(repo, string.concat(":/work:", selabel))
     // podman run --rm -v repo:/work:Z -w /work --entrypoint aetherc image

@@ -307,13 +307,16 @@ if [[ -z "${DOCKER_HOST:-}" ]] && [[ -S "/run/user/$(id -u)/podman/podman.sock" 
     export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
 fi
 
-# --- --init: lazy-build and exec the init tool ---
+# --- --init: no longer needed ---
+# aeb resolves its SDKs from its own install ($AEB_HOME/lib) unconditionally —
+# there is no per-project .aeb/lib symlink farm to create. A fresh clone just
+# builds. This stub stays so `aeb --init` in old scripts prints guidance instead
+# of erroring, and tells the user to delete any stale .aeb/lib a prior init left.
 if [[ "${1:-}" == "--init" ]]; then
-    AEB_INIT_BIN="$AEB_HOME/tools/aeb-init"
-    if [[ ! -x "$AEB_INIT_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/aeb-init.ae" -o "$AEB_INIT_BIN" 2>/dev/null
-    fi
-    exec "$AEB_INIT_BIN" "$AEB_HOME"
+    echo "aeb: --init is obsolete — aeb builds against its own SDK ($AEB_HOME/lib);"
+    echo "aeb:   no per-project .aeb/lib is needed. Just run 'aeb <target>'."
+    echo "aeb:   If a previous init left a .aeb/lib symlink farm, remove it: rm -rf .aeb/lib"
+    exit 0
 fi
 
 # --- gcheckout: lazy-build and exec the sparse-checkout tool ---
