@@ -13,7 +13,8 @@
 // the aetherc-binary component is the identical cache.hash_file
 // mechanism (the avn doc's manual procedure covers it end to end).
 
-import aether (_cache_key_for_aether_link)
+import aether (_cache_key_for_aether_link, _toolchain_version)
+import build (_sh, _sh_capture)
 import std.string
 import std.os
 
@@ -27,21 +28,62 @@ _assert(label: string, cond: int) {
     }
 }
 
+// Native-form tmpdir via the _sh chokepoint (see e.g. test_aether_resolvers):
+// mktemp answers in MSYS form, but the fixtures are read/run through paths that
+// must be native on Windows. No-op off Windows.
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
+}
+
+// Regression guard: _toolchain_version() must read the version of the compiler
+// aeb builds with ($AETHER), NOT bare `ae` on PATH. A fake `ae` prints a
+// sentinel version; with $AETHER pointed at it, _toolchain_version must return
+// that sentinel — proving it does not consult whatever `ae` happens to be on
+// PATH (which historically gave a wrong or empty version into the cache key).
+_test_toolchain_version_uses_aether() {
+    dir = _mktempdir()
+    // A fake `ae` (with the host exe suffix so a bare `ae` name resolves on
+    // Windows too) that prints a distinctive --version line.
+    fake = string.concat(dir, "/ae")
+    _sh("printf '#!/bin/sh\\necho \"ae 9.9.9-sentinel (fake)\"\\n' > '${fake}'")
+    _sh("chmod +x '${fake}'")
+    // On Windows the launched compiler is `<fake>.exe`; copy so both names work.
+    _sh("cp '${fake}' '${fake}.exe' 2>/dev/null; true")
+
+    prev = os.getenv("AETHER")
+    _e = os.setenv("AETHER", fake)
+    got = _toolchain_version()
+    // restore
+    if string.length(prev) > 0 { _r = os.setenv("AETHER", prev) }
+    else { _r = os.unsetenv("AETHER") }
+
+    _assert("_toolchain_version() reads $AETHER, not PATH `ae`",
+        string.equals(got, "ae 9.9.9-sentinel (fake)"))
+    _sh("rm -rf '${dir}'")
+}
+
 main() {
-    base = "/tmp/aeb_test_toolchain_key"
-    os.system("rm -rf ${base}; mkdir -p ${base}/src ${base}/libdir")
+    _test_toolchain_version_uses_aether()
+
+    base = _mktempdir()
+    _sh("mkdir -p '${base}/src' '${base}/libdir'")
     srcdir = "${base}/src"
     src = "${base}/src/main.ae"
     libdir = "${base}/libdir"
-    os.system("printf 'main() {}\\n' > ${src}")
-    os.system("printf 'fake-libaether-content-v1\\n' > ${libdir}/libaether.a")
+    _sh("printf 'main() {}\\n' > '${src}'")
+    _sh("printf 'fake-libaether-content-v1\\n' > '${libdir}/libaether.a'")
 
     k1, e1 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
     // _cache_key_for_aether_link returns ("", err) when hashing is
     // unavailable (no OpenSSL/zlib) — skip cleanly in that case.
     if string.equals(e1, "") == 0 {
         println("PASS: toolchain-key test skipped — ${e1}")
-        os.system("rm -rf ${base}")
+        _sh("rm -rf '${base}'")
         println("toolchain key tests done")
         return 0
     }
@@ -50,16 +92,16 @@ main() {
     _assert("key is stable across recomputation", string.equals(k1, k1b))
 
     // Simulate a toolchain rebuild: libaether.a content changes.
-    os.system("printf 'fake-libaether-content-v2-rebuilt\\n' > ${libdir}/libaether.a")
+    _sh("printf 'fake-libaether-content-v2-rebuilt\\n' > '${libdir}/libaether.a'")
     k2, _e2 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
     _assert("a rebuilt libaether.a busts the cache key", 1 - string.equals(k1, k2))
 
     // Restore the original content — key must return (content-addressed,
     // SHA256, not mtime: same bytes → same key despite a newer mtime).
-    os.system("printf 'fake-libaether-content-v1\\n' > ${libdir}/libaether.a")
+    _sh("printf 'fake-libaether-content-v1\\n' > '${libdir}/libaether.a'")
     k3, _e3 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
     _assert("restoring libaether.a content restores the key", string.equals(k1, k3))
 
-    os.system("rm -rf ${base}")
+    _sh("rm -rf '${base}'")
     println("toolchain key tests done")
 }

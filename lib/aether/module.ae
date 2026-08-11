@@ -487,14 +487,33 @@ _expand_source_globs(builder_map: ptr, source_dir: string) {
     return 0
 }
 
-// _toolchain_version() — first line of `ae --version`. Used as a
-// cache-key input so a toolchain bump invalidates every cached
-// aether.program binary. Cheap (~1ms os.exec); memoized via a
-// per-build env var so we don't re-spawn for every cached lookup.
+// _ae_bin() — THE Aether compiler aeb builds with: $AETHER if set, else bare
+// `ae` from PATH. This is the two-Aether split's authoritative resolution (the
+// toolchain that compiles .ae, distinct from the program's own ae). Every site
+// that shells out to the compiler MUST resolve through here so they all agree —
+// _shell_out_ae_build and _toolchain_version in particular, or the cache key
+// would record a different toolchain's version than the one that did the build.
+_ae_bin() {
+    ab = os.getenv("AETHER")
+    if string.length(ab) == 0 { return "ae" }
+    return ab
+}
+
+// _toolchain_version() — first line of `<ae> --version`, where <ae> is the
+// compiler aeb actually builds with ($AETHER-resolved, NOT bare `ae`). Used as
+// a cache-key input so a toolchain bump invalidates every cached
+// aether.program binary. Cheap (~1ms os.exec); memoized via a per-build env var
+// so we don't re-spawn for every cached lookup.
+//
+// Was a hardcoded bare `ae`: on a box whose PATH `ae` differs from $AETHER (or
+// has none), the key recorded the WRONG toolchain version — or an empty one,
+// dropping the version segment entirely — so artifacts built by one compiler
+// could be served as another's. Resolving through _ae_bin() closes that.
 _toolchain_version() {
     cached = os.getenv("_AEB_AETHER_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("ae --version 2>/dev/null | head -1")
+    ae_bin = _ae_bin()
+    raw, _err = build._sh_capture("${ae_bin} --version 2>/dev/null | head -1")
     return string.trim(raw)
 }
 
@@ -1244,10 +1263,7 @@ _ae_build_lib_flags(compile_lib: string) {
 _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, emit_flags: string) {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
-    ae_bin = os.getenv("AETHER")
-    if string.length(ae_bin) == 0 {
-        ae_bin = "ae"
-    }
+    ae_bin = _ae_bin()
 
     // Coverage: cross-cutting CLI flag set by the trampoline as
     // AEB_COVERAGE=1. When on, append `--coverage` to ae build,
