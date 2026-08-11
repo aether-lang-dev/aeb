@@ -1203,37 +1203,49 @@ _sh_hash(s: string) {
     return h
 }
 
-// _sh_script_path(cmd) — a unique, native temp path for a throwaway sh script.
-// Uses %TMP% (Windows always sets it; falls back to /tmp), the pid, and a hash
-// of the command. Forward-slashed so io.write_file and sh agree on it.
+// _cygpath_m_via_sh(posix) — native form of a POSIX/MSYS path, obtained by
+// running cygpath INSIDE sh. Returns "" on any failure.
+//
+// Why not a bare os.exec("cygpath -m ...")? On Windows os.exec routes through
+// cmd.exe, and whether cmd.exe can resolve `cygpath` depends on the Windows
+// PATH of the current process — which DIFFERS between the login shell (finds it)
+// and a make-spawned orchestrator grandchild (does not, measured on winbaz).
+// `sh -c "cygpath ..."` runs cygpath with /usr/bin reliably on sh's PATH, and
+// the simple double-quoted form survives cmd.exe's pre-parse (no inner single
+// quotes, no redirects). `sh` itself is always resolvable — the whole _sh
+// mechanism already relies on `os.system("sh <file>")` working. NOTE: cannot use
+// _sh_capture here (it calls _sh_script_path → this → recursion), so it is a
+// direct os.exec of the minimal sh -c form.
+_cygpath_m_via_sh(posix: string) {
+    out, err = os.exec("sh -c \"cygpath -m '${posix}'\"")
+    if string.length(err) > 0 { return "" }
+    return string.trim(out)
+}
+
+// _sh_script_path(cmd) — a unique, NATIVE temp path for a throwaway sh script.
+// Uses %TMP% (falls back to TEMP/TMPDIR, then /tmp), the pid, and a hash of the
+// command.
+//
+// CRITICAL on Windows: the path MUST be native ("C:/msys64/tmp/..") because
+// io.write_file (native Win32) and `sh` resolve a POSIX "/tmp/.." to DIFFERENT
+// physical directories — measured: io.write_file("/tmp/x") lands at C:\tmp\x
+// (native reading of "/tmp"), while `sh /tmp/x` looks in C:\msys64\tmp\x (MSYS
+// reading). The two disagree, so the write "succeeds" and the exec then fails
+// with `sh: /tmp/_aeb_sh_*.sh: No such file or directory`. A native path is
+// read identically by both. So on Windows we convert whatever tmp dir we picked
+// to native form; only if conversion fails do we keep the POSIX form (the _sh
+// caller then still writes and execs the SAME string — best effort — and its
+// write-error branch warns rather than silently diverging).
 _sh_script_path(cmd: string) {
     tmp = _sh_slashes(os.getenv("TMP"))
     if string.length(tmp) == 0 { tmp = _sh_slashes(os.getenv("TEMP")) }
     if string.length(tmp) == 0 { tmp = _sh_slashes(os.getenv("TMPDIR")) }
-    if string.length(tmp) == 0 {
-        // Last resort when TMP, TEMP and TMPDIR are ALL empty: prefer the
-        // native form of "/tmp" over the literal, since std.fs/std.io are
-        // native Win32 calls and a `/c/...`-style path is an MSYS fiction
-        // they cannot always resolve (see _to_native_path for the measured
-        // law). Falls back to the literal if cygpath is absent.
-        //
-        // HONESTY NOTE, because the commit that added this (a0fd182) claimed
-        // more: I originally justified this as THE fix for winbaz's
-        // `unexpected EOF`, on a theory that io.write_file("/tmp/x") fails.
-        // Measured on the box afterwards, that theory is WRONG — the write
-        // SUCCEEDS, and MSYS keeps TMP=/tmp populated even across an explicit
-        // `env -u TMP`, so this branch does not fire there at all. The real
-        // cause was the toolchain-dir path never being normalised (fixed in
-        // b1c41fa). This is kept as defensive correctness for a genuinely
-        // empty-TMP context (a service or cron shell), not because it fixed
-        // anything observed. Do not cite it as a precedent for a diagnosis.
-        tmp = "/tmp"
-        if _is_windows() == 1 {
-            nat, nerr = os.exec("cygpath -m /tmp")
-            if string.length(nerr) == 0 {
-                nat = string.trim(nat)
-                if string.length(nat) > 0 { tmp = nat }
-            }
+    if string.length(tmp) == 0 { tmp = "/tmp" }
+    if _is_windows() == 1 {
+        // Convert to native unless already native ("C:/..", "\\host\share").
+        if _is_abs_native(tmp) == 0 {
+            nat = _cygpath_m_via_sh(tmp)
+            if string.length(nat) > 0 { tmp = nat }
         }
     }
     name = string.concat("_aeb_sh_", string.concat(string.from_int(os.getpid()),

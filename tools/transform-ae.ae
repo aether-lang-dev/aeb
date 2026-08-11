@@ -177,10 +177,36 @@ _hash_tr(s: string) {
     }
     return h
 }
+// Native-form Windows absolute path (drive letter / UNC).
+_is_abs_native_tr(p: string) {
+    if string.length(p) < 2 { return 0 }
+    if string.equals(string.substring(p, 0, 2), "\\\\") == 1 { return 1 }
+    if string.equals(string.substring(p, 1, 2), ":") == 1 { return 1 }
+    return 0
+}
+// Native form of a POSIX/MSYS path via cygpath run INSIDE sh (reliable where a
+// bare os.exec cygpath is not — cmd.exe PATH differs in a make grandchild). "".
+_cygpath_m_tr(posix: string) {
+    out, err = os.exec("sh -c \"cygpath -m '${posix}'\"")
+    if string.length(err) > 0 { return "" }
+    return string.trim(out)
+}
 _script_path_tr(cmd: string) {
     tmp = _slashes_tr(os.getenv("TMP"))
     if string.length(tmp) == 0 { tmp = _slashes_tr(os.getenv("TEMP")) }
+    if string.length(tmp) == 0 { tmp = _slashes_tr(os.getenv("TMPDIR")) }
     if string.length(tmp) == 0 { tmp = "/tmp" }
+    // On Windows the temp path MUST be native: io.write_file (native Win32) and
+    // `sh` resolve a POSIX "/tmp/.." to different physical dirs (C:\tmp vs
+    // C:\msys64\tmp), so a POSIX path is written to one and executed from the
+    // other → `sh: /tmp/_aeb_tr_*.sh: No such file or directory`. Convert to
+    // native. (asks/windows-two-path-form-bugs-aeb-link-and-tmp.md, Bug 2.)
+    if _is_windows_tr() == 1 {
+        if _is_abs_native_tr(tmp) == 0 {
+            nat = _cygpath_m_tr(tmp)
+            if string.length(nat) > 0 { tmp = nat }
+        }
+    }
     name = string.concat("_aeb_tr_", string.concat(string.from_int(os.getpid()),
            string.concat("_", string.concat(string.from_int(_hash_tr(cmd)), ".sh"))))
     return string.concat(tmp, string.concat("/", name))

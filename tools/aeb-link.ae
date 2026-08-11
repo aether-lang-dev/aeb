@@ -272,23 +272,57 @@ _sh_hash_link(s: string) {
     return h
 }
 
+// _is_abs_native_link(p) — Windows-native absolute path (drive letter or UNC).
+// Twin of lib/build's _is_abs_native; aeb-link is a separate binary.
+_is_abs_native_link(p: string) {
+    if string.length(p) < 2 { return 0 }
+    if string.equals(string.substring(p, 0, 2), "\\\\") == 1 { return 1 }
+    if string.equals(string.substring(p, 1, 2), ":") == 1 { return 1 }
+    return 0
+}
+
+// _cygpath_m_via_sh_link(posix) — native form of a POSIX/MSYS path, via cygpath
+// run INSIDE sh. Twin of lib/build's _cygpath_m_via_sh; see that comment for
+// why a bare os.exec("cygpath ...") is unreliable (cmd.exe PATH differs between
+// the login shell and a make-spawned grandchild) while `sh -c "cygpath ..."` is
+// not. "" on failure.
+_cygpath_m_via_sh_link(posix: string) {
+    out, err = os.exec("sh -c \"cygpath -m '${posix}'\"")
+    if string.length(err) > 0 { return "" }
+    return string.trim(out)
+}
+
+// _to_native_path_link(p) — MSYS "/c/.." → native "C:/..". No-op off Windows,
+// and no-op for an already-native path. Twin of lib/build's _to_native_path;
+// aeb-link is a separate binary with no access to that copy, which is exactly
+// how the toolchain dir reached here raw and aetherc was invoked by a path the
+// shell mis-resolved (asks/windows-two-path-form-bugs-aeb-link-and-tmp.md,
+// Bug 1). Same lib-vs-tools duplication as the pkg-config fix.
+_to_native_path_link(p: string) {
+    if _is_windows_link() == 0 { return p }
+    if string.length(p) == 0 { return p }
+    if _is_abs_native_link(p) == 1 { return p }
+    if string.equals(string.substring(p, 0, 1), "/") == 0 { return p }
+    nat = _cygpath_m_via_sh_link(p)
+    if string.length(nat) == 0 { return p }
+    return nat
+}
+
 _sh_script_path_link(cmd: string) {
     tmp = _sh_slashes_link(os.getenv("TMP"))
     if string.length(tmp) == 0 { tmp = _sh_slashes_link(os.getenv("TEMP")) }
     if string.length(tmp) == 0 { tmp = _sh_slashes_link(os.getenv("TMPDIR")) }
-    if string.length(tmp) == 0 {
-        // Native-form fallback — see the twin in lib/build's _sh_script_path,
-        // including the honesty note there: the theory this was first
-        // justified by (io.write_file cannot resolve "/tmp") was measured
-        // FALSE on winbaz. Kept as defensive correctness for a genuinely
-        // empty-TMP context, not as a fix for anything observed.
-        tmp = "/tmp"
-        if _is_windows_link() == 1 {
-            nat, nerr = os.exec("cygpath -m /tmp")
-            if string.length(nerr) == 0 {
-                nat = string.trim(nat)
-                if string.length(nat) > 0 { tmp = nat }
-            }
+    if string.length(tmp) == 0 { tmp = "/tmp" }
+    // On Windows the temp path MUST be native ("C:/msys64/tmp/.."): io.write_file
+    // (native Win32) and `sh` resolve a POSIX "/tmp/.." to DIFFERENT physical
+    // dirs (C:\tmp vs C:\msys64\tmp — measured), so a POSIX path is written to
+    // one place and executed from another → `sh: /tmp/_aeb_link_*.sh: No such
+    // file or directory`. Convert whatever we picked to native. (Same fix as
+    // lib/build's _sh_script_path — Bug 2 of the two-path-form ask.)
+    if _is_windows_link() == 1 {
+        if _is_abs_native_link(tmp) == 0 {
+            nat = _cygpath_m_via_sh_link(tmp)
+            if string.length(nat) > 0 { tmp = nat }
         }
     }
     name = string.concat("_aeb_link_", string.concat(string.from_int(os.getpid()),
@@ -523,7 +557,14 @@ main() {
     edges_file = aether_args_get(1)
     build_dir  = aether_args_get(2)
     aeb_lib    = aether_args_get(3)
-    aether_dir = aether_args_get(4)
+    // The toolchain dir arrives in whatever form `command -v ae` produced —
+    // on Windows that is the MSYS "/c/.." form (measured: it stays POSIX even
+    // when PATH holds the native form). aetherc/libaether paths built from a
+    // raw "/c/.." are then mis-resolved by the native-Win32 file probes and by
+    // the shell, so normalise to native here — the same normalisation lib/build
+    // does at its toolchain-dir chokepoint, which aeb-link (a separate binary)
+    // never inherited. (asks/windows-two-path-form-bugs-aeb-link-and-tmp.md, Bug 1.)
+    aether_dir = _to_native_path_link(aether_args_get(4))
     aether_bin = aether_args_get(5)
     out_bin    = aether_args_get(6)
     root       = aether_args_get(7)

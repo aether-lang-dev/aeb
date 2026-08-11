@@ -23,6 +23,41 @@ AETHER="${AETHER:-ae}"
 AEB_HOME="$(cd "$(dirname "$0")" && pwd)"
 export AEB_HOME
 
+# --- Windows: give every tool a NATIVE-form temp dir -----------------------
+#
+# On MSYS2/MinGW the aeb tools write throwaway shell scripts with Aether's
+# std.io (a native Win32 fopen) and then run them with `sh`. A native "C:/.."
+# path is read identically by both; a POSIX "/tmp/.." is NOT — io.write_file
+# resolves it as C:\tmp while `sh` reads it as C:\msys64\tmp, so the script is
+# written to one dir and executed from another and the build dies with
+# `sh: /tmp/_aeb_*.sh: No such file or directory`. (Full write-up:
+# asks/windows-two-path-form-bugs-aeb-link-and-tmp.md.)
+#
+# Each tool tries to fix this itself via cygpath, but that call is unreliable
+# several process-levels deep (make → orchestrator → aeb-link → transform-ae):
+# a bare cygpath resolves through cmd.exe's PATH, which differs by nesting. The
+# robust fix is ONE normalisation here, up front: export TMP/TEMP in native
+# form so every descendant inherits a temp dir both worlds read the same way.
+# Only touches Windows; leaves a already-native value alone.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*)
+        _aeb_tmp="${TMP:-${TEMP:-${TMPDIR:-/tmp}}}"
+        # Native already (drive letter or UNC)? Leave it. Else convert.
+        case "$_aeb_tmp" in
+            [A-Za-z]:/*|[A-Za-z]:\\*|//*|\\\\*) : ;;
+            *)
+                if command -v cygpath >/dev/null 2>&1; then
+                    _aeb_tmp_native="$(cygpath -m "$_aeb_tmp" 2>/dev/null)"
+                    if [ -n "$_aeb_tmp_native" ]; then _aeb_tmp="$_aeb_tmp_native"; fi
+                fi
+                ;;
+        esac
+        TMP="$_aeb_tmp"; TEMP="$_aeb_tmp"
+        export TMP TEMP
+        unset _aeb_tmp _aeb_tmp_native
+        ;;
+esac
+
 # --- aeb's OWN Aether: pinned, private, never the user's ------------------
 #
 # TWO Aethers, deliberately (asks/two-aethers-pinned-toolchain-vs-declared-dep.md):
