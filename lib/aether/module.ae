@@ -502,8 +502,13 @@ _ae_bin() {
 // _toolchain_version() — first line of `<ae> --version`, where <ae> is the
 // compiler aeb actually builds with ($AETHER-resolved, NOT bare `ae`). Used as
 // a cache-key input so a toolchain bump invalidates every cached
-// aether.program binary. Cheap (~1ms os.exec); memoized via a per-build env var
-// so we don't re-spawn for every cached lookup.
+// aether.program binary. Cheap (~1ms os.exec) but called once per aether target
+// cache-key (_cache_key_for_aether_link), so memoized via a per-build env var:
+// the first call spawns `<ae> --version` and stores it; the rest reuse it. The
+// memo is process/build-scoped (env vars don't outlive the build), which is
+// exactly the right lifetime — a toolchain swap between builds is a new process.
+// Only a NON-empty result is stored, so a transient empty read (e.g. $AETHER
+// briefly unresolvable) never poisons the memo into skipping a good later probe.
 //
 // Was a hardcoded bare `ae`: on a box whose PATH `ae` differs from $AETHER (or
 // has none), the key recorded the WRONG toolchain version — or an empty one,
@@ -514,7 +519,9 @@ _toolchain_version() {
     if string.length(cached) > 0 { return cached }
     ae_bin = _ae_bin()
     raw, _err = build._sh_capture("${ae_bin} --version 2>/dev/null | head -1")
-    return string.trim(raw)
+    ver = string.trim(raw)
+    if string.length(ver) > 0 { _s = os.setenv("_AEB_AETHER_VERSION_CACHE", ver) }
+    return ver
 }
 
 // --- Transitive Aether import-closure scan -------------------------

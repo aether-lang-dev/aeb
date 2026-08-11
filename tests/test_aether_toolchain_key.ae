@@ -57,8 +57,14 @@ _test_toolchain_version_uses_aether() {
 
     prev = os.getenv("AETHER")
     _e = os.setenv("AETHER", fake)
+    // Clear the per-build memo so this probe actually re-runs against the fake
+    // (any earlier _toolchain_version call in this process would have stored a
+    // real version there).
+    _um = os.unsetenv("_AEB_AETHER_VERSION_CACHE")
     got = _toolchain_version()
-    // restore
+    // restore env; also clear the memo we just populated with the sentinel so it
+    // can't leak into a later real lookup in the same process.
+    _um2 = os.unsetenv("_AEB_AETHER_VERSION_CACHE")
     if string.length(prev) > 0 { _r = os.setenv("AETHER", prev) }
     else { _r = os.unsetenv("AETHER") }
 
