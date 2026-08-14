@@ -1457,7 +1457,15 @@ aether_link_cmd(opts: ptr) {
     if map.has(opts, "sysdeps") == 1 {
         sysdeps, _ = map.get(opts, "sysdeps")
     }
-    return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str} -L${lib_dir} -laether ${extra_link} ${rpath_link}${user_flags} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
+    // Module-declared @link libs (leading-space run, or "") and the dev-layout
+    // contrib -L (or ""), both resolved by the caller from the generated C's
+    // `// aether-link:` header. Placed BEFORE user_flags so a consumer's
+    // explicit link_flag() keeps override authority. Empty in the common case.
+    aether_link = ""
+    if map.has(opts, "aether_link") == 1 { aether_link, _ = map.get(opts, "aether_link") }
+    contrib_L = ""
+    if map.has(opts, "contrib_L") == 1 { contrib_L, _ = map.get(opts, "contrib_L") }
+    return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str} -L${lib_dir}${contrib_L} -laether ${extra_link} ${rpath_link}${aether_link}${user_flags} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
 }
 
 // Decide whether a regen entry needs aetherc work, given the .ae and
@@ -2286,6 +2294,14 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // pure/testable and keeps `$(...)` off a command line whose shell we do
     // not control. (asks/windows-pkg-config-substitution-runs-in-cmd.md)
     _eo11 = map.put(opts, "sysdeps", _resolve_sysdeps())
+    // Module-declared native deps from `@link`, read back from the generated
+    // C's `// aether-link:` header (aether #1549/#1555). `-D`-sensitive and
+    // transitive — a dropped `when defined` import drops its libs. aeb's manual
+    // gcc path bypasses `ae build`, so it reads the header itself here; the
+    // ae-build shell-out path gets this from the toolchain (>=0.532.0). Plus the
+    // dev-layout <lib_dir>/contrib on -L so a contrib veneer archive resolves.
+    _eo12 = map.put(opts, "aether_link", build._aether_link_libs(c_path))
+    _eo13 = map.put(opts, "contrib_L", build._contrib_lib_dir_flag(lib_dir))
     gcc_cmd = aether_link_cmd(opts)
     // Capture gcc stderr to a per-module file so a link failure can
     // be mined for `undefined reference` symbols (Option B in

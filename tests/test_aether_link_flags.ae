@@ -1,0 +1,87 @@
+// Tests for reading a module's `@link` native deps back from the generated C's
+// `// aether-link:` header — aeb's manual gcc path mirroring aether PR #1555.
+//   build._aether_link_line_libs(payload) — PURE token filter
+//   build._aether_link_libs(c_path)       — file read + filter
+//   build._contrib_lib_dir_flag(lib_dir)  — dev-layout contrib -L
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.dir
+import std.path
+
+import build (_sh, _sh_capture, _aether_link_line_libs, _aether_link_libs, _contrib_lib_dir_flag)
+
+_assert_eq(label: string, actual: string, expected: string) {
+    if actual == expected { println("PASS: ${label}") }
+    else {
+        println("FAIL: ${label}")
+        println("  expected: '${expected}'")
+        println("  actual:   '${actual}'")
+    }
+}
+
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
+}
+
+main() {
+    // --- pure token filter ---
+    _assert_eq("module @link libs survive, leading-space run",
+        _aether_link_line_libs("-laether_sqlite -lsqlite3"),
+        " -laether_sqlite -lsqlite3")
+    _assert_eq("toolchain-managed libs dropped, module lib kept",
+        _aether_link_line_libs("-lsqlite3 -lssl -lcrypto -lz -lpthread"),
+        " -lsqlite3")
+    _assert_eq("all toolchain-managed -> empty",
+        _aether_link_line_libs("-lssl -lcrypto -lz -lm -ldl"),
+        "")
+    _assert_eq("empty payload -> empty",
+        _aether_link_line_libs(""),
+        "")
+    _assert_eq("extra whitespace tolerated",
+        _aether_link_line_libs("   -lfoo    -lbar   "),
+        " -lfoo -lbar")
+
+    // --- file read: header present, near-first-line tolerated ---
+    dir = _mktempdir()
+    c1 = string.concat(dir, "/with_header.c")
+    _w1 = io.write_file(c1, "// aether-link: -laether_sqlite -lsqlite3 -lz\nint main(){}\n")
+    _assert_eq("reads header from generated C, drops -lz",
+        _aether_link_libs(c1),
+        " -laether_sqlite -lsqlite3")
+
+    c2 = string.concat(dir, "/header_line3.c")
+    _w2 = io.write_file(c2, "/* gen */\n#line 1\n// aether-link: -lfoo\nint main(){}\n")
+    _assert_eq("header a few lines in still found",
+        _aether_link_libs(c2),
+        " -lfoo")
+
+    c3 = string.concat(dir, "/no_header.c")
+    _w3 = io.write_file(c3, "int main(){ return 0; }\n")
+    _assert_eq("no header -> empty (the common case)",
+        _aether_link_libs(c3),
+        "")
+
+    _assert_eq("missing file -> empty",
+        _aether_link_libs(string.concat(dir, "/nope.c")),
+        "")
+
+    // --- contrib -L: present iff <lib_dir>/contrib exists ---
+    _sh("mkdir -p '${dir}/lib/contrib'")
+    _assert_eq("contrib dir present -> -L flag",
+        _contrib_lib_dir_flag(string.concat(dir, "/lib")),
+        string.concat(" -L", string.concat(dir, "/lib/contrib")))
+    _assert_eq("no contrib dir -> empty",
+        _contrib_lib_dir_flag(string.concat(dir, "/nocontrib")),
+        "")
+
+    _sh("rm -rf '${dir}'")
+    println("aether link-flags tests done")
+}

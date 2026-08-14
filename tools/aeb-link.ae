@@ -407,6 +407,80 @@ _flags_from_lines_link(text: string) {
     return out
 }
 
+// Twin of lib/build's @link-header readers (aeb-link is a separate binary and
+// cannot import lib/build). Read a module's native @link deps back from the
+// generated C's `// aether-link:` header (aether #1549/#1555) and append the
+// surviving `-l` tokens to the orchestrator link, dropping the ones the
+// toolchain already supplies. See lib/build for the full rationale.
+_link_managed_link(tok: string) {
+    if string.equals(tok, "-lssl") == 1 { return 1 }
+    if string.equals(tok, "-lcrypto") == 1 { return 1 }
+    if string.equals(tok, "-lnghttp2") == 1 { return 1 }
+    if string.equals(tok, "-lpcre2-8") == 1 { return 1 }
+    if string.equals(tok, "-lz") == 1 { return 1 }
+    if string.equals(tok, "-lpthread") == 1 { return 1 }
+    if string.equals(tok, "-ldl") == 1 { return 1 }
+    if string.equals(tok, "-lm") == 1 { return 1 }
+    return 0
+}
+// Return the surviving `-l` tokens from one c-file's header, each as a leading-
+// space token, skipping any already in `seen` (a "<space>-lx<space>" string) so
+// the orchestrator's many TUs don't repeat a shared dep.
+_aether_link_libs_link(c_path: string, seen: string) {
+    if string.length(c_path) == 0 { return "" }
+    if file.exists(c_path) == 0 { return "" }
+    raw, rerr = io.read_file(c_path)
+    if string.length(rerr) > 0 { return "" }
+    rest = raw
+    n = 0
+    payload = ""
+    found = 0
+    while n < 8 {
+        nl = string.index_of(rest, "\n")
+        line = rest
+        if nl >= 0 {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        mi = string.index_of(line, "// aether-link:")
+        if mi >= 0 {
+            payload = string.substring(line, mi + 15, string.length(line))
+            found = 1
+            n = 8
+        }
+        if nl < 0 { n = 8 }
+        n = n + 1
+    }
+    if found == 0 { return "" }
+    out = ""
+    toks = string.trim(payload)
+    while string.length(toks) > 0 {
+        sp = string.index_of(toks, " ")
+        tok = toks
+        if sp >= 0 {
+            tok = string.substring(toks, 0, sp)
+            toks = string.trim(string.substring(toks, sp + 1, string.length(toks)))
+        } else { toks = "" }
+        if string.length(tok) > 0 {
+            if _link_managed_link(tok) == 0 {
+                probe = string.concat(" ", string.concat(tok, " "))
+                if string.index_of(seen, probe) < 0 {
+                    out = string.concat(out, string.concat(" ", tok))
+                    seen = string.concat(seen, string.concat(tok, " "))
+                }
+            }
+        }
+    }
+    return out
+}
+// ` -L<lib_dir>/contrib` when it exists, else "".
+_contrib_L_link(lib_dir: string) {
+    if string.length(lib_dir) == 0 { return "" }
+    cdir = string.concat(lib_dir, "/contrib")
+    if dir.exists(cdir) == 1 { return string.concat(" -L", cdir) }
+    return ""
+}
+
 _pkg_config_libs_link(mod: string) {
     out, err = _sh_capture_link(string.concat("pkg-config --libs ", string.concat(mod, " 2>/dev/null")))
     if string.length(err) > 0 { return "" }
@@ -837,7 +911,25 @@ main() {
     }
     cc = string.concat(cc, " -L")
     cc = string.concat(cc, libaether_dir)
+    // Dev-layout contrib search path, so a module @link'ing a make-contrib
+    // veneer archive (e.g. -laether_sqlite) resolves without consumer config.
+    cc = string.concat(cc, _contrib_L_link(libaether_dir))
     cc = string.concat(cc, " -laether")
+    // Module-declared native deps from each TU's `// aether-link:` header
+    // (aether #1549/#1555): -D-sensitive, transitive, deduped across TUs, with
+    // toolchain-managed libs dropped. aeb's manual orchestrator link bypasses
+    // `ae build`, so it reads the headers itself. Empty in the common case.
+    _al_seen = " "
+    _kk = 0
+    while _kk < n {
+        _alcf, _ = list.get(c_files, _kk)
+        _alnew = _aether_link_libs_link(_alcf, _al_seen)
+        cc = string.concat(cc, _alnew)
+        // Fold this file's kept tokens (each " -lx") into seen as "-lx " so the
+        // next TU's index_of(" -lx ") dedup sees them.
+        _al_seen = string.concat(_al_seen, string.concat(string.trim(_alnew), " "))
+        _kk = _kk + 1
+    }
     cc = string.concat(cc, " -o ")
     cc = string.concat(cc, out_bin)
     // Duplicate-symbol tolerance: GNU ld accepts --allow-multiple-definition

@@ -855,6 +855,100 @@ _cp_append(cp: string, part: string) {
     return string.concat(string.concat(cp, _path_sep()), part)
 }
 
+// _link_token_is_toolchain_managed(tok) — 1 if `tok` is a `-l` the toolchain
+// already supplies itself (from AETHER_*_LIBS / aeb's own sysdeps resolution),
+// so it must NOT be re-added from a module's `// aether-link:` header. Mirrors
+// aether's own token_is_toolchain_managed (tools/ae.c, PR #1555): taking e.g.
+// `-lnghttp2` unconditionally would fail the link on a box where the toolchain
+// probed it absent and degraded gracefully. A module's OWN @link names things
+// the toolchain does not probe for, so those survive the filter.
+_link_token_is_toolchain_managed(tok: string) {
+    if string.equals(tok, "-lssl") == 1 { return 1 }
+    if string.equals(tok, "-lcrypto") == 1 { return 1 }
+    if string.equals(tok, "-lnghttp2") == 1 { return 1 }
+    if string.equals(tok, "-lpcre2-8") == 1 { return 1 }
+    if string.equals(tok, "-lz") == 1 { return 1 }
+    if string.equals(tok, "-lpthread") == 1 { return 1 }
+    if string.equals(tok, "-ldl") == 1 { return 1 }
+    if string.equals(tok, "-lm") == 1 { return 1 }
+    return 0
+}
+
+// _aether_link_line_libs(payload) — PURE: given the text AFTER `// aether-link:`
+// on the generated C's header line, return a leading-space-prefixed run of the
+// `-l` tokens aeb should append (toolchain-managed ones dropped), or "" if none.
+// Tested in tests/test_aether_link_flags.ae. See _aether_link_libs for the I/O.
+_aether_link_line_libs(payload: string) {
+    out = ""
+    rest = string.trim(payload)
+    while string.length(rest) > 0 {
+        sp = string.index_of(rest, " ")
+        tok = rest
+        if sp >= 0 {
+            tok = string.substring(rest, 0, sp)
+            rest = string.trim(string.substring(rest, sp + 1, string.length(rest)))
+        } else {
+            rest = ""
+        }
+        if string.length(tok) > 0 {
+            if _link_token_is_toolchain_managed(tok) == 0 {
+                out = string.concat(out, string.concat(" ", tok))
+            }
+        }
+    }
+    return out
+}
+
+// _aether_link_libs(c_path) — read the `// aether-link: <tokens>` header the
+// Aether compiler emits on (near) the first line of a generated .c (aether
+// #1259/#1555), and return the module-declared `-l` deps aeb's MANUAL gcc link
+// must add — leading-space-prefixed, or "" when the file has no header (the
+// common case: nothing in the import closure declared @link). aeb's `ae build`
+// shell-out path gets this from the toolchain for free (>=0.532.0); this closes
+// the same gap on aeb's own gcc line (no_closure_regen/extra_source/ui_backend
+// targets that bypass `ae build`). The tokens are `-D`-sensitive and transitive
+// because the compiler derives the header from the AST.
+_aether_link_libs(c_path: string) {
+    if string.length(c_path) == 0 { return "" }
+    if file.exists(c_path) == 0 { return "" }
+    raw, rerr = io.read_file(c_path)
+    if string.length(rerr) > 0 { return "" }
+    // Scan the first several lines for the header (emitted first, but tolerate
+    // a few leading lines rather than depend on exact placement — as ae.c does).
+    rest = raw
+    seen = 0
+    while seen < 8 {
+        nl = string.index_of(rest, "\n")
+        line = rest
+        if nl >= 0 {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        marker = "// aether-link:"
+        mi = string.index_of(line, marker)
+        if mi >= 0 {
+            payload = string.substring(line, mi + string.length(marker), string.length(line))
+            return _aether_link_line_libs(payload)
+        }
+        if nl < 0 { seen = 8 }
+        seen = seen + 1
+    }
+    return ""
+}
+
+// _contrib_lib_dir_flag(lib_dir) — ` -L<lib_dir>/contrib` when that dir exists,
+// else "". The dev-layout path make-contrib veneers install to; aether's own
+// link resolves it (PR #1555), so aeb's manual gcc line adds it too so a module
+// whose @link names a contrib veneer (e.g. -laether_sqlite) finds the archive
+// without the consumer configuring an -L. Site-specific -L stays the user's job;
+// this one path is one the toolchain already assumes, not a new assumption.
+_contrib_lib_dir_flag(lib_dir: string) {
+    if string.length(lib_dir) == 0 { return "" }
+    cdir = string.concat(lib_dir, "/contrib")
+    if dir.exists(cdir) == 1 { return string.concat(" -L", cdir) }
+    return ""
+}
+
 // True (1) if `s` begins with a Windows drive-letter prefix — a single
 // ASCII letter followed by ':' (e.g. "C:", "C:\\src", "d:/tmp"). This is
 // the disambiguation the target-synonym grammar needs: aeb's `path:name`
