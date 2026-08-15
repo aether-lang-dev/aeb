@@ -408,7 +408,8 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   publishes `c_source`/`c_header`/`c_header_dirs`/
   `c_needs_aether_runtime` so `c.program` consumes it without
   special-casing; setters `source`/`output`/`caps`). Driver tests
-  work with contrib.aeocha or anything that uses exit code as
+  work with `std.spec` (the aeocha successor; see the driver_test
+  report-transport note below) or anything that uses exit code as
   PASS/FAIL.
 - `lib/bash/module.ae` — bash test runner. `bash.test(b)` with
   `script(...)`, `jobs(N)`, `pre_command(...)`, `post_command(...)`,
@@ -532,29 +533,33 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   is the fast check: those itests have no `.aeb/lib`, so they
   exercise the fallback path directly.
 - **Two import namespaces in `aether.program_test` / `driver_test`
-  (the aeocha gotcha).** aeb's cache-key + regen closure resolves
-  **project** imports (`import myproj.foo`) by walking the test
-  source's own dir + ancestors (`_resolve_import_ae`,
-  `lib/aether/module.ae:521`; roots from `_ancestor_dirs`, `:484`).
-  It **deliberately returns "" for `std.*` and `contrib.*`** (incl.
-  `contrib.aeocha`) — `:522-524` — because those are **toolchain**
-  modules: resolved by `ae build` itself (which knows `--lib`), and
-  cache-tracked via the *toolchain-version* component of the key, not
-  file-hashed from the repo tree. So the statement "aeb resolves
-  imports from `source_dir`/ancestors, not from `--lib aether`" is
-  true **only for project modules**; aeocha and the stdlib ride the
-  toolchain side of the split. Two consequences a sibling trips on:
-  (a) a test that `import contrib.aeocha` needs the **toolchain** to
-  have aeocha installed (`make install-contrib`), nothing in the repo
-  tree resolves it; (b) aeb's ancestor-walk is *ancestor-only* — a
+  (the "toolchain-module" gotcha; historically "the aeocha gotcha").**
+  aeb's cache-key + regen closure resolves **project** imports
+  (`import myproj.foo`) by walking the test source's own dir + ancestors
+  (`_resolve_import_ae`, `lib/aether/module.ae:521`; roots from
+  `_ancestor_dirs`, `:484`).
+  It **deliberately returns "" for `std.*` and `contrib.*`** — `:522-524`
+  — because those are **toolchain** modules: resolved by `ae build`
+  itself (which knows `--lib`), and cache-tracked via the
+  *toolchain-version* component of the key, not file-hashed from the
+  repo tree. So the statement "aeb resolves imports from
+  `source_dir`/ancestors, not from `--lib aether`" is true **only for
+  project modules**; `std.spec` and the stdlib ride the toolchain side
+  of the split. Two consequences a sibling trips on:
+  (a) a test that `import std.spec` needs the **toolchain** to have it
+  (it's stdlib as of aether 0.538 — always present; the old
+  `import contrib.aeocha` + `make install-contrib` dance is retired);
+  (b) aeb's ancestor-walk is *ancestor-only* — a
   project module in a true **sibling** dir (not a parent) won't be
   picked up by the cache hasher, so editing it may not bust a
   consumer's key (express cross-dir shares as a repo-root dotted path,
   per the "share a source module across directories" idiom above).
-  **With or without aeocha:** `program_test`/`driver_test` work fine
-  with NO aeocha import — plain exit code is PASS/FAIL; aeocha only
-  *adds* the granular per-`it()` report via the IPC back-channel
-  (`build._parse_aeocha_report`). Don't assume aeocha is required.
+  **With or without a test framework:** `program_test`/`driver_test`
+  work fine with NO `std.spec` import — plain exit code is PASS/FAIL;
+  `std.spec` only *adds* the granular per-`it()` report, which aeb reads
+  from the `AE_SPEC_REPORT` file (`build._parse_aeocha_report`, the
+  report format is still the versioned "aeocha-v1" contract). Don't
+  assume a framework is required.
 
 ## SDK extension shape
 
@@ -852,6 +857,15 @@ exists if a need arises."
   e.g. `2/3 FAIL` instead of binary-level `0/1 FAIL`. Hand-rolled
   drivers (no Aeocha) emit no report; aeb falls back to
   exit-code mapping (`0 → 1/0`, non-zero → `0/1`).
+  **SUPERSEDED (0.538 / aeb `009c830`):** aeocha is retired, absorbed
+  into `std.spec` (stdlib). The report now travels via a FILE, not the
+  IPC pipe — `driver_test` sets `AE_SPEC_FORMAT=aeocha AE_SPEC_REPORT=<f>`
+  on the child and reads `<f>` when the pipe drains empty. Same
+  `version=1` "aeocha-v1" format (now a versioned contract in aether
+  `docs/testing.md`), so `build._parse_aeocha_report` is unchanged. The
+  pipe read stays as a back-compat branch for any old-aeocha child. The
+  IPC-back-channel entry above is kept as the historical record of how
+  it worked 0.124–0.537.
 - **0.146 `@heap` on single-value extern returns** —
   `extern foo(...) -> string @heap` opts a malloc'd-buffer-returning
   extern into the heap-string tracker so the caller's free fires.
@@ -995,14 +1009,15 @@ exists if a need arises."
   (`-Wl,--export-all-symbols`) — relevant to the winbaz Axis-2 path,
   nothing for aeb to change.
 
-A note on resolution order: an `ae` binary installed under
-`~/.local/bin/` will pick up contrib modules from
-`/usr/local/share/aether/contrib/` if its own prefix doesn't have
-them — verified by spinning up `import contrib.aeocha` against an
-`ae 0.118` binary while aeocha was only present at the system
-prefix. So `make install-contrib` from the Aether source tree
-(typically requires sudo) suffices even when the toolchain itself
-was a per-user `make install`.
+A note on resolution order (general, still true): an `ae` binary
+installed under `~/.local/bin/` will pick up `contrib.*` modules from
+`/usr/local/share/aether/contrib/` if its own prefix doesn't have them,
+so `make install-contrib` from the Aether source tree (typically sudo)
+suffices even for a per-user toolchain. This was originally verified
+with `import contrib.aeocha` on `ae 0.118` — now moot for that module
+specifically (**aeocha is retired**; its successor `std.spec` is stdlib,
+not contrib, so it needs no `install-contrib`), but the prefix-fallback
+mechanism holds for any surviving `contrib.*`.
 
 ## Two Aethers: pinned toolchain vs declared dep (PROPOSED)
 
