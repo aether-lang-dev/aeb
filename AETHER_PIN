@@ -24,4 +24,4 @@
 # now pins ubuntu-22.04 (glibc 2.35) and 0.452.0 measures at GLIBC_2.34.
 # That affects WHICH RELEASE TO FETCH when the pin is not satisfied, not
 # what the floor is — so it belongs in the fetch logic, not here.
-0.538.0
+0.541.0
