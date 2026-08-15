@@ -2890,31 +2890,28 @@ builder driver_test(ctx: ptr) {
         dyld_var = build._dyld_env_var()
         env_prefix = string.concat(env_prefix, string.concat(dyld_var, string.concat("=\"", string.concat(ld_path, "\" "))))
     }
-    // std.spec report transport (aeocha sunset): AE_SPEC_FORMAT=aeocha +
+    // std.spec report transport (the aeocha successor): AE_SPEC_FORMAT=aeocha +
     // AE_SPEC_REPORT=<file> makes a std.spec `run_summary()` child write the
-    // same version=1 aeocha-v1 report aeb already parses — but to a FILE, which
-    // the old contrib.aeocha wrote via the IPC pipe. We read the file back
-    // after the wait if the pipe drained empty. Backward-compatible: old-aeocha
-    // children still answer on the pipe (file never read); hand-rolled drivers
-    // write neither and keep the exit-code fallback. The file lives in the
-    // module's target dir so it is native-form on Windows and cleaned with it.
+    // version=1 aeocha-v1 report aeb parses — to a FILE. This is now the ONLY
+    // report path: aeocha is retired and its repo archived, so nothing writes
+    // the report over the old IPC pipe anymore (that channel is dead — no
+    // shipping driver answers on it). We still spawn via run_pipe_drain_and_wait
+    // (its spawn/wait is the working path; the pipe payload is just ignored) and
+    // read the file below. Hand-rolled drivers write no report and keep the
+    // exit-code fallback. The file lives in the module's target dir so it is
+    // native-form on Windows and cleaned with it.
     spec_report = path.join(build._get(ctx, "target_dir"), "_spec_report.txt")
     _srm = build._sh(string.concat("rm -f \"", string.concat(spec_report, "\"")))
     env_prefix = string.concat(env_prefix, "AE_SPEC_FORMAT=aeocha ")
     env_prefix = string.concat(env_prefix, string.concat("AE_SPEC_REPORT=\"", string.concat(spec_report, "\" ")))
     exec_cmd = string.concat(env_prefix, string.concat("\"", string.concat(bin_path, "\"")))
 
-    // Spawn via os.run_pipe_drain_and_wait so the child sees an
-    // inherited fd at AETHER_IPC_FD. If the driver uses
-    // contrib.aeocha, run_summary will write a structured per-it()
-    // report back through the channel; aeb parses the header for
-    // real (P/F/E) granularity. A std.spec child instead writes the
-    // report to AE_SPEC_REPORT (read below). Drivers that write
-    // neither (hand-rolled exit-code-only) fall back to mapping exit
-    // code → 0/1.
+    // Spawn the driver. run_pipe_drain_and_wait is retained as the spawn/wait
+    // mechanism (it works on every platform); its pipe payload is no longer a
+    // report source — see the transport note above. rc/run_err are what we use.
     println("${mod_dir}: running Aether driver")
     prog, argv = build._exec_chain_argv(pre_cmds, exec_cmd, post_cmds)
-    report, rc, run_err = os.run_pipe_drain_and_wait(prog, argv, null)
+    _pipe_ignored, rc, run_err = os.run_pipe_drain_and_wait(prog, argv, null)
     if string.length(run_err) > 0 {
         // Spawn itself failed (binary not found, permission
         // denied, Windows fall-through, …). Distinct from the
@@ -2925,14 +2922,13 @@ builder driver_test(ctx: ptr) {
         return 1
     }
 
-    // std.spec children report via the file, not the pipe: if the pipe drained
-    // empty, read AE_SPEC_REPORT. Same parser (the format is a versioned
-    // contract — aether docs/testing.md).
-    if string.length(string.trim(report)) == 0 {
-        if file.exists(spec_report) == 1 {
-            fraw, _frerr = io.read_file(spec_report)
-            report = fraw
-        }
+    // The report is the AE_SPEC_REPORT file (the sole path now). Read it if the
+    // std.spec child wrote it; absent → hand-rolled driver → exit-code fallback.
+    // Same parser; the format is a versioned contract (aether docs/testing.md).
+    report = ""
+    if file.exists(spec_report) == 1 {
+        fraw, _frerr = io.read_file(spec_report)
+        report = fraw
     }
 
     passed, failed, errored, failed_names, has_report = build._parse_aeocha_report(report)
