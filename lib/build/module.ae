@@ -717,22 +717,23 @@ _is_macos() {
     return _host_os() == "macos"
 }
 
-// Linker flag that forces GNU ld to tolerate duplicate symbol
-// definitions. Aether's codegen currently emits imported module
-// functions into every translation unit without `static`, so multi-
-// module programs have the same function defined many times. GNU ld
-// (`--allow-multiple-definition`) silently dedupes; Apple's ld64
-// rejects outright. This helper returns the right flag for the
-// current OS so SDK link commands work on both platforms.
+// Duplicate-symbol linker flag — now empty on every platform.
+//
+// History: aether's codegen used to emit imported-module functions into every
+// TU without `static`, so a multi-module program defined one symbol N times.
+// GNU ld tolerated it with `--allow-multiple-definition`; Apple's ld64 rejects
+// that flag outright, which also gated macOS off (a real multi-node link could
+// not succeed there). As of aether 0.538.0 (pinned) the compiler clones each
+// imported function per TU as `static`, so there are no cross-TU duplicates and
+// NO flag is needed on any platform — dropping it unblocks macOS. Proven by
+// aether's multi_tu_import_link integration test (runs on macOS CI).
+//
+// Kept as a helper (returning "") rather than deleted so the SDK link builders
+// and the cache-key component that reference `dup_flag` stay wired; a later
+// cleanup can inline the empties. See asks (aether):
+// imported-module-fns-not-static-break-macos-link.md.
 _dup_symbol_link_flag() {
-    if _is_macos() == 1 {
-        // ld64 has no equivalent of --allow-multiple-definition.
-        // Empty string here; builds with genuine duplicate symbols
-        // will fail to link on macOS until the upstream Aether
-        // compiler stops emitting them. See TODO.md for tracking.
-        return ""
-    }
-    return "-Wl,--allow-multiple-definition"
+    return ""
 }
 
 // Environment variable name used by the dynamic linker to locate

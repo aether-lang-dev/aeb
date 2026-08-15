@@ -565,10 +565,9 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
             ae_objs = string.concat(ae_objs, " ")
             ae_objs = string.concat(ae_objs, gen_o)
         }
-        // Aether codegen emits imported-module functions into every
-        // translation unit, so multi-file Aether builds have the same
-        // symbol defined many times. The dup-symbol linker flag (GNU
-        // ld --allow-multiple-definition) lets the link dedupe.
+        // Duplicate-symbol flag — empty since aether 0.538.0 clones imported
+        // functions per TU as `static` (no cross-TU duplicates). Kept via the
+        // helper so this stays consistent with the other link sites.
         dup = build._dup_symbol_link_flag()
         aether_link = " -L${ldir} -laether -lpthread -lm ${dup}"
     }

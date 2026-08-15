@@ -2878,31 +2878,40 @@ builder driver_test(ctx: ptr) {
         }
     }
 
-    // The middle of the chain is the driver invocation. Wrap the
-    // bin_path in double-quotes so spaces in the path survive.
-    // shared_libs from upstream Rust cdylib deps still work — we
-    // prepend the dyld env var the same way program_test does.
+    // The middle of the chain is the driver invocation. Compose an env prefix
+    // (each `VAR="value" `) that precedes the quoted bin_path, so multiple env
+    // vars coexist — the old code built the DYLD case by OVERWRITING exec_cmd,
+    // which cannot carry a second var.
     shared_libs = _collect_shared_libs(ctx)
     ld_path = _collect_ld_path(shared_libs)
-    exec_cmd = string.concat("\"", bin_path)
-    exec_cmd = string.concat(exec_cmd, "\"")
+    env_prefix = ""
+    // Rust cdylib deps: prepend the platform dyld var (same as program_test).
     if string.length(ld_path) > 0 {
         dyld_var = build._dyld_env_var()
-        // `<DYLD_VAR>="${ld_path}" "<bin_path>"`
-        exec_cmd = string.concat(dyld_var, "=\"")
-        exec_cmd = string.concat(exec_cmd, ld_path)
-        exec_cmd = string.concat(exec_cmd, "\" \"")
-        exec_cmd = string.concat(exec_cmd, bin_path)
-        exec_cmd = string.concat(exec_cmd, "\"")
+        env_prefix = string.concat(env_prefix, string.concat(dyld_var, string.concat("=\"", string.concat(ld_path, "\" "))))
     }
+    // std.spec report transport (aeocha sunset): AE_SPEC_FORMAT=aeocha +
+    // AE_SPEC_REPORT=<file> makes a std.spec `run_summary()` child write the
+    // same version=1 aeocha-v1 report aeb already parses — but to a FILE, which
+    // the old contrib.aeocha wrote via the IPC pipe. We read the file back
+    // after the wait if the pipe drained empty. Backward-compatible: old-aeocha
+    // children still answer on the pipe (file never read); hand-rolled drivers
+    // write neither and keep the exit-code fallback. The file lives in the
+    // module's target dir so it is native-form on Windows and cleaned with it.
+    spec_report = path.join(build._get(ctx, "target_dir"), "_spec_report.txt")
+    _srm = build._sh(string.concat("rm -f \"", string.concat(spec_report, "\"")))
+    env_prefix = string.concat(env_prefix, "AE_SPEC_FORMAT=aeocha ")
+    env_prefix = string.concat(env_prefix, string.concat("AE_SPEC_REPORT=\"", string.concat(spec_report, "\" ")))
+    exec_cmd = string.concat(env_prefix, string.concat("\"", string.concat(bin_path, "\"")))
 
     // Spawn via os.run_pipe_drain_and_wait so the child sees an
     // inherited fd at AETHER_IPC_FD. If the driver uses
     // contrib.aeocha, run_summary will write a structured per-it()
     // report back through the channel; aeb parses the header for
-    // real (P/F/E) granularity. Drivers that don't write to the
-    // channel (hand-rolled exit-code-only) produce an empty
-    // report and we fall back to mapping exit code → 0/1.
+    // real (P/F/E) granularity. A std.spec child instead writes the
+    // report to AE_SPEC_REPORT (read below). Drivers that write
+    // neither (hand-rolled exit-code-only) fall back to mapping exit
+    // code → 0/1.
     println("${mod_dir}: running Aether driver")
     prog, argv = build._exec_chain_argv(pre_cmds, exec_cmd, post_cmds)
     report, rc, run_err = os.run_pipe_drain_and_wait(prog, argv, null)
@@ -2914,6 +2923,16 @@ builder driver_test(ctx: ptr) {
         build._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: driver spawn error: ${run_err}")
         return 1
+    }
+
+    // std.spec children report via the file, not the pipe: if the pipe drained
+    // empty, read AE_SPEC_REPORT. Same parser (the format is a versioned
+    // contract — aether docs/testing.md).
+    if string.length(string.trim(report)) == 0 {
+        if file.exists(spec_report) == 1 {
+            fraw, _frerr = io.read_file(spec_report)
+            report = fraw
+        }
     }
 
     passed, failed, errored, failed_names, has_report = build._parse_aeocha_report(report)

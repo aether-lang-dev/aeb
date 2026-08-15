@@ -157,7 +157,10 @@ main() {
     // local). Build a fresh fixture importing only stdlib + contrib.
     _sh("rm -rf '${base}/stdonly'; mkdir -p '${base}/stdonly'")
     stdentry = "${base}/stdonly/main.ae"
-    _sh("printf 'import std.string\\nimport std.os\\nimport contrib.aeocha\\nmain() {}\\n' > '${stdentry}'")
+    // A contrib.* import (any) proves the regen scanner skips contrib.* as
+    // non-project-local. Uses contrib.parsers rather than the sunset
+    // contrib.aeocha; this is a text scan, so the module need not resolve.
+    _sh("printf 'import std.string\\nimport std.os\\nimport contrib.parsers\\nmain() {}\\n' > '${stdentry}'")
     bm3 = map.new()
     _expand_transitive_regens(bm3, "${base}/stdonly", stdentry)
     _assert("std.* / contrib.* are not added to regen",

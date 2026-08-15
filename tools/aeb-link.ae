@@ -932,12 +932,16 @@ main() {
     }
     cc = string.concat(cc, " -o ")
     cc = string.concat(cc, out_bin)
-    // Duplicate-symbol tolerance: GNU ld accepts --allow-multiple-definition
-    // to silently dedupe imported module functions that the Aether compiler
-    // currently emits into every translation unit. Apple's ld64 rejects the
-    // flag outright, so on macOS we omit it entirely. Programs with genuine
-    // duplicate symbols will still fail to link on macOS; the permanent fix
-    // is upstream in the Aether compiler (see TODO.md).
+    // No duplicate-symbol flag: as of aether 0.538.0 (pinned) the compiler
+    // clones each imported-module function per TU as `static`, so N objects no
+    // longer define one external symbol. The old `-Wl,--allow-multiple-definition`
+    // was GNU-ld-only — Apple's ld64 rejects it — so carrying it also gated
+    // macOS off (a full multi-node build could not link there). With the
+    // upstream fix the flag is unnecessary on EVERY platform, and dropping it
+    // unblocks macOS. Proven by aether's own multi_tu_import_link integration
+    // test (4 TUs → 4 objects → 1 link, no dedup flags, runs) which runs on
+    // every CI platform incl. macOS. See asks (aether):
+    // imported-module-fns-not-static-break-macos-link.md.
     // libaether.a unconditionally references zlib/openssl symbols
     // when the Aether toolchain was built with them detected. Pull
     // the link flags from pkg-config; no-op when libs absent.
@@ -965,17 +969,12 @@ main() {
     // toolchain resolves them transitively, so this stays Windows-only.
     winsysdeps = ""
     if _is_windows_link() == 1 { winsysdeps = " -lbcrypt -lws2_32 -lssl -lcrypto -lz" }
-    if _is_macos_link() == 1 {
-        cc = string.concat(cc, " -pthread -lm")
-        cc = string.concat(cc, sysdeps)
-        cc = string.concat(cc, winsysdeps)
-        cc = string.concat(cc, " 2>&1")
-    } else {
-        cc = string.concat(cc, " -pthread -lm")
-        cc = string.concat(cc, sysdeps)
-        cc = string.concat(cc, winsysdeps)
-        cc = string.concat(cc, " -Wl,--allow-multiple-definition 2>&1")
-    }
+    // Same link tail on every platform now — no dup-symbol flag, so no macOS
+    // gate. (_is_macos_link is still used elsewhere; only this branch is gone.)
+    cc = string.concat(cc, " -pthread -lm")
+    cc = string.concat(cc, sysdeps)
+    cc = string.concat(cc, winsysdeps)
+    cc = string.concat(cc, " 2>&1")
     _sh_link(cc)
 
     // --noexe (AEB_NOEXE=1): stop here. The orchestrator binary (out_bin) is

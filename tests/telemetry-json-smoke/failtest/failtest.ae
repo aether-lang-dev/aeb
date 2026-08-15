@@ -1,27 +1,30 @@
-// Aeocha driver with 3 specs, 1 deliberately failing → 2/3 FAIL.
+// std.spec driver with 3 specs, 1 deliberately failing → 2/3 FAIL.
 //
-// Run under aether.driver_test, aeb spawns this with an IPC back-channel;
-// aeocha.run_summary emits a structured per-it() report the driver parses
-// (build._parse_aeocha_report), so the telemetry JSON records
-// tests: {total:3, passed:2, failed:1} — the granularity the CI daemon
-// wants, not a binary 0/1. Exit code is non-zero (a spec failed).
-import contrib.aeocha
+// Run under aether.driver_test. A std.spec `run_summary()` writes a structured
+// per-it() report to AE_SPEC_REPORT (set by aeb's driver_test spawn), which aeb
+// reads via build._parse_aeocha_report, so the telemetry JSON records
+// tests: {total:3, passed:2, failed:1, errored:0} — the granularity the CI
+// daemon wants, not a binary 0/1. Exit code is non-zero (a spec failed).
+//
+// Migrated off contrib.aeocha (sunset). The modern std.spec API is fw-free in
+// the asserts: spec.assert_eq(actual, expected, msg), not assert_eq(fw, …).
+import std.spec
 
 main() {
-    fw = aeocha.init()
+    fw = spec.init()
 
-    aeocha.describe(fw, "telemetry smoke specs") {
-        aeocha.it("passes first") callback {
-            aeocha.assert_eq(fw, 1 + 1, 2, "math one")
+    spec.describe(fw, "telemetry smoke specs") {
+        spec.it("passes first") callback {
+            spec.assert_eq(1 + 1, 2, "math one")
         }
-        aeocha.it("fails on purpose") callback {
-            aeocha.assert_eq(fw, 1, 2, "intentional failure")
+        spec.it("fails on purpose") callback {
+            spec.assert_eq(1, 2, "intentional failure")
         }
-        aeocha.it("passes last") callback {
-            aeocha.assert_str_eq(fw, "ok", "ok", "string eq")
+        spec.it("passes last") callback {
+            spec.assert_str_eq("ok", "ok", "string eq")
         }
     }
 
-    aeocha.run_summary(fw)
+    spec.run_summary(fw)
     return 0
 }
