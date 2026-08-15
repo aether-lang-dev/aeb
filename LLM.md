@@ -476,12 +476,22 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   `.aeb/lib` symlink, no `--init` registration. Came from
   `asks/sibling-imports-in-build-scripts.md` (mquickjs's two codegen
   scripts sharing one generator engine).
-- **Aether is fixed-arity.** Setters that "want" variadic args
-  (`extra_sources("a", "b", "c")` — won't compile) are repeated
-  single-arg calls (`extra_source("a"); extra_source("b"); ...`).
-  Same for `script(...)`, `regen(...)`, `pre_command(...)`,
-  `link_flag(...)`. Each repeated call appends to a list in the
-  builder map.
+- **Aether is fixed-arity — but NOT no-default-args.** Setters that
+  "want" *variadic* args (`extra_sources("a", "b", "c")` — genuinely
+  variable count — won't compile) are still repeated single-arg calls
+  (`extra_source("a"); extra_source("b"); ...`; same for `script(...)`,
+  `regen(...)`, `pre_command(...)`, `link_flag(...)`; each appends to a
+  list in the builder map). **The overstatement to retire:** a function
+  CAN take an OPTIONAL trailing argument via a default value, and it
+  resolves correctly through **UFCS method-call chaining** — verified
+  and now shipped in aether #1576/0.543 (`std.spec`'s fluent matchers
+  gained an optional `msg`: `expect_int(x).to_equal(y, "why it matters")`
+  with the no-msg form byte-identical). So "add an optional param" is a
+  real alternative to a doubled `*_variant` or a breaking required-arg
+  sweep — the trade-off #1576 chose. aeb itself doesn't use the fluent
+  surface (never has), but SDK-setter design here previously cited
+  fixed-arity to justify never adding optional args; that justification
+  is gone. Genuine variable-COUNT still needs the repeat-call idiom.
 - **`_builder` is magic, only in scope inside `builder { ... }`
   bodies.** Plain helpers can't see it. Pass through as
   `builder_map: ptr` parameter from the call site. See
@@ -663,10 +673,13 @@ these are absolute, but skipping them tends to produce regrets.
    build DAG doesn't have, and it buys an override silently changing a
    derived value somewhere unrelated. See
    `asks/merge-with-bias-and-config-override.md`.
-3. **Single-arg-per-call setters.** Aether is fixed-arity. Sketches
-   like `fn("name", port: 9540, timeout: 1500)` don't compile.
-   Land them as `fn("name"); fn_port("name", 9540); fn_timeout(...)`
-   or similar split-setter shapes.
+3. **Single-arg-per-call setters.** A multi-field keyword sketch like
+   `fn("name", port: 9540, timeout: 1500)` still doesn't compile — land
+   it as `fn("name"); fn_port("name", 9540); fn_timeout(...)` or similar
+   split-setter shapes. But note the "fixed-arity" caveat above: a
+   single OPTIONAL trailing arg with a default DOES work (and resolves
+   through UFCS chaining, aether #1576), so a one-off optional need not
+   become a whole second setter.
 4. **Pure command-string builders.** Every command that gets
    `os.system`'d should be assembled by a pure helper that takes
    inputs and returns a string, with the actual exec done by the
