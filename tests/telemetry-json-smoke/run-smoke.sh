@@ -116,8 +116,8 @@ if f.get("status") == "fail" and f.get("rc") == 1:
 else:
     bad(f"failtest: expected fail/rc1, got {f.get('status')!r}/rc={f.get('rc')!r}")
 t = f.get("tests")
-if t == {"total": 3, "passed": 2, "failed": 1, "errored": 0}:
-    ok("failtest: tests {total:3, passed:2, failed:1} (aeocha granularity preserved)")
+if t == {"total": 3, "passed": 2, "failed": 1, "skipped": 0, "errored": 0}:
+    ok("failtest: tests {total:3, passed:2, failed:1, skipped:0} (per-it granularity preserved)")
 else:
     bad(f"failtest: expected 2/3 granularity, got {t!r}")
 

@@ -267,7 +267,7 @@ main() {
     list.add(json_records, json_test)
     os.setenv("AEB_VERSION", "aeb test-version")
     os.setenv("AEB_SINCE_REF", "main")
-    expected_json = "{\"version\":1,\"aeb_version\":\"aeb test-version\",\"since_ref\":\"main\",\"targets\":[{\"label\":\"ae/quote\\\"slash\\\\\",\"type\":\"compile\",\"status\":\"cache-hit\",\"duration_ms\":12,\"cache\":\"hit\",\"rc\":0,\"tests\":null},{\"label\":\"ae/wc\",\"type\":\"test\",\"status\":\"fail\",\"duration_ms\":3400,\"cache\":\"n/a\",\"rc\":1,\"tests\":{\"total\":3,\"passed\":2,\"failed\":1,\"errored\":0}}],\"summary\":{\"built\":2,\"failed\":1,\"skipped\":0,\"duration_ms\":3412}}"
+    expected_json = "{\"version\":1,\"aeb_version\":\"aeb test-version\",\"since_ref\":\"main\",\"targets\":[{\"label\":\"ae/quote\\\"slash\\\\\",\"type\":\"compile\",\"status\":\"cache-hit\",\"duration_ms\":12,\"cache\":\"hit\",\"rc\":0,\"tests\":null},{\"label\":\"ae/wc\",\"type\":\"test\",\"status\":\"fail\",\"duration_ms\":3400,\"cache\":\"n/a\",\"rc\":1,\"tests\":{\"total\":3,\"passed\":2,\"failed\":1,\"skipped\":0,\"errored\":0}}],\"summary\":{\"built\":2,\"failed\":1,\"skipped\":0,\"duration_ms\":3412}}"
     _assert_eq("render: telemetry json", render_telemetry_json(json_records, 3412), expected_json)
 
     // Exit-code-mapped test row: has test_passed/test_failed counts BUT
@@ -288,7 +288,7 @@ main() {
         render_telemetry_json(ec_records, 250), expected_ec_json)
     os.setenv("AEB_SINCE_REF", "main")
 
-    expected_tests_json = "{\"tests\":[{\"label\":\"test:ae/wc\",\"wall_ms\":3400,\"cache\":\"n/a\",\"has_results\":true,\"passed\":2,\"failed\":1,\"verdict\":\"FAIL\",\"failed_names\":\"bad \\\"case\\\"\\tnope\\nnext\\\\case\"}]}"
+    expected_tests_json = "{\"tests\":[{\"label\":\"test:ae/wc\",\"wall_ms\":3400,\"cache\":\"n/a\",\"has_results\":true,\"passed\":2,\"failed\":1,\"skipped\":0,\"verdict\":\"FAIL\",\"failed_names\":\"bad \\\"case\\\"\\tnope\\nnext\\\\case\"}]}"
     _assert_eq("render: tests json", render_tests_json(json_records), expected_tests_json)
 
     println("telemetry render tests done")

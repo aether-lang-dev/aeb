@@ -2931,7 +2931,7 @@ builder driver_test(ctx: ptr) {
         report = fraw
     }
 
-    passed, failed, errored, failed_names, has_report = build._parse_aeocha_report(report)
+    passed, failed, errored, skipped, failed_names, has_report = build._parse_aeocha_report(report)
     if has_report == 0 {
         // No structured report — fall back to exit-code mapping
         // (preserves behaviour for hand-rolled drivers that just
@@ -2943,14 +2943,15 @@ builder driver_test(ctx: ptr) {
             passed = 0
             failed = 1
         }
+        skipped = 0
     }
 
     total_failed = failed + errored
-    // A genuine aeocha report → real per-it counts (tests: {…}); no
-    // report → exit-code-mapped 1/0 (tests: null, rc only). Mirrors the
-    // for_ci_use.md granularity split.
+    // A genuine report → real per-it counts (tests: {…}, incl. skipped from the
+    // std.spec 0.545 skip verbs); no report → exit-code-mapped 1/0 (tests: null,
+    // rc only). Mirrors the for_ci_use.md granularity split.
     if has_report == 1 {
-        build._record_test_result(ctx, passed, total_failed)
+        build._record_test_result_skips(ctx, passed, total_failed, skipped)
     } else {
         build._record_test_result_exitcode(ctx, passed, total_failed)
     }

@@ -148,10 +148,11 @@ main() {
         // pass/fail markers (via a *_test SDK verb) gets the row whatever its
         // filename; one that didn't leaves _thr=0 and renders the plain line.
         // No "type == test" inference.
-        println("    _tp, _tf, _thr = build._read_test_result(_td)")
+        println("    _tp, _tf, _tsk, _thr = build._read_test_result(_td)")
         println("    if _thr == 1 {")
         println("        map.put(_rec, \"test_passed\", string.from_int(_tp))")
         println("        map.put(_rec, \"test_failed\", string.from_int(_tf))")
+        println("        map.put(_rec, \"test_skipped\", string.from_int(_tsk))")
         println("        map.put(_rec, \"test_has_report\", string.from_int(build._read_test_report_flag(_td)))")
         println("    }")
         println("    _tfn = build._read_test_failures(_td)")

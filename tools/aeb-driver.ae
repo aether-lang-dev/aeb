@@ -723,10 +723,11 @@ main() {
         // Test results are gated on the MARKER EXISTING, not on the type name —
         // any node whose build wrote pass/fail markers (via *_test SDK verbs)
         // gets the row, whatever its filename. No "type == test" inference.
-        tp, tf, thr = build._read_test_result(td)
+        tp, tf, tsk, thr = build._read_test_result(td)
         if thr == 1 {
             _rp = map.put(rec, "test_passed", string.from_int(tp))
             _rf = map.put(rec, "test_failed", string.from_int(tf))
+            _rsk = map.put(rec, "test_skipped", string.from_int(tsk))
             _rhr = map.put(rec, "test_has_report", string.from_int(build._read_test_report_flag(td)))
             if tf > 0 { node_failed = 1 }
             tfn = build._read_test_failures(td)

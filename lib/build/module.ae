@@ -2264,38 +2264,54 @@ _dir_nonempty(d: string) {
 //     failed=M
 //
 // "Failed" is the lowest common denominator across test runners —
-// anything not-passed (errors, skipped-but-required, timeouts)
-// counts as failed for v1. Future expansion can add lines
-// (errors=K, skipped=K) without breaking older readers.
+// anything not-passed (errors, timeouts) counts as failed for v1.
+// `skipped` (std.spec 0.545 skip verbs) is now carried separately when a
+// runner reports it — see _record_test_result_skips; the plain 3-arg form
+// records skipped=0.
 //
 // SDKs that don't (yet) call this leave the marker absent; the
 // orchestrator treats absence as "no results" rather than "0/0".
 _record_test_result(ctx: ptr, passed: int, failed: int) {
     // Default: these are genuine per-test counts from a runner that
-    // reported them (junit5, pytest, aeocha report, …). report=1.
-    _record_test_result_r(ctx, passed, failed, 1)
+    // reported them (junit5, pytest, std.spec report, …). report=1,
+    // skipped=0 (this arity carries no skip signal).
+    _record_test_result_r(ctx, passed, failed, 0, 1)
+}
+
+// _record_test_result_skips(ctx, passed, failed, skipped) — like
+// _record_test_result but also carries a reported skipped count (std.spec
+// 0.545 skip verbs, #1610). driver_test uses this when its aeocha-v1 report
+// has a `skipped=` header line. Separate verb rather than a 4th arg on the
+// public API so the ~69 existing SDK call sites of _record_test_result stay
+// untouched.
+_record_test_result_skips(ctx: ptr, passed: int, failed: int, skipped: int) {
+    _record_test_result_r(ctx, passed, failed, skipped, 1)
 }
 
 // _record_test_result_exitcode(ctx, passed, failed) — the counts were
 // SYNTHESISED from a process exit code (0 → 1/0 PASS, non-0 → 0/1 FAIL),
 // not reported by a test runner with real per-test granularity. Callers:
-// aether.program_test and the aeocha-less driver_test fallback. Records
+// aether.program_test and the report-less driver_test fallback. Records
 // report=0 so the telemetry JSON emits `tests: null` for these rows
 // (they carry only rc), per the for_ci_use.md granularity split.
 _record_test_result_exitcode(ctx: ptr, passed: int, failed: int) {
-    _record_test_result_r(ctx, passed, failed, 0)
+    _record_test_result_r(ctx, passed, failed, 0, 0)
 }
 
-// Shared writer. `has_report` distinguishes genuine per-test counts
-// (1) from exit-code-synthesised ones (0); persisted as a `report=`
-// line the orchestrator reads back.
-_record_test_result_r(ctx: ptr, passed: int, failed: int, has_report: int) {
+// Shared writer. `skipped` is the reported skip count (0 when none / not
+// reported); `has_report` distinguishes genuine per-test counts (1) from
+// exit-code-synthesised ones (0). Both persisted as key=value lines the
+// orchestrator reads back. `skipped=` is additive — an older reader that
+// doesn't know the key ignores it.
+_record_test_result_r(ctx: ptr, passed: int, failed: int, skipped: int, has_report: int) {
     td = _get(ctx, "target_dir")
     _mkdirs(td)
     p = path.join(td, ".aeb_test_result")
     body = string.concat("passed=", string.from_int(passed))
     body = string.concat(body, "\nfailed=")
     body = string.concat(body, string.from_int(failed))
+    body = string.concat(body, "\nskipped=")
+    body = string.concat(body, string.from_int(skipped))
     body = string.concat(body, "\nreport=")
     body = string.concat(body, string.from_int(has_report))
     body = string.concat(body, "\n")
@@ -2304,18 +2320,21 @@ _record_test_result_r(ctx: ptr, passed: int, failed: int, has_report: int) {
 
 // _read_test_result(target_dir) — orchestrator-side read of the
 // marker written by _record_test_result. Returns
-// (passed, failed, has_results) where has_results=0 when the
+// (passed, failed, skipped, has_results) where has_results=0 when the
 // marker is absent (target wasn't a test, or its SDK doesn't
-// participate yet).
+// participate yet). `skipped` is 0 for a marker written before the
+// skip-count support (the key is simply absent) or a runner that
+// reports none.
 _read_test_result(target_dir: string) {
     p = path.join(target_dir, ".aeb_test_result")
     if fs.exists(p) == 0 {
-        return 0, 0, 0
+        return 0, 0, 0, 0
     }
     content, _err = fs.read(p)
-    if string.length(content) == 0 { return 0, 0, 0 }
+    if string.length(content) == 0 { return 0, 0, 0, 0 }
     passed = 0
     failed = 0
+    skipped = 0
     rest = content
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
@@ -2334,9 +2353,10 @@ _read_test_result(target_dir: string) {
             value, _verr = string.to_int(string.trim(value_str))
             if string.equals(key, "passed") == 1 { passed = value }
             if string.equals(key, "failed") == 1 { failed = value }
+            if string.equals(key, "skipped") == 1 { skipped = value }
         }
     }
-    return passed, failed, 1
+    return passed, failed, skipped, 1
 }
 
 // _read_test_report_flag(target_dir) — read just the `report=` line
@@ -2876,12 +2896,13 @@ _drain_pending_fixtures(b: ptr, builder_map: ptr) {
     return 0
 }
 
-// _parse_aeocha_report(text) — pull (passed, failed, errored,
-// failed_names, has_report) out of the structured report Aeocha
-// writes through the IPC back-channel.
+// _parse_aeocha_report(text) — pull (passed, failed, errored, skipped,
+// failed_names, has_report) out of the aeocha-v1 structured report a std.spec
+// run_summary() writes to AE_SPEC_REPORT.
 //
-// Returns (0, 0, 0, "", 0) when input is empty or unrecognisable;
-// (P, F, E, NAMES, 1) when a v1 header parsed cleanly. NAMES is a
+// Returns (0, 0, 0, 0, "", 0) when input is empty or unrecognisable;
+// (P, F, E, S, NAMES, 1) when a v1 header parsed cleanly. S is the skipped
+// count (std.spec 0.545 skip verbs; 0 for older reports). NAMES is a
 // newline-joined string of failed-test names (one per line), or ""
 // if no failures or rows are absent (e.g. Aeocha's header-only
 // truncation fallback under buffer pressure). Each name carries
@@ -2907,7 +2928,7 @@ _drain_pending_fixtures(b: ptr, builder_map: ptr) {
 _parse_aeocha_report(text: string) {
     n = string.length(text)
     if n == 0 {
-        return 0, 0, 0, "", 0
+        return 0, 0, 0, 0, "", 0
     }
     // Find the header/rows separator. Without it we don't have a
     // valid report — bail. We don't insist on a trailing newline
@@ -2931,6 +2952,7 @@ _parse_aeocha_report(text: string) {
     passed = 0
     failed = 0
     errored = 0
+    skipped = 0
     saw_version = 0
     rest = header
     while string.length(rest) > 0 {
@@ -2954,6 +2976,10 @@ _parse_aeocha_report(text: string) {
                 if string.equals(key, "passed") == 1   { passed = value }
                 if string.equals(key, "failed") == 1   { failed = value }
                 if string.equals(key, "errored") == 1  { errored = value }
+                // skipped= is a std.spec 0.545 header line (skip verbs, #1610);
+                // a skipped it() is in neither passed nor failed. Older reports
+                // omit it → stays 0, backward-compatible.
+                if string.equals(key, "skipped") == 1  { skipped = value }
                 if string.equals(key, "version") == 1  { saw_version = 1 }
             }
         }
@@ -2962,12 +2988,14 @@ _parse_aeocha_report(text: string) {
         // No "version=" line means this isn't a v1 report.
         // Conservative: treat as no report so callers fall back
         // to exit-code mapping rather than acting on garbage.
-        return 0, 0, 0, "", 0
+        return 0, 0, 0, 0, "", 0
     }
 
     // Walk rows, picking out FAIL / ERROR entries. Each row is
     // tab-separated: STATUS\tINDEX\t"NAME"\tDURATION[\tMESSAGE].
-    // We only need NAME (and MESSAGE if present) from non-PASS rows.
+    // We collect a name only from a genuine failure row — NOT PASS and NOT
+    // SKIP (std.spec 0.545 skip verbs). Before skip existed, "not PASS" meant
+    // FAIL/ERROR; a SKIP row must not be reported as a failed test name.
     failed_names = ""
     rest = rows_text
     while string.length(rest) > 0 {
@@ -2985,7 +3013,10 @@ _parse_aeocha_report(text: string) {
             t1 = string.index_of(line, "\t")
             if t1 > 0 {
                 status = string.substring(line, 0, t1)
-                if string.equals(status, "PASS") == 0 {
+                is_failure = 1
+                if string.equals(status, "PASS") == 1 { is_failure = 0 }
+                if string.equals(status, "SKIP") == 1 { is_failure = 0 }
+                if is_failure == 1 {
                     // Non-PASS row — extract name and optional message.
                     after_status = string.substring(line, t1 + 1, string.length(line))
                     t2 = string.index_of(after_status, "\t")
@@ -3035,7 +3066,7 @@ _parse_aeocha_report(text: string) {
             }
         }
     }
-    return passed, failed, errored, failed_names, 1
+    return passed, failed, errored, skipped, failed_names, 1
 }
 
 // _label_to_target_dir(root, module_dir) — invert the label →
@@ -3353,15 +3384,21 @@ _record_json(rec: ptr) {
         if has_report == 1 {
             tp, _ = map.get(rec, "test_passed")
             tf, _ = map.get(rec, "test_failed")
+            tsk = "0"
+            if map.has(rec, "test_skipped") == 1 { tsk, _ = map.get(rec, "test_skipped") }
             total_i, _ = string.to_int(tp)
             failed_i, _ = string.to_int(tf)
             total_i = total_i + failed_i
+            // total = passed + failed (matches the std.spec aeocha-v1 contract;
+            // a skipped it() is in neither). `skipped` is a sibling field.
             out = string.concat(out, ",\"tests\":{\"total\":")
             out = string.concat(out, string.from_int(total_i))
             out = string.concat(out, ",\"passed\":")
             out = string.concat(out, tp)
             out = string.concat(out, ",\"failed\":")
             out = string.concat(out, tf)
+            out = string.concat(out, ",\"skipped\":")
+            out = string.concat(out, tsk)
             out = string.concat(out, ",\"errored\":0}")
         } else {
             out = string.concat(out, ",\"tests\":null")
@@ -3486,6 +3523,10 @@ render_tests_json(records: ptr) {
             out = string.concat(out, passed)
             out = string.concat(out, ",\"failed\":")
             out = string.concat(out, failed)
+            skipped_s = "0"
+            if map.has(rec, "test_skipped") == 1 { skipped_s, _ = map.get(rec, "test_skipped") }
+            out = string.concat(out, ",\"skipped\":")
+            out = string.concat(out, skipped_s)
             out = string.concat(out, ",\"verdict\":")
             out = string.concat(out, _json_str(verdict))
             if map.has(rec, "test_failed_names") == 1 {
