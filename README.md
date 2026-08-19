@@ -857,6 +857,14 @@ SDKs check independently). Incremental skips work that's
 clearly redundant on this machine; the cache shares work across
 machines via the remote cache below.
 
+Set **`AEB_NO_CACHE=1`** to force a fresh build: aeb skips the cache
+*read* (every manual-path target rebuilds) but still *writes* the
+result back, so the run repopulates the cache correctly rather than
+leaving a gap — unlike `rm -rf ~/.cache/aeb`, which also evicts every
+unrelated good entry. Use it when the environment changed underneath a
+key aeb can't see through (e.g. a system library swapped at the same
+path).
+
 #### Remote cache (shared, cross-machine)
 
 Point `$AEB_REMOTE_CACHE_URL` at a shared store and `aeb` consults it

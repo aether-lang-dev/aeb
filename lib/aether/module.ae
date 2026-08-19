@@ -661,6 +661,91 @@ _transitive_import_aes(entry: string, roots: ptr) {
     return found
 }
 
+// _link_flag_lib_files(flags, source_dir) — resolve the archives/shared
+// objects a `-L<dir>` / `-l<name>` link_flag run actually points at, so
+// their CONTENT (not just the flag string) can be folded into the cache
+// key. Without this, `link_flag("-L/usr/local/lib/aether")` +
+// `link_flag("-laether")` hashes only the two literal strings; swapping
+// the libaether.a behind that path for a different toolchain vintage
+// leaves the key unchanged and serves a stale, differently-linked binary
+// (asks/cache-key-omits-external-include-and-lib-contents.md — measured
+// as a 0.07s [hit] after a /usr/local 0.545→0.551 upgrade).
+//
+// Two-pass, mirroring how the linker itself reads the flag run:
+//   1. collect every `-L<dir>` search directory (attached form only; the
+//      link line aeb builds always emits `-Ldir`, never `-L dir`), plus
+//      the customary system dirs so a bare `-lfoo` with no `-L` still
+//      resolves. Relative `-L` dirs resolve against source_dir.
+//   2. for each `-l<name>`, probe `lib<name>.a` then `lib<name>.so` in
+//      each search dir, first match wins (static-first, matching a
+//      default link with no -Bdynamic games). A `-l` that resolves to
+//      nothing (a truly system lib like -lm) contributes no file — its
+//      flag string is still in the key via the loop above, so a change
+//      from -lm to -ln still moves the key.
+//
+// Returns a list of absolute file paths (possibly empty). PURE-ish: only
+// reads the filesystem to test existence; hashing is the caller's job so
+// a read error there routes through the caller's miss path.
+_link_flag_lib_files(flags: ptr, source_dir: string) {
+    files = list.new()
+    if flags == null { return files }
+
+    // Pass 1: search dirs.
+    search = list.new()
+    nf = list.size(flags)
+    jf = 0
+    while jf < nf {
+        ff, _ = list.get(flags, jf)
+        jf = jf + 1
+        if string.starts_with(ff, "-L") == 1 {
+            d = string.substring(ff, 2, string.length(ff))
+            if string.length(d) > 0 {
+                if _is_abs_path(d) == 0 {
+                    d = path.join(source_dir, d)
+                }
+                list.add(search, d)
+            }
+        }
+    }
+    // Customary system dirs, appended last (declared -L takes priority).
+    list.add(search, "/usr/local/lib")
+    list.add(search, "/usr/lib")
+    ns = list.size(search)
+
+    // Pass 2: resolve each -l<name> against the search dirs.
+    jf = 0
+    while jf < nf {
+        ff, _ = list.get(flags, jf)
+        jf = jf + 1
+        if string.starts_with(ff, "-l") == 1 {
+            name = string.substring(ff, 2, string.length(ff))
+            if string.length(name) > 0 {
+                si = 0
+                resolved = ""
+                while si < ns {
+                    sd, _ = list.get(search, si)
+                    si = si + 1
+                    if string.length(resolved) == 0 {
+                        cand_a = path.join(sd, string.concat("lib", string.concat(name, ".a")))
+                        if file.exists(cand_a) == 1 {
+                            resolved = cand_a
+                        } else {
+                            cand_so = path.join(sd, string.concat("lib", string.concat(name, ".so")))
+                            if file.exists(cand_so) == 1 {
+                                resolved = cand_so
+                            }
+                        }
+                    }
+                }
+                if string.length(resolved) > 0 {
+                    list.add(files, resolved)
+                }
+            }
+        }
+    }
+    return files
+}
+
 // Compute the cache key for an aether.program manual-path link.
 // Inputs in canonical order; each part length-prefixed via
 // cache.hash_inputs so distinct concatenations can't collide.
@@ -822,6 +907,25 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
                 ff, _ = list.get(flags, jf)
                 list.add(parts, string.concat("flag:", ff))
                 jf = jf + 1
+            }
+
+            // ...and the CONTENT of the archives those -L/-l flags resolve
+            // to, so a same-path toolchain/library swap busts the key (see
+            // _link_flag_lib_files). Each resolved file: path + content
+            // hash. A read failure here is a cache-miss (uncacheable), same
+            // as every other hashed input in this function.
+            lib_files = _link_flag_lib_files(flags, source_dir)
+            nlf = list.size(lib_files)
+            lfi = 0
+            while lfi < nlf {
+                lff, _ = list.get(lib_files, lfi)
+                lfi = lfi + 1
+                lfh, lfe = cache.hash_file(lff)
+                if string.length(lfe) > 0 {
+                    return "", lfe
+                }
+                list.add(parts, string.concat("linklib:", lff))
+                list.add(parts, string.concat("linklib-hash:", lfh))
             }
         }
 
@@ -2099,6 +2203,18 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // because the build has not run yet. `[miss]` has to mean "rebuilt",
     // so the authoritative write is the one at the end.
     // (asks/fanout-reports-miss-but-skips-rebuild.md)
+    // AEB_NO_CACHE escape hatch. An operator who KNOWS the environment
+    // changed underneath a content-addressed key aeb couldn't see (a
+    // /usr/local library swapped at the same path — the exact hole this
+    // cache-key work closes, but also any future one) forces a fresh
+    // build without `rm -rf`ing the whole CAS, which would evict every
+    // unrelated good entry too. We skip only the READ: the key is still
+    // computed and the result still WRITTEN below, so this rebuild
+    // repopulates the entry correctly rather than leaving a gap.
+    // Any non-empty value enables it (AEB_NO_CACHE=1 is the documented
+    // spelling). (asks/cache-key-omits-external-include-and-lib-contents.md)
+    no_cache = string.length(os.getenv("AEB_NO_CACHE")) > 0
+
     cache_key = ""
     if cache.available() == 1 {
         ck, kerr = _cache_key_for_aether_link(builder_map, source_dir, src_path, lib_dir, dup_flag, shared_libs)
@@ -2107,7 +2223,10 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
             // mkdir parent so cache.get's atomic write has somewhere to land.
             bin_parent = path.dirname(bin_path)
             build._mkdirs(bin_parent)
-            grc = cache.get(cache_key, bin_path)
+            grc = "miss"
+            if no_cache == 0 {
+                grc = cache.get(cache_key, bin_path)
+            }
             if string.length(grc) == 0 {
                 build._sh("chmod +x ${bin_path}")
                 println("${mod_dir}: aether cache hit ${cache_key}")

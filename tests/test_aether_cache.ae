@@ -172,6 +172,53 @@ main() {
     _assert_neq("invalidation: extra_source presence → different key",
                 k1, k_extra1)
 
+    // --- CONTENT behind -L/-l link_flag change → different key -----------
+    // The regression this whole change closes: an external archive named
+    // by `-L<dir>` + `-l<name>` must contribute its CONTENT to the key, not
+    // just the two flag STRINGS. A toolchain/library swapped at the same
+    // path (the /usr/local 0.545→0.551 case) previously left the key
+    // unchanged and served a stale, differently-linked binary.
+    // (asks/cache-key-omits-external-include-and-lib-contents.md)
+    libdir = path.join(tdir, "extlib")
+    os.system("mkdir -p '${libdir}'")
+    arch = path.join(libdir, "libfoo.a")
+    _write(arch, "!<arch>\nvintage-A payload\n")
+    b_ext = _empty_builder()
+    ext_flags, _ = map.get(b_ext, "link_flag")
+    list.add(ext_flags, string.concat("-L", libdir))
+    list.add(ext_flags, "-lfoo")
+    k_lib_a, _el1 = _cache_key_for_aether_link(b_ext, tdir, src,
+                                               "/lib/aether",
+                                               "-Wl,--allow-multiple-definition",
+                                               "")
+    _assert_nonempty("linklib: resolves archive, key non-empty", k_lib_a)
+    // Swap the archive content at the SAME path — the flag strings are
+    // byte-identical, so only content-hashing can move the key.
+    _write(arch, "!<arch>\nvintage-B different payload\n")
+    k_lib_b, _el2 = _cache_key_for_aether_link(b_ext, tdir, src,
+                                               "/lib/aether",
+                                               "-Wl,--allow-multiple-definition",
+                                               "")
+    _assert_neq("invalidation: -l archive content change → different key",
+                k_lib_a, k_lib_b)
+    // Restore → key restored (content-addressed, not path-addressed).
+    _write(arch, "!<arch>\nvintage-A payload\n")
+    k_lib_a2, _el3 = _cache_key_for_aether_link(b_ext, tdir, src,
+                                                "/lib/aether",
+                                                "-Wl,--allow-multiple-definition",
+                                                "")
+    _assert_eq("content-addressed: restored -l archive → key restored",
+               k_lib_a, k_lib_a2)
+    // A -l that resolves to no file (system lib) must not error — the flag
+    // string still discriminates it.
+    b_sys = _builder_with_flag("-lm")
+    k_sys, e_sys = _cache_key_for_aether_link(b_sys, tdir, src,
+                                              "/lib/aether",
+                                              "-Wl,--allow-multiple-definition",
+                                              "")
+    _assert_eq("unresolved -l (system lib) does not error", e_sys, "")
+    _assert_nonempty("unresolved -l still yields a key", k_sys)
+
     // --- missing src returns error, empty key ---
     bad_src = path.join(tdir, "nonexistent.ae")
     k_bad, e_bad = _cache_key_for_aether_link(b1, tdir, bad_src,
