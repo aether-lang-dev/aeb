@@ -256,6 +256,25 @@ link_flag(_ctx: ptr, flag: string) {
     _e2 = list.add(flags, flag)
 }
 
+// target(triple) — cross-compile this program for a foreign target via
+// `ae build --target=<triple>` (aether's bundled zig-cc / emcc cross
+// backend). Recognised triples are aether's: aarch64-linux, x86_64-macos,
+// x86_64-windows, …-freebsd, wasm (Emscripten .js+.wasm), and wasm32-wasi
+// (a self-contained .wasm — aether #1655). Last call wins.
+//
+// Cross builds go through the `ae build` SHELL-OUT path, never the manual
+// local-gcc link (which can only target the host): declaring target()
+// alongside extra_source()/link_flag()/include_dir()/regen() is rejected
+// at build time, because those opt into the host-only manual path. A cross
+// program that needs extra C wants aether.csrc + a downstream c.program
+// cross build instead.
+//
+// Staleness on this path is `ae build`'s own incremental cache (aeb reports
+// [n/a]); the triple is part of the `ae build` command, so ae keys on it.
+target(_ctx: ptr, triple: string) {
+    _e1 = map.put(_ctx, "target", triple)
+}
+
 // include_dir(dir) — add a `-I` include directory for the gcc compile
 // of this program's C inputs (extra_source files, and the entry's
 // generated .c). Relative paths resolve against source_dir at link
@@ -1390,6 +1409,13 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
         }
     }
 
+    // Cross-compile triple (target()). "" for a host build. Threaded into
+    // both the local and container-delegated `ae build` command lines below,
+    // right after "build" like emit_flags/cov_flag. ae keys its own
+    // incremental cache on the triple, so no aeb cache-key change is needed
+    // (this path already reports [n/a]).
+    tgt_flag = _target_flag(builder_map)
+
     // Thread the orchestrator's module search path (AEB_COMPILE_LIB, set by
     // tools/aeb-link as <aeb_lib>:<repo_root>) onto this `ae build` as repeated
     // `--lib` flags. Without it, a program that imports an SDK module from lib/
@@ -1423,7 +1449,7 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
         // NB: lib_flags carry host paths; inside the container they're rewritten
         // root/… → /work/… so the SDK lib resolves at the bind-mounted location.
         wlibs = _rewrite_under_root(lib_flags, root, "/work")
-        args = "build${cov_flag}${emit_flags} ${wsrc} -o ${wbin}${wlibs}"
+        args = "build${cov_flag}${tgt_flag}${emit_flags} ${wsrc} -o ${wbin}${wlibs}"
         cmd = _ae_build_cmd_delegated(args, root, container_image, wsrcdir)
         rc = build._sh(cmd)
         if rc != 0 {
@@ -1444,7 +1470,7 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     // first target to actually need this was hosttinygo (link_flags = "-lffi"
     // for the libffi-using tinygo bridge); the other bridges had empty tomls.
     // (source_dir read at the top of this fn.)
-    cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag}${emit_flags} ${src_path} -o ${bin_path}${lib_flags}"
+    cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag}${tgt_flag}${emit_flags} ${src_path} -o ${bin_path}${lib_flags}"
     rc = build._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: ae build failed")
@@ -2486,6 +2512,23 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
 // them with -L/-l + -Wl,-rpath. c_path is only consumed by the
 // manual path (the intermediate .c aetherc emits).
 _build_binary(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, c_path: string) {
+    // Cross-compile (target()) forces the `ae build` shell-out: only ae's
+    // bundled zig-cc/emcc backend can target a foreign triple. The manual
+    // local-gcc path (_compile_and_link) links for the host only, so a
+    // target() that ALSO carried manual overrides would silently produce a
+    // host binary. Reject that combination up front rather than mislead.
+    tgt = _node_target(builder_map)
+    if string.length(tgt) > 0 {
+        if _has_manual_overrides(builder_map) == 1 {
+            build.fail(ctx, "aether.program: target() cross-compiles via `ae build` and cannot be combined with extra_source/link_flag/include_dir/regen (host-only manual link) — use aether.csrc + a c.program cross build for hand-linked C")
+            return 1
+        }
+        if string.length(_collect_shared_libs(ctx)) > 0 {
+            build.fail(ctx, "aether.program: target() cross-compiles via `ae build` and cannot consume cross-language shared-lib deps (they are host artifacts)")
+            return 1
+        }
+        return _shell_out_ae_build(ctx, builder_map, src_path, bin_path, "")
+    }
     if _has_manual_overrides(builder_map) == 1 {
         return _compile_and_link(ctx, builder_map, src_path, bin_path, c_path)
     }
@@ -2493,6 +2536,39 @@ _build_binary(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, c_
         return _compile_and_link(ctx, builder_map, src_path, bin_path, c_path)
     }
     return _shell_out_ae_build(ctx, builder_map, src_path, bin_path, "")
+}
+
+// _node_target(builder_map) — the declared cross triple, or "" for a
+// host build. Pure map read.
+_node_target(builder_map: ptr) {
+    if builder_map == null { return "" }
+    if map.has(builder_map, "target") == 0 { return "" }
+    t, _ = map.get(builder_map, "target")
+    return t
+}
+
+// _target_flag(builder_map) — the " --target=<triple>" fragment for the
+// `ae build` command (leading space, spliced after "build"), or "" for a
+// host build. Pure.
+_target_flag(builder_map: ptr) {
+    t = _node_target(builder_map)
+    if string.length(t) == 0 { return "" }
+    return string.concat(" --target=", t)
+}
+
+// _program_out_suffix(builder_map) — output-file extension for the built
+// binary. Host build → _exe_suffix() (".exe" on Windows, else ""). A
+// cross target() overrides that with the TARGET's convention, not the
+// host's: any wasm triple → ".wasm" (both `wasm` emcc — which also emits a
+// sidecar .js — and `wasm32-wasi`), a cross *-windows triple → ".exe".
+// Everything else (linux/macos/freebsd cross) → "" like the host default.
+// Pure string work.
+_program_out_suffix(builder_map: ptr) {
+    t = _node_target(builder_map)
+    if string.length(t) == 0 { return build._exe_suffix() }
+    if string.index_of(t, "wasm") >= 0 { return ".wasm" }
+    if string.index_of(t, "windows") >= 0 { return ".exe" }
+    return ""
 }
 
 _default_source_name(ctx: ptr) {
@@ -2630,7 +2706,7 @@ builder program(ctx: ptr) {
             out_name, _ = map.get(_builder, "output")
         }
     }
-    bin_path = path.join(bin_dir, string.concat(out_name, build._exe_suffix()))
+    bin_path = path.join(bin_dir, string.concat(out_name, _program_out_suffix(_builder)))
     c_path = path.join(target_dir, string.concat(out_name, ".c"))
 
     // Compile phase — skipped under --execute-only (the binary was already
