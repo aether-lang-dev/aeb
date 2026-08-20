@@ -488,6 +488,9 @@ builder scalac_test(ctx: ptr) {
             }
             println("${mod_dir}: running ${main_cls}")
             run_cmd = "'${rjava}'${jflags} -cp '${run_cp}' ${main_cls}"
+            // Honour env(K,V) on the run (e.g. HTMLSANITIZER_LIB for a uFFI/JNI
+            // binding). Empty when no env() set — byte-identical otherwise.
+            run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
             rrc = build._sh(run_cmd)
             if rrc != 0 {
                 println("${mod_dir}: ${main_cls} reported failures")

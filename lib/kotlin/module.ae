@@ -620,6 +620,12 @@ builder kotlin_test(ctx: ptr, test_class: string) {
         }
     }
     run_cmd = string.concat(run_cmd, " -cp ${classpath} ${test_class}")
+    // Honour env(K,V) on the run: prepend the `export K='V' && ` chain so a
+    // native lib path (e.g. HTMLSANITIZER_LIB the uFFI/JNI binding reads) or any
+    // other declared env actually reaches the JVM. Empty when no env() was set,
+    // so this is byte-identical for callers that don't inject. (Previously env()
+    // was silently accepted and ignored on the JVM run builders.)
+    run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
     exit_code = build._sh(run_cmd)
     if exit_code != 0 {
         build._record_test_result(ctx, 0, 1)
