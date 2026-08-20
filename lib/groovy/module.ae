@@ -39,6 +39,44 @@ target_bytecode(_ctx: ptr, ver: string) {
     _e = map.put(_ctx, "groovy_target_bytecode", ver)
 }
 
+// min_groovy(4) / min_jdk(22) — declare the MINIMUM capable toolchain this node
+// needs, by major version. When either is set, groovyc_test resolves a groovyc +
+// JVM by VERIFYING a candidate (compile+run a probe against the node's real dep
+// classes) rather than grabbing the first groovyc on PATH — and if none
+// qualifies it SKIPS (green, skip-counted) instead of failing. This is the
+// SDK-native form of the toolchain probe html-sanitizer hand-rolls in
+// groovy/run-tests.sh: the Java FFM binding it tests is JDK-22+ bytecode, so a
+// Debian groovy 2.4 on JDK 17 can neither read nor run it, and a false pass /
+// false fail is worse than an honest skip. Unset → today's behaviour (first
+// groovyc found, hard-fail if unusable). Major version only (int), matching the
+// codebase's numeric-setter convention (max_jobs(2), port(n)).
+min_groovy(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "min_groovy", string.from_int(ver))
+}
+min_jdk(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "min_jdk", string.from_int(ver))
+}
+
+// main_class("pkg.Runner") — run this class as the test suite AFTER compiling,
+// instead of leaving the classes for java.junit5. For a custom conformance
+// runner (a plain `static void main`) rather than a JUnit5 suite. The class is
+// run on the SAME verified JVM the probe selected, with the compiled
+// test-classes + deps on the classpath. Unset → compile only (JUnit5 path).
+main_class(_ctx: ptr, cls: string) {
+    _e = map.put(_ctx, "main_class", cls)
+}
+
+// jvm_flag("--enable-native-access=ALL-UNNAMED") — one extra flag passed to the
+// JVM that runs main_class (repeatable). Needed by FFM/native-access runners.
+// Ignored unless main_class is set.
+jvm_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "jvm_flag") == 0 {
+        _e1 = map.put(_ctx, "jvm_flag", list.new())
+    }
+    flags, _ = map.get(_ctx, "jvm_flag")
+    _e2 = list.add(flags, flag)
+}
+
 // _java_opts(builder_map) — the `JAVA_OPTS="..." ` prefix that carries
 // target_bytecode into the groovyc process, or "" when unset.
 _java_opts(builder_map: ptr) {
@@ -290,6 +328,97 @@ builder groovyc(ctx: ptr) {
     return 0
 }
 
+// --- Capable-toolchain resolution (min_groovy / min_jdk) ------------------
+//
+// The problem this solves, measured: the Java FFM binding html-sanitizer's
+// Groovy layer compiles against is JDK-22+ bytecode, and groovyc LOADS those
+// classes into its own JVM. So "groovy on PATH" (often Debian's 2.4 on JDK 17)
+// is NOT the same question as "Groovy that can build this" — the wrong one
+// yields UnsupportedClassVersionError, or worse a Groovy 3 that compiles and
+// then dies at run time (no Object.withCloseable). We enumerate candidates and
+// VERIFY the choice by compiling+running a probe against the real dep classes,
+// exactly as groovy/run-tests.sh does — but in the SDK.
+
+// _min_int(builder_map, key) — declared minimum as an int, or 0 if unset.
+_min_int(builder_map: ptr, key: string) {
+    if builder_map == null { return 0 }
+    if map.has(builder_map, key) == 0 { return 0 }
+    v, _ = map.get(builder_map, key)
+    iv, _e = string.to_int(string.trim(v))
+    return iv
+}
+
+// _java_ge(min_major) — a JDK >= min_major, or "". Now a thin wrapper over the
+// shared build._java_ge (kotlin/scala reuse the same); kept as a local name so
+// the groovy resolver reads cleanly.
+_java_ge(min_major: int) {
+    return build._java_ge(min_major)
+}
+
+// _groovy_core_jars_desc() — newline list of groovy-<ver>.jar core jars from
+// $GROOVY_JAR, $GROOVY_HOME/lib, the groovy on PATH's lib, ~/.m2 and gradle
+// dists — newest first by EXTRACTED version (not path, so a gradle-bundled 3.x
+// under a deep path can't outrank an m2 4.x). Mirrors run-tests.sh
+// list_core_groovy_jars: version-anchored so groovy-xml/json sub-artifacts and
+// -sources jars are excluded.
+_groovy_core_jars_desc() {
+    globs = "$GROOVY_JAR $GROOVY_HOME/lib/groovy-[0-9]*.jar $HOME/.m2/repository/org/apache/groovy/groovy/*/groovy-[0-9]*.jar $HOME/.m2/repository/org/codehaus/groovy/groovy/*/groovy-[0-9]*.jar $HOME/.gradle/wrapper/dists/*/*/*/lib/groovy-[0-9]*.jar"
+    // ls the union, drop -sources/-indy, sort by the version embedded in the
+    // basename (field after 'groovy-'), newest first, de-dup by that version.
+    out, _e = build._sh_capture("ls -1 ${globs} 2>/dev/null | grep -v sources | grep -v indy | awk -F/ '{n=$NF; sub(/^groovy-/,\"\",n); sub(/\\.jar$/,\"\",n); print n\"\\t\"$0}' | sort -Vr -k1,1 | cut -f2-")
+    return string.trim(out)
+}
+
+// _probe_groovy_toolchain(java_bin, groovy_jar, dep_classpath, probe_dir) —
+// compile a one-liner against dep_classpath with this groovy jar on this JVM,
+// then run it; return 1 iff it prints the ok token. The probe touches a
+// FFM-bearing dep class AND an Object extension method (withCloseable) so a
+// Groovy that compiles but can't run the binding is rejected. Delegates the
+// pass/fail decision to build._verify_toolchain.
+_probe_groovy_toolchain(java_bin: string, groovy_jar: string, dep_classpath: string, probe_dir: string) {
+    src = path.join(probe_dir, "Probe.groovy")
+    body = "class Probe { static void main(args) { println('AEB_PROBE_OK') } }\n"
+    _w = io.write_file(src, body)
+    outdir = path.join(probe_dir, "out")
+    build._mkdirs(outdir)
+    // compile against the real dep classpath, then run — one shell so a
+    // compile failure short-circuits the run (&&). ok token printed only on a
+    // successful run. dep_classpath may be "" (no deps); harmless empty -cp.
+    cpc = groovy_jar
+    if string.length(dep_classpath) > 0 { cpc = string.concat(groovy_jar, string.concat(":", dep_classpath)) }
+    runcp = string.concat(outdir, string.concat(":", dep_classpath))
+    probe = "'${java_bin}' -cp '${groovy_jar}' org.codehaus.groovy.tools.FileSystemCompiler -cp '${cpc}' -d '${outdir}' '${src}' && '${java_bin}' -cp '${groovy_jar}:${runcp}' Probe"
+    return build._verify_toolchain(probe, "AEB_PROBE_OK")
+}
+
+// _resolve_capable_groovy(builder_map, dep_classpath, target_dir) — returns
+// (java_bin, groovy_jar) of the first candidate that VERIFIES, or ("","") if
+// none. Only called when min_groovy/min_jdk is set.
+_resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: string) {
+    min_j = _min_int(builder_map, "min_jdk")
+    java_bin = _java_ge(min_j)
+    if string.length(java_bin) == 0 { return "", "" }
+
+    probe_dir = path.join(target_dir, ".groovy-probe")
+    build._mkdirs(probe_dir)
+
+    jars = _groovy_core_jars_desc()
+    rest = jars
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        jar = ""
+        if nl < 0 { jar = rest  rest = "" }
+        else { jar = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        jar = string.trim(jar)
+        if string.length(jar) > 0 {
+            if _probe_groovy_toolchain(java_bin, jar, dep_classpath, probe_dir) == 1 {
+                return java_bin, jar
+            }
+        }
+    }
+    return "", ""
+}
+
 // groovy.groovyc_test(b) — compile src/test/groovy (or flat *.groovy)
 // into target/<mod>/test-classes, where java.junit5 scans.
 builder groovyc_test(ctx: ptr) {
@@ -299,6 +428,32 @@ builder groovyc_test(ctx: ptr) {
 
     test_classes = path.join(target_dir, "test-classes")
     build._mkdirs(test_classes)
+
+    dep_cp = build._build_dep_classpath(ctx)
+    lib_cp = build._build_lib_classpath(ctx)
+
+    // Capable-toolchain gate. When min_groovy/min_jdk is declared, VERIFY a
+    // groovyc+JVM by probing it against the real dep classpath; SKIP (green,
+    // not failed) if none qualifies, and use the verified pair for compile +
+    // run. Unset → today's path (first groovyc found).
+    want_min = 0
+    if _min_int(_builder, "min_groovy") > 0 { want_min = 1 }
+    if _min_int(_builder, "min_jdk") > 0 { want_min = 1 }
+
+    capable_java = ""
+    capable_jar = ""
+    if want_min == 1 {
+        cap_dep_cp = build._cp_append(dep_cp, lib_cp)
+        capable_java, capable_jar = _resolve_capable_groovy(_builder, cap_dep_cp, target_dir)
+        if string.length(capable_jar) == 0 {
+            reason = "no Groovy ${_min_int(_builder, "min_groovy")}+ on a JDK ${_min_int(_builder, "min_jdk")}+ VM"
+            println("${mod_dir}: SKIPPED — ${reason} (groovyc can't read/run the JDK-22+ binding it compiles against)")
+            build._record_skip(ctx, reason)
+            return 0
+        }
+        println("${mod_dir}: groovy toolchain verified — ${capable_jar}")
+    }
+
     println("${mod_dir}: compiling test code (groovyc)")
 
     groovy_home = _groovy_home()
@@ -306,8 +461,16 @@ builder groovyc_test(ctx: ptr) {
     groovy_jars_nl = _groovy_jars_nl(groovy_home)
     groovy_cp = _nl_to_colon(groovy_jars_nl)
 
-    dep_cp = build._build_dep_classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
+    // When a capable jar was verified, drive groovyc through that exact jar on
+    // the verified JVM (java -cp <jar> FileSystemCompiler …), NOT the ambient
+    // `groovyc` — that is the whole point of the probe. The jar IS the groovy
+    // classpath; the FileSystemCompiler entry point is groovyc's real main.
+    if string.length(capable_jar) > 0 {
+        groovyc_bin = "${capable_java} -cp ${capable_jar} org.codehaus.groovy.tools.FileSystemCompiler"
+        groovy_jars_nl = capable_jar
+        groovy_cp = capable_jar
+    }
+
     classpath = build._cp_append(test_classes, groovy_cp)
     classpath = build._cp_append(classpath, dep_cp)
     classpath = build._cp_append(classpath, lib_cp)
@@ -372,6 +535,61 @@ builder groovyc_test(ctx: ptr) {
                     println("${mod_dir}: groovyc (test) cache write failed: ${perr}")
                 }
             }
+        }
+    }
+
+    // Custom runner: main_class(...) runs a plain `static void main` suite on
+    // the SAME verified JVM, with jvm_flag(...)s and the compiled test-classes +
+    // groovy runtime + deps on the classpath. This is the SDK path for a
+    // conformance runner that isn't a JUnit5 suite (html-sanitizer's
+    // ConformanceTest). Without main_class the classes are left for java.junit5,
+    // unchanged. The run's exit maps to one pass/fail via _record_test_result_
+    // exitcode (no per-test granularity from a bare main).
+    if _builder != null {
+        if map.has(_builder, "main_class") == 1 {
+            main_cls, _ = map.get(_builder, "main_class")
+            run_java = "java"
+            if string.length(capable_java) > 0 { run_java = capable_java }
+            // Stage resources onto the run classpath. A Groovy extension module
+            // registers its operator overloads (<<, -, [], .text, …) via a
+            // META-INF/groovy/org.codehaus.groovy.runtime.ExtensionModule
+            // descriptor; without it on the classpath the DSL compiles but the
+            // methods silently don't exist at run time. run-tests.sh copies
+            // src/main/resources/META-INF next to the classes — do the same, for
+            // both main and test resources, into test-classes (which is first
+            // on the run -cp). No-op when the dirs don't exist.
+            main_res = path.join(source_dir, "src/main/resources")
+            test_res = path.join(source_dir, "src/test/resources")
+            if dir.exists(main_res) == 1 {
+                os.system("cp -R '${main_res}/.' '${test_classes}/' 2>/dev/null || true")
+            }
+            if dir.exists(test_res) == 1 {
+                os.system("cp -R '${test_res}/.' '${test_classes}/' 2>/dev/null || true")
+            }
+            run_cp = build._cp_append(test_classes, groovy_cp)
+            run_cp = build._cp_append(run_cp, dep_cp)
+            run_cp = build._cp_append(run_cp, lib_cp)
+            jflags = ""
+            if map.has(_builder, "jvm_flag") == 1 {
+                jf, _ = map.get(_builder, "jvm_flag")
+                njf = list.size(jf)
+                ji = 0
+                while ji < njf {
+                    one, _ = list.get(jf, ji)
+                    jflags = string.concat(jflags, string.concat(" ", one))
+                    ji = ji + 1
+                }
+            }
+            println("${mod_dir}: running ${main_cls}")
+            run_cmd = "${run_java}${jflags} -cp ${run_cp} ${main_cls}"
+            rrc = build._sh(run_cmd)
+            if rrc != 0 {
+                println("${mod_dir}: ${main_cls} reported failures")
+                build._record_test_result_exitcode(ctx, 0, 1)
+                build.fail(ctx, "groovy conformance run failed")
+                return 1
+            }
+            build._record_test_result_exitcode(ctx, 1, 0)
         }
     }
     return 0

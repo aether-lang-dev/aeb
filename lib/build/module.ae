@@ -2288,6 +2288,101 @@ _record_test_result_skips(ctx: ptr, passed: int, failed: int, skipped: int) {
     _record_test_result_r(ctx, passed, failed, skipped, 1)
 }
 
+// _record_skip(ctx, reason) — mark this NODE as skipped (not failed) because a
+// prerequisite it needs is absent — most commonly a capable toolchain (a
+// Groovy 4 on a JDK 22, a specific JDK, …). Writes a test-result marker with
+// passed=0 failed=0 skipped=1 and records the cache outcome "n/a", then the
+// caller returns 0. The driver reads that marker: node_failed only trips on
+// failed>0, so a skipped node shows GREEN with a skip count in telemetry
+// rather than red — the honest outcome for "there was nothing here I could
+// run". `reason` is printed for the human; the builder should println it too.
+//
+// This is the SDK-native replacement for the exit-77 "toolchain absent = SKIP"
+// convention hand-rolled in shell test scripts (e.g. html-sanitizer's
+// groovy/run-tests.sh). A node that shells out and maps rc 77 -> skip can
+// instead let its SDK builder call this and return 0.
+_record_skip(ctx: ptr, reason: string) {
+    _record_test_result_r(ctx, 0, 0, 1, 1)
+    _record_cache(ctx, "n/a")
+}
+
+// _verify_toolchain(probe_cmd, ok_token) — run a caller-supplied probe command
+// and decide whether the toolchain it exercises is actually USABLE, not merely
+// present. Returns 1 iff the probe's combined output CONTAINS ok_token AND
+// carries no bytecode-version-mismatch marker; 0 otherwise.
+//
+// Why a stdout success token, not an exit code: os.exec does not surface the
+// child's exit status (a `false` returns err="" the same as a `true`), so the
+// probe must PRINT a sentinel on the success path (e.g. `println("probe-ok")`
+// as the last statement) and pass that string as ok_token. This mirrors
+// run-tests.sh's `grep -q 'probe-ok'` — the shell had exit codes, we don't, so
+// the token IS the signal. A probe that fails to compile or dies at run time
+// never reaches the println, so the token is absent and this returns 0.
+//
+// The version-marker check separates "present" from "usable" defensively: a
+// Groovy too old to read a dependency's JDK-22+ class files prints
+// `UnsupportedClassVersionError` / `class file version NN.0`, and on some paths
+// still limps far enough to emit the token — reject it explicitly. The probe
+// itself is the SDK's business (it should both COMPILE against the real
+// dependency classes AND run, so a toolchain that compiles but dies at run time
+// — Groovy 3 has no Object.withCloseable — is rejected via the missing token).
+// This helper just standardises the decision so every JVM SDK judges a
+// candidate the same way. `2>&1` is folded in so stderr markers are visible.
+// Pure w.r.t. aeb state; forks one subprocess.
+_verify_toolchain(probe_cmd: string, ok_token: string) {
+    out, _err = _sh_capture(string.concat(probe_cmd, " 2>&1"))
+    if string.index_of(out, "UnsupportedClassVersionError") >= 0 { return 0 }
+    if string.index_of(out, "class file version") >= 0 { return 0 }
+    if string.index_of(out, ok_token) >= 0 { return 1 }
+    return 0
+}
+
+// _java_ge(min_major) — absolute path to a `java` whose
+// java.specification.version >= min_major, or "" if none is installed. Probes
+// $JAVA_HOME, the side-by-side JDKs under /usr/lib/jvm (newest major first),
+// then the `java` on PATH. Shared by every JVM SDK whose RUN step needs a
+// specific JDK (the FFM bindings html-sanitizer tests are JDK-22+, so a suite
+// run on an older ambient `java` fails at run time) — a "" return is the signal
+// to build._record_skip. Mirrors the `find_run_java` the html-sanitizer shell
+// scripts hand-roll. min_major <= 0 means "no requirement" → "" (caller uses
+// its default `java`).
+//
+// Version extraction uses awk, not sed: a sed script with backslash escapes
+// (\.  \(  \1) does not survive the Aether-string -> _sh_capture -> shell path
+// intact and comes back empty. awk with a plain field split is escape-free.
+_java_ge(min_major: int) {
+    if min_major <= 0 { return "" }
+    cands = list.new()
+    jh = os.getenv("JAVA_HOME")
+    if string.length(jh) > 0 { list.add(cands, path.join(jh, "bin/java")) }
+    listing, _e = _sh_capture("ls -1d /usr/lib/jvm/java-*/bin/java 2>/dev/null | sort -Vr")
+    rest = string.trim(listing)
+    line = ""
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        if nl < 0 { line = rest  rest = "" }
+        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        line = string.trim(line)
+        if string.length(line) > 0 { list.add(cands, line) }
+    }
+    pathj, _pe = _sh_capture("command -v java 2>/dev/null")
+    pj = string.trim(pathj)
+    if string.length(pj) > 0 { list.add(cands, pj) }
+
+    n = list.size(cands)
+    i = 0
+    while i < n {
+        c, _ = list.get(cands, i)
+        i = i + 1
+        if file.exists(c) == 1 {
+            vraw, _ve = _sh_capture("'${c}' -XshowSettings:properties -version 2>&1 | awk -F'= ' '/java.specification.version/{print $2; exit}'")
+            v, _pe2 = string.to_int(string.trim(vraw))
+            if v >= min_major { return c }
+        }
+    }
+    return ""
+}
+
 // _record_test_result_exitcode(ctx, passed, failed) — the counts were
 // SYNTHESISED from a process exit code (0 → 1/0 PASS, non-0 → 0/1 FAIL),
 // not reported by a test runner with real per-test granularity. Callers:

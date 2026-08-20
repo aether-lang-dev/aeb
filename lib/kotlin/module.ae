@@ -30,6 +30,15 @@ source_layout(_ctx: ptr, layout: string) {
     _e = map.put(_ctx, "source_layout", layout)
 }
 
+// min_jdk(22) — the test RUN needs a JDK at least this major. kotlin_test then
+// runs on a JDK >= this and SKIPs (green, not failed) if none is installed,
+// rather than running on an older ambient `java` that fails the FFM binding at
+// run time. Unset → ambient `java` (today's behaviour). (Only the RUN JVM is
+// gated; kotlinc's own version is a separate concern handled by _kotlin_home.)
+min_jdk(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "kotlin_min_jdk", string.from_int(ver))
+}
+
 
 compiler_plugin(_ctx: ptr, path: string) {
     if map.has(_ctx, "compiler_plugin") == 1 {
@@ -549,8 +558,31 @@ builder kotlin_test(ctx: ptr, test_class: string) {
     classpath = build._cp_append(classpath, dep_cp)
     classpath = build._cp_append(classpath, lib_cp)
 
+    // min_jdk gate: run on a JDK >= the declared minimum, SKIP (green) if none.
+    // The FFM binding these suites exercise is JDK-22+; an older ambient `java`
+    // fails at run time, which a false pass would hide.
+    run_java_bin = "java"
+    min_jdk_v = 0
+    if _builder != null {
+        if map.has(_builder, "kotlin_min_jdk") == 1 {
+            mjs, _ = map.get(_builder, "kotlin_min_jdk")
+            min_jdk_v, _mje = string.to_int(string.trim(mjs))
+        }
+    }
+    if min_jdk_v > 0 {
+        sel = build._java_ge(min_jdk_v)
+        if string.length(sel) == 0 {
+            reason = "no JDK ${min_jdk_v}+ to run the FFM binding on"
+            println("${mod_dir}: SKIPPED — ${reason}")
+            build._record_skip(ctx, reason)
+            return 0
+        }
+        run_java_bin = sel
+        println("${mod_dir}: JDK verified — ${sel}")
+    }
+
     println("${mod_dir}: running tests")
-    run_cmd = "java -ea"
+    run_cmd = "'${run_java_bin}' -ea"
     if _builder != null {
         if map.has(_builder, "jvm_args") == 1 {
             val, _ = map.get(_builder, "jvm_args")

@@ -1,0 +1,59 @@
+// Unit tests for the groovy capable-toolchain probe + the shared
+// build._verify_toolchain / build._record_skip primitives (the SDK-native
+// replacement for html-sanitizer's groovy/run-tests.sh probe+exit-77).
+//
+// The live selection (_java_ge / _groovy_core_jars_desc / _resolve_capable_
+// groovy) is proven end-to-end against a real box in the change that added it
+// — here we cover the PURE decision logic that has no toolchain dependency:
+//   build._verify_toolchain(probe_cmd, ok_token) — token/version-marker gate
+//   groovy._min_int(builder_map, key)            — declared minimum as int
+
+import build (_verify_toolchain, _java_ge)
+import groovy (_min_int, min_groovy, min_jdk)
+import std.string
+import std.map
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+main() {
+    // --- _verify_toolchain: the ok-token IS the success signal ---
+    // (os.exec doesn't surface exit codes, so a probe must print a sentinel.)
+    _assert("verify: token present -> usable",
+        _verify_toolchain("printf 'AEB_PROBE_OK\\n'", "AEB_PROBE_OK"))
+    _assert("verify: token absent -> not usable (== 0)",
+        1 - _verify_toolchain("printf 'nope\\n'", "AEB_PROBE_OK"))
+    _assert("verify: a failing command prints no token -> not usable",
+        1 - _verify_toolchain("false", "AEB_PROBE_OK"))
+
+    // The version-marker veto: even if the probe limps far enough to emit the
+    // token, a bytecode-version mismatch in the output rejects it. This is the
+    // Groovy-too-old-for-JDK-22-bytecode case.
+    _assert("verify: UnsupportedClassVersionError vetoes despite token",
+        1 - _verify_toolchain("printf 'AEB_PROBE_OK\\nUnsupportedClassVersionError\\n'", "AEB_PROBE_OK"))
+    _assert("verify: 'class file version' marker vetoes despite token",
+        1 - _verify_toolchain("printf 'class file version 68.0\\nAEB_PROBE_OK\\n'", "AEB_PROBE_OK"))
+
+    // --- _min_int: declared minimum read back as an int ---
+    b = map.new()
+    _assert("min_int: unset key -> 0", _min_int(b, "min_jdk") == 0)
+    _assert("min_int: null builder -> 0", _min_int(null, "min_jdk") == 0)
+
+    b2 = map.new()
+    min_jdk(b2, 22)
+    min_groovy(b2, 4)
+    _assert("min_int: reads min_jdk", _min_int(b2, "min_jdk") == 22)
+    _assert("min_int: reads min_groovy", _min_int(b2, "min_groovy") == 4)
+
+    // --- build._java_ge: shared JDK selector (kotlin/scala reuse it) ---
+    // Two box-agnostic invariants: no requirement and unsatisfiable both -> "".
+    // (min_major <= 0 = "caller uses default java"; 999 = "SKIP signal".)
+    _assert("java_ge: 0 -> \"\" (no requirement)", string.length(_java_ge(0)) == 0)
+    _assert("java_ge: 999 -> \"\" (unsatisfiable -> SKIP signal)", string.length(_java_ge(999)) == 0)
+
+    println("groovy toolchain tests done")
+}

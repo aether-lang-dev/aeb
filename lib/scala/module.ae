@@ -28,6 +28,26 @@ main_class(_ctx: ptr, cls: string) {
     _e = map.put(_ctx, "main_class", cls)
 }
 
+// min_jdk(22) — the test RUN needs a JDK at least this major. scalac_test then
+// selects a JDK >= this for compile+run and SKIPs (green, not failed) if none
+// is installed, instead of running on an older ambient `java` that fails the
+// FFM binding at run time. The SDK already resolves a capable Scala 3 compiler
+// via aeb-resolve, so unlike html-sanitizer's scala/run-tests.sh we don't probe
+// scalac — only the JVM matters. Unset → ambient `java`, no skip.
+min_jdk(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "scala_min_jdk", string.from_int(ver))
+}
+
+// jvm_flag("--enable-native-access=ALL-UNNAMED") — one extra flag for the JVM
+// that runs main_class (repeatable). Needed by FFM/native-access runners.
+jvm_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "jvm_flag") == 0 {
+        _e1 = map.put(_ctx, "jvm_flag", list.new())
+    }
+    flags, _ = map.get(_ctx, "jvm_flag")
+    _e2 = list.add(flags, flag)
+}
+
 // output_jar("app-assembly.jar") — name of the fat jar produced by
 // `scala.assembly(b)`. Resolved against `target/<mod>/bin/`. Default
 // when unset: `<source_dir_basename>-assembly.jar`. Scalar.
@@ -316,6 +336,29 @@ builder scalac_test(ctx: ptr) {
     test_classes = path.join(target_dir, "test-classes")
     build._mkdirs(test_classes)
 
+    // min_jdk gate: select a JDK >= the declared minimum for compile+run; SKIP
+    // (green) if none is installed. The FFM binding these suites exercise is
+    // JDK-22+; an older ambient `java` fails at RUN time, which a false pass
+    // would hide. Unset → "" → ambient `java` (today's behaviour).
+    run_java = ""
+    min_jdk_v = 0
+    if _builder != null {
+        if map.has(_builder, "scala_min_jdk") == 1 {
+            mjs, _ = map.get(_builder, "scala_min_jdk")
+            min_jdk_v, _mje = string.to_int(string.trim(mjs))
+        }
+    }
+    if min_jdk_v > 0 {
+        run_java = build._java_ge(min_jdk_v)
+        if string.length(run_java) == 0 {
+            reason = "no JDK ${min_jdk_v}+ to run the FFM binding on"
+            println("${mod_dir}: SKIPPED — ${reason}")
+            build._record_skip(ctx, reason)
+            return 0
+        }
+        println("${mod_dir}: JDK verified — ${run_java}")
+    }
+
     println("${mod_dir}: compiling test code (scalac)")
 
     // Find test source files
@@ -342,6 +385,11 @@ builder scalac_test(ctx: ptr) {
     cp = build._cp_append(cp, maven_cp)
 
     cmd = scalac_cmd(compiler_cp, test_classes, cp, argfile)
+    // Run scalac (a plain `java -cp … dotc.Main`) on the selected JDK so it
+    // reads the JDK-22+ dependency classes. Rewrite the leading `java ` only.
+    if string.length(run_java) > 0 {
+        cmd = string.concat("'${run_java}' ", string.substring(cmd, 5, string.length(cmd)))
+    }
 
     // Cache check: same shape as the prod path; caches test-classes/.
     cache_key = ""
@@ -393,6 +441,45 @@ builder scalac_test(ctx: ptr) {
                     println("${mod_dir}: scalac (test) cache write failed: ${perr}")
                 }
             }
+        }
+    }
+
+    // Custom runner: main_class(...) runs a `object … { def main }` conformance
+    // suite on the selected JVM (or ambient java), with jvm_flag(...)s and the
+    // scala-library + deps + test-classes on the classpath. The SDK runs the
+    // JVM directly (not the `scala` launcher) so the native-access flag can be
+    // added — which means scala-library MUST be on the run -cp explicitly, or
+    // the `object` won't load. Without main_class the classes are left for a
+    // JUnit-style run, unchanged.
+    if _builder != null {
+        if map.has(_builder, "main_class") == 1 {
+            main_cls, _ = map.get(_builder, "main_class")
+            rjava = "java"
+            if string.length(run_java) > 0 { rjava = run_java }
+            run_cp = build._cp_append(test_classes, library_cp)
+            run_cp = build._cp_append(run_cp, dep_cp)
+            run_cp = build._cp_append(run_cp, maven_cp)
+            jflags = ""
+            if map.has(_builder, "jvm_flag") == 1 {
+                jf, _ = map.get(_builder, "jvm_flag")
+                njf = list.size(jf)
+                ji = 0
+                while ji < njf {
+                    one, _ = list.get(jf, ji)
+                    jflags = string.concat(jflags, string.concat(" ", one))
+                    ji = ji + 1
+                }
+            }
+            println("${mod_dir}: running ${main_cls}")
+            run_cmd = "'${rjava}'${jflags} -cp '${run_cp}' ${main_cls}"
+            rrc = build._sh(run_cmd)
+            if rrc != 0 {
+                println("${mod_dir}: ${main_cls} reported failures")
+                build._record_test_result_exitcode(ctx, 0, 1)
+                build.fail(ctx, "scala conformance run failed")
+                return 1
+            }
+            build._record_test_result_exitcode(ctx, 1, 0)
         }
     }
 
