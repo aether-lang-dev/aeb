@@ -360,7 +360,12 @@ builder kotlinc(ctx: ptr) {
             build.fail(ctx, "kotlinc failed")
             return exit_code
         }
-        if string.length(cache_key) > 0 {
+        // Only cache a NON-EMPTY output tree: a compile that exits 0 but emits
+        // no .class files (e.g. nothing matched, or a degenerate classpath)
+        // would otherwise cache an empty tree and later serve it as a "cache
+        // hit" with zero classes — a real trap the html-sanitizer migration hit
+        // (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md note 1).
+        if string.length(cache_key) > 0 && build._dir_nonempty(classes_dir) == 1 {
             tar_path, terr = build._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
@@ -426,6 +431,17 @@ builder kotlinc_test(ctx: ptr) {
     maven_cp = maven.classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
     classpath = build._cp_append(test_classes, stdlib_jar)
+    // The module's OWN prod classes: kotlinc (this leaf's prod builder) emits to
+    // target_dir/classes, which the tests reference. Both builders share one
+    // target_dir, so it's trivially derivable — append it (first-party input, so
+    // ahead of maven/lib) when present. Without it, tests can't resolve the
+    // module's own Kotlin API (unresolved references; and s.allowedTags binds to
+    // the Java field instead of the Kotlin extension property).
+    // (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md)
+    prod_classes = path.join(target_dir, "classes")
+    if dir.exists(prod_classes) == 1 {
+        classpath = build._cp_append(classpath, prod_classes)
+    }
     classpath = build._cp_append(classpath, dep_cp)
     // Test-scope maven deps (junit, mockito, mockk, …) declared via dep() in
     // the .tests.ae. The main kotlinc builder already folds these in; without
@@ -525,7 +541,8 @@ builder kotlinc_test(ctx: ptr) {
             build.fail(ctx, "kotlinc (test) failed")
             return exit_code
         }
-        if string.length(cache_key) > 0 {
+        // Only cache a NON-EMPTY tree (see the prod builder above).
+        if string.length(cache_key) > 0 && build._dir_nonempty(test_classes) == 1 {
             tar_path, terr = build._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)

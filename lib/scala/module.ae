@@ -380,6 +380,14 @@ builder scalac_test(ctx: ptr) {
     maven_cp = maven.classpath(ctx)
 
     cp = test_classes
+    // The module's OWN prod classes (scalac emits to target_dir/classes, shared
+    // with this leaf's prod builder) — a first-party input the tests reference,
+    // so ahead of library/deps. Without it, tests can't resolve the module's own
+    // Scala API. (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md.)
+    scala_prod_classes = path.join(target_dir, "classes")
+    if dir.exists(scala_prod_classes) == 1 {
+        cp = build._cp_append(cp, scala_prod_classes)
+    }
     cp = build._cp_append(cp, library_cp)
     cp = build._cp_append(cp, dep_cp)
     cp = build._cp_append(cp, maven_cp)

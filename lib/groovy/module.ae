@@ -472,6 +472,14 @@ builder groovyc_test(ctx: ptr) {
     }
 
     classpath = build._cp_append(test_classes, groovy_cp)
+    // The module's OWN prod classes (groovyc emits to target_dir/classes, shared
+    // with this leaf's prod builder) — a first-party input the tests reference,
+    // so ahead of deps. Without it, tests can't resolve the module's own API.
+    // (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md — same shape.)
+    groovy_prod_classes = path.join(target_dir, "classes")
+    if dir.exists(groovy_prod_classes) == 1 {
+        classpath = build._cp_append(classpath, groovy_prod_classes)
+    }
     classpath = build._cp_append(classpath, dep_cp)
     classpath = build._cp_append(classpath, lib_cp)
 
