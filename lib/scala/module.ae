@@ -290,7 +290,7 @@ builder scalac(ctx: ptr) {
             build.fail(ctx, "scalac failed")
             return exit_code
         }
-        if string.length(cache_key) > 0 {
+        if string.length(cache_key) > 0 && build._dir_nonempty(classes_dir) == 1 {
             tar_path, terr = build._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
@@ -440,7 +440,7 @@ builder scalac_test(ctx: ptr) {
             build.fail(ctx, "scalac (test) failed")
             return exit_code
         }
-        if string.length(cache_key) > 0 {
+        if string.length(cache_key) > 0 && build._dir_nonempty(test_classes) == 1 {
             tar_path, terr = build._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
@@ -465,6 +465,14 @@ builder scalac_test(ctx: ptr) {
             rjava = "java"
             if string.length(run_java) > 0 { rjava = run_java }
             run_cp = build._cp_append(test_classes, library_cp)
+            // The module's own prod classes on the RUN cp (see the compile-side
+            // fix; scala runs main_class in-builder with a SECOND classpath, so
+            // that fix doesn't carry here). No-op for a test-only leaf.
+            // (asks/jvm-run-builders-omit-own-prod-classes-from-run-classpath.md)
+            scala_run_prod = path.join(target_dir, "classes")
+            if dir.exists(scala_run_prod) == 1 {
+                run_cp = build._cp_append(run_cp, scala_run_prod)
+            }
             run_cp = build._cp_append(run_cp, dep_cp)
             run_cp = build._cp_append(run_cp, maven_cp)
             jflags = ""

@@ -307,7 +307,9 @@ builder groovyc(ctx: ptr) {
             build.fail(ctx, "groovyc failed")
             return rc
         }
-        if string.length(cache_key) > 0 {
+        // Only cache a non-empty output tree (an exit-0-but-empty compile would
+        // otherwise be served as a hit with zero .class files).
+        if string.length(cache_key) > 0 && build._dir_nonempty(classes_dir) == 1 {
             tar_path, terr = build._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
@@ -534,7 +536,7 @@ builder groovyc_test(ctx: ptr) {
             build.fail(ctx, "groovyc (test) failed")
             return rc
         }
-        if string.length(cache_key) > 0 {
+        if string.length(cache_key) > 0 && build._dir_nonempty(test_classes) == 1 {
             tar_path, terr = build._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
@@ -575,6 +577,14 @@ builder groovyc_test(ctx: ptr) {
                 os.system("cp -R '${test_res}/.' '${test_classes}/' 2>/dev/null || true")
             }
             run_cp = build._cp_append(test_classes, groovy_cp)
+            // The module's own prod classes on the RUN cp (see the compile-side
+            // fix; groovy runs main_class in-builder with a SECOND classpath, so
+            // that fix doesn't carry here). No-op for a test-only leaf.
+            // (asks/jvm-run-builders-omit-own-prod-classes-from-run-classpath.md)
+            groovy_run_prod = path.join(target_dir, "classes")
+            if dir.exists(groovy_run_prod) == 1 {
+                run_cp = build._cp_append(run_cp, groovy_run_prod)
+            }
             run_cp = build._cp_append(run_cp, dep_cp)
             run_cp = build._cp_append(run_cp, lib_cp)
             jflags = ""

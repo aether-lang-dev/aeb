@@ -572,6 +572,15 @@ builder kotlin_test(ctx: ptr, test_class: string) {
     stdlib_jar = path.join(kotlin_home, "lib/kotlin-stdlib.jar")
 
     classpath = build._cp_append(test_classes, stdlib_jar)
+    // The module's OWN prod classes on the RUN classpath: the tests compile
+    // against target_dir/classes (5a7f94b) and must also FIND them at run time,
+    // or a test-referenced prod class throws ClassNotFoundException. Guarded by
+    // dir.exists (no-op for a test-only leaf), first-party so ahead of deps.
+    // (asks/jvm-run-builders-omit-own-prod-classes-from-run-classpath.md)
+    prod_classes = path.join(target_dir, "classes")
+    if dir.exists(prod_classes) == 1 {
+        classpath = build._cp_append(classpath, prod_classes)
+    }
     classpath = build._cp_append(classpath, dep_cp)
     classpath = build._cp_append(classpath, lib_cp)
 
