@@ -24,6 +24,8 @@ import std.os
 import std.io
 import std.path
 import std.map
+import std.list
+import std.file
 
 // --- DSL setters ---
 
@@ -34,11 +36,171 @@ escript(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "escript_path", path)
 }
 
+// --- NIF build setters (for erlang.nif) ---
+
+// nif_source("c_src/htmlsanitizer_nif.c") — the C NIF source. Scalar.
+nif_source(_ctx: ptr, src: string) {
+    _e = map.put(_ctx, "erl_nif_source", src)
+}
+
+// erl_source("src/foo.erl") — an Erlang module to erlc (repeatable).
+erl_source(_ctx: ptr, src: string) {
+    if map.has(_ctx, "erl_sources") == 0 { _e1 = map.put(_ctx, "erl_sources", list.new()) }
+    l, _ = map.get(_ctx, "erl_sources")
+    _e2 = list.add(l, src)
+}
+
+// app_src("src/htmlsanitizer_nif.app.src") — the .app.src copied verbatim to
+// ebin/<app>.app (no rebar substitutions). Scalar.
+app_src(_ctx: ptr, src: string) {
+    _e = map.put(_ctx, "erl_app_src", src)
+}
+
+// app_name("htmlsanitizer_nif") — the OTP app dir name under _build/ (default
+// "app"). The artifact is _build/<name>/{ebin,priv}. Scalar.
+app_name(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "erl_app_name", name)
+}
+
+// engine_lib(path) — an engine .so to stage into priv/ (the NIF dlopens it at
+// run time; optional at build time). Scalar.
+engine_lib(_ctx: ptr, lib: string) {
+    _e = map.put(_ctx, "erl_engine_lib", lib)
+}
+
 // --- Pure command builders (tested in tests/test_erlang_cmd.ae) ---
 
 // escript_cmd(source_dir, script) — `cd '<dir>' && escript '<script>'`.
 escript_cmd(source_dir: string, script: string) {
     return "cd '${source_dir}' && escript '${script}'"
+}
+
+// _erts_include() — the erts include dir holding erl_nif.h, asked of the
+// running erl (correct for kerl/asdf/Homebrew/relocated installs, unlike a
+// hardcoded /usr/lib/erlang), with a /usr/include fallback (Debian erlang-dev).
+// Returns "" when erl_nif.h can't be found. Mirrors build.sh.
+_erts_include() {
+    q = "erl -noshell -eval 'io:format(\"~s\", [filename:join([code:root_dir(), \"erts-\" ++ erlang:system_info(version), \"include\"])]), halt(0).'"
+    raw, _e = build._sh_capture(q)
+    inc = string.trim(raw)
+    if string.length(inc) > 0 {
+        if file.exists(path.join(inc, "erl_nif.h")) == 1 { return inc }
+    }
+    if file.exists("/usr/include/erl_nif.h") == 1 { return "/usr/include" }
+    return ""
+}
+
+// erlang.nif(b) — build the canonical BEAM binding: the C NIF + its OTP app
+// layout (ebin/*.beam, ebin/<app>.app, priv/<app>.so). The SDK-native form of
+// html-sanitizer's erlang/build.sh. SKIPs (green) when the erlang toolchain or
+// erl_nif.h is missing.
+//
+// Nuances encoded: (1) the NIF must NOT link the engine (-lhtmlsanitizer would
+// put a DT_NEEDED on it and the BEAM dies in the dynamic linker rather than
+// reporting a clean load error) — it dlopens it, so -ldl (not on macOS);
+// (2) erl_nif.h is found by asking erl, not guessing.
+builder nif(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    // toolchain: erlc + erl + a C compiler, else SKIP.
+    if build._sh("command -v erlc >/dev/null 2>&1") != 0 {
+        reason = "erlc not on PATH (install erlang)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        build._record_skip(ctx, reason)
+        return 0
+    }
+    if build._sh("command -v erl >/dev/null 2>&1") != 0 {
+        reason = "erl not on PATH (install erlang)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        build._record_skip(ctx, reason)
+        return 0
+    }
+    erts_inc = _erts_include()
+    if string.length(erts_inc) == 0 {
+        reason = "erl_nif.h not found (install erlang-dev / erlang-devel)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        build._record_skip(ctx, reason)
+        return 0
+    }
+
+    // resolve setters
+    nif_src = ""
+    app_src_v = ""
+    app_nm = "app"
+    engine = ""
+    if _builder != null {
+        if map.has(_builder, "erl_nif_source") == 1 { nif_src, _ = map.get(_builder, "erl_nif_source") }
+        if map.has(_builder, "erl_app_src") == 1 { app_src_v, _ = map.get(_builder, "erl_app_src") }
+        if map.has(_builder, "erl_app_name") == 1 { app_nm, _ = map.get(_builder, "erl_app_name") }
+        if map.has(_builder, "erl_engine_lib") == 1 { engine, _ = map.get(_builder, "erl_engine_lib") }
+    }
+    if string.length(nif_src) == 0 {
+        build.fail(ctx, "erlang.nif: nif_source(\"...\") is required")
+        return 1
+    }
+
+    app_dir = path.join(path.join(source_dir, "_build"), app_nm)
+    ebin = path.join(app_dir, "ebin")
+    priv = path.join(app_dir, "priv")
+    build._mkdirs(ebin)
+    build._mkdirs(priv)
+
+    cc = build._default_cc()
+    ldl = "-ldl"
+    if build._is_macos() == 1 { ldl = "" }
+
+    // 1. the NIF .so — NO engine lib on the link line (dlopen'd, not linked).
+    println("${mod_dir}: building NIF (${cc})")
+    nif_out = path.join(priv, "${app_nm}.so")
+    nif_cmd = "${cc} -O2 -fPIC -Wall -Wextra -shared -I'${erts_inc}' '${path.join(source_dir, nif_src)}' -o '${nif_out}' ${ldl}"
+    if build._sh(nif_cmd) != 0 {
+        println("${mod_dir}: NIF build failed")
+        build.fail(ctx, "erlang NIF build failed")
+        return 1
+    }
+
+    // 2. erlc the Erlang modules into ebin.
+    esrcs = ""
+    if _builder != null {
+        if map.has(_builder, "erl_sources") == 1 {
+            l, _ = map.get(_builder, "erl_sources")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                s, _ = list.get(l, i)
+                i = i + 1
+                esrcs = string.concat(esrcs, string.concat(" '", string.concat(path.join(source_dir, s), "'")))
+            }
+        }
+    }
+    if string.length(string.trim(esrcs)) > 0 {
+        if build._sh("erlc -o '${ebin}'${esrcs}") != 0 {
+            println("${mod_dir}: erlc failed")
+            build.fail(ctx, "erlc failed")
+            return 1
+        }
+    }
+
+    // 3. the .app file — straight copy of app.src (no rebar substitutions).
+    if string.length(app_src_v) > 0 {
+        appdst = path.join(ebin, "${app_nm}.app")
+        build._sh("cp -f '${path.join(source_dir, app_src_v)}' '${appdst}'")
+    }
+
+    // 4. stage the engine .so beside the NIF so priv/ is self-contained.
+    if string.length(engine) > 0 {
+        if file.exists(engine) == 1 {
+            build._sh("cp -f '${engine}' '${path.join(priv, "libhtmlsanitizer.so")}'")
+        }
+    }
+
+    build._write_artifact(ctx, "erlang_app", app_dir)
+    println("${mod_dir}: built ${app_dir}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }
 
 // --- Builders ---
