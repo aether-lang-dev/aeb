@@ -17,6 +17,145 @@
 // Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
 import build
 import std.string
+import std.os
+import std.file
+import std.map
+import std.list
+import std.path
+import std.io
+
+// --- DSL setters (for pharo.sunit) ---
+
+// baseline("HtmlSanitizer") — the Metacello baseline to load. Scalar, required.
+baseline(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "pharo_baseline", name)
+}
+
+// tonel_dir("src") — the Tonel source directory (relative to source_dir) the
+// baseline loads from. Default "src". Scalar.
+tonel_dir(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "pharo_tonel_dir", dir)
+}
+
+// suite("HtmlSanitizer") — the SUnit suite/category name passed to `test`.
+// Default = the baseline name. Scalar.
+suite(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "pharo_suite", name)
+}
+
+// --- Pharo VM / image discovery ---
+
+// _pharo_bin() — a Pharo VM launcher: `pharo` on PATH, else the usual layout
+// under $PHARO_DIR (default ~/.local/pharo). Returns "" when none. Nothing is
+// downloaded — a runner that installs a VM behind your back is worse than a
+// clear skip.
+_pharo_bin() {
+    p, _e = build._sh_capture("command -v pharo 2>/dev/null")
+    onpath = string.trim(p)
+    if string.length(onpath) > 0 { return onpath }
+    pdir = os.getenv("PHARO_DIR")
+    if string.length(pdir) == 0 { pdir = path.join(os.getenv("HOME"), ".local/pharo") }
+    c1 = path.join(pdir, "pharo")
+    if file.exists(c1) == 1 { return c1 }
+    c2 = path.join(pdir, "pharo-vm/Pharo")
+    if file.exists(c2) == 1 { return c2 }
+    return ""
+}
+
+// _pharo_image() — the first *.image under $PHARO_DIR (or source_dir). "" when
+// none. A VM with no image is a skip, not a failure.
+_pharo_image(source_dir: string) {
+    pdir = os.getenv("PHARO_DIR")
+    if string.length(pdir) == 0 { pdir = path.join(os.getenv("HOME"), ".local/pharo") }
+    raw, _e = build._sh_capture("ls '${pdir}'/*.image '${source_dir}'/*.image 2>/dev/null | head -1")
+    return string.trim(raw)
+}
+
+// pharo.sunit(b) — load a Tonel package into a THROWAWAY copy of a Pharo image
+// via Metacello and run SUnit headless. The SDK-native form of html-sanitizer's
+// pharo/run-tests.sh. Unlike the JVM bindings, Pharo is a real uFFI (not a JVM),
+// so there is no Java classpath — only the engine .so via env(...). SKIPs
+// (green) when no VM or no image is present.
+//
+// Works on a COPY: loading code mutates a Pharo image permanently, so running
+// against the developer's own image would bake this package (and any load
+// failure) into it.
+builder sunit(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    vm = _pharo_bin()
+    if string.length(vm) == 0 {
+        reason = "pharo not installed (no `pharo` on PATH, none under $PHARO_DIR)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        build._record_skip(ctx, reason)
+        return 0
+    }
+    img = _pharo_image(source_dir)
+    if string.length(img) == 0 {
+        reason = "a Pharo VM was found but no .image under $PHARO_DIR"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        build._record_skip(ctx, reason)
+        return 0
+    }
+
+    baseline_v = ""
+    tonel = "src"
+    suite_v = ""
+    if _builder != null {
+        if map.has(_builder, "pharo_baseline") == 1 { baseline_v, _ = map.get(_builder, "pharo_baseline") }
+        if map.has(_builder, "pharo_tonel_dir") == 1 { tonel, _ = map.get(_builder, "pharo_tonel_dir") }
+        if map.has(_builder, "pharo_suite") == 1 { suite_v, _ = map.get(_builder, "pharo_suite") }
+    }
+    if string.length(baseline_v) == 0 {
+        build.fail(ctx, "pharo.sunit: baseline(\"...\") is required")
+        return 1
+    }
+    if string.length(suite_v) == 0 { suite_v = baseline_v }
+
+    // Throwaway work dir (removed on the shell line's own trap). Copy image +
+    // its .changes / .sources companions so the VM boots cleanly.
+    work = path.join(target_dir, "pharo-work")
+    build._sh("rm -rf '${work}' && mkdir -p '${work}'")
+    build._sh("cp '${img}' '${work}/Work.image'")
+    imgbase = string.substring(img, 0, string.length(img) - 6)
+    build._sh("[ -f '${imgbase}.changes' ] && cp '${imgbase}.changes' '${work}/Work.changes' || true")
+    imgdir = path.dirname(img)
+    build._sh("for s in '${imgbase}.sources' '${imgdir}'/*.sources; do [ -f \"$s\" ] && cp \"$s\" '${work}/' 2>/dev/null || true; done")
+
+    // Metacello load script reading Tonel straight from the working tree.
+    tonel_path = path.join(source_dir, tonel)
+    load_st = path.join(work, "load.st")
+    st_body = "[ Metacello new baseline: '${baseline_v}'; repository: 'tonel://${tonel_path}'; load. ] on: Error do: [ :e | Transcript show: 'pharo: load failed: ', e messageText; cr. Smalltalk exitFailure ]. Smalltalk snapshot: true andQuit: true.\n"
+    _w = io.write_file(load_st, st_body)
+
+    // Env (e.g. HTMLSANITIZER_LIB for the uFFI engine .so) rides env(...).
+    envp = build._env_export_prefix(_builder)
+
+    println("${mod_dir}: loading ${baseline_v} into a throwaway Pharo image")
+    // Run from $work so Pharo's PharoDebug.log / *.fuel litter lands there.
+    load_cmd = "${envp}cd '${work}' && '${vm}' --headless '${work}/Work.image' st --quit '${load_st}'"
+    if build._sh(load_cmd) != 0 {
+        println("${mod_dir}: package load failed")
+        build.fail(ctx, "pharo package load failed")
+        return 1
+    }
+
+    println("${mod_dir}: running SUnit (${suite_v})")
+    test_cmd = "${envp}cd '${work}' && '${vm}' --headless '${work}/Work.image' test --junit-xml-output '${suite_v}'"
+    rc = build._sh(test_cmd)
+    if rc != 0 {
+        build._record_test_result_exitcode(ctx, 0, 1)
+        println("${mod_dir}: SUnit reported failures")
+        build.fail(ctx, "pharo SUnit failed")
+        return 1
+    }
+    build._record_test_result_exitcode(ctx, 1, 0)
+    println("${mod_dir}: SUnit PASSED")
+    return 0
+}
 
 // pharo.test(b) — project `./run-tests.sh` by default. Reports pass/fail.
 builder test(ctx: ptr) {
