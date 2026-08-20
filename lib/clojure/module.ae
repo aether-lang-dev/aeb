@@ -22,6 +22,27 @@ main_ns(_ctx: ptr, ns: string) {
     _e = map.put(_ctx, "main_ns", ns)
 }
 
+// min_jdk(22) — the test RUN needs a JDK at least this major. run_main then
+// runs on a JDK >= this and SKIPs (green, not failed) if none is installed.
+// Clojure needs no compile step (clojure.main loads namespaces from source),
+// so — unlike the compiled JVM SDKs — only the JVM floor matters, and the
+// Clojure runtime is discovered (CLI or jars), not probe-compiled. Used by the
+// FFM-binding conformance suite, whose Java classes the runtime must LOAD (22+).
+min_jdk(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "clojure_min_jdk", string.from_int(ver))
+}
+
+// jvm_flag("--enable-native-access=ALL-UNNAMED") — one extra flag for the JVM
+// that runs the namespace (repeatable). Threaded to both the raw-java and the
+// CLI (via JAVA_OPTS) launch paths.
+jvm_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "jvm_flag") == 0 {
+        _e1 = map.put(_ctx, "jvm_flag", list.new())
+    }
+    flags, _ = map.get(_ctx, "jvm_flag")
+    _e2 = list.add(flags, flag)
+}
+
 test_timeout(_ctx: ptr, seconds: string) {
     _e = map.put(_ctx, "test_timeout", seconds)
 }
@@ -342,6 +363,168 @@ builder compile(ctx: ptr) {
 // Run Clojure tests via clojure.test.
 // Discovers *_test.clj files, converts paths to namespace names,
 // requires and runs them.
+// _clojure_runtime_jars() — a classpath of clojure + spec.alpha +
+// core.specs.alpha jars, newest first, from $CLOJURE_JARS then ~/.m2 / gradle
+// caches. Returns "" when the three aren't found together (the runtime won't
+// boot without spec.alpha). Mirrors run-tests.sh candidate #1/#3. The CLI
+// (candidate #2) is handled separately since it supplies its own runtime.
+_clojure_runtime_jars() {
+    env_dir = os.getenv("CLOJURE_JARS")
+    if string.length(env_dir) > 0 {
+        raw, _e = build._sh_capture("ls '${env_dir}'/*.jar 2>/dev/null | tr '\n' ':'")
+        c = string.trim(raw)
+        if string.length(c) > 0 { return c }
+    }
+    // A self-contained system clojure jar (Debian's clojure-1.11.jar bundles
+    // the runtime + spec) — the wrapper resolves to `java -cp <this> clojure.main`,
+    // so pointing our OWN verified `java` at it is cleaner than the wrapper (it
+    // hardcodes its own java and drops jvm flags). Checked before the m2 trio.
+    sys_raw, _es = build._sh_capture("ls /usr/share/java/clojure-*.jar /usr/share/java/clojure.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
+    sys = string.trim(sys_raw)
+    if string.length(sys) > 0 { return sys }
+
+    // clojure-<ver>.jar + its two spec deps, all three or nothing.
+    cj_raw, _e1 = build._sh_capture("ls $HOME/.m2/repository/org/clojure/clojure/*/clojure-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/clojure/*/*/clojure-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
+    cj = string.trim(cj_raw)
+    if string.length(cj) == 0 { return "" }
+    sa_raw, _e2 = build._sh_capture("ls $HOME/.m2/repository/org/clojure/spec.alpha/*/spec.alpha-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/spec.alpha/*/*/spec.alpha-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
+    sa = string.trim(sa_raw)
+    cs_raw, _e3 = build._sh_capture("ls $HOME/.m2/repository/org/clojure/core.specs.alpha/*/core.specs.alpha-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/core.specs.alpha/*/*/core.specs.alpha-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
+    cs = string.trim(cs_raw)
+    if string.length(sa) == 0 { return "" }
+    if string.length(cs) == 0 { return "" }
+    return string.concat(cj, string.concat(":", string.concat(sa, string.concat(":", cs))))
+}
+
+// _clojure_cli() — the `clojure` or `clj` CLI path, or "". It brings its own
+// runtime, so it's the fallback when no jars are found.
+_clojure_cli() {
+    c, _e = build._sh_capture("command -v clojure 2>/dev/null || command -v clj 2>/dev/null")
+    return string.trim(c)
+}
+
+// clojure.run_main(b) — run a Clojure `-main` namespace as a conformance suite,
+// with no AOT (clojure.main loads from source). The SDK-native form of
+// html-sanitizer's clojure/run-tests.sh: a JDK-floor gate + SKIP, Clojure
+// runtime discovery (jars or CLI), and the -m launch with the dep classpath.
+//
+// Setters: main_ns("org.htmlsanitizer.conformance-test") (required),
+// min_jdk(22), jvm_flag("--enable-native-access=ALL-UNNAMED"),
+// source_layout(...) (src/test roots). deps supply the Java-binding classpath.
+builder run_main(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    mns = ""
+    if _builder != null {
+        if map.has(_builder, "main_ns") == 1 { mns, _ = map.get(_builder, "main_ns") }
+    }
+    if string.length(mns) == 0 {
+        build.fail(ctx, "clojure.run_main: main_ns(\"...\") is required")
+        return 1
+    }
+
+    // JDK-floor gate + SKIP.
+    run_java = ""
+    min_jdk_v = 0
+    if _builder != null {
+        if map.has(_builder, "clojure_min_jdk") == 1 {
+            mjs, _ = map.get(_builder, "clojure_min_jdk")
+            min_jdk_v, _mje = string.to_int(string.trim(mjs))
+        }
+    }
+    if min_jdk_v > 0 {
+        run_java = build._java_ge(min_jdk_v)
+        if string.length(run_java) == 0 {
+            reason = "no JDK ${min_jdk_v}+ to run the FFM binding on"
+            println("${mod_dir}: SKIPPED — ${reason}")
+            build._record_skip(ctx, reason)
+            return 0
+        }
+        println("${mod_dir}: JDK verified — ${run_java}")
+    }
+
+    // src + test roots (lein default or maven idiomatic).
+    src_root = path.join(source_dir, "src")
+    test_root = path.join(source_dir, "test")
+    if _builder != null {
+        if map.has(_builder, "source_layout") == 1 {
+            lay, _ = map.get(_builder, "source_layout")
+            if lay == "maven idiomatic" {
+                src_root = path.join(source_dir, "src/main/clojure")
+                test_root = path.join(source_dir, "src/test/clojure")
+            }
+        }
+    }
+    dep_cp = build._build_dep_classpath(ctx)
+    lib_cp = build._build_lib_classpath(ctx)
+    src_cp = build._cp_append(src_root, test_root)
+    src_cp = build._cp_append(src_cp, dep_cp)
+    src_cp = build._cp_append(src_cp, lib_cp)
+
+    // jvm_flag run.
+    jflags = ""
+    if _builder != null {
+        if map.has(_builder, "jvm_flag") == 1 {
+            jf, _ = map.get(_builder, "jvm_flag")
+            njf = list.size(jf)
+            ji = 0
+            while ji < njf {
+                one, _ = list.get(jf, ji)
+                jflags = string.concat(jflags, string.concat(" ", one))
+                ji = ji + 1
+            }
+        }
+    }
+
+    // Prefer discovered runtime jars (a plain `java` launch, so jvm_flag lands
+    // directly); else the CLI (jvm_flag via JAVA_OPTS). SKIP if neither.
+    rjava = "java"
+    if string.length(run_java) > 0 { rjava = run_java }
+    clj_jars = _clojure_runtime_jars()
+    run_cmd = ""
+    if string.length(clj_jars) > 0 {
+        full_cp = build._cp_append(clj_jars, src_cp)
+        run_cmd = "'${rjava}'${jflags} -cp '${full_cp}' clojure.main -m ${mns}"
+    } else {
+        cli = _clojure_cli()
+        if string.length(cli) == 0 {
+            reason = "clojure not installed (no runtime jars, no clojure/clj CLI)"
+            println("${mod_dir}: SKIPPED — ${reason}")
+            build._record_skip(ctx, reason)
+            return 0
+        }
+        // The CLI manages its own runtime; hand it our classpath via -Scp and
+        // pass jvm flags through JAVA_OPTS. JAVA_HOME points it at the verified
+        // JDK so it launches on 22+.
+        jhome = ""
+        if string.length(run_java) > 0 {
+            jhraw, _jhe = build._sh_capture("dirname \"$(dirname '${run_java}')\"")
+            jhome = string.trim(jhraw)
+        }
+        envp = ""
+        if string.length(jhome) > 0 { envp = "JAVA_HOME='${jhome}' " }
+        if string.length(jflags) > 0 { envp = string.concat(envp, "JAVA_OPTS='${jflags}' ") }
+        run_cmd = "${envp}'${cli}' -Scp '${src_cp}' -M -m ${mns}"
+    }
+
+    println("${mod_dir}: running ${mns} (clojure)")
+    run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
+    rrc = build._sh(run_cmd)
+    if rrc != 0 {
+        build._record_test_result_exitcode(ctx, 0, 1)
+        println("${mod_dir}: ${mns} reported failures")
+        build.fail(ctx, "clojure conformance run failed")
+        return 1
+    }
+    build._record_test_result_exitcode(ctx, 1, 0)
+    println("${mod_dir}: ${mns} PASSED")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
 builder test(ctx: ptr) {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
