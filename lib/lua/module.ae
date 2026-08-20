@@ -18,6 +18,248 @@
 // Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
 import build
 import std.string
+import std.os
+import std.file
+import std.map
+import std.list
+import std.path
+import std.io
+
+// --- DSL setters (for c_extension / conformance) ---
+
+// c_source("src/htmlsanitizer.c") — the C extension source (repeatable). The
+// extension `dlopen`s the engine at runtime, so it needs the engine .so only to
+// RUN, not to build.
+c_source(_ctx: ptr, src: string) {
+    if map.has(_ctx, "lua_c_sources") == 0 { _e1 = map.put(_ctx, "lua_c_sources", list.new()) }
+    l, _ = map.get(_ctx, "lua_c_sources")
+    _e2 = list.add(l, src)
+}
+
+// ext_output("htmlsanitizer_native.so") — the built extension name (default
+// "htmlsanitizer_native.so"), placed in the source dir so LUA_CPATH ./?.so finds it.
+ext_output(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "lua_ext_output", name)
+}
+
+// test_file("test/conformance.lua") — the Lua test file the conformance()
+// builder runs. (Named test_file, not conformance, so it doesn't collide with
+// the builder of that name.)
+test_file(_ctx: ptr, file: string) {
+    _e = map.put(_ctx, "lua_conformance", file)
+}
+
+// host_source("host/lua54.c") — a minimal Lua 5.4 host to build ONLY when no
+// lua5.4 interpreter is on PATH (Debian 12 ships liblua5.4 without the binary).
+host_source(_ctx: ptr, src: string) {
+    _e = map.put(_ctx, "lua_host_source", src)
+}
+
+// --- Lua 5.4 toolchain discovery ---
+
+// _lua54_pkg() — the pkg-config module name for Lua 5.4 (lua5.4 or lua-5.4), or
+// "" when neither is known to pkg-config. Distros disagree on the name.
+_lua54_pkg() {
+    for_names = list.new()
+    list.add(for_names, "lua5.4")
+    list.add(for_names, "lua-5.4")
+    n = list.size(for_names)
+    i = 0
+    while i < n {
+        nm, _ = list.get(for_names, i)
+        i = i + 1
+        rc = build._sh("pkg-config --exists ${nm}")
+        if rc == 0 { return nm }
+    }
+    return ""
+}
+
+// _lua54_cflags() / _lua54_libs() — resolved via pkg-config when available,
+// else the usual Debian/Homebrew fallbacks. Returns ("", "") when Lua 5.4
+// headers can't be found at all (caller SKIPs). Mirrors build.sh's cascade.
+_lua54_flags() {
+    pkg = _lua54_pkg()
+    if string.length(pkg) > 0 {
+        cf_raw, _e1 = build._sh_capture("pkg-config --cflags ${pkg}")
+        lb_raw, _e2 = build._sh_capture("pkg-config --libs ${pkg}")
+        return string.trim(cf_raw), string.trim(lb_raw)
+    }
+    if file.exists("/usr/include/lua5.4/lua.h") == 1 {
+        return "-I/usr/include/lua5.4", "-llua5.4"
+    }
+    if file.exists("/usr/local/include/lua.h") == 1 {
+        return "-I/usr/local/include", "-llua"
+    }
+    return "", ""
+}
+
+// _lua54_interp() — a `lua5.4` / `lua`(5.4) interpreter on PATH, else "".
+// (A built ./lua54 host is checked by the caller after building it.)
+_lua54_interp() {
+    rc = build._sh("command -v lua5.4 >/dev/null 2>&1")
+    if rc == 0 { return "lua5.4" }
+    rc2 = build._sh("command -v lua >/dev/null 2>&1 && lua -v 2>&1 | grep -q 'Lua 5.4'")
+    if rc2 == 0 { return "lua" }
+    return ""
+}
+
+// lua.c_extension(b) — build a Lua 5.4 C extension (.so the host `require`s),
+// and, when no lua5.4 binary is on PATH, a minimal host from host_source. The
+// SDK-native form of html-sanitizer's lua/build.sh. SKIPs (green) when Lua 5.4
+// headers are absent.
+//
+// Key nuance encoded: a Lua C extension MUST NOT link liblua — the host
+// interpreter already provides those symbols; linking a second copy causes
+// "multiple Lua VMs" crashes. So LUA_CFLAGS (headers) but not LUA_LIBS on the
+// extension. macOS extensions are -bundle with -undefined dynamic_lookup.
+// _build_lua_ext(ctx, bmap) — the extension (+ optional host) build, taking the
+// builder map EXPLICITLY. Both c_extension (passing _builder) and conformance
+// (passing _builder) call this: a builder that calls another builder as a
+// nested `f(ctx)` does NOT propagate the closure's _builder, so the shared work
+// must take the map as a parameter. Returns: 0 built, 1 failed, 2 SKIPPED (no
+// headers) — the caller maps 2 to build._record_skip.
+_build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_dir: string) {
+    cf, lb = _lua54_flags()
+    if string.length(cf) == 0 { return 2 }
+
+    cc = build._default_cc()
+    ccflags = "-O2 -fPIC -Wall -Wextra"
+    shared = "-shared"
+    if build._is_macos() == 1 { shared = "-bundle -undefined dynamic_lookup" }
+
+    srcs = ""
+    if bmap != null {
+        if map.has(bmap, "lua_c_sources") == 1 {
+            l, _ = map.get(bmap, "lua_c_sources")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                s, _ = list.get(l, i)
+                i = i + 1
+                srcs = string.concat(srcs, string.concat(" ", path.join(source_dir, s)))
+            }
+        }
+    }
+    if string.length(string.trim(srcs)) == 0 {
+        build.fail(ctx, "lua: at least one c_source(\"...\") is required")
+        return 1
+    }
+
+    ext_out = "htmlsanitizer_native.so"
+    if bmap != null {
+        if map.has(bmap, "lua_ext_output") == 1 { ext_out, _ = map.get(bmap, "lua_ext_output") }
+    }
+    // Placed in source_dir so LUA_CPATH ./?.so resolves it next to the tests.
+    ext_path = path.join(source_dir, ext_out)
+
+    // NO liblua on the extension: the host provides those symbols; a second copy
+    // causes "multiple Lua VMs" crashes. cflags (headers) + -ldl only.
+    println("${mod_dir}: building Lua C extension (${cc})")
+    build_cmd = "${cc} ${ccflags} ${shared} ${cf} ${srcs} -o '${ext_path}' -ldl"
+    rc = build._sh(build_cmd)
+    if rc != 0 {
+        println("${mod_dir}: Lua extension build failed")
+        build.fail(ctx, "lua extension build failed")
+        return 1
+    }
+    build._write_artifact(ctx, "lua_extension", ext_path)
+
+    // Optional host, only when no lua5.4 interpreter is on PATH.
+    if bmap != null {
+        if map.has(bmap, "lua_host_source") == 1 {
+            if string.length(_lua54_interp()) == 0 {
+                hsrc, _ = map.get(bmap, "lua_host_source")
+                host_path = path.join(source_dir, "lua54")
+                println("${mod_dir}: no lua5.4 on PATH — building bundled host")
+                // The host DOES link liblua (it's the interpreter).
+                host_cmd = "${cc} ${ccflags} ${cf} '${path.join(source_dir, hsrc)}' -o '${host_path}' ${lb} -lm -ldl"
+                hrc = build._sh(host_cmd)
+                if hrc != 0 {
+                    println("${mod_dir}: bundled host build failed")
+                    build.fail(ctx, "lua host build failed")
+                    return 1
+                }
+                build._write_artifact(ctx, "lua_host", host_path)
+            }
+        }
+    }
+    return 0
+}
+
+builder c_extension(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    rc = _build_lua_ext(ctx, _builder, source_dir, target_dir, mod_dir)
+    if rc == 2 {
+        reason = "Lua 5.4 headers not found (install liblua5.4-dev)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        build._record_skip(ctx, reason)
+        return 0
+    }
+    if rc != 0 { return rc }
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// lua.conformance(b) — build the extension (via c_extension) then run the
+// conformance .lua with LUA_CPATH/LUA_PATH set so `require` finds the built .so
+// and the src .lua. SKIPs when no Lua 5.4 headers OR no interpreter (distro or
+// the bundled ./lua54 host). Replaces lua/run_tests.sh.
+builder conformance(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+    build._mkdirs(target_dir)
+
+    // Build the extension (+ optional host) via the shared helper — NOT the
+    // c_extension builder, since a nested builder call wouldn't see _builder.
+    brc = _build_lua_ext(ctx, _builder, source_dir, target_dir, mod_dir)
+    if brc == 2 {
+        reason = "Lua 5.4 headers not found (install liblua5.4-dev)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        build._record_skip(ctx, reason)
+        return 0
+    }
+    if brc != 0 { return brc }
+
+    // Interpreter: distro lua5.4, else the bundled ./lua54 host c_extension built.
+    interp = _lua54_interp()
+    if string.length(interp) == 0 {
+        host_path = path.join(source_dir, "lua54")
+        if file.exists(host_path) == 1 {
+            interp = "'${host_path}'"
+            println("${mod_dir}: using bundled ./lua54 host")
+        } else {
+            reason = "no Lua 5.4 interpreter (no lua5.4 on PATH, no bundled host)"
+            println("${mod_dir}: SKIPPED — ${reason}")
+            build._record_skip(ctx, reason)
+            return 0
+        }
+    }
+
+    conf = "test/conformance.lua"
+    if _builder != null {
+        if map.has(_builder, "lua_conformance") == 1 { conf, _ = map.get(_builder, "lua_conformance") }
+    }
+
+    println("${mod_dir}: running ${conf} (lua)")
+    // ./?.so finds the extension; ./src/?.lua finds the pure-lua module.
+    run_cmd = "cd '${source_dir}' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' ${interp} '${conf}'"
+    run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
+    rc = build._sh(run_cmd)
+    if rc != 0 {
+        build._record_test_result_exitcode(ctx, 0, 1)
+        println("${mod_dir}: conformance FAILED")
+        build.fail(ctx, "lua conformance failed")
+        return 1
+    }
+    build._record_test_result_exitcode(ctx, 1, 0)
+    println("${mod_dir}: conformance PASSED")
+    return 0
+}
 
 // lua.test(b) — `busted` by default. Reports pass/fail telemetry.
 builder test(ctx: ptr) {
