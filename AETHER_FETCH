@@ -46,4 +46,15 @@
 # soaked, and let AETHER_PIN keep being the sparse, evidence-driven floor
 # it already is. The mechanism does not need to change for that; only the
 # discipline about when these numbers move does.
-0.541.0
+#
+# Raised 0.541.0 -> 0.560.0 (2026-08-21) ahead of cutting the first aeb
+# release in 53 commits: this whole batch (the polyglot SDK builders, the
+# .all.ae dotted-root link fix, the JVM classpath fixes) was built and
+# verified against Aether HEAD in the 0.556-0.562 range on both Linux and
+# macOS. 0.560.0 is the newest PUBLISHED Aether release (HEAD's 0.562 is
+# not tagged/published yet), and it ships all five platform assets
+# (linux/macos-arm64/macos-x86_64/windows/freebsd) with the GLIBC_2.34
+# floor. The PIN floor stays 0.541.0 — nothing here calls a primitive
+# newer Aether added, so raising the floor would force a needless re-fetch
+# on everyone between 0.541 and 0.560 (per the floor policy above).
+0.560.0
