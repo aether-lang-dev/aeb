@@ -84,6 +84,15 @@ main() {
     _assert_eq("root-level .tests.ae likewise",
         encode_name(".tests.ae"),
         "ae_D_tests_D_ae")
+    // A dot-prefixed FAN-OUT root (aeb .all.ae) is the same leading-underscore
+    // case: without the escape it derives to "_D_all_D_ae", which the
+    // orchestrator's _main externs and nothing defines — an "Undefined symbols:
+    // __D_all_D_ae" link failure on macOS (Apple ld; GNU ld tolerated it, hiding
+    // it on Linux for weeks). Reproduced + fixed on macOS/x86_64.
+    // (asks/dotted-root-mangles-to-undefined-entry-symbol.md)
+    _assert_eq("root-level .all.ae fan-out root escapes leading underscore",
+        encode_name(".all.ae"),
+        "ae_D_all_D_ae")
     _assert_eq("subdir target unaffected (letter-leading)",
         encode_name("foo/.build.ae"),
         "foo__D_build_D_ae")
