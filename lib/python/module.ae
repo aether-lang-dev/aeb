@@ -469,6 +469,13 @@ builder pytest(ctx: ptr) {
     py = path.join(venv, "bin/python")
 
     cmd = pytest_cmd(py, source_dir, root)
+    // Honour env(K,V) on the run: prepend the `export K='V' && ` chain so a
+    // declared env var reaches pytest — most importantly a native library path
+    // (e.g. HTMLSANITIZER_LIB a ctypes/cffi binding dlopens), which a scripting
+    // language has no -D equivalent for. Empty when no env() was set, so
+    // byte-identical for callers that don't inject.
+    // (asks/sdk-builders-cannot-set-env-for-the-test-run.md)
+    cmd = string.concat(build._env_export_prefix(_builder), cmd)
     // Tee to target/<module>/test_output.log — durable record for
     // failure diagnosis, also feeds the summary parser. Pytest
     // prints "===== 14 passed, 1 failed in 0.34s =====" at the end.

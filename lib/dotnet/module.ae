@@ -981,6 +981,10 @@ builder test(ctx: ptr) {
     }
 
     cmd = dotnet_test_cmd(csproj, config)
+    // Honour env(K,V) on the run (e.g. a native lib path a P/Invoke binding
+    // loads). Empty when no env() was set — byte-identical otherwise.
+    // (asks/sdk-builders-cannot-set-env-for-the-test-run.md)
+    cmd = string.concat(build._env_export_prefix(_builder), cmd)
     // Tee output to target/<module>/test_output.log so the same
     // bytes serve two roles: (1) summary parsing for telemetry,
     // (2) durable record for failure diagnosis after the build
