@@ -9,10 +9,12 @@
 // covered for the binary path); these pin the csrc-specific string
 // surface per the string-builder pattern (LLM.md § SDK extension).
 import std.string
+import std.map
+import std.list
 
 extern println(s: string)
 
-import aether (ae_csrc_flags, csrc_default_output)
+import aether (ae_csrc_flags, csrc_default_output, ae_lib_flags)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -44,6 +46,30 @@ main() {
         csrc_default_output("greet"), "greet")
     _assert_eq("output: bare '.ae' passes through (nothing to strip to)",
         csrc_default_output(".ae"), ".ae")
+
+    // --- ae_lib_flags: --emit=lib, optional --with=, one --extra per source ---
+    _assert_eq("lib: no caps, no extras",
+        ae_lib_flags("", null, "/src"), " --emit=lib")
+    _assert_eq("lib: caps, no extras",
+        ae_lib_flags("net", null, "/src"), " --emit=lib --with=net")
+
+    // extra_source(...) -> --extra, resolved against source_dir (relative) or
+    // passed through (absolute).
+    b1 = map.new()
+    ex1 = list.new()
+    list.add(ex1, "_embed_support.c")
+    map.put(b1, "extra_source", ex1)
+    _assert_eq("lib: relative extra_source resolved against source_dir",
+        ae_lib_flags("", b1, "/src"), " --emit=lib --extra /src/_embed_support.c")
+
+    b2 = map.new()
+    ex2 = list.new()
+    list.add(ex2, "/abs/x.c")
+    list.add(ex2, "rel/y.c")
+    map.put(b2, "extra_source", ex2)
+    _assert_eq("lib: caps + mixed abs/rel extras, in order",
+        ae_lib_flags("fs", b2, "/src"),
+        " --emit=lib --with=fs --extra /abs/x.c --extra /src/rel/y.c")
 
     println("aether csrc cmd tests done")
 }

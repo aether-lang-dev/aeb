@@ -1503,6 +1503,38 @@ ae_csrc_flags(caps: string) {
     return flags
 }
 
+// ae_lib_flags(caps, builder_map, source_dir) — the pre-spaced `ae build` flag
+// run for a shared-library build (--emit=lib): " --emit=lib", plus " --with=<caps>"
+// and one " --extra <path>" per extra_source(...) (resolved against source_dir;
+// absolute passes through). Mirrors ae_csrc_flags but folds in extra C sources,
+// which --emit=lib links into the .so (the engine's _embed_support.c etc.).
+// The shell-out path (which shared_lib uses) does not thread extra_source on its
+// own — csrc/program's manual path does — so it is threaded here as ae's own
+// --extra flag. Pure string work.
+ae_lib_flags(caps: string, builder_map: ptr, source_dir: string) {
+    flags = " --emit=lib"
+    if string.length(caps) > 0 {
+        flags = string.concat(flags, string.concat(" --with=", caps))
+    }
+    if builder_map != null {
+        if map.has(builder_map, "extra_source") == 1 {
+            extras, _ = map.get(builder_map, "extra_source")
+            ne = list.size(extras)
+            ie = 0
+            while ie < ne {
+                ef, _ = list.get(extras, ie)
+                resolved = ef
+                if string.length(ef) > 0 {
+                    if _is_abs_path(ef) == 0 { resolved = path.join(source_dir, ef) }
+                }
+                flags = string.concat(flags, string.concat(" --extra ", resolved))
+                ie = ie + 1
+            }
+        }
+    }
+    return flags
+}
+
 // csrc_default_output(src_name) — default output base for an
 // aether.csrc node: the source name minus a trailing ".ae"
 // ("greet.ae" → "greet"); a name without the suffix passes through
@@ -2814,6 +2846,90 @@ builder csrc(ctx: ptr) {
     build._write_artifact(ctx, "c_header", h_path)
     build._write_artifact(ctx, "c_header_dirs", target_dir)
     build._write_artifact(ctx, "c_needs_aether_runtime", "1")
+    return 0
+}
+
+// aether.shared_lib(b) — compile an Aether module to a native SHARED LIBRARY
+// (`ae build --emit=lib`), and publish it so downstream JVM/Go/Rust consumers
+// auto-wire it. This is the producer half of the shared-lib story: `lib/aether`
+// already CONSUMES shared libs (_collect_shared_libs threads deps' .so into a
+// program link) but had no way to PRODUCE one — the asymmetry lib/go
+// (build_mode "c-shared") and lib/rust (crate_type "cdylib") don't have.
+//
+//   aether.shared_lib(b) {
+//       source("embed.ae")
+//       extra_source("_embed_support.c")   // linked into the .so
+//       output("libhtmlsanitizer.so")
+//       caps("net")                        // optional --with= csv
+//       target("wasm32-wasi")              // optional cross (aether >= 0.577)
+//   }
+//
+// Publishes:
+//   shared_lib                                    the .so path (the ask's name)
+//   shared_library                                alias (tinygo_lib's key)
+//   ldlibdeps                                     -> lib/java wires -Djava.library.path
+//   shared_library_deps_including_transitive      -> lib/go / lib/java link path
+//   c_header_dirs + c_needs_aether_runtime        if a companion .h is emitted
+//
+// A SEPARATE builder, not an emit() mode on program: it publishes no
+// program_binary, so it must not be findable by build.program_binary_of — the
+// same reasoning that made csrc separate. Setters (source/output/extra_source/
+// caps/target/link_flag/include_dir) are program's, reused as-is.
+builder shared_lib(ctx: ptr) {
+    source_dir = build._get(ctx, "source_dir")
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    lib_dir = path.join(target_dir, "lib")
+    build._mkdirs(lib_dir)
+
+    src_name = _default_source_name(ctx)
+    if _builder != null {
+        if map.has(_builder, "source") == 1 { src_name, _ = map.get(_builder, "source") }
+    }
+    src_path = path.join(source_dir, src_name)
+
+    // Default output: lib<sourcebase>.so. output("...") overrides.
+    out_name = string.concat("lib", string.concat(csrc_default_output(src_name), ".so"))
+    if _builder != null {
+        if map.has(_builder, "output") == 1 { out_name, _ = map.get(_builder, "output") }
+    }
+    so_path = path.join(lib_dir, out_name)
+
+    cap_csv = ""
+    if _builder != null {
+        if map.has(_builder, "csrc_caps") == 1 { cap_csv, _ = map.get(_builder, "csrc_caps") }
+    }
+
+    // COMPILE phase — skipped under --execute-only (the .so was built in the
+    // container pass). Artifact writes below run in both passes so dependents
+    // resolve the path either way. (two-aeb duality.)
+    if build._compile_enabled() == 1 {
+        println("${mod_dir}: compiling Aether shared library (--emit=lib)")
+        rc = _shell_out_ae_build(ctx, _builder, src_path, so_path,
+                                 ae_lib_flags(cap_csv, _builder, source_dir))
+        if rc != 0 {
+            build.fail(ctx, "aether shared_lib build failed")
+            return rc
+        }
+    }
+
+    // Publish the native-lib wiring set. ldlibdeps + the transitive key are what
+    // lib/java (-Djava.library.path) and lib/go read, so a JVM/Go consumer
+    // dep()ing this node loads the .so with no path plumbing in the leaf.
+    build._write_artifact(ctx, "shared_lib", so_path)
+    build._write_artifact(ctx, "shared_library", so_path)
+    build._write_artifact(ctx, "ldlibdeps", so_path)
+    build._write_artifact(ctx, "shared_library_deps_including_transitive", so_path)
+
+    // --emit=lib also emits a catalog header next to the .so; publish its dir so
+    // a c.program consumer can -I it, mirroring csrc. Best-effort: only if present.
+    h_path = string.concat(csrc_default_output(out_name), ".h")
+    h_full = path.join(lib_dir, h_path)
+    if file.exists(h_full) == 1 {
+        build._write_artifact(ctx, "c_header_dirs", lib_dir)
+        build._write_artifact(ctx, "c_needs_aether_runtime", "1")
+    }
     return 0
 }
 
