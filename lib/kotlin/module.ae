@@ -30,13 +30,21 @@ source_layout(_ctx: ptr, layout: string) {
     _e = map.put(_ctx, "source_layout", layout)
 }
 
-// min_jdk(22) — the test RUN needs a JDK at least this major. kotlin_test then
-// runs on a JDK >= this and SKIPs (green, not failed) if none is installed,
-// rather than running on an older ambient `java` that fails the FFM binding at
-// run time. Unset → ambient `java` (today's behaviour). (Only the RUN JVM is
+// min_jdk(22) — a HARD REQUIREMENT: the test RUN needs a JDK >= this major, and
+// FAILS if none is installed (a requested-but-absent JDK is a misconfiguration,
+// not a state to be green in). Unset → ambient `java`. (Only the RUN JVM is
 // gated; kotlinc's own version is a separate concern handled by _kotlin_home.)
+// For a portable matrix that should SKIP on under-provisioned boxes, use
+// skip_below_jdk.
 min_jdk(_ctx: ptr, ver: int) {
     _e = map.put(_ctx, "kotlin_min_jdk", string.from_int(ver))
+}
+
+// skip_below_jdk(22) — PORTABLE-FLEET floor: run on a JDK >= this major, but
+// SKIP (green) rather than fail when the box has none. Soft counterpart to
+// min_jdk; min_jdk wins if both are set.
+skip_below_jdk(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "kotlin_skip_below_jdk", string.from_int(ver))
 }
 
 
@@ -584,28 +592,18 @@ builder kotlin_test(ctx: ptr, test_class: string) {
     classpath = build._cp_append(classpath, dep_cp)
     classpath = build._cp_append(classpath, lib_cp)
 
-    // min_jdk gate: run on a JDK >= the declared minimum, SKIP (green) if none.
-    // The FFM binding these suites exercise is JDK-22+; an older ambient `java`
-    // fails at run time, which a false pass would hide.
-    run_java_bin = "java"
-    min_jdk_v = 0
-    if _builder != null {
-        if map.has(_builder, "kotlin_min_jdk") == 1 {
-            mjs, _ = map.get(_builder, "kotlin_min_jdk")
-            min_jdk_v, _mje = string.to_int(string.trim(mjs))
-        }
+    // JDK gate: min_jdk(N) hard-requires (FAIL if unmet); skip_below_jdk(N) is a
+    // portable-fleet floor (SKIP if unmet). The FFM binding these suites exercise
+    // is JDK-22+; an older ambient `java` fails at run time, which a false pass
+    // would hide.
+    min_jdk_v = build._int_key(_builder, "kotlin_min_jdk")
+    skip_jdk_v = build._int_key(_builder, "kotlin_skip_below_jdk")
+    run_java_bin, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, test_class)
+    if string.equals(jdk_status, "fail") == 1 {
+        build.fail(ctx, "kotlin_test: no JDK ${min_jdk_v}+ to run ${test_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
+        return 1
     }
-    if min_jdk_v > 0 {
-        sel = build._java_ge(min_jdk_v)
-        if string.length(sel) == 0 {
-            reason = "no JDK ${min_jdk_v}+ to run the FFM binding on"
-            println("${mod_dir}: SKIPPED — ${reason}")
-            build._record_skip(ctx, reason)
-            return 0
-        }
-        run_java_bin = sel
-        println("${mod_dir}: JDK verified — ${sel}")
-    }
+    if string.equals(jdk_status, "skip") == 1 { return 0 }
 
     println("${mod_dir}: running tests")
     run_cmd = "'${run_java_bin}' -ea"

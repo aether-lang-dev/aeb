@@ -2306,6 +2306,62 @@ _record_skip(ctx: ptr, reason: string) {
     _record_cache(ctx, "n/a")
 }
 
+// _resolve_run_jdk(ctx, min_v, skip_v, what) — resolve the JDK a JVM RUN builder
+// should use, applying the require-vs-skip distinction, and returning a status
+// the caller branches on. Two DIFFERENT author intents, two outcomes:
+//
+//   min_jdk(N)         a HARD REQUIREMENT. If no JDK >= N is installed that is a
+//                      misconfiguration ("you forgot to install it") — FAIL, stop
+//                      the line. A green skip would hide a broken build box.
+//   skip_below_jdk(N)  a PORTABLE-FLEET floor. "Run where you can, skip where the
+//                      box can't" — a heterogeneous conformance matrix that must
+//                      not go red on every under-provisioned node. SKIP (green).
+//
+// Precedence: min_jdk wins if BOTH are set (a hard requirement is not softened by
+// also naming a skip floor). Neither set -> "ok" with the ambient `java`.
+//
+// Returns (java_path, status): status is
+//   "ok"   -> use java_path (the verified JDK, or "java" when no floor was set)
+//   "fail" -> min_jdk unmet; the helper has NOT recorded anything, the caller
+//             does build.fail(...) + return non-zero (so the failure carries the
+//             builder's own message/telemetry shape)
+//   "skip" -> skip_below_jdk unmet; the helper HAS recorded the skip + printed
+//             the reason; the caller just returns 0
+// `what` names the thing being run, for the messages (e.g. "the FFM binding",
+// "demo.ConformanceTest").
+// _int_key(bmap, key) — a builder map's int-valued setter, or 0 if unset/null.
+// (min_jdk / skip_below_jdk store via string.from_int; this reads them back.)
+_int_key(bmap: ptr, key: string) {
+    if bmap == null { return 0 }
+    if map.has(bmap, key) == 0 { return 0 }
+    v, _ = map.get(bmap, key)
+    iv, _e = string.to_int(string.trim(v))
+    return iv
+}
+
+_resolve_run_jdk(ctx: ptr, mod_dir: string, min_v: int, skip_v: int, what: string) {
+    // Hard requirement takes precedence.
+    if min_v > 0 {
+        sel = _java_ge(min_v)
+        if string.length(sel) == 0 { return "", "fail" }
+        println("${mod_dir}: JDK verified — ${sel}")
+        return sel, "ok"
+    }
+    if skip_v > 0 {
+        sel2 = _java_ge(skip_v)
+        if string.length(sel2) == 0 {
+            reason = "no JDK ${skip_v}+ to run ${what} on"
+            println("${mod_dir}: SKIPPED — ${reason}")
+            _record_skip(ctx, reason)
+            return "", "skip"
+        }
+        println("${mod_dir}: JDK verified — ${sel2}")
+        return sel2, "ok"
+    }
+    // No floor declared: ambient java.
+    return "java", "ok"
+}
+
 // _verify_toolchain(probe_cmd, ok_token) — run a caller-supplied probe command
 // and decide whether the toolchain it exercises is actually USABLE, not merely
 // present. Returns 1 iff the probe's combined output CONTAINS ok_token AND

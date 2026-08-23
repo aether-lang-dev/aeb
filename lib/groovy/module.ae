@@ -40,21 +40,33 @@ target_bytecode(_ctx: ptr, ver: string) {
 }
 
 // min_groovy(4) / min_jdk(22) — declare the MINIMUM capable toolchain this node
-// needs, by major version. When either is set, groovyc_test resolves a groovyc +
-// JVM by VERIFYING a candidate (compile+run a probe against the node's real dep
-// classes) rather than grabbing the first groovyc on PATH — and if none
-// qualifies it SKIPS (green, skip-counted) instead of failing. This is the
-// SDK-native form of the toolchain probe html-sanitizer hand-rolls in
-// groovy/run-tests.sh: the Java FFM binding it tests is JDK-22+ bytecode, so a
-// Debian groovy 2.4 on JDK 17 can neither read nor run it, and a false pass /
-// false fail is worse than an honest skip. Unset → today's behaviour (first
-// groovyc found, hard-fail if unusable). Major version only (int), matching the
-// codebase's numeric-setter convention (max_jobs(2), port(n)).
+// needs, by major version, as a HARD REQUIREMENT. When either is set,
+// groovyc_test resolves a groovyc + JVM by VERIFYING a candidate (compile+run a
+// probe against the node's real dep classes) rather than grabbing the first
+// groovyc on PATH — and if none qualifies it FAILS (a requested-but-absent
+// capable toolchain is a misconfiguration). The Java FFM binding these suites
+// test is JDK-22+ bytecode, so a Debian groovy 2.4 on JDK 17 can neither read
+// nor run it. Unset → today's behaviour (first groovyc found). Major version
+// only (int), matching the codebase's numeric-setter convention. For a portable
+// matrix that should SKIP on under-provisioned boxes, use skip_below_groovy /
+// skip_below_jdk.
 min_groovy(_ctx: ptr, ver: int) {
     _e = map.put(_ctx, "min_groovy", string.from_int(ver))
 }
 min_jdk(_ctx: ptr, ver: int) {
     _e = map.put(_ctx, "min_jdk", string.from_int(ver))
+}
+
+// skip_below_groovy(4) / skip_below_jdk(22) — PORTABLE-FLEET floors: same
+// verify-by-probe, but SKIP (green) rather than fail when no capable toolchain
+// qualifies. For a heterogeneous conformance matrix that must not go red on
+// every box lacking a capable Groovy/JDK. Soft counterparts to min_groovy /
+// min_jdk; a min_* requirement wins over a skip_below_* floor.
+skip_below_groovy(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "skip_below_groovy", string.from_int(ver))
+}
+skip_below_jdk(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "skip_below_jdk", string.from_int(ver))
 }
 
 // main_class("pkg.Runner") — run this class as the test suite AFTER compiling,
@@ -393,13 +405,29 @@ _probe_groovy_toolchain(java_bin: string, groovy_jar: string, dep_classpath: str
     return build._verify_toolchain(probe, "AEB_PROBE_OK")
 }
 
-// _resolve_capable_groovy(builder_map, dep_classpath, target_dir) — returns
-// (java_bin, groovy_jar) of the first candidate that VERIFIES, or ("","") if
-// none. Only called when min_groovy/min_jdk is set.
-_resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: string) {
-    min_j = _min_int(builder_map, "min_jdk")
-    java_bin = _java_ge(min_j)
-    if string.length(java_bin) == 0 { return "", "" }
+// _resolve_capable_groovy(builder_map, dep_classpath, target_dir, jdk_floor) —
+// returns (java_bin, groovy_jar) of the first candidate that VERIFIES, or ("","")
+// if none. jdk_floor is the EFFECTIVE JDK minimum (min_jdk OR skip_below_jdk,
+// resolved by the caller) so the JVM the probe runs on clears the floor.
+// _jar_groovy_major(jar) — the major version from a groovy-<ver>.jar basename
+// (…/groovy-4.0.24.jar → 4), or 0 if unparseable. Enforces the min_groovy floor:
+// the probe alone can't (a groovy 4 compiles the binding whether the floor is 4
+// or 99), so the declared floor must be checked against the jar's own version.
+_jar_groovy_major(jar: string) {
+    // awk, not sed: a sed script with backslash escapes does not survive the
+    // Aether-string -> _sh_capture -> shell path (comes back empty), the same
+    // trap _java_ge hit. awk's match/substr is escape-free.
+    raw, _e = build._sh_capture("basename '${jar}' | awk '{ if (match($0, /^groovy-[0-9]+/)) { s=substr($0,8); sub(/[^0-9].*/,\"\",s); print s } }'")
+    v, _pe = string.to_int(string.trim(raw))
+    return v
+}
+
+_resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: string, jdk_floor: int, groovy_floor: int) {
+    java_bin = "java"
+    if jdk_floor > 0 {
+        java_bin = _java_ge(jdk_floor)
+        if string.length(java_bin) == 0 { return "", "" }
+    }
 
     probe_dir = path.join(target_dir, ".groovy-probe")
     build._mkdirs(probe_dir)
@@ -413,8 +441,13 @@ _resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: str
         else { jar = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
         jar = string.trim(jar)
         if string.length(jar) > 0 {
-            if _probe_groovy_toolchain(java_bin, jar, dep_classpath, probe_dir) == 1 {
-                return java_bin, jar
+            // Enforce the declared groovy-major floor: skip a jar below it (the
+            // probe would otherwise accept any groovy that compiles the binding).
+            jmaj = _jar_groovy_major(jar)
+            if groovy_floor == 0 || jmaj >= groovy_floor {
+                if _probe_groovy_toolchain(java_bin, jar, dep_classpath, probe_dir) == 1 {
+                    return java_bin, jar
+                }
             }
         }
     }
@@ -434,22 +467,45 @@ builder groovyc_test(ctx: ptr) {
     dep_cp = build._build_dep_classpath(ctx)
     lib_cp = build._build_lib_classpath(ctx)
 
-    // Capable-toolchain gate. When min_groovy/min_jdk is declared, VERIFY a
-    // groovyc+JVM by probing it against the real dep classpath; SKIP (green,
-    // not failed) if none qualifies, and use the verified pair for compile +
-    // run. Unset → today's path (first groovyc found).
-    want_min = 0
-    if _min_int(_builder, "min_groovy") > 0 { want_min = 1 }
-    if _min_int(_builder, "min_jdk") > 0 { want_min = 1 }
+    // Capable-toolchain gate. When a min_*/skip_below_* floor is declared, VERIFY
+    // a groovyc+JVM by probing it against the real dep classpath (rather than
+    // grabbing the first groovyc on PATH). If none qualifies: a min_* hard
+    // requirement FAILS (stops the line — a requested-but-absent capable
+    // toolchain is a misconfiguration); a skip_below_* portable floor SKIPS
+    // (green). A min_* requirement wins over a skip_below_* floor. Unset → today's
+    // path (first groovyc found). The floor's version for messages: prefer the
+    // hard req, else the skip floor.
+    req_g = _min_int(_builder, "min_groovy")
+    req_j = _min_int(_builder, "min_jdk")
+    skip_g = _min_int(_builder, "skip_below_groovy")
+    skip_j = _min_int(_builder, "skip_below_jdk")
+    is_hard = 0
+    if req_g > 0 { is_hard = 1 }
+    if req_j > 0 { is_hard = 1 }
+    want_min = is_hard
+    if skip_g > 0 { want_min = 1 }
+    if skip_j > 0 { want_min = 1 }
 
     capable_java = ""
     capable_jar = ""
     if want_min == 1 {
+        eff_jdk = req_j
+        if eff_jdk == 0 { eff_jdk = skip_j }
+        eff_groovy = req_g
+        if eff_groovy == 0 { eff_groovy = skip_g }
         cap_dep_cp = build._cp_append(dep_cp, lib_cp)
-        capable_java, capable_jar = _resolve_capable_groovy(_builder, cap_dep_cp, target_dir)
+        capable_java, capable_jar = _resolve_capable_groovy(_builder, cap_dep_cp, target_dir, eff_jdk, eff_groovy)
         if string.length(capable_jar) == 0 {
-            reason = "no Groovy ${_min_int(_builder, "min_groovy")}+ on a JDK ${_min_int(_builder, "min_jdk")}+ VM"
-            println("${mod_dir}: SKIPPED — ${reason} (groovyc can't read/run the JDK-22+ binding it compiles against)")
+            gv = req_g
+            if gv == 0 { gv = skip_g }
+            jv = req_j
+            if jv == 0 { jv = skip_j }
+            reason = "no capable Groovy ${gv}+ on a JDK ${jv}+ VM (groovyc can't read/run the JDK-22+ binding it compiles against)"
+            if is_hard == 1 {
+                build.fail(ctx, "groovyc_test: ${reason} — min_groovy/min_jdk is a hard requirement; use skip_below_groovy/skip_below_jdk to skip instead")
+                return 1
+            }
+            println("${mod_dir}: SKIPPED — ${reason}")
             build._record_skip(ctx, reason)
             return 0
         }

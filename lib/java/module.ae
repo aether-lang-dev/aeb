@@ -128,7 +128,57 @@ jvm_args(_ctx: ptr, arg: string) {
     }
 }
 
+// min_jdk(22) — a HARD REQUIREMENT: java_main runs on a JDK >= this major, and
+// FAILS (stops the line) if none is installed. A requested-but-absent JDK is a
+// misconfiguration, not a state to be green in. select_jdk picks a compile JDK;
+// min_jdk gates the RUN. Unset -> ambient `java`. For a portable conformance
+// matrix that should SKIP rather than fail on under-provisioned boxes, use
+// skip_below_jdk instead.
+min_jdk(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "java_min_jdk", string.from_int(ver))
+}
+
+// skip_below_jdk(22) — a PORTABLE-FLEET floor: run on a JDK >= this major, but
+// SKIP (green, skip-counted) rather than fail when the box has none. For a
+// heterogeneous conformance matrix that must not go red on every node lacking
+// the JDK. The soft counterpart to min_jdk's hard requirement; min_jdk wins if
+// both are set.
+skip_below_jdk(_ctx: ptr, ver: int) {
+    _e = map.put(_ctx, "java_skip_below_jdk", string.from_int(ver))
+}
+
 // --- Command builders ---
+
+// _collect_ldlibdeps(ctx) — the colon-joined set of DIRECTORIES holding the
+// shared libs published by this node's deps under the `ldlibdeps` artifact, for
+// LD_LIBRARY_PATH. So a JVM node dep()ing an aether.shared_lib / go c-shared /
+// rust cdylib finds the .so at run time with no path plumbing in the leaf. Empty
+// when no dep publishes one. (junit/junit5 inline this same loop; java_main
+// shares it.)
+_collect_ldlibdeps(ctx: ptr) {
+    deps, _ = map.get(ctx, "deps")
+    ndeps = list.size(deps)
+    ld_path = ""
+    m = 0
+    while m < ndeps {
+        dp, _ = list.get(deps, m)
+        dm = build._strip_lang(dp)
+        dep_ld = build._read_dep_artifact(ctx, dm, "ldlibdeps")
+        if string.length(dep_ld) > 0 {
+            ld_raw, _eld = build._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
+            ld_dirs = string.trim(ld_raw)
+            if string.length(ld_dirs) > 0 {
+                if string.length(ld_path) > 0 {
+                    ld_path = string.concat(string.concat(ld_path, ":"), ld_dirs)
+                } else {
+                    ld_path = ld_dirs
+                }
+            }
+        }
+        m = m + 1
+    }
+    return ld_path
+}
 
 javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) {
     // javac binary: PATH "javac" by default, or an absolute
@@ -987,6 +1037,17 @@ builder javac_test(ctx: ptr) {
     lib_cp = build._build_lib_classpath(ctx)
     maven_cp = maven.classpath(ctx)
     classpath = test_classes
+    // The module's OWN prod classes (javac emits to target_dir/classes, shared
+    // with this leaf's prod builder) — the tests reference them, so ahead of
+    // deps. Without it a test that uses the module's own API fails to compile
+    // (cannot find symbol). Guarded by dir.exists (no-op for a test-only leaf).
+    // 5a7f94b fixed kotlin/scala/groovy; java has the same gap when javac +
+    // javac_test are separate builders in one leaf.
+    // (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md)
+    prod_classes = path.join(target_dir, "classes")
+    if dir.exists(prod_classes) == 1 {
+        classpath = build._cp_append(classpath, prod_classes)
+    }
     classpath = build._cp_append(classpath, dep_cp)
     classpath = build._cp_append(classpath, lib_cp)
     classpath = build._cp_append(classpath, maven_cp)
@@ -1385,6 +1446,84 @@ builder junit5(ctx: ptr) {
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
+    return 0
+}
+
+// java.java_main(b, "pkg.Runner") — run a plain `static void main` class on the
+// test classpath, for a conformance suite that is NOT a JUnit run. junit/junit5
+// glob for *Test.class and drive the console launcher; a suite that wants no
+// junit+hamcrest dependency (needs only a JDK, runs offline) had to hand-roll
+// the run with os.system and reconstruct the test classpath. This is
+// kotlin_test's shape in lib/java: it puts the module's own prod classes on the
+// run classpath, gates the JDK (min_jdk -> SKIP green, not fail on an old JDK),
+// and honours env()/jvm_args — the non-obvious parts worth not re-deriving.
+builder java_main(ctx: ptr, main_class: string) {
+    target_dir = build._get(ctx, "target_dir")
+    mod_dir = build._get(ctx, "module_dir")
+
+    test_classes = path.join(target_dir, "test-classes")
+    dep_cp = build._build_dep_classpath(ctx)
+    lib_cp = build._build_lib_classpath(ctx)
+    maven_cp = maven.classpath(ctx)
+
+    classpath = test_classes
+    // The module's own prod classes on the run classpath (javac writes to
+    // target_dir/classes) — a test-referenced prod class throws
+    // ClassNotFoundException without it. Guarded (no-op for a test-only leaf).
+    // (asks/jvm-run-builders-omit-own-prod-classes-from-run-classpath.md)
+    prod_classes = path.join(target_dir, "classes")
+    if dir.exists(prod_classes) == 1 {
+        classpath = build._cp_append(classpath, prod_classes)
+    }
+    classpath = build._cp_append(classpath, dep_cp)
+    classpath = build._cp_append(classpath, lib_cp)
+    classpath = build._cp_append(classpath, maven_cp)
+
+    // JDK gate: min_jdk(N) is a hard requirement (FAIL if unmet), skip_below_jdk(N)
+    // is a portable-fleet floor (SKIP if unmet). _resolve_run_jdk applies both.
+    min_jdk_v = build._int_key(_builder, "java_min_jdk")
+    skip_jdk_v = build._int_key(_builder, "java_skip_below_jdk")
+    run_java_bin, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, main_class)
+    if string.equals(jdk_status, "fail") == 1 {
+        build.fail(ctx, "java_main: no JDK ${min_jdk_v}+ to run ${main_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
+        return 1
+    }
+    if string.equals(jdk_status, "skip") == 1 { return 0 }
+
+    // Native-lib path from deps' ldlibdeps, the same way junit5_cmd does it:
+    // `env <LD|DYLD>_LIBRARY_PATH=<dirs>` + `-Djava.library.path=<dirs>`, so a
+    // java_main against an aether.shared_lib / go c-shared / rust cdylib loads
+    // the .so with no path plumbing in the leaf. Empty when no dep publishes one.
+    ld_path = _collect_ldlibdeps(ctx)
+    ld_prefix = ""
+    lib_path_arg = ""
+    if string.length(ld_path) > 0 {
+        dyld_var = build._dyld_env_var()
+        ld_prefix = "env ${dyld_var}='${ld_path}' "
+        lib_path_arg = " -Djava.library.path='${ld_path}'"
+    }
+
+    println("${mod_dir}: running ${main_class}")
+    run_cmd = "${ld_prefix}'${run_java_bin}' -ea${lib_path_arg}"
+    if _builder != null {
+        if map.has(_builder, "jvm_args") == 1 {
+            val, _ = map.get(_builder, "jvm_args")
+            run_cmd = string.concat(run_cmd, " ${val}")
+        }
+    }
+    run_cmd = string.concat(run_cmd, " -cp ${classpath} ${main_class}")
+    // Honour env(K,V) on the run (e.g. HTMLSANITIZER_LIB a Panama/JNI binding
+    // reads). Empty when no env() set.
+    run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
+    exit_code = build._sh(run_cmd)
+    if exit_code != 0 {
+        build._record_test_result_exitcode(ctx, 0, 1)
+        println("${mod_dir}: ${main_class} FAILED")
+        build.fail(ctx, "java_main FAILED")
+        return exit_code
+    }
+    build._record_test_result_exitcode(ctx, 1, 0)
+    println("${mod_dir}: ${main_class} PASSED")
     return 0
 }
 
