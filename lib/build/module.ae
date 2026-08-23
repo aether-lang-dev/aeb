@@ -3685,25 +3685,32 @@ render_artifacts_json(root: string, records: ptr) {
     return out
 }
 
+// _needs_rebuild(source_dir, ts_file) — 1 if any file under source_dir is
+// newer than the ts_file marker (or the marker is absent), else 0.
+//
+// RECURSIVE by design. The old form globbed `source_dir/*` — TOP LEVEL ONLY —
+// so a source nested under a layout dir (src/test/kotlin/**, src/main/scala/**,
+// a maven-idiomatic tree) never bumped the check, and an edit to it was invisible
+// at the node level: the node reported up-to-date and served a stale `[hit]`,
+// i.e. a GREEN test for code that no longer matches the assertion. That is the
+// one outcome a build system must never have. `find … -newer` walks the whole
+// tree and lets the OS compare mtimes, matching how the action caches already
+// scan their nested sources (kotlin/scala use `find … -name '*.kt'`).
+// (asks/kotlin-node-cache-hit-ignores-test-source-edits.md)
+//
+// target/ is excluded: it holds this node's own outputs, whose mtimes are always
+// newer than the marker and would force a rebuild every run. A source dir named
+// literally "target" is not a case aeb supports (it is the reserved build dir).
 _needs_rebuild(source_dir: string, ts_file: string) {
     if file.exists(ts_file) == 0 {
         return 1
     }
-    prev = file.mtime(ts_file)
-    pat = path.join(source_dir, "*")
-    files, _gerr = fs.glob(pat)
-    count = dir_list_count(files)
-    i = 0
-    while i < count {
-        f = dir_list_get(files, i)
-        mt = file.mtime(f)
-        if mt > prev {
-            dir_list_free(files)
-            return 1
-        }
-        i = i + 1
+    // Any file under source_dir newer than the marker? `-prune` skips the
+    // target/ output tree; `-print -quit` stops at the first match (cheap).
+    raw, _err = _sh_capture("find '${source_dir}' -path '${source_dir}/target' -prune -o -type f -newer '${ts_file}' -print -quit 2>/dev/null")
+    if string.length(string.trim(raw)) > 0 {
+        return 1
     }
-    dir_list_free(files)
     return 0
 }
 
