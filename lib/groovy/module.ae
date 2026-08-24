@@ -39,34 +39,33 @@ target_bytecode(_ctx: ptr, ver: string) {
     _e = map.put(_ctx, "groovy_target_bytecode", ver)
 }
 
-// min_groovy(4) / min_jdk(22) — declare the MINIMUM capable toolchain this node
-// needs, by major version, as a HARD REQUIREMENT. When either is set,
-// groovyc_test resolves a groovyc + JVM by VERIFYING a candidate (compile+run a
-// probe against the node's real dep classes) rather than grabbing the first
-// groovyc on PATH — and if none qualifies it FAILS (a requested-but-absent
-// capable toolchain is a misconfiguration). The Java FFM binding these suites
-// test is JDK-22+ bytecode, so a Debian groovy 2.4 on JDK 17 can neither read
-// nor run it. Unset → today's behaviour (first groovyc found). Major version
-// only (int), matching the codebase's numeric-setter convention. For a portable
-// matrix that should SKIP on under-provisioned boxes, use skip_below_groovy /
-// skip_below_jdk.
-min_groovy(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "min_groovy", string.from_int(ver))
+// min_groovy("4") / min_jdk("22") — declare the MINIMUM capable toolchain this
+// node needs, as a HARD REQUIREMENT. When either is set, groovyc_test resolves a
+// groovyc + JVM by VERIFYING a candidate (compile+run a probe against the node's
+// real dep classes) rather than grabbing the first groovyc on PATH — and if none
+// qualifies it FAILS (a requested-but-absent capable toolchain is a
+// misconfiguration). The Java FFM binding these suites test is JDK-22+ bytecode,
+// so a Debian groovy 2.4 on JDK 17 can neither read nor run it. Version STRINGS
+// (major[.minor[.patch]]), so "4" or "4.0" for Groovy 4. Unset → today's
+// behaviour (first groovyc found). For a portable matrix that should SKIP on
+// under-provisioned boxes, use skip_below_groovy / skip_below_jdk.
+min_groovy(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "min_groovy", ver)
 }
-min_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "min_jdk", string.from_int(ver))
+min_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "min_jdk", ver)
 }
 
-// skip_below_groovy(4) / skip_below_jdk(22) — PORTABLE-FLEET floors: same
+// skip_below_groovy("4") / skip_below_jdk("22") — PORTABLE-FLEET floors: same
 // verify-by-probe, but SKIP (green) rather than fail when no capable toolchain
 // qualifies. For a heterogeneous conformance matrix that must not go red on
 // every box lacking a capable Groovy/JDK. Soft counterparts to min_groovy /
-// min_jdk; a min_* requirement wins over a skip_below_* floor.
-skip_below_groovy(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "skip_below_groovy", string.from_int(ver))
+// min_jdk; a min_* requirement wins over a skip_below_* floor. Version STRINGS.
+skip_below_groovy(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "skip_below_groovy", ver)
 }
-skip_below_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "skip_below_jdk", string.from_int(ver))
+skip_below_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "skip_below_jdk", ver)
 }
 
 // main_class("pkg.Runner") — run this class as the test suite AFTER compiling,
@@ -362,11 +361,11 @@ _min_int(builder_map: ptr, key: string) {
     return iv
 }
 
-// _java_ge(min_major) — a JDK >= min_major, or "". Now a thin wrapper over the
-// shared build._java_ge (kotlin/scala reuse the same); kept as a local name so
-// the groovy resolver reads cleanly.
-_java_ge(min_major: int) {
-    return build._java_ge(min_major)
+// _java_ge(want) — a JDK satisfying the version floor `want` (string), or "".
+// Thin wrapper over the shared build._java_ge; kept as a local name so the
+// groovy resolver reads cleanly.
+_java_ge(want: string) {
+    return build._java_ge(want)
 }
 
 // _groovy_core_jars_desc() — newline list of groovy-<ver>.jar core jars from
@@ -413,18 +412,27 @@ _probe_groovy_toolchain(java_bin: string, groovy_jar: string, dep_classpath: str
 // (…/groovy-4.0.24.jar → 4), or 0 if unparseable. Enforces the min_groovy floor:
 // the probe alone can't (a groovy 4 compiles the binding whether the floor is 4
 // or 99), so the declared floor must be checked against the jar's own version.
-_jar_groovy_major(jar: string) {
+// (…/groovy-4.0.24.jar → "4.0.24"), or "" if unparseable. Enforces the
+// min_groovy floor: the probe alone can't (a groovy 4 compiles the binding
+// whether the floor is 4 or 99), so the declared floor is checked against the
+// jar's own version via build._version_ge.
+_jar_groovy_version(jar: string) {
     // awk, not sed: a sed script with backslash escapes does not survive the
-    // Aether-string -> _sh_capture -> shell path (comes back empty), the same
-    // trap _java_ge hit. awk's match/substr is escape-free.
-    raw, _e = build._sh_capture("basename '${jar}' | awk '{ if (match($0, /^groovy-[0-9]+/)) { s=substr($0,8); sub(/[^0-9].*/,\"\",s); print s } }'")
-    v, _pe = string.to_int(string.trim(raw))
+    // Aether-string -> _sh_capture -> shell path (comes back empty). awk's
+    // match/substr is escape-free. Emit the full version (4.0.24), not just major.
+    raw, _e = build._sh_capture("basename '${jar}' | sed -e 's/^groovy-//' -e 's/\\.jar$//' 2>/dev/null || basename '${jar}'")
+    // The sed above may not survive escaping; fall back to awk field split.
+    v = string.trim(raw)
+    if string.length(v) == 0 || string.equals(v, jar) == 1 {
+        raw2, _e2 = build._sh_capture("basename '${jar}' | awk '{ n=$0; sub(/^groovy-/,\"\",n); sub(/\\.jar$/,\"\",n); print n }'")
+        v = string.trim(raw2)
+    }
     return v
 }
 
-_resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: string, jdk_floor: int, groovy_floor: int) {
+_resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: string, jdk_floor: string, groovy_floor: string) {
     java_bin = "java"
-    if jdk_floor > 0 {
+    if string.length(string.trim(jdk_floor)) > 0 {
         java_bin = _java_ge(jdk_floor)
         if string.length(java_bin) == 0 { return "", "" }
     }
@@ -441,10 +449,14 @@ _resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: str
         else { jar = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
         jar = string.trim(jar)
         if string.length(jar) > 0 {
-            // Enforce the declared groovy-major floor: skip a jar below it (the
+            // Enforce the declared groovy version floor: skip a jar below it (the
             // probe would otherwise accept any groovy that compiles the binding).
-            jmaj = _jar_groovy_major(jar)
-            if groovy_floor == 0 || jmaj >= groovy_floor {
+            floor_ok = 1
+            if string.length(string.trim(groovy_floor)) > 0 {
+                jver = _jar_groovy_version(jar)
+                floor_ok = build._version_ge(jver, groovy_floor)
+            }
+            if floor_ok == 1 {
                 if _probe_groovy_toolchain(java_bin, jar, dep_classpath, probe_dir) == 1 {
                     return java_bin, jar
                 }
@@ -475,32 +487,28 @@ builder groovyc_test(ctx: ptr) {
     // (green). A min_* requirement wins over a skip_below_* floor. Unset → today's
     // path (first groovyc found). The floor's version for messages: prefer the
     // hard req, else the skip floor.
-    req_g = _min_int(_builder, "min_groovy")
-    req_j = _min_int(_builder, "min_jdk")
-    skip_g = _min_int(_builder, "skip_below_groovy")
-    skip_j = _min_int(_builder, "skip_below_jdk")
+    req_g = build._str_key(_builder, "min_groovy")
+    req_j = build._str_key(_builder, "min_jdk")
+    skip_g = build._str_key(_builder, "skip_below_groovy")
+    skip_j = build._str_key(_builder, "skip_below_jdk")
     is_hard = 0
-    if req_g > 0 { is_hard = 1 }
-    if req_j > 0 { is_hard = 1 }
+    if string.length(string.trim(req_g)) > 0 { is_hard = 1 }
+    if string.length(string.trim(req_j)) > 0 { is_hard = 1 }
     want_min = is_hard
-    if skip_g > 0 { want_min = 1 }
-    if skip_j > 0 { want_min = 1 }
+    if string.length(string.trim(skip_g)) > 0 { want_min = 1 }
+    if string.length(string.trim(skip_j)) > 0 { want_min = 1 }
 
     capable_java = ""
     capable_jar = ""
     if want_min == 1 {
         eff_jdk = req_j
-        if eff_jdk == 0 { eff_jdk = skip_j }
+        if string.length(string.trim(eff_jdk)) == 0 { eff_jdk = skip_j }
         eff_groovy = req_g
-        if eff_groovy == 0 { eff_groovy = skip_g }
+        if string.length(string.trim(eff_groovy)) == 0 { eff_groovy = skip_g }
         cap_dep_cp = build._cp_append(dep_cp, lib_cp)
         capable_java, capable_jar = _resolve_capable_groovy(_builder, cap_dep_cp, target_dir, eff_jdk, eff_groovy)
         if string.length(capable_jar) == 0 {
-            gv = req_g
-            if gv == 0 { gv = skip_g }
-            jv = req_j
-            if jv == 0 { jv = skip_j }
-            reason = "no capable Groovy ${gv}+ on a JDK ${jv}+ VM (groovyc can't read/run the JDK-22+ binding it compiles against)"
+            reason = "no capable Groovy ${eff_groovy}+ on a JDK ${eff_jdk}+ VM (groovyc can't read/run the JDK-22+ binding it compiles against)"
             if is_hard == 1 {
                 build.fail(ctx, "groovyc_test: ${reason} — min_groovy/min_jdk is a hard requirement; use skip_below_groovy/skip_below_jdk to skip instead")
                 return 1

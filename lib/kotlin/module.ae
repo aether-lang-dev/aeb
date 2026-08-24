@@ -36,15 +36,15 @@ source_layout(_ctx: ptr, layout: string) {
 // gated; kotlinc's own version is a separate concern handled by _kotlin_home.)
 // For a portable matrix that should SKIP on under-provisioned boxes, use
 // skip_below_jdk.
-min_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "kotlin_min_jdk", string.from_int(ver))
+min_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "kotlin_min_jdk", ver)
 }
 
 // skip_below_jdk(22) — PORTABLE-FLEET floor: run on a JDK >= this major, but
 // SKIP (green) rather than fail when the box has none. Soft counterpart to
 // min_jdk; min_jdk wins if both are set.
-skip_below_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "kotlin_skip_below_jdk", string.from_int(ver))
+skip_below_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "kotlin_skip_below_jdk", ver)
 }
 
 
@@ -596,9 +596,13 @@ builder kotlin_test(ctx: ptr, test_class: string) {
     // portable-fleet floor (SKIP if unmet). The FFM binding these suites exercise
     // is JDK-22+; an older ambient `java` fails at run time, which a false pass
     // would hide.
-    min_jdk_v = build._int_key(_builder, "kotlin_min_jdk")
-    skip_jdk_v = build._int_key(_builder, "kotlin_skip_below_jdk")
+    min_jdk_v = build._str_key(_builder, "kotlin_min_jdk")
+    skip_jdk_v = build._str_key(_builder, "kotlin_skip_below_jdk")
     run_java_bin, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, test_class)
+    if string.equals(jdk_status, "toolow") == 1 {
+        build.fail(ctx, "kotlin_test: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
+        return 1
+    }
     if string.equals(jdk_status, "fail") == 1 {
         build.fail(ctx, "kotlin_test: no JDK ${min_jdk_v}+ to run ${test_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1

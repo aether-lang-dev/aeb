@@ -128,23 +128,23 @@ jvm_args(_ctx: ptr, arg: string) {
     }
 }
 
-// min_jdk(22) — a HARD REQUIREMENT: java_main runs on a JDK >= this major, and
-// FAILS (stops the line) if none is installed. A requested-but-absent JDK is a
-// misconfiguration, not a state to be green in. select_jdk picks a compile JDK;
-// min_jdk gates the RUN. Unset -> ambient `java`. For a portable conformance
-// matrix that should SKIP rather than fail on under-provisioned boxes, use
-// skip_below_jdk instead.
-min_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "java_min_jdk", string.from_int(ver))
+// min_jdk("22") — a HARD REQUIREMENT: java_main runs on a JDK satisfying this
+// version FLOOR, and FAILS (stops the line) if none is installed. A
+// requested-but-absent JDK is a misconfiguration, not a state to be green in.
+// The floor is a STRING — "22", "21.0.2" (a patch floor), or the legacy "1.8"
+// (Java 8); aeb supports JDK 6+. select_jdk picks a compile JDK; min_jdk gates
+// the RUN. Unset -> ambient `java`. For a portable conformance matrix that
+// should SKIP rather than fail on under-provisioned boxes, use skip_below_jdk.
+min_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "java_min_jdk", ver)
 }
 
-// skip_below_jdk(22) — a PORTABLE-FLEET floor: run on a JDK >= this major, but
-// SKIP (green, skip-counted) rather than fail when the box has none. For a
-// heterogeneous conformance matrix that must not go red on every node lacking
-// the JDK. The soft counterpart to min_jdk's hard requirement; min_jdk wins if
+// skip_below_jdk("22") — a PORTABLE-FLEET floor: run on a JDK satisfying this
+// version floor, but SKIP (green, skip-counted) rather than fail when the box
+// has none. The soft counterpart to min_jdk's hard requirement; min_jdk wins if
 // both are set.
-skip_below_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "java_skip_below_jdk", string.from_int(ver))
+skip_below_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "java_skip_below_jdk", ver)
 }
 
 // --- Command builders ---
@@ -1479,11 +1479,15 @@ builder java_main(ctx: ptr, main_class: string) {
     classpath = build._cp_append(classpath, lib_cp)
     classpath = build._cp_append(classpath, maven_cp)
 
-    // JDK gate: min_jdk(N) is a hard requirement (FAIL if unmet), skip_below_jdk(N)
-    // is a portable-fleet floor (SKIP if unmet). _resolve_run_jdk applies both.
-    min_jdk_v = build._int_key(_builder, "java_min_jdk")
-    skip_jdk_v = build._int_key(_builder, "java_skip_below_jdk")
+    // JDK gate: min_jdk("22") is a hard requirement (FAIL if unmet),
+    // skip_below_jdk("22") is a portable-fleet floor (SKIP if unmet).
+    min_jdk_v = build._str_key(_builder, "java_min_jdk")
+    skip_jdk_v = build._str_key(_builder, "java_skip_below_jdk")
     run_java_bin, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, main_class)
+    if string.equals(jdk_status, "toolow") == 1 {
+        build.fail(ctx, "java_main: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
+        return 1
+    }
     if string.equals(jdk_status, "fail") == 1 {
         build.fail(ctx, "java_main: no JDK ${min_jdk_v}+ to run ${main_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1

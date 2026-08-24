@@ -2339,15 +2339,23 @@ _int_key(bmap: ptr, key: string) {
     return iv
 }
 
-_resolve_run_jdk(ctx: ptr, mod_dir: string, min_v: int, skip_v: int, what: string) {
+_resolve_run_jdk(ctx: ptr, mod_dir: string, min_v: string, skip_v: string, what: string) {
+    // Reject a floor below the supported minimum (JDK 6) up front — a config
+    // error, not a floor to compare. Status "toolow"; caller build.fails.
+    if string.length(string.trim(min_v)) > 0 {
+        if _jvm_floor_below_6(_normalize_jvm_version(min_v)) == 1 { return "", "toolow" }
+    }
+    if string.length(string.trim(skip_v)) > 0 {
+        if _jvm_floor_below_6(_normalize_jvm_version(skip_v)) == 1 { return "", "toolow" }
+    }
     // Hard requirement takes precedence.
-    if min_v > 0 {
+    if string.length(string.trim(min_v)) > 0 {
         sel = _java_ge(min_v)
         if string.length(sel) == 0 { return "", "fail" }
         println("${mod_dir}: JDK verified — ${sel}")
         return sel, "ok"
     }
-    if skip_v > 0 {
+    if string.length(string.trim(skip_v)) > 0 {
         sel2 = _java_ge(skip_v)
         if string.length(sel2) == 0 {
             reason = "no JDK ${skip_v}+ to run ${what} on"
@@ -2360,6 +2368,15 @@ _resolve_run_jdk(ctx: ptr, mod_dir: string, min_v: int, skip_v: int, what: strin
     }
     // No floor declared: ambient java.
     return "java", "ok"
+}
+
+// _str_key(bmap, key) — a builder map's string-valued setter, or "" if
+// unset/null. (min_jdk / skip_below_jdk store the version string verbatim.)
+_str_key(bmap: ptr, key: string) {
+    if bmap == null { return "" }
+    if map.has(bmap, key) == 0 { return "" }
+    v, _ = map.get(bmap, key)
+    return v
 }
 
 // _verify_toolchain(probe_cmd, ok_token) — run a caller-supplied probe command
@@ -2393,21 +2410,94 @@ _verify_toolchain(probe_cmd: string, ok_token: string) {
     return 0
 }
 
-// _java_ge(min_major) — absolute path to a `java` whose
-// java.specification.version >= min_major, or "" if none is installed. Probes
+// --- Version-floor comparison (shared by min_jdk / skip_below_jdk, and any
+//     future min_<lang> / skip_below_<lang>) --------------------------------
+//
+// Floors are STRINGS (major[.minor[.patch]]) — an int can't express "21.0.2" or
+// the legacy "1.8". The comparison is per-segment numeric with a floor semantic:
+// missing want-segments are 0, so "22" means ">= 22.0.0".
+
+// _normalize_jvm_version(v) — JEP 223, extended backwards. Java's version scheme
+// changed at 9: pre-9 releases carry a legacy "1." prefix (Java 8 is "1.8.0_412",
+// Java 6 is "1.6"), 9+ count plainly ("22", "21.0.2"). Normalize to the JEP-223
+// major.minor.patch by stripping a leading "1." and dropping the "_update" / "-ea"
+// / vendor suffix, so the comparator only ever sees clean numeric segments.
+// aeb supports JDK 6+, so a leading "1." is unambiguously the 1.6/1.7/1.8 prefix
+// (nothing below 6 is accepted). "1.8.0_412" -> "8.0", "1.6" -> "6", "22" -> "22",
+// "21.0.2" -> "21.0.2". Pure string work.
+_normalize_jvm_version(v: string) {
+    s = string.trim(v)
+    // Drop an "_update" or "-ea"/vendor suffix at the first '_' or '-'.
+    us = string.index_of(s, "_")
+    if us >= 0 { s = string.substring(s, 0, us) }
+    ds = string.index_of(s, "-")
+    if ds >= 0 { s = string.substring(s, 0, ds) }
+    // Strip a legacy leading "1." (only appears on 1.6/1.7/1.8 in supported range).
+    if string.starts_with(s, "1.") == 1 {
+        s = string.substring(s, 2, string.length(s))
+    }
+    return s
+}
+
+// _version_seg(v, i) — the i-th dot-segment of a version string as an int, or 0
+// if absent/non-numeric. "21.0.2" -> seg0=21, seg1=0, seg2=2, seg3=0.
+_version_seg(v: string, idx: int) {
+    rest = v
+    i = 0
+    while i < idx {
+        dot = string.index_of(rest, ".")
+        if dot < 0 { return 0 }
+        rest = string.substring(rest, dot + 1, string.length(rest))
+        i = i + 1
+    }
+    seg = rest
+    dot2 = string.index_of(seg, ".")
+    if dot2 >= 0 { seg = string.substring(seg, 0, dot2) }
+    n, _e = string.to_int(string.trim(seg))
+    return n
+}
+
+// _version_ge(have, want) — 1 if version `have` >= `want`, per-segment numeric
+// with floor semantics (missing want-segments treated as 0). Both are plain
+// major.minor.patch (caller normalizes JVM legacy first). "22">="22" -> 1,
+// "21.0.2">="21.0.1" -> 1, "8">="22" -> 0.
+_version_ge(have: string, want: string) {
+    i = 0
+    while i < 4 {
+        h = _version_seg(have, i)
+        w = _version_seg(want, i)
+        if h > w { return 1 }
+        if h < w { return 0 }
+        i = i + 1
+    }
+    return 1
+}
+
+// _jvm_floor_below_6(want) — 1 if a declared JDK floor is below the supported
+// minimum (JDK 6). Setters/gates reject it: min_jdk("5") is a config error, not
+// a silently-mis-compared floor. `want` is already normalized.
+_jvm_floor_below_6(want: string) {
+    maj = _version_seg(want, 0)
+    if maj < 6 { return 1 }
+    return 0
+}
+
+// _java_ge(want) — absolute path to a `java` whose java.specification.version
+// satisfies the version floor `want` (a string, e.g. "22" / "21.0.2" / "1.8"),
+// or "" if none is installed. Probes
 // $JAVA_HOME, the side-by-side JDKs under /usr/lib/jvm (newest major first),
 // then the `java` on PATH. Shared by every JVM SDK whose RUN step needs a
 // specific JDK (the FFM bindings html-sanitizer tests are JDK-22+, so a suite
 // run on an older ambient `java` fails at run time) — a "" return is the signal
-// to build._record_skip. Mirrors the `find_run_java` the html-sanitizer shell
-// scripts hand-roll. min_major <= 0 means "no requirement" → "" (caller uses
-// its default `java`).
+// to build._record_skip / build.fail per the caller's require-vs-skip policy.
+// An empty `want` means "no requirement" → "" (caller uses its default `java`).
 //
 // Version extraction uses awk, not sed: a sed script with backslash escapes
 // (\.  \(  \1) does not survive the Aether-string -> _sh_capture -> shell path
 // intact and comes back empty. awk with a plain field split is escape-free.
-_java_ge(min_major: int) {
-    if min_major <= 0 { return "" }
+_java_ge(want: string) {
+    if string.length(string.trim(want)) == 0 { return "" }
+    want_n = _normalize_jvm_version(want)
     cands = list.new()
     jh = os.getenv("JAVA_HOME")
     if string.length(jh) > 0 { list.add(cands, path.join(jh, "bin/java")) }
@@ -2431,9 +2521,10 @@ _java_ge(min_major: int) {
         c, _ = list.get(cands, i)
         i = i + 1
         if file.exists(c) == 1 {
+            // java.specification.version: "22" on 9+, "1.8" on Java 8, "1.6" on 6.
             vraw, _ve = _sh_capture("'${c}' -XshowSettings:properties -version 2>&1 | awk -F'= ' '/java.specification.version/{print $2; exit}'")
-            v, _pe2 = string.to_int(string.trim(vraw))
-            if v >= min_major { return c }
+            have_n = _normalize_jvm_version(string.trim(vraw))
+            if _version_ge(have_n, want_n) == 1 { return c }
         }
     }
     return ""

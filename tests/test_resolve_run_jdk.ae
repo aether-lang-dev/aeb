@@ -1,19 +1,17 @@
-// Unit tests for build._resolve_run_jdk — the require-vs-skip JDK gate shared by
-// the JVM run builders (java_main / kotlin_test / scalac_test / clojure.run_main).
+// Unit tests for the require-vs-skip JDK gate and the version-floor comparator
+// shared by the JVM run builders (java_main / kotlin_test / scalac_test /
+// clojure.run_main / groovyc_test).
 //
 // Two author intents, two outcomes:
-//   min_jdk(N)         HARD REQUIREMENT — unmet is a misconfiguration -> "fail"
-//   skip_below_jdk(N)  PORTABLE FLEET floor — unmet is half-expected  -> "skip"
-// min_jdk wins if both are set; neither set -> ambient "java", "ok".
+//   min_jdk("22")         HARD REQUIREMENT — unmet -> "fail"
+//   skip_below_jdk("22")  PORTABLE FLEET floor — unmet -> "skip"
+// min_jdk wins if both set; below the JDK-6 floor -> "toolow"; neither set -> "ok".
 //
-// The status is what the caller branches on (fail -> build.fail; skip -> the
-// helper already recorded the skip; ok -> use the returned java path). We can't
-// unit-test the JDK-present path deterministically (depends on the box), but the
-// UNMET paths use an impossibly-high floor (999), which is "" on any box, so the
-// require->fail / skip->skip decision is fully testable. Precedence and the
-// no-floor case likewise.
+// Floors are STRINGS: "22", "21.0.2" (a patch floor), the legacy "1.8" (Java 8).
+// The JDK-present path isn't deterministically testable (depends on the box), so
+// the UNMET paths use an impossibly-high floor ("999"), "" on any box.
 
-import build (_resolve_run_jdk, _int_key)
+import build (_resolve_run_jdk, _str_key, _version_ge, _normalize_jvm_version)
 import std.string
 import std.map
 
@@ -23,37 +21,62 @@ _assert(label: string, cond: int) {
     if cond == 1 { println("PASS: ${label}") }
     else { println("FAIL: ${label}") }
 }
+_eqs(label: string, a: string, b: string) {
+    if string.equals(a, b) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${a}', want '${b}')") }
+}
 
 main() {
-    // Fake ctx (a map is enough — _resolve_run_jdk only writes a skip marker via
-    // _record_skip on the skip path, which tolerates a bare map).
     ctx = map.new()
 
     // --- no floor -> ambient java, ok ---
-    j0, s0 = _resolve_run_jdk(ctx, "mod", 0, 0, "x")
-    _assert("no floor -> status ok", string.equals(s0, "ok"))
+    j0, s0 = _resolve_run_jdk(ctx, "mod", "", "", "x")
+    _assert("no floor -> ok", string.equals(s0, "ok"))
     _assert("no floor -> ambient java", string.equals(j0, "java"))
 
-    // --- unmet hard requirement (min 999) -> FAIL, no path ---
-    j1, s1 = _resolve_run_jdk(ctx, "mod", 999, 0, "x")
-    _assert("min 999 unmet -> status fail", string.equals(s1, "fail"))
+    // --- unmet hard requirement -> FAIL ---
+    j1, s1 = _resolve_run_jdk(ctx, "mod", "999", "", "x")
+    _assert("min 999 unmet -> fail", string.equals(s1, "fail"))
     _assert("min 999 unmet -> empty path", string.length(j1) == 0)
 
-    // --- unmet portable floor (skip 999) -> SKIP, no path ---
-    j2, s2 = _resolve_run_jdk(ctx, "mod", 0, 999, "x")
-    _assert("skip 999 unmet -> status skip", string.equals(s2, "skip"))
-    _assert("skip 999 unmet -> empty path", string.length(j2) == 0)
+    // --- unmet portable floor -> SKIP ---
+    j2, s2 = _resolve_run_jdk(ctx, "mod", "", "999", "x")
+    _assert("skip 999 unmet -> skip", string.equals(s2, "skip"))
 
-    // --- precedence: min wins over skip when both unmet -> FAIL, not skip ---
-    j3, s3 = _resolve_run_jdk(ctx, "mod", 999, 999, "x")
-    _assert("both unmet -> min wins -> fail (not skip)", string.equals(s3, "fail"))
+    // --- precedence: min wins when both unmet -> FAIL not skip ---
+    j3, s3 = _resolve_run_jdk(ctx, "mod", "999", "999", "x")
+    _assert("both unmet -> min wins -> fail", string.equals(s3, "fail"))
 
-    // --- _int_key round-trips a stored min ---
+    // --- below the JDK-6 floor -> toolow (config error) ---
+    j4, s4 = _resolve_run_jdk(ctx, "mod", "5", "", "x")
+    _assert("min 5 (below 6) -> toolow", string.equals(s4, "toolow"))
+    j5, s5 = _resolve_run_jdk(ctx, "mod", "1.5", "", "x")
+    _assert("min 1.5 (Java 5, below 6) -> toolow", string.equals(s5, "toolow"))
+
+    // --- _normalize_jvm_version: JEP 223 extended backwards ---
+    _eqs("normalize 22", _normalize_jvm_version("22"), "22")
+    _eqs("normalize 21.0.2", _normalize_jvm_version("21.0.2"), "21.0.2")
+    _eqs("normalize 1.8.0_412 -> 8.0", _normalize_jvm_version("1.8.0_412"), "8.0")
+    _eqs("normalize 1.6 -> 6", _normalize_jvm_version("1.6"), "6")
+    _eqs("normalize 22-ea -> 22", _normalize_jvm_version("22-ea"), "22")
+
+    // --- _version_ge: per-segment numeric, floor semantics ---
+    _assert("22 >= 22", _version_ge("22", "22") == 1)
+    _assert("24 >= 22", _version_ge("24", "22") == 1)
+    _assert("17 >= 22 is false", _version_ge("17", "22") == 0)
+    _assert("21.0.2 >= 21.0.1", _version_ge("21.0.2", "21.0.1") == 1)
+    _assert("21.0.1 >= 21.0.2 is false", _version_ge("21.0.1", "21.0.2") == 0)
+    _assert("22 >= 22.0.0 (missing want segs = 0)", _version_ge("22", "22.0.0") == 1)
+    // the lexical trap: "8" is NOT >= "22" numerically (naive string compare fails this)
+    _assert("8 >= 22 is false (numeric, not lexical)", _version_ge("8", "22") == 0)
+    _assert("8 >= 1.11-ish: 8 major beats minor '11' correctly", _version_ge("9", "1") == 1)
+
+    // --- _str_key ---
     b = map.new()
-    map.put(b, "k", "22")
-    _assert("_int_key reads stored int", _int_key(b, "k") == 22)
-    _assert("_int_key unset -> 0", _int_key(b, "nope") == 0)
-    _assert("_int_key null bmap -> 0", _int_key(null, "k") == 0)
+    map.put(b, "k", "21.0.2")
+    _eqs("_str_key reads stored string", _str_key(b, "k"), "21.0.2")
+    _eqs("_str_key unset -> empty", _str_key(b, "nope"), "")
+    _eqs("_str_key null bmap -> empty", _str_key(null, "k"), "")
 
     println("resolve_run_jdk tests done")
 }

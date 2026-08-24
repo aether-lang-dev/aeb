@@ -44,16 +44,16 @@ main() {
     _assert("min_int: null builder -> 0", _min_int(null, "min_jdk") == 0)
 
     b2 = map.new()
-    min_jdk(b2, 22)
-    min_groovy(b2, 4)
+    min_jdk(b2, "22")
+    min_groovy(b2, "4")
     _assert("min_int: reads min_jdk", _min_int(b2, "min_jdk") == 22)
     _assert("min_int: reads min_groovy", _min_int(b2, "min_groovy") == 4)
 
-    // --- build._java_ge: shared JDK selector (kotlin/scala reuse it) ---
-    // Two box-agnostic invariants: no requirement and unsatisfiable both -> "".
-    // (min_major <= 0 = "caller uses default java"; 999 = "SKIP signal".)
-    _assert("java_ge: 0 -> \"\" (no requirement)", string.length(_java_ge(0)) == 0)
-    _assert("java_ge: 999 -> \"\" (unsatisfiable -> SKIP signal)", string.length(_java_ge(999)) == 0)
+    // --- build._java_ge: shared JDK selector (string floor now) ---
+    // Two box-agnostic invariants: empty floor and unsatisfiable both -> "".
+    // ("" = "caller uses default java"; "999" = "SKIP/FAIL signal".)
+    _assert("java_ge: \"\" -> \"\" (no requirement)", string.length(_java_ge("")) == 0)
+    _assert("java_ge: 999 -> \"\" (unsatisfiable)", string.length(_java_ge("999")) == 0)
 
     println("groovy toolchain tests done")
 }

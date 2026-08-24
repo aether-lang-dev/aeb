@@ -35,16 +35,16 @@ main_class(_ctx: ptr, cls: string) {
 // don't probe scalac — only the JVM matters. Unset → ambient `java`. For a
 // portable matrix that should SKIP on under-provisioned boxes, use
 // skip_below_jdk.
-min_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "scala_min_jdk", string.from_int(ver))
+min_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "scala_min_jdk", ver)
 }
 
 // skip_below_jdk(22) — PORTABLE-FLEET floor: run on a JDK >= this major, but
 // SKIP (green) rather than fail when the box has none. min_jdk (above) is the
 // HARD requirement that FAILS when unmet; this is the soft counterpart for a
 // heterogeneous conformance matrix. min_jdk wins if both are set.
-skip_below_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "scala_skip_below_jdk", string.from_int(ver))
+skip_below_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "scala_skip_below_jdk", ver)
 }
 
 // jvm_flag("--enable-native-access=ALL-UNNAMED") — one extra flag for the JVM
@@ -349,9 +349,13 @@ builder scalac_test(ctx: ptr) {
     // portable-fleet floor (SKIP if unmet). Selects the JDK for compile+run.
     // run_java is "" (ambient java) when no floor is declared — downstream
     // commands prefix it only when non-empty, so map the helper's "java" back.
-    min_jdk_v = build._int_key(_builder, "scala_min_jdk")
-    skip_jdk_v = build._int_key(_builder, "scala_skip_below_jdk")
+    min_jdk_v = build._str_key(_builder, "scala_min_jdk")
+    skip_jdk_v = build._str_key(_builder, "scala_skip_below_jdk")
     sel_java, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, "the FFM binding")
+    if string.equals(jdk_status, "toolow") == 1 {
+        build.fail(ctx, "scalac_test: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
+        return 1
+    }
     if string.equals(jdk_status, "fail") == 1 {
         build.fail(ctx, "scalac_test: no JDK ${min_jdk_v}+ to run the FFM binding on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1

@@ -29,15 +29,15 @@ main_ns(_ctx: ptr, ns: string) {
 // discovered (CLI or jars), not probe-compiled. Unset → ambient `java`. For a
 // portable matrix that should SKIP on under-provisioned boxes, use
 // skip_below_jdk.
-min_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "clojure_min_jdk", string.from_int(ver))
+min_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "clojure_min_jdk", ver)
 }
 
 // skip_below_jdk(22) — PORTABLE-FLEET floor: run on a JDK >= this major, but
 // SKIP (green) rather than fail when the box has none. Soft counterpart to
 // min_jdk; min_jdk wins if both are set.
-skip_below_jdk(_ctx: ptr, ver: int) {
-    _e = map.put(_ctx, "clojure_skip_below_jdk", string.from_int(ver))
+skip_below_jdk(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "clojure_skip_below_jdk", ver)
 }
 
 // jvm_flag("--enable-native-access=ALL-UNNAMED") — one extra flag for the JVM
@@ -437,9 +437,13 @@ builder run_main(ctx: ptr) {
     // JDK gate: min_jdk(N) hard-requires (FAIL if unmet); skip_below_jdk(N) is a
     // portable-fleet floor (SKIP if unmet). run_java is "" (ambient) with no
     // floor; downstream prefixes it only when non-empty.
-    min_jdk_v = build._int_key(_builder, "clojure_min_jdk")
-    skip_jdk_v = build._int_key(_builder, "clojure_skip_below_jdk")
+    min_jdk_v = build._str_key(_builder, "clojure_min_jdk")
+    skip_jdk_v = build._str_key(_builder, "clojure_skip_below_jdk")
     sel_java, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, "the FFM binding")
+    if string.equals(jdk_status, "toolow") == 1 {
+        build.fail(ctx, "run_main: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
+        return 1
+    }
     if string.equals(jdk_status, "fail") == 1 {
         build.fail(ctx, "run_main: no JDK ${min_jdk_v}+ to run the FFM binding on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1
