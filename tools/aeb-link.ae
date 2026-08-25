@@ -834,8 +834,22 @@ main() {
     oc_cmd = string.concat(oc_cmd, orch_file)
     oc_cmd = string.concat(oc_cmd, " ")
     oc_cmd = string.concat(oc_cmd, orch_c)
-    oc_cmd = string.concat(oc_cmd, " 2>/dev/null")
-    _sh_link(oc_cmd)
+    // The orchestrator compile is one of the two commands a fan-out cannot
+    // survive losing: if it fails, out_bin never links and make then runs every
+    // node's recipe against a missing binary (Error 127 × N — one root failure
+    // wearing N coats). So do NOT discard its stderr, and stop LOUDLY on failure
+    // rather than letting make fan the 127s out with the real error silenced.
+    // aeb-link has no skip logic (it recompiles the orchestrator every run), so
+    // a failure here is always this run's failure — nothing stale to blame.
+    // (asks/orchestrator-failures-silenced-and-stale-helper-tools.md)
+    oc_cmd = string.concat(oc_cmd, " 2>&1")
+    oc_rc = _sh_link(oc_cmd)
+    if oc_rc != 0 {
+        println("aeb-link: FATAL — failed to compile the fan-out orchestrator (${orch_c}).")
+        println("aeb-link:   the error above is the real cause; the build is stopping here")
+        println("aeb-link:   rather than running every node against a binary that was never built.")
+        exit(1)
+    }
 
     // --- Link with gcc ---
     cc = "gcc -O2 -pipe -w "
@@ -975,7 +989,21 @@ main() {
     cc = string.concat(cc, sysdeps)
     cc = string.concat(cc, winsysdeps)
     cc = string.concat(cc, " 2>&1")
-    _sh_link(cc)
+    link_rc = _sh_link(cc)
+    // The orchestrator LINK is the second command a fan-out cannot survive
+    // losing. gcc's error is printed (2>&1 above), but interleaved in a long
+    // plan echo where nothing marks it fatal — so when the link fails, say so
+    // ONCE, loudly, and stop, rather than letting make discover a missing
+    // out_bin as Error 127 across every node. The link error above (undefined
+    // symbols, a missing -l) is the real cause.
+    // (asks/orchestrator-failures-silenced-and-stale-helper-tools.md)
+    if link_rc != 0 || file.exists(out_bin) == 0 {
+        println("aeb-link: FATAL — failed to link the fan-out orchestrator (${out_bin}).")
+        println("aeb-link:   the gcc error above (undefined symbols / a missing -l) is the real cause;")
+        println("aeb-link:   the build is stopping here rather than running every node against a")
+        println("aeb-link:   binary that was never linked (which surfaces as Error 127 × N nodes).")
+        exit(1)
+    }
 
     // --noexe (AEB_NOEXE=1): stop here. The orchestrator binary (out_bin) is
     // linked and on disk, but we do NOT run it — so no build work executes.
