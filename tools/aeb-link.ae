@@ -623,6 +623,34 @@ load_files(path: string) {
     return files
 }
 
+// _helper_stale(bin, src, dep) — 1 if the lazy-built helper tool `bin` needs
+// (re)building: it is MISSING, or its source `src` (or `dep`, an optional
+// second source it imports, "" to skip) is NEWER than the compiled binary.
+//
+// The old check was `file.exists(bin) == 0` — absence only — so a helper
+// compiled before a source fix survived any update that did not delete it. On
+// one box gen-orchestrator kept emitting the PRE-b1bfa5e broken entry symbol
+// (__D_all_D_ae) though the repo was well past that fix, because its binary
+// still existed. A toolchain whose components can be individually stale is the
+// "version skew wearing a costume" family (dotted-root, /usr/local skew, payload
+// vs repo skew) — an mtime check turns "installed, but stale" into a rebuild.
+// gen-orchestrator's `dep` is aeblabel (it imports encode_name), so an aeblabel
+// edit — exactly the fix that box was missing — now invalidates it too.
+// (asks/orchestrator-failures-silenced-and-stale-helper-tools.md, ask 2)
+_helper_stale(bin: string, src: string, dep: string) {
+    if file.exists(bin) == 0 { return 1 }
+    bin_mt = file.mtime(bin)
+    if file.exists(src) == 1 {
+        if file.mtime(src) > bin_mt { return 1 }
+    }
+    if string.length(dep) > 0 {
+        if file.exists(dep) == 1 {
+            if file.mtime(dep) > bin_mt { return 1 }
+        }
+    }
+    return 0
+}
+
 main() {
     if aether_args_count() < 8 {
         println("Usage: aeb-link <edges-file> <build-dir> <aeb-lib> <aether-dir> <aether-bin> <out-bin> <root>")
@@ -711,13 +739,21 @@ main() {
     transform_ae   = string.concat(transform_ae_base, esuf)
     gen_orchestrator = string.concat(gen_orchestrator_base, esuf)
 
-    // Lazy-build the helper tools if they aren't compiled yet.
-    if file.exists(transform_ae) == 0 {
-        _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/transform-ae.ae -o "), string.concat(transform_ae_base, " 2>/dev/null"))))
+    // (Re)build the helper tools if missing OR their source is newer than the
+    // compiled binary — not absence-only, which let a stale binary survive a
+    // source fix (see _helper_stale).
+    transform_src = string.concat(aebhome, "/tools/transform-ae.ae")
+    gen_src       = string.concat(aebhome, "/tools/gen-orchestrator.ae")
+    aeblabel_src  = string.concat(aebhome, "/tools/aeblabel/module.ae")
+    if _helper_stale(transform_ae, transform_src, "") == 1 {
+        _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(transform_src, string.concat(" -o ", string.concat(transform_ae_base, " 2>/dev/null")))))
     }
-    if file.exists(gen_orchestrator) == 0 {
+    // gen-orchestrator imports aeblabel (encode_name), so an aeblabel edit must
+    // invalidate it too — that is the exact drift that left a box emitting the
+    // pre-fix __D_all_D_ae symbol.
+    if _helper_stale(gen_orchestrator, gen_src, aeblabel_src) == 1 {
         // --lib <aebhome>/tools resolves gen-orchestrator's `import aeblabel`.
-        _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/gen-orchestrator.ae -o "), string.concat(gen_orchestrator_base, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null"))))))
+        _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(gen_src, string.concat(" -o ", string.concat(gen_orchestrator_base, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null")))))))
     }
 
     _sh_link(string.concat("mkdir -p ", build_dir))
@@ -1035,11 +1071,16 @@ main() {
     if per_node == 1 {
         aeb_driver_base = string.concat(aebhome, "/tools/aeb-driver")
         aeb_driver = string.concat(aeb_driver_base, esuf)
-        if file.exists(aeb_driver) == 0 {
-            // Lazy-build: aeb-driver imports `build` (lib) + aeblabel (tools).
+        // (Re)build if missing OR its source / imported aeblabel is newer than
+        // the binary — not absence-only (see _helper_stale). aeb-driver imports
+        // `build` (lib) + aeblabel (tools); the aeblabel dep is the shared
+        // encode_name source whose staleness left a box on the pre-fix symbol.
+        aeb_driver_src = string.concat(aebhome, "/tools/aeb-driver.ae")
+        aeblabel_src2  = string.concat(aebhome, "/tools/aeblabel/module.ae")
+        if _helper_stale(aeb_driver, aeb_driver_src, aeblabel_src2) == 1 {
             // -o uses the suffixless base (ae appends .exe on Windows).
             db = string.concat(aether_bin, " build ")
-            db = string.concat(db, string.concat(aebhome, "/tools/aeb-driver.ae -o "))
+            db = string.concat(db, string.concat(aeb_driver_src, " -o "))
             db = string.concat(db, aeb_driver_base)
             db = string.concat(db, " ")
             db = string.concat(db, compile_lib_flags)
