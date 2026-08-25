@@ -29,7 +29,32 @@ have() { command -v "$1" >/dev/null 2>&1; }
 
 have curl || die "curl is required."
 have tar  || die "tar is required."
-have make || die "GNU make is required."
+
+# Resolve GNU make specifically. The Makefile is GNU-make syntax (ifeq,
+# $(shell), pattern rules), so bare `make` picks BSD make on FreeBSD/*BSD,
+# which dies mid-build with "make: stopped making install" — while the old
+# `have make` guard passes because *a* make exists, it is just the wrong one.
+# Prefer `gmake` (the GNU make binary on every BSD; identical to `make` on
+# Linux), honour an explicit $MAKE, and VERIFY the choice is GNU rather than
+# trusting the name. Mirrors aether's installer + its
+# install-sh-picks-bsd-make-on-freebsd.md.
+# (asks/installer-bsd-make-and-204-dirty-tree.md)
+if [ -n "${MAKE:-}" ] && have "$MAKE"; then
+    MAKE_CMD="$MAKE"
+elif have gmake; then
+    MAKE_CMD="gmake"
+elif have make; then
+    MAKE_CMD="make"
+elif have mingw32-make; then
+    MAKE_CMD="mingw32-make"
+else
+    die "GNU make is required (install 'gmake' on FreeBSD/*BSD, 'make' on Linux)."
+fi
+if ! "$MAKE_CMD" --version 2>/dev/null | grep -qi 'gnu make'; then
+    die "'$MAKE_CMD' is not GNU make — the aeb Makefile is GNU-make syntax.
+     On FreeBSD/*BSD: pkg install gmake  (this script then prefers gmake).
+     Or set MAKE=/path/to/gnu-make and re-run."
+fi
 
 # The Aether toolchain is required to build aeb (aeb is Aether source).
 if ! have "$AETHER"; then
@@ -87,8 +112,8 @@ tar -xzf "$tmp/aeb.tar.gz" -C "$tmp" || die "extract failed."
 src=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d -name 'aeb-*' | head -1)
 [ -n "$src" ] && [ -d "$src" ] || die "could not locate extracted source dir."
 
-say "building + installing (no tests run)"
-make -C "$src" install PREFIX="$PREFIX" AETHER="$AETHER"
+say "building + installing (no tests run) with $MAKE_CMD"
+"$MAKE_CMD" -C "$src" install PREFIX="$PREFIX" AETHER="$AETHER"
 
 bin="$PREFIX/bin/aeb"
 [ -x "$bin" ] || die "install finished but $bin is missing."
