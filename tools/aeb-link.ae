@@ -487,6 +487,44 @@ _pkg_config_libs_link(mod: string) {
     return string.trim(out)
 }
 
+// _aether_published_libs(aether_bin) — the EXTERNAL link libs aether says
+// libaether.a needs, from `ae cflags --libs`, as a space-joined " -lx -ly" run.
+// This is aether's own probe result for this box (the same flags `ae build`
+// links with), so aeb never hand-curates the list. We keep only the external
+// `-l<name>` tokens: `-L<dir>`, `-laether`, `-pthread`, `-lm` are dropped
+// because aeb already adds them (and a duplicated `-laether` can disturb static
+// link ordering on MinGW). Returns "" if the command fails or emits nothing
+// (an ae too old for the subcommand) — the caller then falls back to pkg-config.
+// (asks/win32-link-needs-ldbghelp-after-0541.md)
+_aether_published_libs(aether_bin: string) {
+    raw, _e = _sh_capture_link(string.concat(aether_bin, " cflags --libs 2>/dev/null"))
+    s = string.trim(raw)
+    if string.length(s) == 0 { return "" }
+    out = ""
+    rest = s
+    while string.length(rest) > 0 {
+        // Next whitespace-delimited token.
+        sp = string.index_of(rest, " ")
+        tok = ""
+        if sp < 0 { tok = rest  rest = "" }
+        else { tok = string.substring(rest, 0, sp)  rest = string.substring(rest, sp + 1, string.length(rest)) }
+        tok = string.trim(tok)
+        if string.length(tok) > 0 {
+            // Keep external -l<name>; drop -laether / -lpthread / -lm (aeb adds),
+            // and anything that isn't a -l flag (-L dirs, stray tokens).
+            keep = 0
+            if string.starts_with(tok, "-l") == 1 { keep = 1 }
+            if string.equals(tok, "-laether") == 1 { keep = 0 }
+            if string.equals(tok, "-lpthread") == 1 { keep = 0 }
+            if string.equals(tok, "-lm") == 1 { keep = 0 }
+            if keep == 1 {
+                out = string.concat(out, string.concat(" ", tok))
+            }
+        }
+    }
+    return out
+}
+
 _resolve_sysdeps_link() {
     if _is_windows_link() == 1 {
         existing = os.getenv("PKG_CONFIG_PATH")
@@ -1003,22 +1041,30 @@ main() {
     // stderr swallowed by a `2>/dev/null` cmd.exe never interpreted. Still one
     // invocation per module (d55f064) — `--libs zlib openssl` is
     // all-or-nothing, so a missing zlib.pc would drop -lcrypto too.
-    sysdeps = _resolve_sysdeps_link()
-    // libaether pulls Windows system libs its crypto/net code needs
-    // (BCryptGenRandom -> bcrypt, winsock -> ws2_32); no pkg-config .pc for
-    // these, so add them explicitly. Empty off Windows.
+    // AUTHORITATIVE external libs: ask aether what libaether.a needs, don't
+    // hand-curate. `ae cflags --libs` emits the exact probe-derived set for THIS
+    // box (`-lssl -lcrypto -lz -lnghttp2 -lpcre2-8 -lfyaml -ldbghelp …`), which
+    // is what `ae build`'s own link uses — the list is aether's, it changes with
+    // aether's per-box detection, and a duplicated copy here loses by
+    // construction: aether adds a dependency (dbghelp at 0.541, zlib at 0.580),
+    // its own builds keep working, and aeb's fan-out dies at link with the real
+    // error silenced. Reading the list is the fix.
+    // (asks/win32-link-needs-ldbghelp-after-0541.md)
     //
-    // -lcrypto -lssl -lz are named here too, as a BELT-AND-BRACES for the
-    // pkg-config substitutions above. MinGW's ld does no transitive
-    // resolution for static archives — every symbol libaether.a needs must
-    // be on the command line — so if pkg-config is absent or its .pc files
-    // are missing, the substitutions expand to nothing and the link dies on
-    // undefined EVP_* with no hint that a flag was lost. Naming them is
-    // safe: a duplicate -l is a no-op to ld, and these three are exactly
-    // what libaether's crypto/compress code links against. Off Windows the
-    // toolchain resolves them transitively, so this stays Windows-only.
+    // Fallback to the pkg-config probe (_resolve_sysdeps_link) only when
+    // `cflags --libs` yields nothing — an ae too old to have the subcommand.
+    sysdeps = _aether_published_libs(aether_bin)
+    if string.length(string.trim(sysdeps)) == 0 {
+        sysdeps = _resolve_sysdeps_link()
+    }
+    // Windows SYSTEM libs libaether's crypto/net code needs (BCryptGenRandom ->
+    // bcrypt, winsock -> ws2_32). These are MinGW system libraries, not
+    // aether-probed deps, so `cflags --libs` may not name them and there is no
+    // .pc for them — add them explicitly. Empty off Windows. The probed crypto/
+    // compress libs (ssl/crypto/z/dbghelp) now come from cflags --libs above, so
+    // they are no longer duplicated here.
     winsysdeps = ""
-    if _is_windows_link() == 1 { winsysdeps = " -lbcrypt -lws2_32 -lssl -lcrypto -lz" }
+    if _is_windows_link() == 1 { winsysdeps = " -lbcrypt -lws2_32" }
     // Same link tail on every platform now — no dup-symbol flag, so no macOS
     // gate. (_is_macos_link is still used elsewhere; only this branch is gone.)
     cc = string.concat(cc, " -pthread -lm")
