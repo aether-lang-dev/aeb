@@ -87,33 +87,60 @@ Related family, distinct mechanism.
 
 Make a node's non-zero return redden the build in the in-process orchestrator
 too, WITHOUT reintroducing the garbage-implicit-return false-fail the discard
-was protecting against. The tension is real: we can't naively trust
-`${fname}(s)` (bites passing builds), and we can't ignore it (bites the
-sibling's gate). Options, roughly in order of preference:
+was protecting against.
 
-1. **Make the return trustworthy at the source.** Have `transform-ae` /
-   the builder lowering guarantee a builder's implicit tail-return IS its rc
-   (so `aether.program(b){…}` returns 0 on success, non-zero on fail). Then
-   `_rc = ${fname}(s)` becomes safe and both paths agree. Biggest fix,
-   cleanest end state — likely needs an aether-side builder-return contract.
-2. **Capture the return AND OR it with the status channel.** `_rc =
-   ${fname}(s)` but treat non-zero as failure ONLY when the node did not go
-   through a builder whose implicit-return is known-garbage — e.g. gate on
-   node type, or on "did any builder run." Fragile; codifies the very
-   builder-dependence the comment warns about.
-3. **Give custom nodes an explicit, documented fail verb.** Bless
-   `build.fail(ctx, reason)` (or a `return build.failed(ctx)` helper) as THE
-   way a hand-written node signals failure, and document that a bare
-   `return 1` is NOT honoured by the in-process orchestrator. Smallest change,
-   but it's a footgun-by-design: `return 1` looking like it works while doing
-   nothing is precisely what burned the sibling.
+## RESOLVED root cause + plan (2026-08-26, after the aether-sibling investigation)
 
-**Recommendation:** (1) is the correct fix if aether can give builders an
-rc-carrying tail-return; short of that, a hybrid of (2)+(3) — honour a node's
-non-zero return by default, and fix the specific builders whose implicit return
-is garbage so they return a real rc. Either way, **the in-process orchestrator
-must not exit 0 when a node returned non-zero.** A falsely-green presubmit is
-the worst failure a build tool can have.
+The aether sibling reproduced the garbage read and traced it precisely (see
+`note_here.md` in the aeb repo root for the full exchange). The mechanism is
+NOT a builder artifact and NOT specific to trailing blocks:
+
+- Aether has **no tail-expression-as-return semantics at all** — `f() { 7 }` is
+  void, same as `f() { builder(m){…} }`. An untyped function is void unless it
+  has an explicit `return` OR (see below) a declared `-> int`.
+- aeb's node entry is rewritten by `transform-ae` to `<fname>(s: ptr) {` —
+  **void** — but `gen-orchestrator.ae:69` declares it `extern … -> int`. A void
+  definition read through an `-> int` declaration across a TU boundary compiles
+  **silently** and reads the return register = stack residue (measured:
+  `1322553392`, `-2039513040`, … — "builder-dependent" only because different
+  builder bodies leave different values behind). This is the deliberate
+  `void-inferred returns` behaviour, aether `cf461f0d` / #354, not a regression.
+
+The original proposal (1) — "make the builder value flow through" — is
+**withdrawn**: it would require adding tail-expression-return semantics to the
+whole language (every `foo() { bar() }` flips from call-and-discard to
+call-and-return), a huge blast radius. Corrected split:
+
+### aeb side (self-contained, does NOT wait on aether) — the fix
+
+Measured against local `ae`:
+- An `-> int` node whose last statement is a bare builder call flows the
+  builder's rc automatically (success→0, failure→7) — **no explicit tail
+  `return` needed in the node body**, so no `.build.ae` edits.
+- BUT only if the tail builder is itself `: int`. A **void** builder under an
+  `-> int` node reads the same garbage one level up (measured `-1740860416`).
+- aeb's surface: **all 152 SDK builders are void-typed** (`builder …(): int` →
+  0 matches), yet **152/152 already have explicit `return 0`/`return rc` in
+  their bodies**. They just never declare the type.
+
+So the aeb fix is two mechanical, purely-additive parts:
+1. **Declare `: int` on all 152 builder signatures** (bodies already return
+   ints — no body changes).
+2. **Emit `-> int` on the node entry in `transform-ae`**, and drop the
+   discard-the-return workaround in `gen-orchestrator.ae` (read `_rc =
+   ${fname}(s)` again — now trustworthy).
+
+### aether side (belt-and-braces, tracked separately) — proposal (3)
+
+Make `extern f() -> int` over a void definition a **hard diagnostic** instead
+of a silent garbage-compiling mismatch (`aether/asks/bug_hypothesis.md`). This
+closes the class permanently so a future hand-written void builder can't
+silently reintroduce the hole. Not a blocker for the aeb fix; a safety net over
+it.
+
+**Either way, the in-process orchestrator must not exit 0 when a node returned
+non-zero.** A falsely-green presubmit is the worst failure a build tool can
+have.
 
 ## Acceptance
 
