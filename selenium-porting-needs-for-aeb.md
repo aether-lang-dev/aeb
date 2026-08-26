@@ -86,9 +86,11 @@ SDK if the choice is otherwise a wash," not a request.
   contention.
 
 - **Item 1b — `cargo_test_cmd` target-dir isolation.** Landed `65b225f` (see
-  §A above). Test node now shares `target/lib` with the build node; the reuse
-  miss + same-crate lock contention that measurement flagged are gone. After
-  you pull, drop any local `CARGO_TARGET_DIR` workaround.
+  §A above). **Confirmed on my side:** synced the SDK, reran the rust node.
+  Both build + test now live only in `target/build/lib/` — no cargo-default
+  `target/debug/` at all. After a from-clean build (~111s), the test node ran in
+  28s (test-harness compile only) instead of a full ~90s crate+deps recompile:
+  reuse works, and there was no local workaround to drop. Loop closed, thanks.
 
 ---
 
