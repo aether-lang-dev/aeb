@@ -12,7 +12,7 @@ import build
 // Tests for cargo_build_cmd()
 
 import rust
-import rust (cargo_build_cmd, cargo_test_cmd, binary_name)
+import rust (cargo_build_cmd, cargo_test_cmd, binary_name, extra)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -63,6 +63,19 @@ main() {
     bn2, _ = map_get(bm, "binary_name")
     _assert_eq("binary_name last-call-wins",
         bn2, "renamed")
+
+    // --- extra setter: the DSL setter that populates "extra". The cmd
+    // builders already read the key (asserted above); this covers the
+    // setter itself, which is what a `cargo_test_existing(b) { extra("--lib") }`
+    // block calls. Then feed the setter's own map through cargo_test_cmd to
+    // prove the setter → builder path end-to-end.
+    xm = map_new()
+    extra(xm, "--lib")
+    xv, _ = map_get(xm, "extra")
+    _assert_eq("extra setter stores the args", xv, "--lib")
+    _assert_eq("extra setter feeds cargo_test_cmd (cargo test --lib)",
+        cargo_test_cmd("/proj/rust", xm),
+        "cd '/proj/rust' && cargo test --lib")
 
     // --- cargo_test_cmd (consumed by rust.cargo_test_existing).
     _assert_eq("cargo_test_cmd bare",

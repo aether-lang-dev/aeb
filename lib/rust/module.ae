@@ -29,6 +29,15 @@ jobs(_ctx: ptr, n: string) {
     _e = map.put(_ctx, "jobs", n)
 }
 
+// Extra raw arguments appended verbatim to the cargo command, e.g. "--lib" to
+// restrict `cargo test` to the library's unit tests (excluding tests/*.rs
+// integration tests), or "--release" / "--no-default-features". cargo_build_cmd
+// and cargo_test_cmd already read this "extra" option; this setter populates it.
+// Pass one space-joined string for several flags.
+extra(_ctx: ptr, args: string) {
+    _e = map.put(_ctx, "extra", args)
+}
+
 // Set the crate/package name for -p flag (workspace member)
 crate_name(_ctx: ptr, name: string) {
     _e = map.put(_ctx, "crate_name", name)
