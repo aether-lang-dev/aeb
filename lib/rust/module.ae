@@ -1319,9 +1319,16 @@ binary_name(_ctx: ptr, name: string) {
 }
 
 // cargo_test_cmd — `cd <src> && cargo test [--features F] [--jobs N]
-// [extra]`. Pure: assembles the shell command from already-resolved
-// strings. Tested in tests/test_cargo_cmd.ae.
-cargo_test_cmd(source_dir: string, opts: ptr) {
+// [extra] --target-dir=<target>/lib`. Pure: assembles the shell command
+// from already-resolved strings. Tested in tests/test_cargo_cmd.ae.
+//
+// The trailing --target-dir MUST match cargo_build_cmd's (target_dir/lib):
+// .tests.ae deps .build.ae, so the test node reuses the build node's
+// compiled deps instead of recompiling from scratch in cargo's default
+// target/, and parallel same-crate nodes stop contending on cargo's
+// per-target build lock. (selenium 1b) target_dir "" leaves it off (the
+// legacy default target/ behaviour) for any caller that can't supply one.
+cargo_test_cmd(source_dir: string, target_dir: string, opts: ptr) {
     cmd = "cd '${source_dir}' && cargo test"
     if opts != null {
         if map.has(opts, "features") == 1 {
@@ -1336,6 +1343,13 @@ cargo_test_cmd(source_dir: string, opts: ptr) {
             val, _ = map.get(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
+    }
+    // Share the build node's target dir (target/lib) so the test run reuses
+    // the compiled deps rather than rebuilding under cargo's default target/.
+    // Empty target_dir → omit (legacy default-target behaviour).
+    if string.length(target_dir) > 0 {
+        lib_dir = path.join(target_dir, "lib")
+        cmd = string.concat(cmd, " --target-dir=${lib_dir}")
     }
     return cmd
 }
@@ -1362,7 +1376,7 @@ builder cargo_test_existing(ctx: ptr) {
     }
 
     println("${mod_dir}: running tests (cargo test)")
-    cmd = string.concat(build._env_export_prefix(_builder), cargo_test_cmd(source_dir, _builder))
+    cmd = string.concat(build._env_export_prefix(_builder), cargo_test_cmd(source_dir, target_dir, _builder))
     exit_code = build._sh(cmd)
     if exit_code != 0 {
         build._record_test_result(ctx, 0, 1)

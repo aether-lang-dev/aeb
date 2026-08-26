@@ -74,25 +74,27 @@ main() {
     xv, _ = map_get(xm, "extra")
     _assert_eq("extra setter stores the args", xv, "--lib")
     _assert_eq("extra setter feeds cargo_test_cmd (cargo test --lib)",
-        cargo_test_cmd("/proj/rust", xm),
+        cargo_test_cmd("/proj/rust", "", xm),
         "cd '/proj/rust' && cargo test --lib")
 
     // --- cargo_test_cmd (consumed by rust.cargo_test_existing).
+    // Empty target_dir "" → legacy form (cargo's default target/); the
+    // isolated form is asserted separately below.
     _assert_eq("cargo_test_cmd bare",
-        cargo_test_cmd("/proj/rust", null),
+        cargo_test_cmd("/proj/rust", "", null),
         "cd '/proj/rust' && cargo test")
 
     test_opts = map_new()
     map_put(test_opts, "features", "experimental")
     _assert_eq("cargo_test_cmd with features",
-        cargo_test_cmd("/proj/rust", test_opts),
+        cargo_test_cmd("/proj/rust", "", test_opts),
         "cd '/proj/rust' && cargo test --features experimental")
 
     test_opts2 = map_new()
     map_put(test_opts2, "jobs", "4")
     map_put(test_opts2, "extra", "--release")
     _assert_eq("cargo_test_cmd jobs + extra",
-        cargo_test_cmd("/proj/rust", test_opts2),
+        cargo_test_cmd("/proj/rust", "", test_opts2),
         "cd '/proj/rust' && cargo test --jobs 4 --release")
 
     // --- cargo_test_cmd: all four opts combined, order is canonical
@@ -103,12 +105,24 @@ main() {
     map_put(test_opts3, "jobs", "2")
     map_put(test_opts3, "extra", "--locked -- --nocapture")
     _assert_eq("cargo_test_cmd features+jobs+extra ordering",
-        cargo_test_cmd("/proj/rust", test_opts3),
+        cargo_test_cmd("/proj/rust", "", test_opts3),
         "cd '/proj/rust' && cargo test --features experimental,bidi --jobs 2 --locked -- --nocapture")
+
+    // --- cargo_test_cmd target-dir isolation (selenium 1b): a non-empty
+    // target_dir appends --target-dir=<target>/lib, MATCHING cargo_build_cmd
+    // so the test run reuses the build node's compiled deps (target/lib)
+    // instead of recompiling under cargo's default target/. The suffix here
+    // must equal the tail cargo_build_cmd produces for the same target_dir.
+    _assert_eq("cargo_test_cmd isolates via --target-dir",
+        cargo_test_cmd("/proj/rust", "/proj/rust/target", null),
+        "cd '/proj/rust' && cargo test --target-dir=/proj/rust/target/lib")
+    _assert_eq("cargo_test_cmd target-dir + extra",
+        cargo_test_cmd("/proj/rust", "/proj/rust/target", xm),
+        "cd '/proj/rust' && cargo test --lib --target-dir=/proj/rust/target/lib")
 
     // --- cargo_test_cmd: source_dir with spaces (single-quoted).
     _assert_eq("cargo_test_cmd source_dir with spaces",
-        cargo_test_cmd("/path with space/rust", null),
+        cargo_test_cmd("/path with space/rust", "", null),
         "cd '/path with space/rust' && cargo test")
 
     println("cargo_build_cmd tests done")
