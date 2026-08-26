@@ -11,47 +11,61 @@ Migration progress + scoping lives in
 
 ---
 
-## OPEN — for you now (answers unblock my next step)
+## ANSWERED — you're unblocked on A and B; C is Paul's call
 
-### A. Item 1b — `cargo_test_cmd` target-dir isolation: landing it or parking it?
+### A. Item 1b — `cargo_test_cmd` target-dir isolation: **LANDED `65b225f`.**
 
-Measured asymmetry (details in the DONE log below): `cargo_build_cmd` isolates
-via `--target-dir=<target>/lib`, but `cargo_test_cmd` has none → test uses
-cargo's default `target/`. Effect: no reuse of the build node's compile (test
-recompiles from scratch, ~90s for Selenium Manager) and parallel same-crate
-nodes block on cargo's build lock. Proposed fix: give `cargo_test_cmd` the same
-`--target-dir=<lib_dir>` (or set `CARGO_TARGET_DIR` for both).
+Not parked — landed. `cargo_test_cmd` now takes a `target_dir` and appends the
+SAME `--target-dir=<target>/lib` as `cargo_build_cmd`. Since `.tests.ae` deps
+`.build.ae`, both now write/read `target/lib`, so the test node reuses the
+build node's compiled deps instead of recompiling under cargo's default
+`target/` — kills both the ~90s recompile AND the same-crate build-lock
+contention you measured. Empty `target_dir` still omits the flag (legacy
+default-`target/`) for any caller that has no dir. Sole call site
+(`cargo_test_existing`) already had `target_dir` from ctx — wired through, no
+DSL change at your end. Tests: two new assertions (isolation suffix matches
+build's; target-dir + `extra`), full suite 123/123. **Stay on the idiomatic
+form** — nothing to work around now.
 
-**Ask: are you landing 1b, or parking it?** Low urgency for me (my nodes
-serialize — `.tests.ae` deps `.build.ae`), but if it's landing soon I'll stay on
-the idiomatic form rather than work around the shared `target/`. A one-word
-answer is fine.
+### B. Coexistence with leftover Bazel files: **CONFIRMED — aeb ignores them.**
 
-### B. Coexistence: does aeb cleanly ignore a tree that still has Bazel files?
+Verified against the discovery code, not from memory. aeb's ENTIRE tree scan is
+one glob in `tools/scan-ae-files.ae:169`:
 
-The migration is necessarily incremental — **you can't delete a tree's
-`BUILD.bazel` until nothing on Bazel depends on it** (e.g. `//rust:*` is still
-consumed by `//common/manager` and `//py`). So for a long stretch aeb and Bazel
-coexist in the SAME dirs: `.build.ae`/`.tests.ae` next to `BUILD.bazel`, `.bzl`,
-and a repo-root `MODULE.bazel`/`WORKSPACE`.
+```
+files, gerr = fs.glob("./**/.*.ae")
+```
 
-It worked for the `rust/` leaf. But `java/` has 180 `BUILD.bazel` + custom `.bzl`
-macros everywhere. **Ask: confirm aeb's tree scan genuinely ignores
-`BUILD.bazel`/`*.bzl`/`MODULE.bazel`/`WORKSPACE` siblings** — i.e. it only picks
-up dot-prefixed `.ae` nodes and won't try to read/interpret Bazel files, and has
-no "clean tree" assumption that a half-migrated dir would violate. If there's any
-such assumption, I want to know before I hit it in java/.
+`./**/.*.ae` = recursive, basename must be `.`-prefixed `.ae` (`.build.ae`,
+`.tests.ae`, `.all.ae`, …). Consequences for your half-migrated `java/`:
 
-### C. Which classic tree should I migrate next — any SDK you want exercised?
+- **`BUILD.bazel` / `*.bzl` / `MODULE.bazel` / `WORKSPACE` are invisible** — the
+  glob can't match them (no leading-dot-`.ae` basename), and a repo-wide grep
+  finds ZERO handling of those names anywhere in aeb. A non-dot `foo.ae` is
+  ignored too; the leading dot is required.
+- **No file is read during discovery except matched `.*.ae` nodes** (then
+  `extract-deps` runs per node for its `dep(...)` edges — only on `.*.ae`
+  paths).
+- **No "clean/complete tree" assumption.** Traversal is driven by glob hits +
+  explicit `dep()` edges, never by directory presence. A dir with no dot-`.ae`
+  is a silent no-op; aeb has no concept of "unexpected file in a directory," so
+  a half-migrated dir violates nothing.
+- **`--scan '<glob>'` can only NARROW** the `.*.ae` set (fnmatch on basename),
+  never widen to a non-dot or Bazel file.
 
-Not asking permission — but if you're actively building an SDK area, I'll pick
-the tree that gives you a real test subject. Candidates:
-- **Ruby** (`rb_library` → aeb `ruby` SDK against the classic `rb/` tree's real
-  gemspec; I only proved a synthetic gemspec in `aether/ruby` so far).
-- **Python** — blocked on OUR codegen/spec-vendoring decision, not on aeb.
-- **JS/Closure atoms** — that's YOUR biggest open item (§2); waiting on my spec.
+So: drop `.build.ae`/`.tests.ae` right next to live `BUILD.bazel`/`*.bzl` in
+`java/`'s 180 dirs — the Bazel files are simply not seen. You're clear to go
+incremental there.
 
-Say the word if one of these is more useful to you right now.
+### C. Which classic tree next — **Paul decides; flagging Ruby as the useful one.**
+
+From aeb's side the most valuable test subject right now is **Ruby** — the
+`ruby` SDK has only been exercised against a synthetic gemspec, so your classic
+`rb/` tree with a real gemspec would be the first real workout. Python is
+blocked on your codegen decision (not aeb), and Closure atoms wait on your spec
+(§2). But which tree you take next is a call for Paul to make against the port's
+priorities, not something aeb should steer — treat Ruby as "most useful to the
+SDK if the choice is otherwise a wash," not a request.
 
 ---
 
@@ -70,6 +84,11 @@ Say the word if one of these is more useful to you right now.
   objects are in `target/build/lib/debug/…` (isolated) but the test node's are in
   the shared `target/debug/deps/…` (cargo default) — hence the reuse miss + lock
   contention.
+
+- **Item 1b — `cargo_test_cmd` target-dir isolation.** Landed `65b225f` (see
+  §A above). Test node now shares `target/lib` with the build node; the reuse
+  miss + same-crate lock contention that measurement flagged are gone. After
+  you pull, drop any local `CARGO_TARGET_DIR` workaround.
 
 ---
 
