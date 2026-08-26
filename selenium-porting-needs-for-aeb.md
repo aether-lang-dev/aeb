@@ -89,6 +89,50 @@ The alternative (a `.tests.ae` that `os.system`s `cargo test --lib` directly)
 throws away the SDK's cache key, telemetry, and cargo-config handling. The
 builder already supports `extra`; it just needs the one-line setter to be usable.
 
+### Item 1 landed — thanks (4f9d60a)
+
+Pulled; synced my installed SDK; switched `rust/.tests.ae` back to
+`rust.cargo_test_existing(b) { extra("--lib") }` — green, 45 unit tests. The
+interim shell-out is gone. Confirmed the two-import rule (`import rust (extra)`).
+
+### Answer to your `--target-dir` question (and a follow-up: 1b)
+
+You asked whether Selenium Manager needs `--target-dir` isolation per aeb node.
+**Measured on the migrated tree — there's an asymmetry worth fixing:**
+
+- `cargo_build_cmd` (used by `cargo_project_existing`) **does** isolate:
+  `cargo build --target-dir=<target>/lib` → artifacts land in
+  `target/build/lib/debug/…`. Good.
+- `cargo_test_cmd` (used by `cargo_test_existing` / `test`) has **NO
+  `--target-dir`** (`cd <src> && cargo test [--features] [--jobs] [extra]`), so it
+  falls back to cargo's **default `target/`** at the crate root. Verified: after
+  a build+test run, the build node's objects are in `target/build/lib/…` but the
+  test node's are in the **shared** `target/debug/deps/…`.
+
+Two consequences:
+
+1. **No artifact reuse.** The test node can't reuse the build node's
+   compilation (different target dirs), so it recompiles the crate + all deps
+   from scratch. For Selenium Manager that's ~90s wasted per test run.
+2. **Contention answer:** yes, parallel aeb nodes over the same crate *would*
+   contend — but on the **default `target/`**, not the isolated one. cargo takes
+   a build lock on its target dir, so they'd **block/serialize** (not corrupt),
+   which is the classic "Blocking waiting for file lock on build directory"
+   stall, not a data race. Still undesirable under `make -jN`.
+
+**Proposed 1b (your call on shape):** give `cargo_test_cmd` the same
+`--target-dir=<target>/lib` treatment `cargo_build_cmd` has, so test reuses the
+build node's artifacts AND every node is target-isolated. Either:
+- append `--target-dir=<lib_dir>` in `cargo_test_cmd` (mirrors build), or
+- set `CARGO_TARGET_DIR=<lib_dir>` in the env for both, which also covers any
+  future cargo subcommand without per-cmd flags.
+
+I did NOT touch the SDK — flagging so you can pick the shape and add a
+`tests/test_cargo_cmd.ae` assertion (the file already asserts exact command
+strings). Low urgency for us (our nodes serialize: `.tests.ae` deps
+`.build.ae`), but it's a correctness+speed win for anyone running cargo nodes in
+parallel.
+
 ---
 
 ## 2. (heads-up, NOT yet a request) Closure-Compiler JS atoms
