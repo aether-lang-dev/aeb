@@ -648,7 +648,7 @@ _str_opt(builder_map: ptr, key: string, dflt: string) {
     return dflt
 }
 
-builder check(ctx: ptr) {
+builder check(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

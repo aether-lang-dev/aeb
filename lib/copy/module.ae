@@ -130,7 +130,7 @@ _validate_setters(b_map: ptr, mod_dir: string, builder_name: string) {
 // --- SDK builders ---
 
 // copy.file(b) — single-file copy. Mtime-skip when dst is fresh.
-builder file(ctx: ptr) {
+builder file(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
@@ -175,7 +175,7 @@ builder file(ctx: ptr) {
 // file deep in src changing won't always bump src's dir mtime) —
 // MVP. Callers that need deeper staleness should `rm -rf dst`
 // between runs.
-builder tree(ctx: ptr) {
+builder tree(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")

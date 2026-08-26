@@ -204,7 +204,7 @@ _out_name_of(builder_map: ptr, mod_dir: string) {
 // Compile C++ sources into a native binary. Publishes the
 // program_binary artifact (build.program_binary_of contract), so a
 // language-agnostic test runner (incl. c.tests) can drive it.
-builder program(ctx: ptr) {
+builder program(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -247,7 +247,7 @@ builder program(ctx: ptr) {
 // (the lowest-common-denominator contract that works for any C++ test
 // framework — gtest, Catch2, doctest, or a hand-rolled main). Records a
 // binary-grain test result (1/0 or 0/1) via build._record_test_result.
-builder tests(ctx: ptr) {
+builder tests(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

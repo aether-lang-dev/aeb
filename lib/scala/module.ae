@@ -221,7 +221,7 @@ _cache_key_for_scalac(ctx: ptr, argfile_path: string, scalac_cmd_str: string, co
 // --- SDK functions ---
 
 // Compile Scala sources to .class files via scalac.
-builder scalac(ctx: ptr) {
+builder scalac(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -337,7 +337,7 @@ builder scalac(ctx: ptr) {
 
 // Compile and run Scala tests.
 // Compiles test .scala files, then runs them via JUnit (munit integrates with JUnit).
-builder scalac_test(ctx: ptr) {
+builder scalac_test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -534,7 +534,7 @@ builder scalac_test(ctx: ptr) {
 // to java.shade (which fills the same gap on the Java side), with
 // the difference that scala-library MUST be inlined: without it the
 // resulting jar exits with `NoClassDefFoundError: scala/Predef`.
-builder assembly(ctx: ptr) {
+builder assembly(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     source_dir = build._get(ctx, "source_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -674,7 +674,7 @@ _ends_with_jar(s: string) {
 }
 
 // Run compiled test classes via JUnit (munit integrates with JUnit 4).
-builder munit(ctx: ptr) {
+builder munit(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
 

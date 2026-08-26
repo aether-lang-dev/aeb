@@ -321,7 +321,7 @@ _resolve_path(source_dir: string, p: string) {
 //   4. Record a build artifact pointing at the resolved path so
 //      downstream `.build.ae` consumers can read it via
 //      `build.dep` + artifact lookup.
-builder file(ctx: ptr) {
+builder file(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
@@ -391,7 +391,7 @@ builder file(ctx: ptr) {
 // the same sha256 + an existing extract_to dir is treated as
 // up-to-date (we don't re-hash every extracted file — that's a
 // follow-up if it ever bites).
-builder archive(ctx: ptr) {
+builder archive(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
@@ -532,7 +532,7 @@ builder archive(ctx: ptr) {
 // ordinary target at `<into>/path/.name.ae` (or, once build.pkg_dep lands,
 // declares the fetch + the target in one verb — see
 // asks/ae-add-implicating-an-aeb-target.md).
-builder git(ctx: ptr) {
+builder git(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")

@@ -227,7 +227,7 @@ brew_formula_render(class_name_v: string, name: string, target_path: string,
 
 // --- Builder entry point ---
 
-builder formula(ctx: ptr) {
+builder formula(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)

@@ -99,7 +99,7 @@ _erts_include() {
 // put a DT_NEEDED on it and the BEAM dies in the dynamic linker rather than
 // reporting a clean load error) — it dlopens it, so -ldl (not on macOS);
 // (2) erl_nif.h is found by asking erl, not guessing.
-builder nif(ctx: ptr) {
+builder nif(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -207,7 +207,7 @@ builder nif(ctx: ptr) {
 
 // erlang.compile(b) — run the declared build steps (bespoke NIF/erlc/stage);
 // success/fail telemetry. Default `rebar3 compile` when no step()s declared.
-builder compile(ctx: ptr) {
+builder compile(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: building (erlang)")
     return build._run_project(ctx, _builder, "rebar3 compile", 0)
@@ -215,7 +215,7 @@ builder compile(ctx: ptr) {
 
 // erlang.eunit(b) — `rebar3 eunit` by default, or `escript <path>` when
 // escript("…") is declared. Pass/fail telemetry. Honors explicit step()s.
-builder eunit(ctx: ptr) {
+builder eunit(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
 
     // Back-compat: a binding that wrote step("…") keeps the generic path.

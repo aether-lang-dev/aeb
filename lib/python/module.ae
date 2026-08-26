@@ -324,7 +324,7 @@ _ensure_venv(root: string) {
 // Arg format: "name~version" (e.g. "requests~2.31.0")
 // Multiple calls append to the same artifact so one .whl.ae can bundle
 // several related coords.
-builder wheel_registry(ctx: ptr, name_and_ver: string) {
+builder wheel_registry(ctx: ptr, name_and_ver: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -348,7 +348,7 @@ builder wheel_registry(ctx: ptr, name_and_ver: string) {
 //
 // Arg format: local path to the .whl file (relative to project root)
 // Multiple calls append to the same artifact.
-builder wheel_vendored(ctx: ptr, wheel_path: string) {
+builder wheel_vendored(ctx: ptr, wheel_path: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -367,7 +367,7 @@ builder wheel_vendored(ctx: ptr, wheel_path: string) {
     return 0
 }
 
-builder install(ctx: ptr) {
+builder install(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     root = build._get(ctx, "root")
@@ -456,7 +456,7 @@ builder install(ctx: ptr) {
 }
 
 // Run pytest using the .aeb/venv/ python.
-builder pytest(ctx: ptr) {
+builder pytest(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -552,7 +552,7 @@ _is_digit_py(c: string) {
 }
 
 // Lint Python source with ruff.
-builder lint(ctx: ptr) {
+builder lint(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -583,7 +583,7 @@ builder lint(ctx: ptr) {
 }
 
 // Type-check Python source with mypy.
-builder typecheck(ctx: ptr) {
+builder typecheck(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -616,7 +616,7 @@ builder typecheck(ctx: ptr) {
 
 // Build a Python package (wheel + sdist).
 // Generates pyproject.toml from DSL setters, then runs python -m build.
-builder package(ctx: ptr) {
+builder package(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -726,7 +726,7 @@ builder package(ctx: ptr) {
 // Outputs land in `target/<module>/dist/` per the existing
 // `build_package_cmd` shape, so this builder is a drop-in for any
 // downstream that consumes the dist artifact.
-builder package_existing(ctx: ptr) {
+builder package_existing(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -804,7 +804,7 @@ builder package_existing(ctx: ptr) {
 // declared outputs are large multi-file sets; wiring lib/cache for
 // multi-file artifacts is a follow-up. Today's behaviour is "run if
 // any declared input is newer than the oldest declared output."
-builder codegen(ctx: ptr) {
+builder codegen(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -1069,7 +1069,7 @@ _codegen_resolve(cwd: string, p: string) {
 // python.test(b) — run the project's pytest as-is (system python3, no
 // venv), the "drive an existing project" counterpart to the venv-based
 // `pytest` builder. Foundation-backed: honors env(K,V)/step/workdir.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: running tests (pytest)")
     return build._run_project(ctx, _builder, "python3 -m pytest -q", 1)

@@ -1,0 +1,28 @@
+
+ question asked of servirtium-vcr sibling --> re aeb doe.ae files in servirtium-vcr ... did we need workarounds for things that aeb didn't natively have in its per-langiage and per-other-build-tool modules? Supplied rather …
+
+    Based on the leaves we actually worked on this session, the honest answer is: almost everything in servirtium-vcr is hand-rolled os.system(...) shell-outs — "supplied" — not aeb's 
+    native per-language SDK builders. And that splits into two distinct causes:
+
+    1. For most of the languages, aeb simply has no module — so it's "supplied" by necessity, not as a workaround.
+    aeb ships SDK builders for the mainstream-CI set: java/maven, python, ruby, c, kotlin, scala, clojure, rust(cargo), dotnet, the JS family (pnpm/jest/ts/webpack), plus
+    bash/copy/fetch/aether. It has nothing for Nim, Zig, Lua, Erlang, Elixir/mix, Gleam, Dart, Haskell, PHP, Pharo, or Groovy (and I'm not certain there's a lib/go). Those bindings had
+    no choice but to shell out via os.system — nim c -r, zig build test, ./build.sh && lua5.4, cc/erlc/escript, mix test, gleam test, etc. That's not really a workaround for a gap in an
+    existing module; it's reaching into territory aeb's SDKs don't cover at all.
+
+    2. Even where a module DOES exist, the binding shape didn't fit it, so we shelled out anyway.
+    The bindings all share an awkward-for-aeb shape: link against one prebuilt shared object (core/native/libservirtium_vcr.so) with specific -L/-l/-rpath flags and a SERVIRTIUM_VCR_LIB
+    env var, then run the language's own test runner against an existing upstream project file (pom.xml / mix.exs / Cargo.toml / package.json). aeb's native builders lean toward "aeb
+    owns the metadata and emits the compile/test command," whereas these want "run the existing project as-is." So kotlin/.tests.ae does mvn test via os.system rather than
+    kotlin.kotlinc_test; the JS/vue-storybook leaves do npm install/node ….cjs rather than jest/pnpm; core/.build.ae does ae build --emit=lib … rather than fully driving aether.program.
+    aeb has *_existing non-destructive builders (cargo_project_existing, dotnet.build_project_existing, python.package_existing) for exactly this "build the upstream as-is" case, but
+    for the binding tests the inline shell-out was the simpler, more direct route.
+
+    What was a genuine aeb gap/workaround (as opposed to just shelling out):
+    - The only true aeb defect we hit was the aeb(cap) migration breaking custom-named leaves (build.begin(s, …) undefined-s), which forced everything but .tests.ae to fail — but that
+    was a bug, fixed in v0.118, not a missing module.
+    - The thing that uses aeb natively throughout is the spine: build.start/build.dep/build._get and the DAG wiring. That part we leaned on as designed; it's the per-language
+    compile/test step where we consistently went "supplied."
+    
+    So: the build-graph layer is native aeb; the actual per-language build/test commands are almost entirely supplied os.system shell-outs — mostly because aeb has no SDK for those ~11
+    languages, and secondarily because the "prebuilt-.so + native-test-runner-on-an-existing-project" shape isn't what aeb's existing builders are aimed at.

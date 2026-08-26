@@ -90,7 +90,7 @@ _release_of(builder_map: ptr) {
 
 // Resolve dependencies via `swift package resolve`. The install-
 // equivalent. Mirror of dart.pub_get.
-builder resolve(ctx: ptr) {
+builder resolve(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -114,7 +114,7 @@ builder resolve(ctx: ptr) {
 // artifact. SwiftPM produces a package under .build/<config>/; the
 // runnable surface is `swift run`, which needs the toolchain — so (like
 // gleam.build) no host program_binary is published.
-builder build_pkg(ctx: ptr) {
+builder build_pkg(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -138,7 +138,7 @@ builder build_pkg(ctx: ptr) {
 
 // Run tests via `swift test`. Mirror of dart.test: tee output, parse
 // XCTest's summary for pass/fail, feed build._record_test_result.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

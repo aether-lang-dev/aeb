@@ -74,7 +74,7 @@ _flag_part(l: ptr) {
 // --- Builders ---
 
 // elixir.compile(b) — `mix compile`. Build-phase verb.
-builder compile(ctx: ptr) {
+builder compile(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: compiling (mix compile)")
     return build._run_project(ctx, _builder, "mix compile", 0)
@@ -82,7 +82,7 @@ builder compile(ctx: ptr) {
 
 // elixir.test(b) — `mix test` (optionally `mix deps.get` first), pass/fail
 // telemetry. Honors explicit step()s for back-compat; otherwise DSL-driven.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
 
     // Back-compat: a binding that wrote step("…") keeps the generic path.

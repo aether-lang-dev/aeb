@@ -37,7 +37,7 @@ jest_cmd(jest_bin: string, jest_config: string, timeout_secs: string, opts: ptr)
 // --- SDK functions ---
 
 // Run Jest tests using the project's jest.config.ts.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

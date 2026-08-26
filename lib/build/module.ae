@@ -121,9 +121,13 @@ begin(s: ptr, module_dir: string) {
 }
 
 // Mark a module as done in the session
-done(s: ptr, module_dir: string) {
+done(s: ptr, module_dir: string): int {
     visited, _ = map.get(s, "visited")
     _e = map.put(visited, module_dir, "1")
+    // Return 0 so a node whose last statement is `build.done(b, …)` (a valid
+    // tail shape) yields a real int, not a void-through-int garbage read now
+    // that node entries are `: int` (asks/node-nonzero-return-not-propagated).
+    return 0
 }
 
 // --- Per-target status machine (docs/lifecycle_plan.md Slice 1) ---
@@ -285,7 +289,7 @@ start() {
 // Maven coordinates contain colons; module paths use slashes.
 // npm deps start with "npm:".
 
-dep(ctx: ptr, path_str: string) {
+dep(ctx: ptr, path_str: string): int {
     // Check for npm: prefix first
     npm_prefix = string.index_of(path_str, "npm:")
     if npm_prefix == 0 {
@@ -318,6 +322,10 @@ dep(ctx: ptr, path_str: string) {
         deps, _ = map.get(ctx, "deps")
         _e2 = list.add(deps, path_str)
     }
+    // Explicit tail return: `: int` (so a node ending in build.dep(b, …) — a
+    // valid tail shape — returns a real 0, not garbage) requires every path to
+    // return; the early npm:/git: paths already do.
+    return 0
 }
 
 // pkg_dep(ctx, "github.com/u/repo@ref", "dir:name") — the two-arg verb surface

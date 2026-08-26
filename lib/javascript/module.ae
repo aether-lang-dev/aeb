@@ -70,7 +70,7 @@ npm_test_cmd(source_dir: string) {
 // --- Builders ---
 
 // javascript.build(b) — `npm install`.
-builder build(ctx: ptr) {
+builder build(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: installing (npm install)")
     return build._run_project(ctx, _builder, "npm install", 0)
@@ -79,7 +79,7 @@ builder build(ctx: ptr) {
 // javascript.test(b) — `npm test` by default; `npx jest` when jest(...) is
 // declared, optionally `npm install` first. Pass/fail telemetry. Honors
 // explicit step()s for back-compat.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
 
     // Back-compat: a binding that wrote step("…") keeps the generic path.

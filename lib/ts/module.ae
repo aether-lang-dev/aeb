@@ -249,7 +249,7 @@ _cache_key_for_tsc(ctx: ptr, argfile_path: string, tsconfig_path: string, tsc_cm
 //
 // Coord format:
 //     libs:javascript/ffi-napi  — name in libs/javascript/npm_vendored/package-map
-builder npm_vendored(ctx: ptr, coord: string) {
+builder npm_vendored(ctx: ptr, coord: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -264,7 +264,7 @@ builder npm_vendored(ctx: ptr, coord: string) {
 //
 // Coord format:
 //     name~version  (e.g. "react~18.3.1")
-builder npm_registry(ctx: ptr, name_and_ver: string) {
+builder npm_registry(ctx: ptr, name_and_ver: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -306,7 +306,7 @@ _merge_npm_registry_deps(ctx: ptr) {
     return 0
 }
 
-builder tsc_files(ctx: ptr) {
+builder tsc_files(ctx: ptr): int {
     root = build._get(ctx, "root")
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
@@ -414,7 +414,7 @@ builder tsc_files(ctx: ptr) {
     return 0
 }
 
-builder mocha(ctx: ptr, test_file: string) {
+builder mocha(ctx: ptr, test_file: string): int {
     root = build._get(ctx, "root")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -501,7 +501,7 @@ skip_lib_check(_ctx: ptr) {
 // Compile TypeScript using a project's tsconfig.lib.json.
 // Uses tsc from .aeb/node_modules/.bin/tsc.
 // The tsconfig chain handles path aliases and module resolution.
-builder tsc(ctx: ptr) {
+builder tsc(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

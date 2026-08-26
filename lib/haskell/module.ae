@@ -16,14 +16,14 @@ import build
 import std.string
 
 // haskell.build(b) — `cabal build`.
-builder build(ctx: ptr) {
+builder build(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: compiling (cabal build)")
     return build._run_project(ctx, _builder, "cabal build", 0)
 }
 
 // haskell.test(b) — `cabal test`. Reports pass/fail telemetry.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: running tests (cabal test)")
     return build._run_project(ctx, _builder, "cabal test", 1)

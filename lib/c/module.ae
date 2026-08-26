@@ -355,7 +355,7 @@ _sources_changed(source_dir: string, srcs: ptr, ts_file: string) {
     return 0
 }
 
-builder compile(ctx: ptr) {
+builder compile(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -424,7 +424,7 @@ builder compile(ctx: ptr) {
 // the C program that consumes the objects is a separate node with a
 // build.dep edge to it.
 
-builder aether_objects(ctx: ptr) {
+builder aether_objects(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -601,7 +601,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
 // and the consumer's sources move together; revisit with build-level
 // dep-output change propagation.
 
-builder generated_header(ctx: ptr) {
+builder generated_header(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -704,7 +704,7 @@ builder generated_header(ctx: ptr) {
 // lib/aether --emit=lib output, once that publishes the same
 // artifact key).
 
-builder program(ctx: ptr) {
+builder program(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -890,7 +890,7 @@ builder program(ctx: ptr) {
 // Reports the aggregate pass/fail count via build._record_test_result
 // so aeb's summary picks it up. Returns non-zero if any check failed.
 
-builder tests(ctx: ptr) {
+builder tests(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
 
     progs_raw = _opt_str(_builder, "c_run_progs")

@@ -333,7 +333,7 @@ junit_cmd(classpath: string, class_names: string, ld_path: string, opts: ptr) {
 // jar_vendored — declare a vendored jar as a classpath contribution.
 // Use this in a .jar.ae file so downstream consumers that dep on this
 // file pick up the jar in their classpath artifact.
-builder jar_vendored(ctx: ptr, jar_path: string) {
+builder jar_vendored(ctx: ptr, jar_path: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -378,7 +378,7 @@ _accumulate_classpath_jar(ctx: ptr, abs_jar: string) {
 // the-classpath-artifact contract as jar_vendored — so a .jar.ae becomes a
 // committed lockfile (coord + hash) and the repo holds no binaries. The hash
 // doubles as a supply-chain pin (cf. aeb --vet / --sbom-json).
-builder jar_pinned(ctx: ptr, coord: string, sha256: string) {
+builder jar_pinned(ctx: ptr, coord: string, sha256: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -426,7 +426,7 @@ pinned(_ctx: ptr, coord: string, sha: string) {
     _a = list.add(pl, entry)
 }
 
-builder mvn_repo(ctx: ptr) {
+builder mvn_repo(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -572,7 +572,7 @@ jar_registry(ctx: ptr, coord: string) {
 // jar_registry_finalize — resolve all previously-declared jar_registry coords and write
 // the jvm_classpath_deps_including_transitive artifact so downstream
 // consumers pick up these jars on their classpath.
-builder jar_registry_finalize(ctx: ptr) {
+builder jar_registry_finalize(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -802,7 +802,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
     return digest, derr
 }
 
-builder javac(ctx: ptr) {
+builder javac(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_name = build._get(ctx, "module")
@@ -1019,7 +1019,7 @@ builder javac(ctx: ptr) {
     return 0
 }
 
-builder javac_test(ctx: ptr) {
+builder javac_test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_name = build._get(ctx, "module")
@@ -1153,7 +1153,7 @@ builder javac_test(ctx: ptr) {
     return 0
 }
 
-builder junit(ctx: ptr) {
+builder junit(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
 
@@ -1457,7 +1457,7 @@ builder junit5(ctx: ptr) {
 // kotlin_test's shape in lib/java: it puts the module's own prod classes on the
 // run classpath, gates the JDK (min_jdk -> SKIP green, not fail on an old JDK),
 // and honours env()/jvm_args — the non-obvious parts worth not re-deriving.
-builder java_main(ctx: ptr, main_class: string) {
+builder java_main(ctx: ptr, main_class: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
 

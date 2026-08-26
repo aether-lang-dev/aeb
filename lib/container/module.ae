@@ -460,7 +460,7 @@ container_run_cmd(img: string, opts: ptr) {
 
 // --- SDK functions ---
 
-builder image(ctx: ptr) {
+builder image(ctx: ptr): int {
     root, _ = map.get(ctx, "root")
     target_dir, _ = map.get(ctx, "target_dir")
     mod_dir, _ = map.get(ctx, "module_dir")
@@ -567,7 +567,7 @@ builder image(ctx: ptr) {
     return 0
 }
 
-builder lxc(ctx: ptr) {
+builder lxc(ctx: ptr): int {
     mod_dir, _ = map.get(ctx, "module_dir")
     mod_name, _ = map.get(ctx, "module")
 
@@ -606,6 +606,13 @@ builder lxc(ctx: ptr) {
 //
 // First slice of the container-as-step grammar; setters so far:
 // image_ref(), command().
+// NOTE: this builder is deliberately NOT `: int`. Unlike every other SDK
+// builder (which returns an rc and can be a node's tail-call), container.run
+// is an EXPRESSION builder: `out = container.run(b) { ... }` yields the
+// container's captured stdout as a STRING. It is never a node's rc-bearing
+// tail, so it stays out of the `: int` contract the node-return fix relies on
+// (asks/node-nonzero-return-not-propagated-to-exit-code.md). Typing it `: int`
+// coerces its string returns to int and segfaults consumers.
 builder run(ctx: ptr) {
     mod_dir, _ = map.get(ctx, "module_dir")
     target_dir, _ = map.get(ctx, "target_dir")

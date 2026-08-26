@@ -918,7 +918,7 @@ _cache_key_for_cargo(ctx: ptr, argfile_path: string, cargo_cmd_str: string, sour
 
 // --- cargo_workspace builder: generate root Cargo.toml for a workspace ---
 
-builder cargo_workspace(ctx: ptr) {
+builder cargo_workspace(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -942,7 +942,7 @@ builder cargo_workspace(ctx: ptr) {
 
 // Run `cargo check --workspace` on the whole workspace.
 // Use this in a workspace-root .tests.ae or .check.ae after all members generate.
-builder check_workspace(ctx: ptr) {
+builder check_workspace(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -961,7 +961,7 @@ builder check_workspace(ctx: ptr) {
 }
 
 // Run `cargo test --workspace` on the whole workspace.
-builder test_workspace(ctx: ptr) {
+builder test_workspace(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -983,7 +983,7 @@ builder test_workspace(ctx: ptr) {
 
 // --- cargo_crate builder: generate member Cargo.toml with workspace refs ---
 
-builder cargo_crate(ctx: ptr) {
+builder cargo_crate(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -1007,7 +1007,7 @@ builder cargo_crate(ctx: ptr) {
 // The arg is "name~path" (the ~ separator matches other rust DSL entries).
 // The artifact is a newline-separated list of "name~path" entries. Consumers
 // of cargo_project / cargo_crate merge these with their DSL-declared path_deps.
-builder crate_vendored(ctx: ptr, name_and_path: string) {
+builder crate_vendored(ctx: ptr, name_and_path: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -1026,7 +1026,7 @@ builder crate_vendored(ctx: ptr, name_and_path: string) {
 //
 // The actual fetch happens when cargo itself is invoked on the generated
 // Cargo.toml in the consumer.
-builder crate_registry(ctx: ptr, name_and_ver: string) {
+builder crate_registry(ctx: ptr, name_and_ver: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -1037,7 +1037,7 @@ builder crate_registry(ctx: ptr, name_and_ver: string) {
 
 // crate_registry_features — version dep with features.
 // Arg format: "name~version~feat1,feat2"
-builder crate_registry_features(ctx: ptr, name_ver_feats: string) {
+builder crate_registry_features(ctx: ptr, name_ver_feats: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -1127,7 +1127,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
     return 0
 }
 
-builder cargo_project(ctx: ptr) {
+builder cargo_project(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -1254,7 +1254,7 @@ builder cargo_project(ctx: ptr) {
 //                        Library-shaped crates skip this.
 //   profile / features / jobs — same as cargo_project; passed
 //                        through to `cargo_build_cmd`.
-builder cargo_project_existing(ctx: ptr) {
+builder cargo_project_existing(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -1363,7 +1363,7 @@ cargo_test_cmd(source_dir: string, target_dir: string, opts: ptr) {
 // `crate_name`) and `rust.test_workspace(b)` (whole-workspace via
 // `cargo test --workspace`). This is the single-crate-in-source_dir
 // shape that pairs naturally with `cargo_project_existing(b)`.
-builder cargo_test_existing(ctx: ptr) {
+builder cargo_test_existing(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -1445,7 +1445,7 @@ _write_cargo_config(config_path: string) {
 
 // --- SDK functions ---
 
-builder cargo_build(ctx: ptr) {
+builder cargo_build(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -1548,7 +1548,7 @@ builder cargo_build(ctx: ptr) {
 
 // Compile-check a workspace crate via cargo check -p <name>.
 // Runs from the workspace root (where Cargo.toml [workspace] lives).
-builder check(ctx: ptr) {
+builder check(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     root = build._get(ctx, "root")
@@ -1588,7 +1588,7 @@ builder check(ctx: ptr) {
 }
 
 // Run tests for a workspace crate via cargo test -p <name>.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     root = build._get(ctx, "root")
@@ -1631,7 +1631,7 @@ builder test(ctx: ptr) {
 }
 
 // Build a workspace crate binary via cargo build -p <name> --release.
-builder build_crate(ctx: ptr) {
+builder build_crate(ctx: ptr): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     root = build._get(ctx, "root")

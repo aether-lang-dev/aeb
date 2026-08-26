@@ -112,7 +112,7 @@ ready_after_ms(_ctx: ptr, n: int) {
 // Storage shape: the enclosing aether.driver_test builder drains
 // `b._pending_binaries_under_test` (packed records of
 // "name\tpath\tenv_var") into its own _builder for processing.
-builder binary_under_test(b: ptr, name: string) {
+builder binary_under_test(b: ptr, name: string): int {
     bin_path_v = ""
     env_var_v = ""
     if _builder != null {
@@ -141,7 +141,7 @@ builder binary_under_test(b: ptr, name: string) {
 // .tests.ae using aether.driver_test doesn't need to mix imports.
 // Both definitions stage records onto `b._pending_fixture_seeds`
 // in the same format; the enclosing test builder drains them.
-builder fixture_seed(b: ptr, name: string) {
+builder fixture_seed(b: ptr, name: string): int {
     path_v = ""
     seed_bin_v = ""
     if _builder != null {
@@ -168,7 +168,7 @@ builder fixture_seed(b: ptr, name: string) {
 //                           ready_after_ms(...) }
 // See lib/bash/module.ae for the contract. Duplicated body for
 // the same reason as fixture_seed above.
-builder fixture_server(b: ptr, name: string) {
+builder fixture_server(b: ptr, name: string): int {
     bin_v = ""
     args_v = ""
     port_v = "0"
@@ -2644,7 +2644,7 @@ _default_source_name(ctx: ptr) {
 // the mount, beside the Aether binary, so Phase-2 host execution finds it. The
 // AEB_COMPILE_CONTAINER per-step delegation seam is honored too (same as the
 // other builders) for non-aeb-ctr hosts that delegate one step at a time.
-builder tinygo_lib(ctx: ptr) {
+builder tinygo_lib(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -2716,7 +2716,7 @@ builder tinygo_lib(ctx: ptr) {
     return 0
 }
 
-builder program(ctx: ptr) {
+builder program(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -2801,7 +2801,7 @@ builder program(ctx: ptr) {
 // run in both passes so dependents resolve paths either way. The
 // AEB_COMPILE_CONTAINER per-step delegation seam is honoured via the
 // shared _shell_out_ae_build.
-builder csrc(ctx: ptr) {
+builder csrc(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -2875,7 +2875,7 @@ builder csrc(ctx: ptr) {
 // program_binary, so it must not be findable by build.program_binary_of — the
 // same reasoning that made csrc separate. Setters (source/output/extra_source/
 // caps/target/link_flag/include_dir) are program's, reused as-is.
-builder shared_lib(ctx: ptr) {
+builder shared_lib(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -2933,7 +2933,7 @@ builder shared_lib(ctx: ptr) {
     return 0
 }
 
-builder program_test(ctx: ptr) {
+builder program_test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -3031,7 +3031,7 @@ builder program_test(ctx: ptr) {
 //   - A replacement for program_test. Pure-Aether unit tests
 //     stay on program_test. driver_test is for tests *driving a
 //     separate binary*.
-builder driver_test(ctx: ptr) {
+builder driver_test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

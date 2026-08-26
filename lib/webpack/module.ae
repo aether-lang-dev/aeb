@@ -28,7 +28,7 @@ webpack_cmd(node_modules_dir: string, webpack_bin: string, config_path: string) 
 
 // --- SDK functions ---
 
-builder bundle(ctx: ptr) {
+builder bundle(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

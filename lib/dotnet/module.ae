@@ -623,7 +623,7 @@ _dotnet_cache_store(ctx: ptr, config: string, source_dir: string) {
 // (e.g. xunit + xunit.runner.visualstudio + Microsoft.NET.Test.Sdk).
 //
 // Arg format: "name~version" (e.g. "Shouldly~4.3.0")
-builder nuget_registry(ctx: ptr, name_and_ver: string) {
+builder nuget_registry(ctx: ptr, name_and_ver: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -648,7 +648,7 @@ builder nuget_registry(ctx: ptr, name_and_ver: string) {
 // to the artifact across multiple calls.
 //
 // Arg format: "name~path" (path relative to project root)
-builder nuget_vendored(ctx: ptr, name_and_path: string) {
+builder nuget_vendored(ctx: ptr, name_and_path: string): int {
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
     build._mkdirs(target_dir)
@@ -667,7 +667,7 @@ builder nuget_vendored(ctx: ptr, name_and_path: string) {
     return 0
 }
 
-builder build_project(ctx: ptr) {
+builder build_project(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -872,7 +872,7 @@ builder build_project(ctx: ptr) {
 //   configuration("Release")
 //                   — `dotnet build --configuration <name>`. Default
 //                     "Release". Same setter as `dotnet.build_project`.
-builder build_project_existing(ctx: ptr) {
+builder build_project_existing(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -958,7 +958,7 @@ builder build_project_existing(ctx: ptr) {
 }
 
 // Run dotnet test on a test project.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -1087,7 +1087,7 @@ _is_digit_dn(c: string) {
 // builder's block (not the upstream .build.ae's), pack regenerates the
 // csproj from its own `_builder` map so they take effect — this is why
 // pack accepts the same generation setters as build_project.
-builder pack(ctx: ptr) {
+builder pack(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -1168,7 +1168,7 @@ builder pack(ctx: ptr) {
 // dotnet.test_existing(b) — `dotnet test` on an upstream project as-is
 // (builds, unlike the `--no-build` `test` builder). Foundation-backed:
 // honors env(K,V)/step/workdir.
-builder test_existing(ctx: ptr) {
+builder test_existing(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: running tests (dotnet test)")
     return build._run_project(ctx, _builder, "dotnet test --nologo", 1)

@@ -256,7 +256,7 @@ _target_of(builder_map: ptr) {
 
 // Resolve dependencies via `moon install`. The install-equivalent;
 // runs in source_dir. Mirror of dart.pub_get.
-builder install(ctx: ptr) {
+builder install(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -279,7 +279,7 @@ builder install(ctx: ptr) {
 
 // Type-check via `moon check` (compilation checks, no object files).
 // Mirror of dart.analyze.
-builder check(ctx: ptr) {
+builder check(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -303,7 +303,7 @@ builder check(ctx: ptr) {
 // Run tests via `moon test`. Mirror of dart.test: tee output to
 // target/<module>/test_output.log, parse MoonBit's summary line for
 // pass/fail counts, feed build._record_test_result.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -402,7 +402,7 @@ _is_digit_moon(c: string) {
 // (MoonBit's output path is backend/profile-dependent and not stably
 // documented, so it's declared rather than guessed). Mirror of
 // dart.compile.
-builder build(ctx: ptr) {
+builder build(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -494,7 +494,7 @@ _out_name_of(builder_map: ptr, mod_dir: string) {
 // (declared outputs are multi-file sets; lib/cache for multi-file
 // artifacts is a follow-up). Today: "run if any declared input is
 // newer than the oldest declared output."
-builder codegen(ctx: ptr) {
+builder codegen(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

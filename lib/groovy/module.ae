@@ -246,7 +246,7 @@ _write_argfile(target_dir: string, name: string, file_list: string) {
 // --- SDK functions ---
 
 // groovy.groovyc(b) — compile src/main/groovy (or flat *.groovy).
-builder groovyc(ctx: ptr) {
+builder groovyc(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -468,7 +468,7 @@ _resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: str
 
 // groovy.groovyc_test(b) — compile src/test/groovy (or flat *.groovy)
 // into target/<mod>/test-classes, where java.junit5 scans.
-builder groovyc_test(ctx: ptr) {
+builder groovyc_test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

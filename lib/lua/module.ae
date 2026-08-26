@@ -186,7 +186,7 @@ _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_
     return 0
 }
 
-builder c_extension(ctx: ptr) {
+builder c_extension(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -208,7 +208,7 @@ builder c_extension(ctx: ptr) {
 // conformance .lua with LUA_CPATH/LUA_PATH set so `require` finds the built .so
 // and the src .lua. SKIPs when no Lua 5.4 headers OR no interpreter (distro or
 // the bundled ./lua54 host). Replaces lua/run_tests.sh.
-builder conformance(ctx: ptr) {
+builder conformance(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -262,7 +262,7 @@ builder conformance(ctx: ptr) {
 }
 
 // lua.test(b) — `busted` by default. Reports pass/fail telemetry.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: running tests (lua)")
     return build._run_project(ctx, _builder, "busted", 1)

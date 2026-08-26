@@ -232,7 +232,7 @@ _cache_key_for_clj(ctx: ptr, argfile_path: string, aot_cmd_str: string, maven_cp
 
 // If main_ns is set, AOT compiles to .class files.
 // Otherwise validates sources are loadable.
-builder compile(ctx: ptr) {
+builder compile(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -419,7 +419,7 @@ _clojure_cli() {
 // Setters: main_ns("org.htmlsanitizer.conformance-test") (required),
 // min_jdk(22), jvm_flag("--enable-native-access=ALL-UNNAMED"),
 // source_layout(...) (src/test roots). deps supply the Java-binding classpath.
-builder run_main(ctx: ptr) {
+builder run_main(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -531,7 +531,7 @@ builder run_main(ctx: ptr) {
     return 0
 }
 
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -639,7 +639,7 @@ builder test(ctx: ptr) {
 // target_dir (written by `clojure.compile`); declaring this builder
 // in a `.dist.ae` alongside a `.build.ae` in the same directory means
 // they share target_dir, so the artifact is present after compile.
-builder uberjar(ctx: ptr) {
+builder uberjar(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")

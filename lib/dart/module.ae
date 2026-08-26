@@ -355,7 +355,7 @@ _dart_of(builder_map: ptr) {
 // Resolve package dependencies via `dart pub get`. The "install"
 // builder — runs in source_dir, materialises `.dart_tool/`. Mirror of
 // python.install.
-builder pub_get(ctx: ptr) {
+builder pub_get(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -387,7 +387,7 @@ builder pub_get(ctx: ptr) {
 // Static-analyse Dart source with `dart analyze`. Mirror of
 // python.lint / typecheck (Dart folds lint + type-check into one
 // command).
-builder analyze(ctx: ptr) {
+builder analyze(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -417,7 +417,7 @@ builder analyze(ctx: ptr) {
 // Run tests via `dart test`. Mirror of python.pytest: tee output to
 // target/<module>/test_output.log, parse the summary line for pass/
 // fail counts, feed build._record_test_result.
-builder test(ctx: ptr) {
+builder test(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -555,7 +555,7 @@ _is_digit_dart(c: string) {
 // `dart compile`. Publishes the `program_binary` artifact (for the
 // exe format) so a downstream test runner can drive it, same
 // contract as c.program / aether.program.
-builder compile(ctx: ptr) {
+builder compile(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -650,7 +650,7 @@ _strip_dart_ext(name: string) {
 // (declared outputs are multi-file sets; lib/cache for multi-file
 // artifacts is a follow-up). Today's behaviour is "run if any declared
 // input is newer than the oldest declared output."
-builder codegen(ctx: ptr) {
+builder codegen(ctx: ptr): int {
     source_dir = build._get(ctx, "source_dir")
     target_dir = build._get(ctx, "target_dir")
     mod_dir = build._get(ctx, "module_dir")
@@ -890,7 +890,7 @@ _codegen_resolve(cwd: string, p: string) {
 // dart.test_existing(b) — run an existing Dart project's tests as-is with
 // full step/env control (e.g. `dart pub get` then `dart test -j 1`).
 // Foundation-backed counterpart to the metadata-owning `test` builder.
-builder test_existing(ctx: ptr) {
+builder test_existing(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
     println("${mod_dir}: running tests (dart test)")
     return build._run_project(ctx, _builder, "dart test", 1)

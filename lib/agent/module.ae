@@ -1037,7 +1037,7 @@ _lease_node(pool_content: string, purp: string, token_hint: string, want_platfor
 // verdict in-band); fire-async + webhook-back is a later thickening.
 // v1 backpressure: busy / rejected / unreachable / no-leasable-node all
 // FAIL BACK to the user (build.fail), no retry.
-builder dispatch(ctx: ptr) {
+builder dispatch(ctx: ptr): int {
     mod_dir = build._get(ctx, "module_dir")
 
     // NB: locals must NOT be named target/purpose — those are setter

@@ -244,12 +244,18 @@ main() {
     //   legacy  `main() {`
     //   modern  `aeb(<anything>) {`   (the capability form; param name is sugar)
     // The `aeb(` rule matches any single identifier between the parens.
+    // Emit `: int` so the node entry is int-typed: its last statement is a
+    // builder call (now `: int`, whole-tree), and an int-typed function
+    // flows that tail-call's rc as its own return — so gen-orchestrator can
+    // read a REAL rc instead of the register garbage a void node produced
+    // under its `extern … -> int` decl (the falsely-green-presubmit bug,
+    // asks/node-nonzero-return-not-propagated-to-exit-code.md).
     sed_script = "s/^main() {/"
     sed_script = string.concat(sed_script, func_name)
-    sed_script = string.concat(sed_script, "(s: ptr) {/\n")
+    sed_script = string.concat(sed_script, "(s: ptr): int {/\n")
     sed_script = string.concat(sed_script, "s/^aeb([A-Za-z_][A-Za-z0-9_]*) {/")
     sed_script = string.concat(sed_script, func_name)
-    sed_script = string.concat(sed_script, "(s: ptr) {/\n")
+    sed_script = string.concat(sed_script, "(s: ptr): int {/\n")
     sed_script = string.concat(sed_script, "s|b = build\\.start()|b = build.begin(s, \"")
     sed_script = string.concat(sed_script, label)
     sed_script = string.concat(sed_script, "\")\\n    if b == 0 { return 0 }|\n")

@@ -1,0 +1,78 @@
+// Regression: a build node's non-zero return MUST redden the build's exit code
+// under the default in-process orchestrator — even when the node signals failure
+// by a bare `return 1` and never calls build.fail().
+//
+// This is the falsely-green-presubmit bug (Selenium port REQUEST 4,
+// asks/node-nonzero-return-not-propagated-to-exit-code.md). Before the fix the
+// orchestrator DISCARDED the node's return (it read register garbage through an
+// `extern -> int` decl over a void-typed node body), so `return 1` exited 0 and
+// CI passed a broken tree. The fix: all SDK builders are `: int`, transform-ae
+// emits `<fname>(s: ptr): int {`, and gen-orchestrator reads the real rc and
+// marks the node failed at the session level.
+//
+// End-to-end: writes throwaway nodes in a temp dir, runs the INSTALLED aeb on
+// each, asserts the process exit code. Uses `aeb` from PATH (the just-installed
+// build). Self-skips cleanly if no aeb is on PATH. run.sh counts PASS:/FAIL:.
+
+import build
+import std.string
+import std.os
+import std.file
+import std.io
+import std.path
+
+extern println(s: string)
+
+_assert(label: string, cond: int) {
+    if cond == 1 {
+        println("PASS: ${label}")
+    } else {
+        println("FAIL: ${label}")
+    }
+}
+
+// Run `aeb <node>` in dir, return its exit code.
+_run_aeb(dir: string, node: string): int {
+    rc = os.system("cd '${dir}' && aeb '${node}' >/dev/null 2>&1")
+    return rc
+}
+
+main() {
+    achk, _ = os.exec("command -v aeb >/dev/null 2>&1 && echo y || echo n")
+    if string.equals(string.trim(achk), "y") == 0 {
+        println("PASS: node-exit-code e2e skipped — aeb not on PATH")
+        println("node exit code tests done")
+        return 0
+    }
+
+    tmp, _ = os.exec("mktemp -d")
+    dir = string.trim(tmp)
+
+    // Node 1: bare `return 1`, no build.fail() — the bug case.
+    fail_body = "import build\naeb(cap) {\n    b = build.start()\n    return 1\n}\n"
+    _w1 = io.write_file(path.join(dir, ".fail.ae"), fail_body)
+    rc_fail = _run_aeb(dir, ".fail.ae")
+    cond1 = 0
+    if rc_fail != 0 { cond1 = 1 }
+    _assert("bare `return 1` node reddens the build (exit non-zero)", cond1)
+
+    // Node 2: `return 0` — must stay green.
+    ok_body = "import build\naeb(cap) {\n    b = build.start()\n    return 0\n}\n"
+    _w2 = io.write_file(path.join(dir, ".ok.ae"), ok_body)
+    rc_ok = _run_aeb(dir, ".ok.ae")
+    cond2 = 0
+    if rc_ok == 0 { cond2 = 1 }
+    _assert("`return 0` node stays green (exit 0)", cond2)
+
+    // Node 3: explicit build.fail() — the pre-existing channel must still redden.
+    ef_body = "import build\naeb(cap) {\n    b = build.start()\n    build.fail(b, \"gate rejected\")\n    return 1\n}\n"
+    _w3 = io.write_file(path.join(dir, ".efail.ae"), ef_body)
+    rc_ef = _run_aeb(dir, ".efail.ae")
+    cond3 = 0
+    if rc_ef != 0 { cond3 = 1 }
+    _assert("explicit build.fail() node reddens the build (exit non-zero)", cond3)
+
+    os.system("rm -rf '${dir}'")
+    println("node exit code tests done")
+    return 0
+}

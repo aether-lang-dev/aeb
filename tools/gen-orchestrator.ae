@@ -109,21 +109,26 @@ main() {
         println("    if string.equals(_sel, \"${label}\") == 1 { _run = 1 }")
         println("    if _run == 1 {")
         println("    _start = clock_ns()")
-        // Run the node. We deliberately do NOT capture/record its return
-        // value: a `.build.ae` main() whose LAST statement is a bare
-        // trailing-block builder call with no explicit `return` (the
-        // common shape, e.g. `aether.program(b) { ... }`) yields that
-        // block-expression's value as the fn's implicit return — which is
-        // NOT the builder's rc and can be garbage-nonzero (verified:
-        // `aether.program` tail-call → garbage 1, while `c.program` →
-        // 0; builder-dependent and latent). Trusting `_rc =
-        // ${fname}(s)` therefore spuriously failed PASSING builds.
-        // Failures redden via the EXPLICIT build.fail() channel instead —
-        // every SDK builder calls build.fail(ctx, reason) on os.system
-        // failure (the SDK sweep), which sets the session status that the
-        // any_failed gate below reads. That channel is correct and does
-        // not depend on the fragile implicit-return value.
-        println("    ${fname}(s)")
+        // Run the node and CAPTURE its return. This is now trustworthy: every
+        // SDK builder is declared `: int` (whole-tree sweep) and transform-ae
+        // rewrites the node entry to `<fname>(s: ptr): int {`, so a node whose
+        // last statement is a bare builder call flows that builder's real rc as
+        // its own return — no longer the void-through-`extern -> int` register
+        // garbage that forced us to discard it (which in turn let a hand-written
+        // node `return 1` exit falsely-green — the presubmit bug,
+        // asks/node-nonzero-return-not-propagated-to-exit-code.md).
+        //
+        // A non-zero node return that did NOT already go through build.fail()
+        // (e.g. a custom gate that just `return 1`s) is marked failed here, so
+        // both the status/JSON and the any_failed gate below see it. The
+        // explicit build.fail() channel still works and takes precedence (a
+        // node that failed via fail() stays failed regardless of its rc).
+        println("    _nrc = ${fname}(s)")
+        // Mark failed at the SESSION level: build.fail() takes a NODE ctx (it
+        // reads _session/module_dir off it) — we hold the session s here, so
+        // call the session primitive build._mark_failed(s, label, reason)
+        // directly. This is the same list any_failed(s) reads below.
+        println("    if _nrc != 0 { build._mark_failed(s, \"${label}\", string.concat(\"node returned non-zero rc=\", string.from_int(_nrc))) }")
         println("    build.done(s, \"${label}\")")
         println("    _end = clock_ns()")
         println("    _rec = map.new()")
