@@ -1387,7 +1387,9 @@ junit5_cmd(classpath: string, test_classes_dir: string, ld_path: string, opts: p
     return cmd
 }
 
-builder junit5(ctx: ptr) {
+builder junit5() {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
 
