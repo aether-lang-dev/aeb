@@ -76,7 +76,7 @@ BUT the recurring shapes (spawn-a-server-then-poll-READY-then-run-a-client) coul
 become a `service_fixture()` / `wait_for_ready()` builder. Worth watching for the
 same shape across repos before deciding it's irreducible.
 
-### 3. Shelling out to `ae build` / `aeb` directly (bypassing the SDK) — 10 nodes
+### 3. Shelling out to `ae build` / `aeb` directly — 12 nodes. **CORRECTION: the builders ALREADY EXIST; this is adoption, not an aeb gap.**
 **Example:** `core/.build.ae`
 ```aether
 bldr.build() {
@@ -84,13 +84,29 @@ bldr.build() {
     rc = os.system("cd \"${root}/core\" && ae build --emit=lib --with=fs,net embed.ae --extra _embed_strdup.c -o \"${dest}/…so\"")
 }
 ```
-**Why:** `aether.shared_lib` / the aether SDK didn't cover this exact
-`--emit=lib --with=… --extra …` invocation when the node was written, so it
-shells out to `ae build` by hand.
-**Declarative wish:** this is a genuine SDK GAP — an `aether.shared_lib()` (or
-`c.program`'s aether-source path) builder that takes `.with(fs,net)`,
-`.extra("_embed_strdup.c")`, `.emit("lib")`. Every `os.system("… ae build …")`
-is a builder that should exist. HIGH-VALUE to close (turns imperative → declarative).
+**Earlier I called this a genuine aeb SDK gap. That was WRONG.** On inspection:
+- The `--emit=lib` case (1 node) → **`aether.shared_lib()` already exists**
+  (`lib/aether/module.ae:2890`), with `extra_source()`, `output()`, and
+  `regen_with(path, "fs,net")` for the caps. `asks/aether-shared-lib-builder.md`
+  was already satisfied. servirtium could write:
+  ```aether
+  aether.shared_lib() {
+      source("embed.ae"); regen_with("embed.ae", "fs,net")
+      extra_source("_embed_strdup.c"); output("libservirtium_vcr.so")
+  }
+  ```
+- The plain `ae build foo.ae -o probe` cases (11 nodes) → **`aether.program()`
+  already exists** for exactly this.
+
+So this is **servirtium-side hygiene** (adopt the builders that are there), NOT
+aeb work — the same "bypasses an existing builder" anti-pattern flagged in
+servirtium's rust `.example.ae` months ago. The ONLY possible residual aeb gap:
+`output()` stores a basename and the builder writes into the node's target dir,
+whereas some shell-outs write to a specific staged path (`${dest}/…`, i.e.
+`core/native/`). But that's arguably correct — the builder should produce the
+artifact and a `.package.ae` stages it (the idiomatic split servirtium already
+uses elsewhere). **Net: low/no aeb work; mostly servirtium adopting existing
+builders.**
 
 ### 4. Hand-built path strings via `${…}` interpolation — 60% of nodes
 **Example:** `out = "${root}/target/subversion_interop"`, then that string is
@@ -141,10 +157,28 @@ bldr.build() {
 }
 ```
 But that's the ~30% with an SDK builder. The other ~70% are shell scripts wearing
-a `bldr.build() { }` hat. The path from here to the pseudo-declarative dream is
-**closing the SDK gaps in #3** (builders for what nodes currently `os.system`)
-and **finding the repeatable choreography in #2** (service-fixture builders) —
-not more grammar work on `b`. The `b`-removal was necessary but not sufficient.
+a `bldr.build() { }` hat.
+
+**Where the path to the dream actually leads (corrected):** it is NOT mostly
+more aeb SDK work. Breaking down the 70%:
+- The `ae build` shell-outs (#3, ~12 nodes) → **builders already exist**
+  (`aether.program`, `aether.shared_lib`); this is servirtium ADOPTING them, not
+  aeb building them. Low/no aeb work.
+- The VCR-server spawn/poll/teardown choreography (#2, the bulk) → **genuinely
+  imperative test scripting** that no builder should model. This is the honest
+  floor: aeb is a build tool, not a test-choreography DSL, and a `.tests.ae`
+  that spins up a server and drives a client IS a script. Forcing it declarative
+  would be worse. The MOST that helps is an optional `service_fixture()` /
+  `wait_for_ready()` convenience (#2) — a nicety, not a gap.
+- The skip-guards (#1) → a `skip_unless(tool)` sugar would help, small.
+
+So the corrected takeaway: **`b`-removal delivered the declarative win that was
+actually available.** The remaining 70% is split between (a) servirtium not
+using builders that already exist — a downstream cleanup — and (b) irreducibly
+imperative test scripts that SHOULDN'T be declarative. There is no big pending
+aeb SDK gap here; the earlier framing (#3 as "HIGH-VALUE aeb gap to close") was
+wrong. Not more grammar work, and not much SDK work either — mostly downstream
+adoption + accepting that some nodes are scripts.
 
 ### 6. Node-local top-level helpers (`_engine()`, `_chromedriver()`)
 **Example:** 14 servirtium integration nodes each define a top-level
@@ -161,9 +195,12 @@ is now SAFE — nodes can freely define same-named helpers.
 container engine, a chromedriver path) is more imperative escape-hatch (#2). A
 node that needs `_engine()` at all is orchestrating containers by hand.
 
-**Next actions this doc implies (not yet asks):**
-- `aether.shared_lib()` builder covering `--emit=lib --with= --extra` (#3) — the
-  single highest-leverage gap; 10 servirtium nodes shell out to `ae build` today.
-- `skip_unless(tool)` declarative skip-guard (#1).
-- Watch for a repeating spawn-server/poll-ready/run-client shape (#2) → maybe a
-  `service_fixture()` builder.
+**Next actions this doc implies (corrected — mostly NOT aeb work):**
+- **servirtium (downstream):** migrate the 12 `ae build` shell-outs to the
+  existing `aether.program()` / `aether.shared_lib()` builders. This is the real
+  highest-leverage move and it's servirtium-side, not aeb-side.
+- **aeb (small, optional):** `skip_unless(tool)` sugar for skip-guards (#1); a
+  `service_fixture()`/`wait_for_ready()` convenience IF the spawn-poll-teardown
+  shape recurs across repos (#2). Both are niceties, not gaps.
+- **Not an aeb action:** `aether.shared_lib()` — already exists
+  (`asks/aether-shared-lib-builder.md` satisfied). Earlier listed here in error.
