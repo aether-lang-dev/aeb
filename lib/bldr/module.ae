@@ -1689,7 +1689,9 @@ _mkdirs(dir_path: string) {
     _m = fs.mkdir_p(dir_path)
 }
 
-_get(ctx: ptr, key: string) {
+_get(_ctx: ptr, key: string) {
+    if _ctx == 0 { return string.concat("", "") }
+    ctx = _ctx
     v, _ = map.get(ctx, key)
     return v
 }
@@ -1712,15 +1714,21 @@ _get(ctx: ptr, key: string) {
 // inline steps that need to create an output directory before
 // writing into it.
 
-target_dir(ctx: ptr) {
+target_dir(_ctx: ptr) {
+    if _ctx == 0 { return string.concat("", "") }
+    ctx = _ctx
     return _get(ctx, "target_dir")
 }
 
-source_dir(ctx: ptr) {
+source_dir(_ctx: ptr) {
+    if _ctx == 0 { return string.concat("", "") }
+    ctx = _ctx
     return _get(ctx, "source_dir")
 }
 
-root(ctx: ptr) {
+root(_ctx: ptr) {
+    if _ctx == 0 { return string.concat("", "") }
+    ctx = _ctx
     return _get(ctx, "root")
 }
 
@@ -1845,7 +1853,9 @@ _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
 // so a dep built by an older builder still resolves. Returns "" when no
 // runnable binary was published. Lets one test runner drive a binary
 // regardless of source language.
-program_binary_of(ctx: ptr, dep_module: string) {
+program_binary_of(_ctx: ptr, dep_module: string) {
+    if _ctx == 0 { return string.concat("", "") }
+    ctx = _ctx
     bin = string.trim(_read_dep_artifact(ctx, dep_module, "program_binary"))
     if string.length(bin) > 0 { return bin }
     bin = string.trim(_read_dep_artifact(ctx, dep_module, "c_binary"))
