@@ -69,6 +69,55 @@ _is_id_char(ch: string) {
 
 // Append each `import` id found in file `path` to `acc`. bare_only filters to
 // parens-free imports. Dedup is the caller's job (via _seen_has).
+// _static_helper_names(src) — every TOP-LEVEL function definition in the node
+// that is NOT the entrypoint (main/aeb) and does NOT already end in `_`. These
+// leak as EXTERN C symbols (e.g. `_engine` → `ae_engine`), so the SAME helper
+// name in two different nodes collides at the whole-tree orchestrator link
+// (`multiple definition of ae_engine`). Aether gives a TRAILING-underscore name
+// file-local (`static`) linkage (#279), so appending `_` makes each node's
+// helper private and un-collidable.
+//
+// A top-level def is a line at column 0 of the form `name(` (no leading
+// whitespace) whose name is a lowercase/underscore identifier. Setters,
+// builders, and every other node-local fn qualify; `main`/`aeb` (the entry) and
+// already-trailing-`_` names are excluded.
+_static_helper_names(src: string): ptr {
+    names = list.new()
+    raw, rerr = io.read_file(src)
+    if rerr != "" { return names }
+    rest = raw
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 { line = rest  rest = "" }
+        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        // column-0 def: first char is a lowercase letter or underscore, and the
+        // line contains `(` before any space (a def head, not a call/statement).
+        ln = string.length(line)
+        if ln < 3 { continue }
+        c0 = string.substring(line, 0, 1)
+        is_id_start = 0
+        if string.compare(c0, "a") >= 0 { if string.compare(c0, "z") <= 0 { is_id_start = 1 } }
+        if string.equals(c0, "_") == 1 { is_id_start = 1 }
+        if is_id_start == 0 { continue }
+        paren = string.index_of(line, "(")
+        space = string.index_of(line, " ")
+        if paren < 1 { continue }
+        // a def head has `(` before the first space (name immediately followed
+        // by `(`); `x = f()` or `builder foo(` (has a space) are excluded here —
+        // builders/setters are handled by the module surface, not node-local.
+        if space >= 0 { if space < paren { continue } }
+        name = string.substring(line, 0, paren)
+        // exclude the entrypoint and already-static (trailing `_`) helpers.
+        if string.equals(name, "main") == 1 { continue }
+        if string.equals(name, "aeb") == 1 { continue }
+        last = string.substring(name, string.length(name) - 1, string.length(name))
+        if string.equals(last, "_") == 1 { continue }
+        list.add(names, name)
+    }
+    return names
+}
+
 _collect_imports(path: string, bare_only: int, acc: ptr) {
     raw, rerr = io.read_file(path)
     if rerr != "" { return }
@@ -276,6 +325,26 @@ main() {
     // filename from a bare dep("…") the same way the b-form rule does for
     // dep(b, "…"). Without this the runtime dep-dir contract breaks for Shape A.
     sed_script = string.concat(sed_script, "s|dep(\"\\([^\"]*\\)/\\.[^\"/]*\\.ae\")|dep(\"\\1\")|g\n")
+
+    // Make node-local top-level helpers file-local: append `_` to each helper
+    // NAME (def + every call site) so it gains static linkage (#279) and cannot
+    // collide with a same-named helper in another node at the whole-tree link.
+    // Word-boundary-anchored so `_engine` renames but `_engineX` / a substring
+    // does not: match the name when NOT preceded by an identifier char and NOT
+    // followed by one (before the appended `_`).
+    helpers = _static_helper_names(src)
+    hn = list.size(helpers)
+    hi = 0
+    while hi < hn {
+        hname, _ = list.get(helpers, hi)
+        hi = hi + 1
+        // s/\bNAME\b/NAME_/g  — but sed \b + our name; guard both sides.
+        sed_script = string.concat(sed_script, "s/\\b")
+        sed_script = string.concat(sed_script, hname)
+        sed_script = string.concat(sed_script, "\\b/")
+        sed_script = string.concat(sed_script, hname)
+        sed_script = string.concat(sed_script, "_/g\n")
+    }
 
     sed_file = string.concat(out, ".sed")
     werr = io.write_file(sed_file, sed_script)
