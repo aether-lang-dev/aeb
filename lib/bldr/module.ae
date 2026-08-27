@@ -171,7 +171,9 @@ _mark_failed(s: ptr, label: string, reason: string) {
 // a later reason_of() query, and surface it to the build log. Reads the
 // session back-ref begin() stashed in ctx; a no-op in standalone
 // `bldr.start()` mode (no session).
-fail(ctx: ptr, reason: string) {
+fail(_ctx: ptr, reason: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     if map.has(ctx, "_session") == 0 { return 0 }
     s, _ = map.get(ctx, "_session")
     if s == null { return 0 }

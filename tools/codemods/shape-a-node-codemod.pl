@@ -26,8 +26,8 @@ s{^(\s*)import build$}{$1import bldr}gm;
 s{^(\s*)import build \(}{$1import bldr (}gm;
 
 # 2. drop the explicit b from bldr graph verbs + node-facing readers.
-s{\bbldr\.(dep|dep_artifact|publish_artifact|prereq|scan|pkg_dep|_get|target_dir|source_dir|root|program_binary_of)\(b,\s*}{$1(}g;
-s{\bbldr\.(dep|dep_artifact|publish_artifact|prereq|scan|pkg_dep|_get|target_dir|source_dir|root|program_binary_of)\(b\)}{$1()}g;
+s{\bbldr\.(dep|dep_artifact|publish_artifact|prereq|scan|pkg_dep|fail|_get|target_dir|source_dir|root|program_binary_of)\(b,\s*}{$1(}g;
+s{\bbldr\.(dep|dep_artifact|publish_artifact|prereq|scan|pkg_dep|fail|_get|target_dir|source_dir|root|program_binary_of)\(b\)}{$1()}g;
 
 # 3. drop the explicit b from SDK builder calls: <sdk>.<fn>(b) / <sdk>.<fn>(b, …).
 #    fn names may contain digits (junit5, kotlin_test). ONLY the SDK allowlist,
