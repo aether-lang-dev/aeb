@@ -10,9 +10,10 @@ import aether
 import aether (source, output)
 
 aeb(cap) {
-    b = bldr.start()
-    aether.driver_test(b) {
-        source("failtest.ae")
-        output("failtest")
+    bldr.build() {
+        aether.driver_test() {
+            source("failtest.ae")
+            output("failtest")
+        }
     }
 }

@@ -1,7 +1,7 @@
 // Inline-Aether build step demo.
 //
 // A `.build.ae` is an Aether program. Between the idiomatic SDK
-// builders (`java.javac(b)`, `rust.cargo_project(b)`, …) you can drop
+// builders (`java.javac()`, `rust.cargo_project()`, …) you can drop
 // into *any* Aether: shell out, parse stdout, transform strings, and
 // write artifacts. That inline code calls functions like any normal
 // Aether program — defined in this same file (see `format_recent`
@@ -20,33 +20,34 @@ import std.string
 import std.path
 
 main() {
-    b = bldr.start()
-
-    // --- Idiomatic SDK builders would go here, e.g. ---
-    //   java.javac(b) { release("21") }
-    // Between them, this is plain inline Aether:
-
-    // 1. Shell out to git, capture stdout.
-    log_raw, err = os.exec("git log --oneline -10")
-    if string.length(err) > 0 {
-        println("inline-changelog: git failed: ${err}")
-        return 1
+    bldr.build() {
+    
+        // --- Idiomatic SDK builders would go here, e.g. ---
+        //   java.javac() { release("21") }
+        // Between them, this is plain inline Aether:
+    
+        // 1. Shell out to git, capture stdout.
+        log_raw, err = os.exec("git log --oneline -10")
+        if string.length(err) > 0 {
+            println("inline-changelog: git failed: ${err}")
+            return 1
+        }
+    
+        // 2. Reformat via an adjacent function (called like any Aether fn).
+        formatted = format_recent(string.trim(log_raw))
+    
+        // 3. Write into the target dir for a later archive step to pull in.
+        tdir = target_dir()
+        bldr.mkdirs(tdir)
+        outfile = path.join(tdir, "RECENT_CHANGES.txt")
+        werr = io.write_file(outfile, formatted)
+        if string.length(werr) > 0 {
+            println("inline-changelog: write failed: ${werr}")
+            return 1
+        }
+        println("inline-changelog: wrote ${outfile}")
+        return 0
     }
-
-    // 2. Reformat via an adjacent function (called like any Aether fn).
-    formatted = format_recent(string.trim(log_raw))
-
-    // 3. Write into the target dir for a later archive step to pull in.
-    tdir = bldr.target_dir(b)
-    bldr.mkdirs(tdir)
-    outfile = path.join(tdir, "RECENT_CHANGES.txt")
-    werr = io.write_file(outfile, formatted)
-    if string.length(werr) > 0 {
-        println("inline-changelog: write failed: ${werr}")
-        return 1
-    }
-    println("inline-changelog: wrote ${outfile}")
-    return 0
 }
 
 // Adjacent helper — a normal Aether function, invoked from main()

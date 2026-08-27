@@ -9,10 +9,11 @@ import aether
 import aether (source, output, extra_source)
 
 aeb(cap) {
-    b = bldr.start()
-    aether.program(b) {
-        source("cachelib.ae")
-        output("cachelib")
-        extra_source("src/extra.c")
+    bldr.build() {
+        aether.program() {
+            source("cachelib.ae")
+            output("cachelib")
+            extra_source("src/extra.c")
+        }
     }
 }

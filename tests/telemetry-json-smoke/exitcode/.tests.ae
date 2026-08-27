@@ -9,9 +9,10 @@ import aether
 import aether (source, output)
 
 aeb(cap) {
-    b = bldr.start()
-    aether.program_test(b) {
-        source("exitcode.ae")
-        output("exitcode")
+    bldr.build() {
+        aether.program_test() {
+            source("exitcode.ae")
+            output("exitcode")
+        }
     }
 }

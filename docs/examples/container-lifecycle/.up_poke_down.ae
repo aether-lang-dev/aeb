@@ -13,7 +13,7 @@
 //
 // This is the inline-Aether escape hatch (see ../../inline-build-steps.md):
 // plain `os.exec` for the engine + curl, an adjacent `_engine()` helper,
-// `bldr.target_dir(b)` for the captured artifact. The filename is a
+// `target_dir()` for the captured artifact. The filename is a
 // non-canonical suffix on purpose — aeb runs any dot-prefixed `.ae`
 // file, not just `.build.ae` / `.tests.ae` / `.dist.ae`.
 //
@@ -33,59 +33,60 @@ _engine() {
 }
 
 main() {
-    b = bldr.start()
-    eng = _engine()
-    name = "aeb-cldemo"
-    port = "18080"
-    url = "http://localhost:${port}/"
-
-    // --- UP: start detached, then poll until it actually serves ---
-    _rm0 = os.system("${eng} rm -f ${name} >/dev/null 2>&1")   // idempotent
-    rc = os.system("${eng} run -d --name ${name} -p ${port}:80 caddy:2-alpine >/dev/null")
-    if rc != 0 {
-        println("up: failed to start ${name}")
-        return 1
-    }
-    ready = 0
-    i = 0
-    while i < 50 {
-        probe = os.system("curl -fsS -o /dev/null '${url}' 2>/dev/null")
-        if probe == 0 {
-            ready = 1
-            i = 50
-        } else {
-            _s = os.system("sleep 0.2")
-            i = i + 1
+    bldr.build() {
+        eng = _engine()
+        name = "aeb-cldemo"
+        port = "18080"
+        url = "http://localhost:${port}/"
+    
+        // --- UP: start detached, then poll until it actually serves ---
+        _rm0 = os.system("${eng} rm -f ${name} >/dev/null 2>&1")   // idempotent
+        rc = os.system("${eng} run -d --name ${name} -p ${port}:80 caddy:2-alpine >/dev/null")
+        if rc != 0 {
+            println("up: failed to start ${name}")
+            return 1
         }
-    }
-    println("up: ${name} serving at ${url}")
-
-    // --- POKE: hit the endpoint, capture status into an artifact ---
-    status = "no-response"
-    if ready == 1 {
-        status_raw, _ = os.exec("curl -fsS -o /dev/null -w '%{http_code}' '${url}' 2>/dev/null")
-        status = string.trim(status_raw)
-        tdir = bldr.target_dir(b)
-        bldr.mkdirs(tdir)
-        _w = io.write_file(path.join(tdir, "response.txt"), "url=${url}\nstatus=${status}\n")
-        if string.equals(status, "200") == 1 {
-            println("poke: PASS — ${url} -> HTTP ${status}")
-        } else {
-            println("poke: FAIL — ${url} -> HTTP ${status} (expected 200)")
+        ready = 0
+        i = 0
+        while i < 50 {
+            probe = os.system("curl -fsS -o /dev/null '${url}' 2>/dev/null")
+            if probe == 0 {
+                ready = 1
+                i = 50
+            } else {
+                _s = os.system("sleep 0.2")
+                i = i + 1
+            }
         }
-    } else {
-        println("poke: SKIPPED — ${name} never became ready on :${port}")
+        println("up: ${name} serving at ${url}")
+    
+        // --- POKE: hit the endpoint, capture status into an artifact ---
+        status = "no-response"
+        if ready == 1 {
+            status_raw, _ = os.exec("curl -fsS -o /dev/null -w '%{http_code}' '${url}' 2>/dev/null")
+            status = string.trim(status_raw)
+            tdir = target_dir()
+            bldr.mkdirs(tdir)
+            _w = io.write_file(path.join(tdir, "response.txt"), "url=${url}\nstatus=${status}\n")
+            if string.equals(status, "200") == 1 {
+                println("poke: PASS — ${url} -> HTTP ${status}")
+            } else {
+                println("poke: FAIL — ${url} -> HTTP ${status} (expected 200)")
+            }
+        } else {
+            println("poke: SKIPPED — ${name} never became ready on :${port}")
+        }
+    
+        // --- DOWN: unconditional teardown (never leak the container) ---
+        _stop = os.system("${eng} stop ${name} >/dev/null 2>&1")
+        _rm = os.system("${eng} rm -f ${name} >/dev/null 2>&1")
+        println("down: stopped + removed ${name}")
+    
+        // Fail the build iff the poke didn't pass — but only AFTER the
+        // container is already torn down above.
+        if string.equals(status, "200") == 0 {
+            return 1
+        }
+        return 0
     }
-
-    // --- DOWN: unconditional teardown (never leak the container) ---
-    _stop = os.system("${eng} stop ${name} >/dev/null 2>&1")
-    _rm = os.system("${eng} rm -f ${name} >/dev/null 2>&1")
-    println("down: stopped + removed ${name}")
-
-    // Fail the build iff the poke didn't pass — but only AFTER the
-    // container is already torn down above.
-    if string.equals(status, "200") == 0 {
-        return 1
-    }
-    return 0
 }
