@@ -234,11 +234,41 @@ The authoritative mechanics the implementation must honor:
   `build.start()`→`build.begin` rule with `build() {` → `build(s,"<label>") {`;
   ADD a b-free dep-path-normalization rule (`dep("…/.x.ae")` → `dep("…")`) since
   the current one is anchored on `dep(b, "`.
-- **Graph verbs to flip `ctx:`→`_ctx:`** (lib/build/module.ae): `dep` (:292,
+- **Graph verbs to flip `ctx:`→`_ctx:`** (lib/bldr/module.ae): `dep` (:292,
   ~1034 call sites — the hot one), `dep_artifact` (:1943), `publish_artifact`
-  (:1937), `prereq` (:605), `scan` (:650), `pkg_dep` (:337). Plus the 147 SDK
-  builders and the `_get`-based readers (`target_dir`/`source_dir`/`root`/…).
-  Setters (`env`/`step`/`extra`/…) are ALREADY `_ctx` — untouched.
+  (:1937), `prereq` (:605), `scan` (:650), `pkg_dep` (:337). These are REGULAR
+  functions, so injected `_ctx` works. Setters (`env`/`step`/`extra`/…) are
+  ALREADY `_ctx` — untouched.
+
+## 4.6 CRITICAL correction: builders use `builder_context()`, NOT injected `_ctx`
+
+Measured against `ae` (2026-08-27): a **`builder`** function does NOT receive an
+injected `_ctx` param the way a regular function does. The `builder` keyword's
+contract is "the trailing block fills a CONFIG object, pushed as `_builder`" —
+the builder's positional first param is NOT auto-filled from the context stack.
+`prog() {}` on a `builder prog(_ctx: ptr)` fails with "too few arguments".
+
+The fix: a builder reads the graph ctx via the **`builder_context()` builtin**
+(the same primitive the docs describe; aether's own std/clapae uses it). Inside a
+`bldr.build() { … }` block a builder gets BOTH, simultaneously and verified:
+- `builder_context()` → the graph ctx (deps/artifacts/target_dir), pushed by the
+  `bldr.build()` regular-fn wrapper;
+- `_builder` → its own config, filled by its setter block.
+
+So the two halves of Shape A use DIFFERENT injection mechanisms:
+- **Graph verbs** (`dep`, `dep_artifact`, … — regular fns): injected `_ctx: ptr`.
+- **SDK builders** (`c.program`, `rust.foo`, … — `builder` fns): drop the ctx
+  param entirely; `ctx = builder_context()` at the top, `if ctx == 0 {return 0}`.
+
+Transform applied to all 147 builders:
+`builder foo(ctx: ptr): int { … }` → `builder foo(): int { ctx = builder_context(); if ctx == 0 {return 0} … }`.
+This makes the old form `c.program(b) {}` fail (too many args) — correct for the
+flag-day; nodes convert to `c.program() {}`. `container.run` (string-returning)
+guards `return string.concat("","")`. Value-returning builders in a node/test
+pre-declare their capture var before the block (the trailing block is inlined,
+so `out = container.run(){…}` inside leaks out). PROVEN end-to-end: a real
+`bldr.build() { c.program() { sources(…) output_file(…) } }` node builds and the
+binary runs; full aeb suite 124/124.
 
 ---
 
