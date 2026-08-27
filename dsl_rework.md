@@ -353,3 +353,32 @@ and new nodes coexist. Approved plan: flip the lib dual-mode (safety rail), then
 sweep every node to Shape A so only Shape A remains — incremental, non-breaking,
 complete. Pilot `rust` on a real servirtium-vcr node; servirtium-vcr (114 nodes)
 is the primary test-bed. aeb itself has ~no real nodes outside itests/tests.
+
+---
+
+## SWEEP COMPLETE (2026-08-27)
+
+The DSL rework is landed. aeb engine fully Shape A + all node repos converted:
+
+| repo | nodes | status |
+|------|-------|--------|
+| aeb (engine + itests + tools) | engine + 320 | ✅ pushed `757afbb` |
+| servirtium-vcr | 114 | ✅ pushed `89e327e` (Paul) |
+| aether-ui | 109 | ✅ pushed `9c84d78` (re-codemod'd onto +40 in-flight commits) |
+| avn | 62 | ✅ pushed `640e56e` |
+| google-monorepo-sim | 56 | ✅ pushed `79c4cd2` |
+| html-sanitizer | 34 | ✅ pushed `7c29bf6` |
+| selenium | 45 | ⏭ LEFT FOR THE SIBLING (SeleniumHQ remote / their clean-room reboot) |
+
+~800 nodes across 6 repos converted via `tools/codemods/shape-a-node-codemod.pl`.
+Validated on the catchyos box: ZERO b-rework-shaped errors anywhere (no
+too-few/many-args, no undefined b, no ctx issues). Residual failures are all
+pre-existing/environmental: a python/dart/gleam/moonbit codegen int-narrowing
+bug on ae 0.587 (asks/codegen-int-narrowing-on-ae-0587.md), a 50k-token
+generated node, and missing external libs/runtimes (aether_sqlite, pytest,
+bundle, php-FFI) — none caused by the conversion.
+
+Engine bugs fixed along the way (all orthogonal wins): the bldr rename, builders
+reading builder_context(), the node-local-helper static-linkage collision
+(55f80a6), and the falsely-green node-return fix (earlier). The b is gone; nodes
+read as `bldr.build() { dep(…); rust.foo() { … } }`.
