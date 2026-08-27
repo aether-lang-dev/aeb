@@ -4029,7 +4029,9 @@ verbose(_ctx: ptr) {
 // Load a shared third-party deps file (.deps.ae). Cross-cutting:
 // sets _bom_file for maven resolution and extracts npm: deps for pnpm.
 // Not for in-repo module deps.
-load_third_party_deps(ctx: ptr, rel_path: string) {
+load_third_party_deps(_ctx: ptr, rel_path: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     source_dir = _get(ctx, "source_dir")
     full_path = path.join(source_dir, rel_path)
     if file.exists(full_path) == 0 {
