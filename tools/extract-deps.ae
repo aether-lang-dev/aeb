@@ -275,7 +275,7 @@ resolve_dep_rel(dep: string, base_dir: string) {
 _emit_prereqs(content: string) {
     out = ""
     seen = map.new()
-    needle = "prereq(b, \""
+    needle = "prereq(\""
     nlen = string.length(needle)
     rest = content
     while string.length(rest) > 0 {
@@ -347,8 +347,12 @@ main() {
     // depending-file-relative deps (e.g. a same-dir `dep(".build.ae")`).
     base_dir = _dir_of(path)
 
-    // Pass 1: dep(b, "...") — explicit single-target deps.
-    needle = "dep(b, \""
+    // Pass 1: dep("...") — explicit single-target deps. (Shape A dropped the
+    // explicit `b`: nodes now write dep("x"), not dep(b, "x"). This needle and
+    // the prereq/scan ones below match the b-free form — matching the OLD
+    // dep(b, " form here is what silently collapsed a Shape A graph to isolated
+    // single nodes: no dep edge was ever found. See the DSL rework.)
+    needle = "dep(\""
     nlen = string.length(needle)
 
     rest = content
@@ -357,11 +361,25 @@ main() {
         if idx < 0 {
             rest = ""
         } else {
+            // Reject a match whose `dep(` is the tail of a longer identifier
+            // (pkg_dep(", a hypothetical xdep(") — the char before must not be
+            // a word char. A match at idx 0 has no predecessor → accept.
+            skip = 0
+            if idx > 0 {
+                pc = string.substring(rest, idx - 1, idx)
+                if string.compare(pc, "a") >= 0 { if string.compare(pc, "z") <= 0 { skip = 1 } }
+                if string.compare(pc, "A") >= 0 { if string.compare(pc, "Z") <= 0 { skip = 1 } }
+                if string.compare(pc, "0") >= 0 { if string.compare(pc, "9") <= 0 { skip = 1 } }
+                if string.equals(pc, "_") == 1 { skip = 1 }
+            }
             after_open = idx + nlen
             tail = string.substring(rest, after_open, string.length(rest))
             close = string.index_of(tail, "\"")
             if close < 0 {
                 rest = ""
+            } else if skip == 1 {
+                // advance past this false match without emitting
+                rest = string.substring(rest, after_open, string.length(rest))
             } else {
                 dep = string.substring(tail, 0, close)
                 resolved = resolve_dep_rel(dep, base_dir)
@@ -390,7 +408,7 @@ main() {
     //
     // Patterns are auto-./-prefixed so fs.glob's recursive `**`
     // marker works (see prepend_dot_slash above).
-    scan_needle = "scan(b, \""
+    scan_needle = "scan(\""
     snlen = string.length(scan_needle)
     rest = content
     while string.length(rest) > 0 {

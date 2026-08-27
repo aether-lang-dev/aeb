@@ -97,11 +97,11 @@ _setup_fixture(root: string) {
     _sh("mkdir -p '${root}/lib/foo' '${root}/lib/bar' '${root}/apps/baz' '${root}/single'")
 
     // Aggregator using scan
-    all_tests = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.scan(b, \"**/.tests.ae\")\n}\n"
+    all_tests = "import bldr\nmain() {\n    b = bldr.start()\n    scan(\"**/.tests.ae\")\n}\n"
     fs.write_atomic("${root}/.all-tests.ae", all_tests, string.length(all_tests))
 
     // Aggregator with potential self-match
-    everything = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.scan(b, \"**/.*.ae\")\n}\n"
+    everything = "import bldr\nmain() {\n    b = bldr.start()\n    scan(\"**/.*.ae\")\n}\n"
     fs.write_atomic("${root}/.everything.ae", everything, string.length(everything))
 
     // Stub leaf files (content irrelevant — extract-deps reads, doesn't compile)
@@ -113,7 +113,7 @@ _setup_fixture(root: string) {
     fs.write_atomic("${root}/single/.tests.ae", stub, string.length(stub))
 
     // Mixed: dep + scan, expect dedup if scan matches one of the deps
-    mixed = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.dep(b, \"lib/foo/.tests.ae\")\n    bldr.scan(b, \"**/.tests.ae\")\n}\n"
+    mixed = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"lib/foo/.tests.ae\")\n    scan(\"**/.tests.ae\")\n}\n"
     fs.write_atomic("${root}/.mixed.ae", mixed, string.length(mixed))
 }
 
@@ -147,7 +147,7 @@ main() {
     _setup_fixture(root)
 
     // --- dep alone (regression: pass 1 unchanged) ---
-    dep_only = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.dep(b, \"single/.build.ae\")\n}\n"
+    dep_only = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"single/.build.ae\")\n}\n"
     fs.write_atomic("${root}/.dep-only.ae", dep_only, string.length(dep_only))
     out_dep = _run_extract_deps(root, ".dep-only.ae")
     _assert_eq("dep-only: pass 1 still works",
@@ -201,7 +201,7 @@ main() {
     // package deps (maven jars onto the classpath, npm via pnpm) — they
     // mirror the runtime bldr.dep colon rule and must emit no edge. Only
     // the real file-path dep survives.
-    coords = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.dep(b, \"hiccup:hiccup:2.0.0-RC3\")\n    bldr.dep(b, \"org.springframework.boot:spring-boot-starter\")\n    bldr.dep(b, \"npm:left-pad:1.3.0\")\n    bldr.dep(b, \"single/.build.ae\")\n}\n"
+    coords = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"hiccup:hiccup:2.0.0-RC3\")\n    dep(\"org.springframework.boot:spring-boot-starter\")\n    dep(\"npm:left-pad:1.3.0\")\n    dep(\"single/.build.ae\")\n}\n"
     fs.write_atomic("${root}/.coords.ae", coords, string.length(coords))
     out_coords = _run_extract_deps(root, ".coords.ae")
     _assert_eq("coord deps (maven/npm) excluded; only file dep emitted",

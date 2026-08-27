@@ -102,7 +102,7 @@ main() {
     root = _mktempdir()
 
     // A leaf with two distinct prereqs + a dep + a duplicate prereq.
-    leaf = "import bldr\nimport bldr (prereq)\nmain() {\n    b = bldr.start()\n    dep(b, \"shared/.build.ae\")\n    prereq(b, \"zig:0.13\")\n    prereq(b, \"python:3.14\")\n    prereq(b, \"zig:0.13\")\n}\n"
+    leaf = "import bldr\nimport bldr (prereq)\nmain() {\n    b = bldr.start()\n    dep(\"shared/.build.ae\")\n    prereq(\"zig:0.13\")\n    prereq(\"python:3.14\")\n    prereq(\"zig:0.13\")\n}\n"
     fs.write_atomic("${root}/.build.ae", leaf, string.length(leaf))
 
     // --- tokens emitted, deduped, sorted ---
@@ -128,7 +128,7 @@ main() {
     }
 
     // --- a file with no prereq() emits nothing ---
-    noprq = "import bldr\nmain() {\n    b = bldr.start()\n    dep(b, \"x/.build.ae\")\n}\n"
+    noprq = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"x/.build.ae\")\n}\n"
     fs.write_atomic("${root}/.noprq.ae", noprq, string.length(noprq))
     out_none = _run_prereqs(root, ".noprq.ae")
     _assert_eq("prereqs: none declared -> empty", out_none, "")
