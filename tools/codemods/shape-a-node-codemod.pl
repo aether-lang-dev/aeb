@@ -35,11 +35,17 @@ s{\bbldr\.(dep|dep_artifact|publish_artifact|prereq|scan|pkg_dep|_get|target_dir
 s{\b(($SDK)\.[a-z_][a-z0-9_]*)\(b\)}{$1()}g;
 s{\b(($SDK)\.[a-z_][a-z0-9_]*)\(b,\s*}{$1(}g;
 
-# 4. wrap the aeb(cap){ b = bldr.start() <body> } in bldr.build() { <body> }.
-#    Only fires when `b = bldr.start()` is the FIRST statement. Skip-guard nodes
-#    (a `return` precedes bldr.start()) do NOT match here and are left with their
+# 4. wrap the entrypoint body in bldr.build() { … }. Handles BOTH entrypoint
+#    spellings: the modern `aeb(cap) {` and the legacy `main() {`. Only fires
+#    when `b = bldr.start()` is the FIRST statement. Skip-guard nodes (a `return`
+#    precedes bldr.start()) do NOT match here and are left with their
 #    `b = bldr.start()` intact for a HAND-PASS — grep for it after running.
 s{(aeb\([a-z_]+\)\s*\{\n)\s*b = bldr\.start\(\)\n(.*?)(\n\})}{
+    my ($head,$body,$tail)=($1,$2,$3);
+    $body =~ s/^/    /mg;
+    "$head    bldr.build() {\n$body\n    }$tail";
+}se;
+s{(main\(\)\s*\{\n)\s*b = bldr\.start\(\)\n(.*?)(\n\})}{
     my ($head,$body,$tail)=($1,$2,$3);
     $body =~ s/^/    /mg;
     "$head    bldr.build() {\n$body\n    }$tail";
