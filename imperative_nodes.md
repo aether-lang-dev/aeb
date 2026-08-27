@@ -146,6 +146,21 @@ a `bldr.build() { }` hat. The path from here to the pseudo-declarative dream is
 and **finding the repeatable choreography in #2** (service-fixture builders) —
 not more grammar work on `b`. The `b`-removal was necessary but not sufficient.
 
+### 6. Node-local top-level helpers (`_engine()`, `_chromedriver()`)
+**Example:** 14 servirtium integration nodes each define a top-level
+`_engine()` helper (`command -v podman || echo docker`).
+**Why:** the node needs a little reusable logic and factors it into a top-level
+function — natural, and encouraged. But it's another sign the node is a *program*
+(it has its own functions), not a pure declaration.
+**The bug it exposed (now fixed):** transform-ae renamed only the entrypoint, so
+these same-named helpers emitted duplicate extern C symbols (`ae_engine`) that
+collided at the whole-tree link. Fixed (`55f80a6`) by auto-appending `_` to every
+node-local top-level helper → file-local (static) linkage (#279). So this pattern
+is now SAFE — nodes can freely define same-named helpers.
+**Declarative note:** the *content* of these helpers (shell probes for a
+container engine, a chromedriver path) is more imperative escape-hatch (#2). A
+node that needs `_engine()` at all is orchestrating containers by hand.
+
 **Next actions this doc implies (not yet asks):**
 - `aether.shared_lib()` builder covering `--emit=lib --with= --extra` (#3) — the
   single highest-leverage gap; 10 servirtium nodes shell out to `ae build` today.
