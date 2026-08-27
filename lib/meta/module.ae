@@ -31,7 +31,7 @@
 // (desc, homepage, license, version, url, sha256) are last-writer-
 // wins. `maintainer` accumulates.
 
-import build
+import bldr
 import std.string
 import std.fs
 import std.io
@@ -112,15 +112,15 @@ version_from_vcs(ctx: ptr, fallback: string) {
 _vcs_version(ctx: ptr) {
     // source_dir is the module's absolute path; module_dir is only a
     // display label ("app"), so it cannot be walked.
-    dir = build._get(ctx, "source_dir")
-    if string.length(dir) == 0 { dir = build._get(ctx, "root") }
+    dir = bldr._get(ctx, "source_dir")
+    if string.length(dir) == 0 { dir = bldr._get(ctx, "root") }
     if string.length(dir) == 0 { return string.concat("", "") }
     root = _vcs_root(dir)
     if string.length(root) == 0 { return string.concat("", "") }
     kind = _vcs_kind(root)
     cmd = _vcs_version_cmd(kind, root)
     if string.length(cmd) == 0 { return string.concat("", "") }
-    out, err = build._sh_capture(cmd)
+    out, err = bldr._sh_capture(cmd)
     if string.length(err) > 0 { return string.concat("", "") }
     return string.trim(out)
 }
@@ -133,7 +133,7 @@ _vcs_root(start: string) {
     cur = string.concat(start, "")
     while string.length(cur) > 1 {
         if string.length(_vcs_kind(cur)) > 0 { return cur }
-        parent = build._dirname(cur)
+        parent = bldr._dirname(cur)
         if string.equals(parent, cur) == 1 { return string.concat("", "") }
         if string.length(parent) == 0 { return string.concat("", "") }
         cur = parent

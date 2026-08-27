@@ -19,7 +19,7 @@
 // below). Remaining: the full-repo A/B harness (ab.sh). See mingw_a_b_plan.md.
 
 import aebcli
-import build
+import bldr
 import std.string
 import std.list
 import std.os
@@ -47,10 +47,10 @@ _resolve_aeb_home() {
     // The bash trampoline lives AT <repo>/aeb, so dirname($0) = <repo>. This
     // binary builds to <repo>/tools/aeb-cli, so dirname(argv0) = <repo>/tools
     // — one level too deep (lib/ is at <repo>/lib). Walk up out of tools/.
-    d = build._dirname(aether_args_get(0))
-    base = build._basename(d)
+    d = bldr._dirname(aether_args_get(0))
+    base = bldr._basename(d)
     if string.equals(base, "tools") == 1 {
-        return build._dirname(d)
+        return bldr._dirname(d)
     }
     return d
 }
@@ -80,7 +80,7 @@ _print_version(aeb_home: string) {
     }
     aether = os.getenv("AETHER")
     if string.length(aether) == 0 { aether = "ae" }
-    av, _ae = build._sh_capture("${aether} --version 2>/dev/null | head -1")
+    av, _ae = bldr._sh_capture("${aether} --version 2>/dev/null | head -1")
     av_t = string.trim(av)
     if string.length(av_t) > 0 { println(av_t) }
 }
@@ -112,10 +112,10 @@ _maybe_podman() {
     if string.length(os.getenv("DOCKER_HOST")) > 0 {
         return 0
     }
-    if build._is_windows() == 1 {
+    if bldr._is_windows() == 1 {
         return 0
     }
-    uid, _u = build._sh_capture("id -u")
+    uid, _u = bldr._sh_capture("id -u")
     sock = string.concat(string.concat("/run/user/", string.trim(uid)), "/podman/podman.sock")
     if file.exists(sock) == 1 {
         _s = os.setenv("DOCKER_HOST", string.concat("unix://", sock))
@@ -221,7 +221,7 @@ main() {
         if file.exists(remote_bin) == 0 {
             rsrc = string.concat(aeb_home, "/tools/aeb-remote.ae")
             rlib = string.concat(aeb_home, "/lib")
-            _rbc = build._sh("'${aether_r}' build '${rsrc}' --lib '${rlib}' -o '${remote_bin}' 2>/dev/null")
+            _rbc = bldr._sh("'${aether_r}' build '${rsrc}' --lib '${rlib}' -o '${remote_bin}' 2>/dev/null")
         }
         // Pass the original argv (arg 1 onward) verbatim — aeb-remote owns its
         // own flag parsing, exactly like `exec aeb-remote "$@"` in bash.
@@ -249,7 +249,7 @@ main() {
     main_bin = string.concat(aeb_home, "/tools/aeb-main")
     if file.exists(main_bin) == 0 {
         src = string.concat(aeb_home, "/tools/aeb-main.ae")
-        _bc = build._sh("'${aether}' build '${src}' -o '${main_bin}' 2>/dev/null")
+        _bc = bldr._sh("'${aether}' build '${src}' -o '${main_bin}' 2>/dev/null")
     }
 
     // The program the supervision tail execs, and the argv it gets. Default is
@@ -275,11 +275,11 @@ main() {
             ssrc = string.concat(aeb_home, "/tools/aeb-sandbox.ae")
             slib = string.concat(aeb_home, "/lib")
             stools = string.concat(aeb_home, "/tools")
-            _sbc = build._sh("'${aether}' build '${ssrc}' --lib '${slib}' --lib '${stools}' -o '${sandbox_bin}' 2>/dev/null")
+            _sbc = bldr._sh("'${aether}' build '${ssrc}' --lib '${slib}' --lib '${stools}' -o '${sandbox_bin}' 2>/dev/null")
         }
         // Absolute aether path for the restricted-env run (mirror bash's
         // `command -v $AETHER`); fall back to the bare name if not resolvable.
-        aether_abs, _ae = build._sh_capture("command -v '${aether}' 2>/dev/null")
+        aether_abs, _ae = bldr._sh_capture("command -v '${aether}' 2>/dev/null")
         aether_abs = string.trim(aether_abs)
         if string.length(aether_abs) == 0 { aether_abs = string.concat(aether, "") }
         prog = string.concat(sandbox_bin, "")

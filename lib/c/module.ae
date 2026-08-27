@@ -9,16 +9,16 @@
 //   c.program(b)  — compile + link a standalone native binary.
 //
 // Cross-platform: the compiler defaults per host OS via
-// build._default_cc() (gcc on Linux/MinGW, cc on FreeBSD/macOS) and
-// is overridable with cc("..."). Binary output gets build._exe_suffix()
+// bldr._default_cc() (gcc on Linux/MinGW, cc on FreeBSD/macOS) and
+// is overridable with cc("..."). Binary output gets bldr._exe_suffix()
 // (".exe" on Windows). Adaptive for linux / mingw / freebsd.
 //
 // A .build.ae using it:
 //
-//     import build
+//     import bldr
 //     import c
 //     main() {
-//         b = build.start()
+//         b = bldr.start()
 //         c.sources(b, "*.c")
 //         c.include(b, "include")
 //         c.cflag(b, "-O2")
@@ -26,7 +26,7 @@
 //         c.program(b)
 //     }
 
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -90,7 +90,7 @@ link_flag(_ctx: ptr, flag: string) {
     _append(_ctx, "c_link_flags", flag)
 }
 
-// Override the C compiler. Without this, build._default_cc() picks
+// Override the C compiler. Without this, bldr._default_cc() picks
 // per host OS. Use for an explicit toolchain or a mingw cross-prefix
 // (e.g. cc("x86_64-w64-mingw32-gcc")).
 cc(_ctx: ptr, compiler: string) {
@@ -148,7 +148,7 @@ aether_home(_ctx: ptr, root: string) {
 // The bootstrap-tool pattern: compile+link a small C tool, then RUN
 // it and capture its stdout into a generated header file. The header
 // becomes a source input to a dependent c.program (which adds the
-// header's directory to its include path via build.dep).
+// header's directory to its include path via bldr.dep).
 //
 // emit(args, header) declares one run: invoke the tool with `args`,
 // redirect stdout to `header`. Call it more than once to produce
@@ -175,7 +175,7 @@ emit(_ctx: ptr, args: string, header: string) {
 // declares one check: invoke a binary with arguments, expect exit 0.
 //
 // The binary is identified by the .build.ae module path of the
-// c.program that produced it — the same path used in build.dep — so a
+// c.program that produced it — the same path used in bldr.dep — so a
 // .tests.ae deps the program target(s) and then names them in run().
 // run accumulates into two parallel newline lists (prog / args).
 
@@ -197,7 +197,7 @@ _cc_of(opts: ptr) {
             return v
         }
     }
-    return build._default_cc()
+    return bldr._default_cc()
 }
 
 _opt_str(opts: ptr, key: string) {
@@ -228,30 +228,30 @@ _with_flag(opts: ptr) {
 
 // Validated dev-tree root, or "" for the installed toolchain.
 _dev_root(opts: ptr) {
-    return build._aether_dev_root(_opt_str(opts, "c_aether_home"))
+    return bldr._aether_dev_root(_opt_str(opts, "c_aether_home"))
 }
 
 // Full path to the aetherc binary to invoke.
 _aetherc_bin(opts: ptr) {
-    dev = build._aether_dev_bin_dir(_opt_str(opts, "c_aether_home"))
+    dev = bldr._aether_dev_bin_dir(_opt_str(opts, "c_aether_home"))
     if string.length(dev) > 0 {
         return path.join(dev, "aetherc")
     }
-    return path.join(build._resolve_aether_dir(), "aetherc")
+    return path.join(bldr._resolve_aether_dir(), "aetherc")
 }
 
 // Directory containing libaether.a (gcc -L).
 _libaether_dir(opts: ptr) {
-    dev = build._aether_dev_bin_dir(_opt_str(opts, "c_aether_home"))
+    dev = bldr._aether_dev_bin_dir(_opt_str(opts, "c_aether_home"))
     if string.length(dev) > 0 {
         return dev
     }
-    return build._resolve_libaether_dir(build._resolve_aether_dir())
+    return bldr._resolve_libaether_dir(bldr._resolve_aether_dir())
 }
 
 // -I block the aetherc-generated C needs.
 _aether_incs(opts: ptr) {
-    return build._aether_include_flags(build._resolve_aether_dir(),
+    return bldr._aether_include_flags(bldr._resolve_aether_dir(),
                                        _opt_str(opts, "c_aether_home"))
 }
 
@@ -284,7 +284,7 @@ _expand_sources(source_dir: string, pats: string) {
         // Let the shell expand globs relative to source_dir. `ls -1`
         // on a literal name just echoes it; on a glob it lists
         // matches. Missing files surface as a compile error later.
-        raw, _e = build._sh_capture("cd ${source_dir} && ls -1 ${p} 2>/dev/null")
+        raw, _e = bldr._sh_capture("cd ${source_dir} && ls -1 ${p} 2>/dev/null")
         lines = string.split(string.trim(raw), "\n")
         m = string.array_size(lines)
         j = 0
@@ -334,7 +334,7 @@ _include_flags(opts: ptr) {
 // Has any source in `srcs` (paths relative to source_dir) been
 // modified since `ts_file` was written? Returns 1 if a rebuild is
 // needed (ts_file missing, or any source newer). Unlike
-// build._needs_rebuild this checks the *actual resolved sources*,
+// bldr._needs_rebuild this checks the *actual resolved sources*,
 // so it sees files in subdirectories (src/foo.c), which a shallow
 // source_dir/* glob would miss.
 _sources_changed(source_dir: string, srcs: ptr, ts_file: string) {
@@ -356,12 +356,12 @@ _sources_changed(source_dir: string, srcs: ptr, ts_file: string) {
 }
 
 builder compile(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     obj_dir = path.join(target_dir, "obj")
-    build._mkdirs(obj_dir)
+    bldr._mkdirs(obj_dir)
 
     compiler = _cc_of(_builder)
     cflags = _opt_str(_builder, "c_cflags")
@@ -371,7 +371,7 @@ builder compile(ctx: ptr): int {
     n = list.size(srcs)
     if n == 0 {
         println("${mod_dir}: c.compile: no sources — call c.sources(b, \"*.c\")")
-        build.fail(ctx, "c.compile: no sources declared")
+        bldr.fail(ctx, "c.compile: no sources declared")
         return 1
     }
 
@@ -392,10 +392,10 @@ builder compile(ctx: ptr): int {
         base = path.basename(src)
         obj = path.join(obj_dir, string.concat(_strip_ext(base), ".o"))
         cmd = "cd ${source_dir} && ${compiler} ${cflags}${inc_flags} -c -o ${obj} ${src}"
-        exit_code = build._sh(cmd)
+        exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: C compile failed on ${src}")
-            build.fail(ctx, "C compile failed on ${src}")
+            bldr.fail(ctx, "C compile failed on ${src}")
             return exit_code
         }
         if string.length(objects) > 0 {
@@ -404,7 +404,7 @@ builder compile(ctx: ptr): int {
         objects = string.concat(objects, obj)
     }
 
-    build._write_artifact(ctx, "c_objects", objects)
+    bldr._write_artifact(ctx, "c_objects", objects)
     _ets = io.write_file(ts_file, "")
     return 0
 }
@@ -414,7 +414,7 @@ builder compile(ctx: ptr): int {
 // Codegen-only target: compile each declared aether_source via
 // `aetherc --emit=lib` into a C object, and publish the object set
 // as the "c_objects" artifact — the same key c.compile uses, so a
-// dependent c.program picks them up through build.dep automatically.
+// dependent c.program picks them up through bldr.dep automatically.
 //
 // Also publishes "c_needs_aether_runtime" = "1" so a dependent
 // c.program knows to link libaether.a (the generated objects
@@ -422,15 +422,15 @@ builder compile(ctx: ptr): int {
 //
 // This is the file-to-file-DAG composition: codegen is its own node;
 // the C program that consumes the objects is a separate node with a
-// build.dep edge to it.
+// bldr.dep edge to it.
 
 builder aether_objects(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     gen_dir = path.join(target_dir, "gen")
-    build._mkdirs(gen_dir)
+    bldr._mkdirs(gen_dir)
 
     compiler = _cc_of(_builder)
     cflags = _opt_str(_builder, "c_cflags")
@@ -439,7 +439,7 @@ builder aether_objects(ctx: ptr): int {
     n = list.size(ae_srcs)
     if n == 0 {
         println("${mod_dir}: c.aether_objects: no aether_source() declared")
-        build.fail(ctx, "c.aether_objects: no aether_source() declared")
+        bldr.fail(ctx, "c.aether_objects: no aether_source() declared")
         return 1
     }
 
@@ -452,7 +452,7 @@ builder aether_objects(ctx: ptr): int {
     lib_dir = _libaether_dir(_builder)
     if string.length(lib_dir) == 0 {
         println("${mod_dir}: c.aether_objects: cannot locate libaether.a")
-        build.fail(ctx, "c.aether_objects: cannot locate libaether.a")
+        bldr.fail(ctx, "c.aether_objects: cannot locate libaether.a")
         return 1
     }
     ae_inc = _aether_incs(_builder)
@@ -472,13 +472,13 @@ builder aether_objects(ctx: ptr): int {
         gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
         gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
         emit_cmd = "${aenv}${aetherc} --emit=lib${with_flag} ${ae_full} ${gen_c}"
-        ecg = build._sh(emit_cmd)
+        ecg = bldr._sh(emit_cmd)
         if ecg != 0 {
             println("${mod_dir}: aetherc --emit=lib failed for ${ae_rel}")
             return ecg
         }
         ocmd = "${compiler} ${cflags}${ae_inc} -c -o ${gen_o} ${gen_c}"
-        eco = build._sh(ocmd)
+        eco = bldr._sh(ocmd)
         if eco != 0 {
             println("${mod_dir}: C compile of generated ${gen_c} failed")
             return eco
@@ -489,8 +489,8 @@ builder aether_objects(ctx: ptr): int {
         objects = string.concat(objects, gen_o)
     }
 
-    build._write_artifact(ctx, "c_objects", objects)
-    build._write_artifact(ctx, "c_needs_aether_runtime", "1")
+    bldr._write_artifact(ctx, "c_objects", objects)
+    bldr._write_artifact(ctx, "c_needs_aether_runtime", "1")
     _ets = io.write_file(ts_file, "")
     return 0
 }
@@ -506,7 +506,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
     inc_flags = _include_flags(opts)
     link_flags = _opt_str(opts, "c_link_flags")
     obj_dir = path.join(target_dir, "tool_obj")
-    build._mkdirs(obj_dir)
+    bldr._mkdirs(obj_dir)
 
     // C sources -> objects.
     srcs = _expand_sources(source_dir, _opt_str(opts, "c_sources"))
@@ -518,7 +518,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
         i = i + 1
         obj = path.join(obj_dir, string.concat(_strip_ext(path.basename(src)), ".o"))
         cc1 = "cd ${source_dir} && ${compiler} ${cflags}${inc_flags} -c -o ${obj} ${src}"
-        e1 = build._sh(cc1)
+        e1 = bldr._sh(cc1)
         if e1 != 0 {
             println("${mod_dir}: tool C compile failed on ${src}")
             return e1
@@ -543,7 +543,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
         aenv = _aetherc_env(opts)
         twith = _with_flag(opts)
         gen_dir = path.join(target_dir, "tool_gen")
-        build._mkdirs(gen_dir)
+        bldr._mkdirs(gen_dir)
         k = 0
         while k < aen {
             ae_rel, _ = list.get(ae_srcs, k)
@@ -552,12 +552,12 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
             stem = _strip_ext(path.basename(ae_rel))
             gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
             gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
-            eg = build._sh("${aenv}${aetherc} --emit=lib${twith} ${ae_full} ${gen_c}")
+            eg = bldr._sh("${aenv}${aetherc} --emit=lib${twith} ${ae_full} ${gen_c}")
             if eg != 0 {
                 println("${mod_dir}: aetherc --emit=lib failed for ${ae_rel}")
                 return eg
             }
-            eo = build._sh("${compiler} ${cflags}${ainc} -c -o ${gen_o} ${gen_c}")
+            eo = bldr._sh("${compiler} ${cflags}${ainc} -c -o ${gen_o} ${gen_c}")
             if eo != 0 {
                 println("${mod_dir}: C compile of generated ${gen_c} failed")
                 return eo
@@ -568,12 +568,12 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
         // Duplicate-symbol flag — empty since aether 0.538.0 clones imported
         // functions per TU as `static` (no cross-TU duplicates). Kept via the
         // helper so this stays consistent with the other link sites.
-        dup = build._dup_symbol_link_flag()
+        dup = bldr._dup_symbol_link_flag()
         aether_link = " -L${ldir} -laether -lpthread -lm ${dup}"
     }
 
     link = "${compiler} ${own_objs}${ae_objs} ${link_flags}${aether_link} -o ${bin_path}"
-    el = build._sh(link)
+    el = bldr._sh(link)
     if el != 0 {
         println("${mod_dir}: tool link failed")
         return el
@@ -587,7 +587,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
 // any aether_source), then RUN it once per emit(args, header) pair,
 // redirecting stdout into the named header file. Publishes the header
 // directory as the "c_header_dirs" artifact; a dependent c.program
-// adds it to the include path via build.dep.
+// adds it to the include path via bldr.dep.
 //
 // This is how a codegen tool that emits a header — mquickjs's
 // mqjs_stdlib being the motivating case — becomes a DAG node whose
@@ -602,22 +602,22 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
 // dep-output change propagation.
 
 builder generated_header(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     args_raw = _opt_str(_builder, "c_emit_args")
     headers_raw = _opt_str(_builder, "c_emit_headers")
     if string.length(headers_raw) == 0 {
         println("${mod_dir}: c.generated_header: no emit() declared")
-        build.fail(ctx, "c.generated_header: no emit() declared")
+        bldr.fail(ctx, "c.generated_header: no emit() declared")
         return 1
     }
 
     // Header outputs live under target_dir/include so the dir can be
     // published verbatim as an -I path.
     inc_out = path.join(target_dir, "include")
-    build._mkdirs(inc_out)
+    bldr._mkdirs(inc_out)
 
     // Rebuild check: tool sources (C + Aether) drive it.
     all_srcs = _expand_sources(source_dir, _opt_str(_builder, "c_sources"))
@@ -643,7 +643,7 @@ builder generated_header(ctx: ptr): int {
     tool_bin = path.join(target_dir, tool_name)
     rc = _build_tool_binary(source_dir, target_dir, mod_dir, _builder, tool_bin)
     if rc != 0 {
-        build.fail(ctx, "c.generated_header: tool build failed")
+        bldr.fail(ctx, "c.generated_header: tool build failed")
         return rc
     }
     // Fresh handle to the tool path for the run loop below.
@@ -678,10 +678,10 @@ builder generated_header(ctx: ptr): int {
         }
         run_cmd = string.concat(run_cmd, " > ")
         run_cmd = string.concat(run_cmd, hdr_path)
-        er = build._sh(run_cmd)
+        er = bldr._sh(run_cmd)
         if er != 0 {
             println("${mod_dir}: generator tool failed for header ${header} (rc=${er})")
-            build.fail(ctx, "generator tool failed for header ${header}")
+            bldr.fail(ctx, "generator tool failed for header ${header}")
             return er
         }
         println("${mod_dir}: generated ${header}")
@@ -691,7 +691,7 @@ builder generated_header(ctx: ptr): int {
     string.array_free(hdr_arr)
 
     // Publish the include dir so a dependent c.program can -I it.
-    build._write_artifact(ctx, "c_header_dirs", inc_out)
+    bldr._write_artifact(ctx, "c_header_dirs", inc_out)
     _ets = io.write_file(ts_file, "")
     return 0
 }
@@ -705,20 +705,20 @@ builder generated_header(ctx: ptr): int {
 // artifact key).
 
 builder program(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     bin_dir = path.join(target_dir, "bin")
-    build._mkdirs(bin_dir)
+    bldr._mkdirs(bin_dir)
 
     out_name = _opt_str(_builder, "c_output")
     if string.length(out_name) == 0 {
         println("${mod_dir}: c.program: output_file() is required")
-        build.fail(ctx, "c.program: output_file() is required")
+        bldr.fail(ctx, "c.program: output_file() is required")
         return 1
     }
-    out_name = string.concat(out_name, build._exe_suffix())
+    out_name = string.concat(out_name, bldr._exe_suffix())
     out_path = path.join(bin_dir, out_name)
 
     compiler = _cc_of(_builder)
@@ -759,7 +759,7 @@ builder program(ctx: ptr): int {
         if string.length(dep_objs) == 0 {
             if list.size(ae_for_check) == 0 {
                 println("${mod_dir}: c.program: no sources and no dep objects")
-                build.fail(ctx, "c.program: no sources and no dep objects")
+                bldr.fail(ctx, "c.program: no sources and no dep objects")
                 return 1
             }
         }
@@ -768,7 +768,7 @@ builder program(ctx: ptr): int {
 
     // Compile this module's own sources to objects first.
     obj_dir = path.join(target_dir, "obj")
-    build._mkdirs(obj_dir)
+    bldr._mkdirs(obj_dir)
     own_objs = ""
     i = 0
     while i < n {
@@ -777,10 +777,10 @@ builder program(ctx: ptr): int {
         base = path.basename(src)
         obj = path.join(obj_dir, string.concat(_strip_ext(base), ".o"))
         ccmd = "cd ${source_dir} && ${compiler} ${cflags}${inc_flags} -c -o ${obj} ${src}"
-        ec = build._sh(ccmd)
+        ec = bldr._sh(ccmd)
         if ec != 0 {
             println("${mod_dir}: C compile failed on ${src}")
-            build.fail(ctx, "C compile failed on ${src}")
+            bldr.fail(ctx, "C compile failed on ${src}")
             return ec
         }
         own_objs = string.concat(own_objs, " ")
@@ -798,7 +798,7 @@ builder program(ctx: ptr): int {
         lib_dir = _libaether_dir(_builder)
         if string.length(lib_dir) == 0 {
             println("${mod_dir}: c.program: cannot locate libaether.a — is Aether installed?")
-            build.fail(ctx, "c.program: cannot locate libaether.a")
+            bldr.fail(ctx, "c.program: cannot locate libaether.a")
             return 1
         }
         ae_inc = _aether_incs(_builder)
@@ -806,7 +806,7 @@ builder program(ctx: ptr): int {
         aenv = _aetherc_env(_builder)
         pwith = _with_flag(_builder)
         gen_dir = path.join(target_dir, "gen")
-        build._mkdirs(gen_dir)
+        bldr._mkdirs(gen_dir)
         k = 0
         while k < ae_n {
             ae_rel, _ = list.get(ae_srcs, k)
@@ -816,17 +816,17 @@ builder program(ctx: ptr): int {
             gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
             gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
             emit_cmd = "${aenv}${aetherc} --emit=lib${pwith} ${ae_full} ${gen_c}"
-            ecg = build._sh(emit_cmd)
+            ecg = bldr._sh(emit_cmd)
             if ecg != 0 {
                 println("${mod_dir}: aetherc --emit=lib failed for ${ae_rel}")
-                build.fail(ctx, "aetherc --emit=lib failed for ${ae_rel}")
+                bldr.fail(ctx, "aetherc --emit=lib failed for ${ae_rel}")
                 return ecg
             }
             ocmd = "${compiler} ${cflags}${ae_inc} -c -o ${gen_o} ${gen_c}"
-            eco = build._sh(ocmd)
+            eco = bldr._sh(ocmd)
             if eco != 0 {
                 println("${mod_dir}: C compile of generated ${gen_c} failed")
-                build.fail(ctx, "C compile of generated ${gen_c} failed")
+                bldr.fail(ctx, "C compile of generated ${gen_c} failed")
                 return eco
             }
             ae_objs = string.concat(ae_objs, " ")
@@ -834,7 +834,7 @@ builder program(ctx: ptr): int {
         }
         // See _build_tool_binary: multi-file Aether builds need the
         // dup-symbol linker flag.
-        dup = build._dup_symbol_link_flag()
+        dup = bldr._dup_symbol_link_flag()
         aether_link = " -L${lib_dir} -laether -lpthread -lm ${dup}"
     }
 
@@ -844,32 +844,32 @@ builder program(ctx: ptr): int {
     // aether_source()s — add it now.
     if string.length(aether_link) == 0 {
         if _deps_need_aether_runtime(ctx) == 1 {
-            adir = build._resolve_aether_dir()
-            ldir = build._resolve_libaether_dir(adir)
+            adir = bldr._resolve_aether_dir()
+            ldir = bldr._resolve_libaether_dir(adir)
             if string.length(ldir) == 0 {
                 println("${mod_dir}: c.program: a dep needs libaether.a but it cannot be located")
-                build.fail(ctx, "c.program: a dep needs libaether.a but it cannot be located")
+                bldr.fail(ctx, "c.program: a dep needs libaether.a but it cannot be located")
                 return 1
             }
-            dup2 = build._dup_symbol_link_flag()
+            dup2 = bldr._dup_symbol_link_flag()
             aether_link = " -L${ldir} -laether -lpthread -lm ${dup2}"
         }
     }
 
     // Link.
     link_cmd = "${compiler} ${own_objs}${ae_objs}${dep_objs} ${link_flags}${aether_link} -o ${out_path}"
-    ec2 = build._sh(link_cmd)
+    ec2 = bldr._sh(link_cmd)
     if ec2 != 0 {
         println("${mod_dir}: C link failed")
-        build.fail(ctx, "C link failed")
+        bldr.fail(ctx, "C link failed")
         return ec2
     }
 
-    build._write_artifact(ctx, "c_binary", out_path)
-    // Universal runnable-binary contract (build.program_binary_of), so
+    bldr._write_artifact(ctx, "c_binary", out_path)
+    // Universal runnable-binary contract (bldr.program_binary_of), so
     // any test runner can locate this binary without knowing it was
     // c.program that built it.
-    build._write_artifact(ctx, "program_binary", out_path)
+    bldr._write_artifact(ctx, "program_binary", out_path)
     _ets = io.write_file(ts_file, "")
     return 0
 }
@@ -880,24 +880,24 @@ builder program(ctx: ptr): int {
 // declared on the builder is one check: invoke the binary that the
 // target at module path `prog` produced, with `args`, and expect exit
 // code 0. `prog` is resolved through the dependency graph — the
-// .tests.ae must build.dep the program target(s) it names.
+// .tests.ae must bldr.dep the program target(s) it names.
 //
 // The binary is located via the universal runnable-binary contract
-// (build.program_binary_of), so `prog` may be a c.program OR an
+// (bldr.program_binary_of), so `prog` may be a c.program OR an
 // aether.program (or any future binary builder): one c.tests suite can
 // drive a mix of C and Aether binaries.
 //
-// Reports the aggregate pass/fail count via build._record_test_result
+// Reports the aggregate pass/fail count via bldr._record_test_result
 // so aeb's summary picks it up. Returns non-zero if any check failed.
 
 builder tests(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     progs_raw = _opt_str(_builder, "c_run_progs")
     args_raw = _opt_str(_builder, "c_run_args")
     if string.length(progs_raw) == 0 {
         println("${mod_dir}: c.tests: no run() declared")
-        build.fail(ctx, "c.tests: no run() declared")
+        bldr.fail(ctx, "c.tests: no run() declared")
         return 1
     }
 
@@ -917,13 +917,13 @@ builder tests(ctx: ptr): int {
         }
         // Resolve the binary the dep at .build.ae path `prog` produced,
         // keyed by its module DIRECTORY. Uses the universal runnable-
-        // binary contract (build.program_binary_of), so the dep can be a
+        // binary contract (bldr.program_binary_of), so the dep can be a
         // c.program OR an aether.program (or any future binary builder) —
         // c.tests is a binary runner, not a C-only one.
         dep_mod = _module_dir_of(prog)
-        bin = build.program_binary_of(ctx, dep_mod)
+        bin = bldr.program_binary_of(ctx, dep_mod)
         if string.length(bin) == 0 {
-            println("${mod_dir}: c.tests: no runnable binary from '${prog}' — did you build.dep it?")
+            println("${mod_dir}: c.tests: no runnable binary from '${prog}' — did you bldr.dep it?")
             failed = failed + 1
             continue
         }
@@ -934,7 +934,7 @@ builder tests(ctx: ptr): int {
             cmd = string.concat(cmd, " ")
             cmd = string.concat(cmd, args)
         }
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc == 0 {
             println("  PASS  ${prog} ${args}")
             passed = passed + 1
@@ -946,10 +946,10 @@ builder tests(ctx: ptr): int {
     string.array_free(prog_arr)
     string.array_free(args_arr)
 
-    build._record_test_result(ctx, passed, failed)
+    bldr._record_test_result(ctx, passed, failed)
     println("${mod_dir}: c.tests — ${passed} passed, ${failed} failed")
     if failed > 0 {
-        build.fail(ctx, "c.tests — ${failed} failed")
+        bldr.fail(ctx, "c.tests — ${failed} failed")
         return 1
     }
     return 0
@@ -965,8 +965,8 @@ _collect_dep_objects(ctx: ptr) {
     while n < dep_count {
         dp, _ = list.get(deps, n)
         n = n + 1
-        dm = build._strip_lang(dp)
-        objs = build._read_dep_artifact(ctx, dm, "c_objects")
+        dm = bldr._strip_lang(dp)
+        objs = bldr._read_dep_artifact(ctx, dm, "c_objects")
         if string.length(objs) > 0 {
             lines = string.split(objs, "\n")
             m = string.array_size(lines)
@@ -996,8 +996,8 @@ _deps_need_aether_runtime(ctx: ptr) {
     while n < dep_count {
         dp, _ = list.get(deps, n)
         n = n + 1
-        dm = build._strip_lang(dp)
-        flag = build._read_dep_artifact(ctx, dm, "c_needs_aether_runtime")
+        dm = bldr._strip_lang(dp)
+        flag = bldr._read_dep_artifact(ctx, dm, "c_needs_aether_runtime")
         if string.trim(flag) == "1" {
             return 1
         }
@@ -1016,8 +1016,8 @@ _collect_dep_header_dirs(ctx: ptr) {
     while n < dep_count {
         dp, _ = list.get(deps, n)
         n = n + 1
-        dm = build._strip_lang(dp)
-        dirs = build._read_dep_artifact(ctx, dm, "c_header_dirs")
+        dm = bldr._strip_lang(dp)
+        dirs = bldr._read_dep_artifact(ctx, dm, "c_header_dirs")
         if string.length(dirs) > 0 {
             lines = string.split(dirs, "\n")
             m = string.array_size(lines)

@@ -13,13 +13,13 @@
 //
 // This is the inline-Aether escape hatch (see ../../inline-build-steps.md):
 // plain `os.exec` for the engine + curl, an adjacent `_engine()` helper,
-// `build.target_dir(b)` for the captured artifact. The filename is a
+// `bldr.target_dir(b)` for the captured artifact. The filename is a
 // non-canonical suffix on purpose — aeb runs any dot-prefixed `.ae`
 // file, not just `.build.ae` / `.tests.ae` / `.dist.ae`.
 //
 // Engine-agnostic: prefers podman, falls back to docker.
 
-import build
+import bldr
 import std.os
 import std.io
 import std.string
@@ -33,7 +33,7 @@ _engine() {
 }
 
 main() {
-    b = build.start()
+    b = bldr.start()
     eng = _engine()
     name = "aeb-cldemo"
     port = "18080"
@@ -65,8 +65,8 @@ main() {
     if ready == 1 {
         status_raw, _ = os.exec("curl -fsS -o /dev/null -w '%{http_code}' '${url}' 2>/dev/null")
         status = string.trim(status_raw)
-        tdir = build.target_dir(b)
-        build.mkdirs(tdir)
+        tdir = bldr.target_dir(b)
+        bldr.mkdirs(tdir)
         _w = io.write_file(path.join(tdir, "response.txt"), "url=${url}\nstatus=${status}\n")
         if string.equals(status, "200") == 1 {
             println("poke: PASS — ${url} -> HTTP ${status}")

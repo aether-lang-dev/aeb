@@ -1,10 +1,10 @@
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import angular
 import angular (skip_lib_check)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     load_third_party_deps(b, "../../../../angular.deps.ae")
     dep(b, "libs/shared/product/data/.build.ae")
     dep(b, "libs/shared/product/types/.build.ae")

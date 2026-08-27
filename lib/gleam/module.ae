@@ -18,7 +18,7 @@
 // No venv equivalent: Gleam uses the system `gleam` on PATH plus a
 // per-project resolved dep set under `build/packages/`, materialised by
 // `gleam deps download`.
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -226,19 +226,19 @@ _target_of(builder_map: ptr) {
 // Download dependencies via `gleam deps download`. The install-
 // equivalent; runs in source_dir. Mirror of moonbit.install.
 builder deps(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: downloading deps (gleam deps download)")
 
     gleam = _gleam_of(_builder)
     cmd = deps_download_cmd(gleam, source_dir)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: deps download FAILED")
-        build.fail(ctx, "deps download FAILED")
+        bldr.fail(ctx, "deps download FAILED")
         return exit_code
     }
     println("${mod_dir}: deps download done")
@@ -248,19 +248,19 @@ builder deps(ctx: ptr): int {
 
 // Type-check via `gleam check`. Mirror of moonbit.check / dart.analyze.
 builder check(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: checking (gleam check)")
 
     gleam = _gleam_of(_builder)
     cmd = check_cmd(gleam, source_dir, _target_flag(_target_of(_builder)))
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: check FAILED")
-        build.fail(ctx, "check FAILED")
+        bldr.fail(ctx, "check FAILED")
         return exit_code
     }
     println("${mod_dir}: check PASSED")
@@ -270,26 +270,26 @@ builder check(ctx: ptr): int {
 
 // Run tests via `gleam test`. Mirror of moonbit.test: tee output to
 // target/<module>/test_output.log, parse gleeunit's summary line for
-// pass/fail counts, feed build._record_test_result.
+// pass/fail counts, feed bldr._record_test_result.
 builder test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (gleam test)")
 
     gleam = _gleam_of(_builder)
-    cmd = string.concat(build._env_export_prefix(_builder), test_cmd(gleam, source_dir, _target_flag(_target_of(_builder))))
+    cmd = string.concat(bldr._env_export_prefix(_builder), test_cmd(gleam, source_dir, _target_flag(_target_of(_builder))))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = build._sh(full_cmd)
+    exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     tp_cnt, tf_cnt = _parse_gleeunit_counts(out_text)
-    build._record_test_result(ctx, tp_cnt, tf_cnt)
+    bldr._record_test_result(ctx, tp_cnt, tf_cnt)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -411,11 +411,11 @@ _is_digit_gleam(c: string) {
 // publish — the runnable surface is `gleam run`, which needs the
 // toolchain present. We record the build/ dir as the output artifact.
 builder build(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     gleam = _gleam_of(_builder)
     werror_flag = ""
@@ -428,10 +428,10 @@ builder build(ctx: ptr): int {
 
     println("${mod_dir}: building (gleam build)")
     cmd = build_cmd(gleam, source_dir, _target_flag(_target_of(_builder)), werror_flag)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: build FAILED")
-        build.fail(ctx, "build FAILED")
+        bldr.fail(ctx, "build FAILED")
         return exit_code
     }
 
@@ -439,7 +439,7 @@ builder build(ctx: ptr): int {
     // emits compiled BEAM/JS under <source_dir>/build/, keyed by
     // profile + target; the dir itself is the consumable handoff.
     build_out = path.join(source_dir, "build")
-    build._write_artifact(ctx, "gleam_build_output", build_out)
+    bldr._write_artifact(ctx, "gleam_build_output", build_out)
     println("${mod_dir}: build done → ${build_out}")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
@@ -456,7 +456,7 @@ builder build(ctx: ptr): int {
 // aether.regen).
 //
 // Why this exists: Gleam has no native pre-build / generated-source
-// hook (no build.rs equivalent); generated `.gleam` sources (protobuf
+// hook (no bldr.rs equivalent); generated `.gleam` sources (protobuf
 // bindings, FFI stubs, schema-derived modules) are produced by external
 // tools whose freshness Gleam's own build can't reason about. aeb's
 // explicit form makes the generated-source edge a first-class graph
@@ -466,10 +466,10 @@ builder build(ctx: ptr): int {
 // Today: "run if any declared input is newer than the oldest declared
 // output."
 builder codegen(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     // Resolve working directory. codegen_cwd relative to source_dir
     // unless absolute. Default source_dir.
@@ -478,7 +478,7 @@ builder codegen(ctx: ptr): int {
         if map.has(_builder, "codegen_cwd") == 1 {
             rel, _ = map.get(_builder, "codegen_cwd")
             if string.length(rel) > 0 {
-                if build._is_abs_path(rel) == 1 {
+                if bldr._is_abs_path(rel) == 1 {
                     cwd = rel
                 } else {
                     cwd = path.join(source_dir, rel)
@@ -505,7 +505,7 @@ builder codegen(ctx: ptr): int {
     }
     if string.length(driver_form) == 0 {
         println("${mod_dir}: codegen: declare codegen_program(\"prog\") or codegen_script(\"gleam-run-module\")")
-        build.fail(ctx, "codegen: no codegen_program() or codegen_script() declared")
+        bldr.fail(ctx, "codegen: no codegen_program() or codegen_script() declared")
         return 1
     }
 
@@ -533,10 +533,10 @@ builder codegen(ctx: ptr): int {
     if skip == 0 {
         cmd = gleam_codegen_cmd(gleam, cwd, driver_form, driver_name, args)
         println("${mod_dir}: codegen running")
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: codegen FAILED")
-            build.fail(ctx, "codegen FAILED")
+            bldr.fail(ctx, "codegen FAILED")
             return rc
         }
     } else {
@@ -546,12 +546,12 @@ builder codegen(ctx: ptr): int {
     missing = _codegen_check_outputs(cwd, outputs, mod_dir)
     if missing > 0 {
         println("${mod_dir}: codegen: ${missing} declared output(s) missing — check codegen_output() vs the generator's actual output set")
-        build.fail(ctx, "codegen: ${missing} declared output(s) missing")
+        bldr.fail(ctx, "codegen: ${missing} declared output(s) missing")
         return 1
     }
 
     out_listing = _codegen_format_output_list(cwd, outputs)
-    build._write_artifact(ctx, "gleam_codegen_outputs", out_listing)
+    bldr._write_artifact(ctx, "gleam_codegen_outputs", out_listing)
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
@@ -676,7 +676,7 @@ _codegen_format_output_list(cwd: string, outputs: ptr) {
 // against cwd; absolute passes through.
 _codegen_resolve(cwd: string, p: string) {
     if string.length(p) == 0 { return p }
-    if build._is_abs_path(p) == 1 { return p }
+    if bldr._is_abs_path(p) == 1 { return p }
     return path.join(cwd, p)
 }
 
@@ -684,7 +684,7 @@ _codegen_resolve(cwd: string, p: string) {
 // full step/env control (e.g. ERL_LIBS for a shared NIF, a PATH-prefixed
 // `gleam test`). Foundation-backed counterpart to the `test` builder.
 builder test_existing(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (gleam test)")
-    return build._run_project(ctx, _builder, "gleam test", 1)
+    return bldr._run_project(ctx, _builder, "gleam test", 1)
 }

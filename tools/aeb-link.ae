@@ -175,7 +175,7 @@ _is_windows_link() {
 // feed to aetherc's separator parser (a non-shell path, so `;` is safe there).
 // Command-LINE --lib args use repeated flags instead (compile_lib_flags) — see
 // the note there for why a joined value breaks under the Windows shell.
-// Mirrors build._path_sep().
+// Mirrors bldr._path_sep().
 _lib_sep_link() {
     if _is_windows_link() == 1 { return ";" }
     return ":"
@@ -184,7 +184,7 @@ _lib_sep_link() {
 // `.exe` suffix for native binaries on Windows, "" elsewhere. MinGW gcc and
 // `ae build` both emit <name>.exe; the tools aeb-link invokes (transform-ae,
 // gen-orchestrator, aeb-driver, aetherc) only EXIST and are only RUNNABLE under
-// their .exe name on Windows. Mirrors build._exe_suffix (aeb-link is
+// their .exe name on Windows. Mirrors bldr._exe_suffix (aeb-link is
 // standalone, so inlined here alongside _is_macos_link / _resolve_*).
 _exe_suffix_link() {
     if _is_windows_link() == 1 { return ".exe" }

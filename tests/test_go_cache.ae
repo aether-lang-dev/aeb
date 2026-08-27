@@ -2,7 +2,7 @@
 //
 // _cache_key_for_go(ctx, argfile_path, go_build_cmd_str, source_dir)
 // reads .go sources + go.mod/go.sum via cache.hash_file and dep
-// artifacts via build._read_dep_artifact. Stages fixtures under a
+// artifacts via bldr._read_dep_artifact. Stages fixtures under a
 // tmpdir per case. Tolerates an absent go toolchain.
 import std.string
 import std.io
@@ -14,7 +14,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import go (_cache_key_for_go)
 
 _assert_eq(label: string, actual: string, expected: string) {

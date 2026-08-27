@@ -2,17 +2,17 @@
 //
 // Compiles main.c and links it against the c_objects artifact
 // published by the codegen/ node (the aetherc-generated add_two
-// object). The build.dep edge is a literal string — greppable, like
+// object). The bldr.dep edge is a literal string — greppable, like
 // a Bazel BUILD file. lib/c sees codegen published
 // c_needs_aether_runtime and auto-adds libaether.a.
 
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import c
 import c (sources, output_file)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "codegen/.build.ae")
     c.program(b) {
         sources("src/main.c")

@@ -3,7 +3,7 @@
 // Compiles Scala source via scalac (invoked as java -cp dotty.tools.dotc.Main).
 // No scala-cli, sbt, or Bloop required — just Java and Maven-resolved jars.
 // Maven deps resolved via the maven module.
-import build
+import bldr
 import cache
 import maven
 import std.string
@@ -121,7 +121,7 @@ _compiler_classpath(ctx: ptr) {
     aeb_home = os.getenv("AEB_HOME")
     resolver_jar = path.join(aeb_home, "tools/aeb-resolve.jar")
     cmd = "java -jar ${resolver_jar} --output classpath org.scala-lang:scala3-compiler_3:${ver}"
-    r_raw, _er = build._sh_capture(cmd)
+    r_raw, _er = bldr._sh_capture(cmd)
     result = string.trim(r_raw)
     _e = map.put(ctx, "_scala_compiler_cp", result)
     return result
@@ -142,7 +142,7 @@ _library_classpath(ctx: ptr) {
     aeb_home = os.getenv("AEB_HOME")
     resolver_jar = path.join(aeb_home, "tools/aeb-resolve.jar")
     cmd = "java -jar ${resolver_jar} --output classpath org.scala-lang:scala3-library_3:${ver}"
-    r_raw, _er = build._sh_capture(cmd)
+    r_raw, _er = bldr._sh_capture(cmd)
     result = string.trim(r_raw)
     _e = map.put(ctx, "_scala_library_cp", result)
     return result
@@ -155,7 +155,7 @@ _library_classpath(ctx: ptr) {
 _java_version() {
     cached = os.getenv("_AEB_JAVA_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("java -version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("java -version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -186,7 +186,7 @@ _cache_key_for_scalac(ctx: ptr, argfile_path: string, scalac_cmd_str: string, co
     list.add(parts, string.concat("scala-compiler-cp:", compiler_cp))
     list.add(parts, string.concat("cmd:", scalac_cmd_str))
 
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -205,8 +205,8 @@ _cache_key_for_scalac(ctx: ptr, argfile_path: string, scalac_cmd_str: string, co
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_cp = build._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        dep_cp = bldr._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp) > 0 {
             list.add(parts, string.concat("dep:", dm))
             list.add(parts, string.concat("dep-cp:", dep_cp))
@@ -222,20 +222,20 @@ _cache_key_for_scalac(ctx: ptr, argfile_path: string, scalac_cmd_str: string, co
 
 // Compile Scala sources to .class files via scalac.
 builder scalac(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     classes_dir = path.join(target_dir, "classes")
-    build._mkdirs(classes_dir)
+    bldr._mkdirs(classes_dir)
 
     println("${mod_dir}: compiling (scalac)")
 
     // Find .scala source files (exclude test files)
     argfile = path.join(target_dir, "scalac_sources.txt")
-    build._sh("find '${source_dir}' -name '*.scala' ! -name '*.test.scala' ! -name '*Test.scala' ! -name '*Tests.scala' > '${argfile}' 2>/dev/null || true")
+    bldr._sh("find '${source_dir}' -name '*.scala' ! -name '*.test.scala' ! -name '*Test.scala' ! -name '*Tests.scala' > '${argfile}' 2>/dev/null || true")
 
-    af_raw, _eaf = build._sh_capture("cat '${argfile}'")
+    af_raw, _eaf = bldr._sh_capture("cat '${argfile}'")
     argfile_content = string.trim(af_raw)
     if string.length(argfile_content) == 0 {
         println("${mod_dir}: no .scala source files found")
@@ -246,13 +246,13 @@ builder scalac(ctx: ptr): int {
     // Build compile classpath: classes + deps + maven + scala library
     compiler_cp = _compiler_classpath(ctx)
     library_cp = _library_classpath(ctx)
-    dep_cp = build._build_dep_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
 
     cp = classes_dir
-    cp = build._cp_append(cp, library_cp)
-    cp = build._cp_append(cp, dep_cp)
-    cp = build._cp_append(cp, maven_cp)
+    cp = bldr._cp_append(cp, library_cp)
+    cp = bldr._cp_append(cp, dep_cp)
+    cp = bldr._cp_append(cp, maven_cp)
 
     cmd = scalac_cmd(compiler_cp, classes_dir, cp, argfile)
 
@@ -265,23 +265,23 @@ builder scalac(ctx: ptr): int {
         ck, kerr = _cache_key_for_scalac(ctx, argfile, cmd, compiler_cp)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, classes_dir)
-                    build._sh("rm -f '${tmp_tar}'")
+                    uerr = bldr._untar_into(tmp_tar, classes_dir)
+                    bldr._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: scalac cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        build._sh("rm -rf '${classes_dir}'")
-                        build._mkdirs(classes_dir)
+                        bldr._sh("rm -rf '${classes_dir}'")
+                        bldr._mkdirs(classes_dir)
                     }
                 } else {
-                    build._sh("rm -f '${tmp_tar}'")
+                    bldr._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -289,21 +289,21 @@ builder scalac(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        exit_code = build._sh(cmd)
+        exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: scalac failed")
-            build.fail(ctx, "scalac failed")
+            bldr.fail(ctx, "scalac failed")
             return exit_code
         }
-        if string.length(cache_key) > 0 && build._dir_nonempty(classes_dir) == 1 {
-            tar_path, terr = build._tar_dir(classes_dir)
+        if string.length(cache_key) > 0 && bldr._dir_nonempty(classes_dir) == 1 {
+            tar_path, terr = bldr._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                build._sh("rm -f '${tar_path}'")
+                bldr._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: scalac cache write failed: ${perr}")
                 }
@@ -312,7 +312,7 @@ builder scalac(ctx: ptr): int {
     }
 
     // Write classpath artifact for downstream modules. Must include
-    // the transitive build.dep classpath (dep_cp) — the artifact is
+    // the transitive bldr.dep classpath (dep_cp) — the artifact is
     // named "..._including_transitive" and downstream consumers
     // (scala.assembly, a sibling module's scalac) rely on it carrying
     // every dep this module saw at compile time. Omitting dep_cp meant
@@ -330,7 +330,7 @@ builder scalac(ctx: ptr): int {
         tmp5 = string.concat(full_cp, ":")
         full_cp = string.concat(tmp5, maven_cp)
     }
-    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", full_cp)
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", full_cp)
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
@@ -338,26 +338,26 @@ builder scalac(ctx: ptr): int {
 // Compile and run Scala tests.
 // Compiles test .scala files, then runs them via JUnit (munit integrates with JUnit).
 builder scalac_test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     test_classes = path.join(target_dir, "test-classes")
-    build._mkdirs(test_classes)
+    bldr._mkdirs(test_classes)
 
     // JDK gate: min_jdk(N) hard-requires (FAIL if unmet); skip_below_jdk(N) is a
     // portable-fleet floor (SKIP if unmet). Selects the JDK for compile+run.
     // run_java is "" (ambient java) when no floor is declared — downstream
     // commands prefix it only when non-empty, so map the helper's "java" back.
-    min_jdk_v = build._str_key(_builder, "scala_min_jdk")
-    skip_jdk_v = build._str_key(_builder, "scala_skip_below_jdk")
-    sel_java, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, "the FFM binding")
+    min_jdk_v = bldr._str_key(_builder, "scala_min_jdk")
+    skip_jdk_v = bldr._str_key(_builder, "scala_skip_below_jdk")
+    sel_java, jdk_status = bldr._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, "the FFM binding")
     if string.equals(jdk_status, "toolow") == 1 {
-        build.fail(ctx, "scalac_test: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
+        bldr.fail(ctx, "scalac_test: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
         return 1
     }
     if string.equals(jdk_status, "fail") == 1 {
-        build.fail(ctx, "scalac_test: no JDK ${min_jdk_v}+ to run the FFM binding on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
+        bldr.fail(ctx, "scalac_test: no JDK ${min_jdk_v}+ to run the FFM binding on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1
     }
     if string.equals(jdk_status, "skip") == 1 { return 0 }
@@ -368,9 +368,9 @@ builder scalac_test(ctx: ptr): int {
 
     // Find test source files
     argfile = path.join(target_dir, "scalac_test_sources.txt")
-    build._sh("find '${source_dir}' -name '*.test.scala' -o -name '*Test.scala' -o -name '*Tests.scala' > '${argfile}' 2>/dev/null || true")
+    bldr._sh("find '${source_dir}' -name '*.test.scala' -o -name '*Test.scala' -o -name '*Tests.scala' > '${argfile}' 2>/dev/null || true")
 
-    af_raw, _eaf = build._sh_capture("cat '${argfile}'")
+    af_raw, _eaf = bldr._sh_capture("cat '${argfile}'")
     argfile_content = string.trim(af_raw)
     if string.length(argfile_content) == 0 {
         println("${mod_dir}: no test source files found")
@@ -381,7 +381,7 @@ builder scalac_test(ctx: ptr): int {
     // Build classpath: test-classes + prod deps + library + maven
     compiler_cp = _compiler_classpath(ctx)
     library_cp = _library_classpath(ctx)
-    dep_cp = build._build_dep_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
 
     cp = test_classes
@@ -391,11 +391,11 @@ builder scalac_test(ctx: ptr): int {
     // Scala API. (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md.)
     scala_prod_classes = path.join(target_dir, "classes")
     if dir.exists(scala_prod_classes) == 1 {
-        cp = build._cp_append(cp, scala_prod_classes)
+        cp = bldr._cp_append(cp, scala_prod_classes)
     }
-    cp = build._cp_append(cp, library_cp)
-    cp = build._cp_append(cp, dep_cp)
-    cp = build._cp_append(cp, maven_cp)
+    cp = bldr._cp_append(cp, library_cp)
+    cp = bldr._cp_append(cp, dep_cp)
+    cp = bldr._cp_append(cp, maven_cp)
 
     cmd = scalac_cmd(compiler_cp, test_classes, cp, argfile)
     // Run scalac (a plain `java -cp … dotc.Main`) on the selected JDK so it
@@ -411,23 +411,23 @@ builder scalac_test(ctx: ptr): int {
         ck, kerr = _cache_key_for_scalac(ctx, argfile, cmd, compiler_cp)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, test_classes)
-                    build._sh("rm -f '${tmp_tar}'")
+                    uerr = bldr._untar_into(tmp_tar, test_classes)
+                    bldr._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: scalac (test) cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        build._sh("rm -rf '${test_classes}'")
-                        build._mkdirs(test_classes)
+                        bldr._sh("rm -rf '${test_classes}'")
+                        bldr._mkdirs(test_classes)
                     }
                 } else {
-                    build._sh("rm -f '${tmp_tar}'")
+                    bldr._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -435,21 +435,21 @@ builder scalac_test(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        exit_code = build._sh(cmd)
+        exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: scalac (test) failed")
-            build.fail(ctx, "scalac (test) failed")
+            bldr.fail(ctx, "scalac (test) failed")
             return exit_code
         }
-        if string.length(cache_key) > 0 && build._dir_nonempty(test_classes) == 1 {
-            tar_path, terr = build._tar_dir(test_classes)
+        if string.length(cache_key) > 0 && bldr._dir_nonempty(test_classes) == 1 {
+            tar_path, terr = bldr._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                build._sh("rm -f '${tar_path}'")
+                bldr._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: scalac (test) cache write failed: ${perr}")
                 }
@@ -469,17 +469,17 @@ builder scalac_test(ctx: ptr): int {
             main_cls, _ = map.get(_builder, "main_class")
             rjava = "java"
             if string.length(run_java) > 0 { rjava = run_java }
-            run_cp = build._cp_append(test_classes, library_cp)
+            run_cp = bldr._cp_append(test_classes, library_cp)
             // The module's own prod classes on the RUN cp (see the compile-side
             // fix; scala runs main_class in-builder with a SECOND classpath, so
             // that fix doesn't carry here). No-op for a test-only leaf.
             // (asks/jvm-run-builders-omit-own-prod-classes-from-run-classpath.md)
             scala_run_prod = path.join(target_dir, "classes")
             if dir.exists(scala_run_prod) == 1 {
-                run_cp = build._cp_append(run_cp, scala_run_prod)
+                run_cp = bldr._cp_append(run_cp, scala_run_prod)
             }
-            run_cp = build._cp_append(run_cp, dep_cp)
-            run_cp = build._cp_append(run_cp, maven_cp)
+            run_cp = bldr._cp_append(run_cp, dep_cp)
+            run_cp = bldr._cp_append(run_cp, maven_cp)
             jflags = ""
             if map.has(_builder, "jvm_flag") == 1 {
                 jf, _ = map.get(_builder, "jvm_flag")
@@ -495,15 +495,15 @@ builder scalac_test(ctx: ptr): int {
             run_cmd = "'${rjava}'${jflags} -cp '${run_cp}' ${main_cls}"
             // Honour env(K,V) on the run (e.g. HTMLSANITIZER_LIB for a uFFI/JNI
             // binding). Empty when no env() set — byte-identical otherwise.
-            run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
-            rrc = build._sh(run_cmd)
+            run_cmd = string.concat(bldr._env_export_prefix(_builder), run_cmd)
+            rrc = bldr._sh(run_cmd)
             if rrc != 0 {
                 println("${mod_dir}: ${main_cls} reported failures")
-                build._record_test_result_exitcode(ctx, 0, 1)
-                build.fail(ctx, "scala conformance run failed")
+                bldr._record_test_result_exitcode(ctx, 0, 1)
+                bldr.fail(ctx, "scala conformance run failed")
                 return 1
             }
-            build._record_test_result_exitcode(ctx, 1, 0)
+            bldr._record_test_result_exitcode(ctx, 1, 0)
         }
     }
 
@@ -513,7 +513,7 @@ builder scalac_test(ctx: ptr): int {
 
 // scala.assembly(b) — produce a single executable fat jar bundling
 // this module's compiled classes + scala-library + maven deps + every
-// transitive `build.dep` artifact's classpath.
+// transitive `bldr.dep` artifact's classpath.
 //
 // Setters consumed:
 //   main_class("App")        — Main-Class attribute (required)
@@ -535,18 +535,18 @@ builder scalac_test(ctx: ptr): int {
 // the difference that scala-library MUST be inlined: without it the
 // resulting jar exits with `NoClassDefFoundError: scala/Predef`.
 builder assembly(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    source_dir = build._get(ctx, "source_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     if _builder == null {
         println("${mod_dir}: scala.assembly: empty builder block — declare main_class(...)")
-        build.fail(ctx, "scala.assembly: empty builder block — declare main_class(...)")
+        bldr.fail(ctx, "scala.assembly: empty builder block — declare main_class(...)")
         return 1
     }
     if map.has(_builder, "main_class") == 0 {
         println("${mod_dir}: scala.assembly: missing main_class(\"...\")")
-        build.fail(ctx, "scala.assembly: missing main_class(\"...\")")
+        bldr.fail(ctx, "scala.assembly: missing main_class(\"...\")")
         return 1
     }
     main_cls, _ = map.get(_builder, "main_class")
@@ -562,22 +562,22 @@ builder assembly(ctx: ptr): int {
     }
 
     bin_dir = path.join(target_dir, "bin")
-    build._mkdirs(bin_dir)
+    bldr._mkdirs(bin_dir)
     jar_path = path.join(bin_dir, jar_name)
 
     // Staging dir under target/<mod>/_assembly/. Nuke and recreate so
     // a previous run's leftovers don't bleed into this jar.
     stage_dir = path.join(target_dir, "_assembly")
-    _e1 = build._sh("rm -rf '${stage_dir}'")
-    build._mkdirs(stage_dir)
+    _e1 = bldr._sh("rm -rf '${stage_dir}'")
+    bldr._mkdirs(stage_dir)
 
     // Stage this module's compiled classes first.
     classes_dir = path.join(target_dir, "classes")
     if dir.exists(classes_dir) == 1 {
-        rc_cls = build._sh(assembly_copy_classes_cmd(classes_dir, stage_dir))
+        rc_cls = bldr._sh(assembly_copy_classes_cmd(classes_dir, stage_dir))
         if rc_cls != 0 {
             println("${mod_dir}: scala.assembly: copying classes failed")
-            build.fail(ctx, "scala.assembly: copying classes failed")
+            bldr.fail(ctx, "scala.assembly: copying classes failed")
             return rc_cls
         }
     }
@@ -597,10 +597,10 @@ builder assembly(ctx: ptr): int {
         full_cp = string.trim(full_cp_raw)
     }
 
-    // Also fold in any transitive build.dep classpaths the dep walker
+    // Also fold in any transitive bldr.dep classpaths the dep walker
     // can resolve — covers cross-module deps where the dep's artifact
     // dir is under a sibling target/<other-mod>/.
-    dep_cp = build._build_dep_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
     if string.length(dep_cp) > 0 {
         if string.length(full_cp) > 0 {
             full_cp = string.concat(full_cp, ":")
@@ -618,19 +618,19 @@ builder assembly(ctx: ptr): int {
         entry = string.array_get(parts, pi)
         if string.length(entry) > 0 {
             if _ends_with_jar(entry) == 1 {
-                rc_uz = build._sh(assembly_unzip_jar_cmd(entry, stage_dir))
+                rc_uz = bldr._sh(assembly_unzip_jar_cmd(entry, stage_dir))
                 if rc_uz != 0 {
                     println("${mod_dir}: scala.assembly: unzipping ${entry} failed")
-                    build.fail(ctx, "scala.assembly: unzipping ${entry} failed")
+                    bldr.fail(ctx, "scala.assembly: unzipping ${entry} failed")
                     string.array_free(parts)
                     return rc_uz
                 }
             } else {
                 if dir.exists(entry) == 1 {
-                    rc_cp = build._sh(assembly_copy_classes_cmd(entry, stage_dir))
+                    rc_cp = bldr._sh(assembly_copy_classes_cmd(entry, stage_dir))
                     if rc_cp != 0 {
                         println("${mod_dir}: scala.assembly: copying ${entry} failed")
-                        build.fail(ctx, "scala.assembly: copying ${entry} failed")
+                        bldr.fail(ctx, "scala.assembly: copying ${entry} failed")
                         string.array_free(parts)
                         return rc_cp
                     }
@@ -643,23 +643,23 @@ builder assembly(ctx: ptr): int {
 
     // Write the manifest into stage/META-INF/.
     meta_dir = path.join(stage_dir, "META-INF")
-    build._mkdirs(meta_dir)
+    bldr._mkdirs(meta_dir)
     manifest_path = path.join(meta_dir, "MANIFEST.MF")
     mf = string.concat("Manifest-Version: 1.0\nMain-Class: ", main_cls)
     mf = string.concat(mf, "\n")
     _ew = io.write_file(manifest_path, mf)
 
     println("${mod_dir}: assembling ${jar_name}")
-    rc = build._sh(assembly_jar_cmd(jar_path, stage_dir))
+    rc = bldr._sh(assembly_jar_cmd(jar_path, stage_dir))
     if rc != 0 {
         println("${mod_dir}: scala.assembly: jar command failed")
-        build.fail(ctx, "scala.assembly: jar command failed")
+        bldr.fail(ctx, "scala.assembly: jar command failed")
         return rc
     }
 
     println("${mod_dir}: built ${jar_path}")
     println("  run: java -jar ${jar_path}")
-    build._write_artifact(ctx, "scala_assembly_jar", jar_path)
+    bldr._write_artifact(ctx, "scala_assembly_jar", jar_path)
     _ts = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
@@ -675,8 +675,8 @@ _ends_with_jar(s: string) {
 
 // Run compiled test classes via JUnit (munit integrates with JUnit 4).
 builder munit(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     println("${mod_dir}: running tests (munit)")
 
@@ -684,35 +684,35 @@ builder munit(ctx: ptr): int {
 
     // Build runtime classpath
     library_cp = _library_classpath(ctx)
-    dep_cp = build._build_dep_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
 
     cp = test_classes
-    cp = build._cp_append(cp, library_cp)
-    cp = build._cp_append(cp, dep_cp)
-    cp = build._cp_append(cp, maven_cp)
+    cp = bldr._cp_append(cp, library_cp)
+    cp = bldr._cp_append(cp, dep_cp)
+    cp = bldr._cp_append(cp, maven_cp)
 
     // Discover test classes
-    cl_raw, _ecl = build._sh_capture("find '${test_classes}' -name '*.class' ! -name '*$*' | sed 's|^${test_classes}/||; s|/|.|g; s|\\.class$||'")
+    cl_raw, _ecl = bldr._sh_capture("find '${test_classes}' -name '*.class' ! -name '*$*' | sed 's|^${test_classes}/||; s|/|.|g; s|\\.class$||'")
     class_list = string.trim(cl_raw)
     if string.length(class_list) == 0 {
         println("${mod_dir}: no test classes found")
         return 0
     }
 
-    c_raw, _ec = build._sh_capture("echo '${class_list}' | tr '\\n' ' '")
+    c_raw, _ec = bldr._sh_capture("echo '${class_list}' | tr '\\n' ' '")
     classes = string.trim(c_raw)
     cmd = munit_cmd(cp, classes)
 
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         // munit per-test count parsing not yet wired; coarse record.
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "munit tests FAILED")
+        bldr.fail(ctx, "munit tests FAILED")
         return exit_code
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0

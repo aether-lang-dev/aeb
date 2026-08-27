@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for junit5_cmd() — JUnit 5 (Jupiter) ConsoleLauncher command builder
 
 import java (junit5_cmd)
@@ -25,9 +25,9 @@ _assert_eq(label: string, actual: string, expected: string) {
 
 main() {
     // Host-specific dynamic-library env var (DYLD_LIBRARY_PATH on macOS,
-    // LD_LIBRARY_PATH on Linux) — junit5_cmd emits build._dyld_env_var();
+    // LD_LIBRARY_PATH on Linux) — junit5_cmd emits bldr._dyld_env_var();
     // mirror it so the expectation holds on both platforms.
-    dyld = build._dyld_env_var()
+    dyld = bldr._dyld_env_var()
 
     _assert_eq("no-config no-ldpath",
         junit5_cmd("test-classes:deps.jar", "out/test-classes", "", null),

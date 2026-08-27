@@ -1,13 +1,13 @@
-import build
+import bldr
 import dotnet
 import dotnet (sdk, root_namespace, nullable, implicit_usings, nuget)
 
 main() {
-    b = build.start()
-    build.dep(b, "src/ApplicationCore/.build.ae")
-    build.dep(b, "src/Infrastructure/.build.ae")
-    build.dep(b, "src/BlazorAdmin/.build.ae")
-    build.dep(b, "src/BlazorShared/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "src/ApplicationCore/.build.ae")
+    bldr.dep(b, "src/Infrastructure/.build.ae")
+    bldr.dep(b, "src/BlazorAdmin/.build.ae")
+    bldr.dep(b, "src/BlazorShared/.build.ae")
     dotnet.build_project(b) {
         sdk("Microsoft.NET.Sdk.Web")
         root_namespace("Microsoft.eShopWeb.Web")

@@ -8,7 +8,7 @@
 // just another node.
 //
 // Usage:
-//   import build
+//   import bldr
 //   import meta
 //   import brew
 //
@@ -36,7 +36,7 @@
 // without them) AND aeb_target (so def install knows what to build).
 // Everything else is optional with sensible defaults.
 
-import build
+import bldr
 import meta
 import std.string
 import std.io
@@ -228,9 +228,9 @@ brew_formula_render(class_name_v: string, name: string, target_path: string,
 // --- Builder entry point ---
 
 builder formula(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     // Required: aeb_target — what `def install` shells out to.
     aeb_t = ""
@@ -314,6 +314,6 @@ builder formula(ctx: ptr): int {
     _e = fs.write_atomic(out_path, formula_text, string.length(formula_text))
 
     println("${mod_dir}: wrote Homebrew formula → ${out_path}")
-    build._write_artifact(ctx, "brew_formula", out_path)
+    bldr._write_artifact(ctx, "brew_formula", out_path)
     return 0
 }

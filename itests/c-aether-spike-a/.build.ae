@@ -5,12 +5,12 @@
 // hand-written main.c (which calls add_two) into one binary —
 // auto-pulling in libaether.a. One .build.ae, one SDK.
 
-import build
+import bldr
 import c
 import c (sources, aether_source, output_file)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     c.program(b) {
         sources("src/main.c")
         aether_source("src/add.ae")

@@ -11,7 +11,7 @@
 // Convention: if no `script(...)` entries are declared in a `bash.test`
 // builder block, every `test_*.sh` file in the module's source dir is
 // auto-discovered (mirrors `aether.program_test`'s convention default).
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -203,7 +203,7 @@ ready_after_ms(_ctx: ptr, n: int) {
 // `b._pending_fixture_seeds`. The enclosing `bash.test` /
 // `aether.driver_test` builder drains the pending list into its
 // own _builder.fixture_seeds list (consumed by
-// build._synth_fixture_pre/_post).
+// bldr._synth_fixture_pre/_post).
 builder fixture_seed(b: ptr, name: string): int {
     path_v = ""
     seed_bin_v = ""
@@ -285,7 +285,7 @@ builder fixture_server(b: ptr, name: string): int {
 // --- Helpers ---
 
 // Note on fixture synthesis: the per-fixture spawn/seed/cleanup
-// shell statements are produced by `build._synth_fixture_pre` /
+// shell statements are produced by `bldr._synth_fixture_pre` /
 // `_synth_fixture_post` (in lib/build/module.ae) — shared with any
 // other test SDK that wants the same lifecycle (e.g. a future
 // aether.driver_test). bash.test reads the seed/server records
@@ -321,7 +321,7 @@ builder fixture_server(b: ptr, name: string): int {
 // or null. Pure: just string assembly. Tested in
 // tests/test_bash_chain_cmd.ae.
 bash_chain_cmd(pre_cmds: ptr, script_path: string, post_cmds: ptr) {
-    return build._exec_chain_cmd(pre_cmds, "bash ${script_path}", post_cmds)
+    return bldr._exec_chain_cmd(pre_cmds, "bash ${script_path}", post_cmds)
 }
 
 // Build the xargs pipeline for parallel test dispatch. Pure: just
@@ -371,7 +371,7 @@ bash_runner_body() {
 _collect_scripts(source_dir: string) {
     // Auto-discovery default: every test_*.sh under source_dir.
     cmd = "ls '${source_dir}'/test_*.sh 2>/dev/null | sort"
-    raw, _err = build._sh_capture(cmd)
+    raw, _err = bldr._sh_capture(cmd)
     out = string.trim(raw)
     found = list.new()
     if string.length(out) == 0 {
@@ -386,7 +386,7 @@ _collect_scripts(source_dir: string) {
         c = string.substring(out, i, i + 1)
         if string.equals(c, "\n") == 1 {
             line = string.substring(out, start, i)
-            base_raw, _b = build._sh_capture("basename '${line}'")
+            base_raw, _b = bldr._sh_capture("basename '${line}'")
             base = string.trim(base_raw)
             _e = list.add(found, base)
             start = i + 1
@@ -395,7 +395,7 @@ _collect_scripts(source_dir: string) {
     }
     if start < n {
         line = string.substring(out, start, n)
-        base_raw, _b = build._sh_capture("basename '${line}'")
+        base_raw, _b = bldr._sh_capture("basename '${line}'")
         base = string.trim(base_raw)
         _e = list.add(found, base)
     }
@@ -404,10 +404,10 @@ _collect_scripts(source_dir: string) {
 
 _resolve_script_path(source_dir: string, script_ref: string) {
     // If absolute, leave alone; otherwise resolve relative to module dir.
-    // build._is_abs_path is host-aware — on Windows an absolute path leads with
+    // bldr._is_abs_path is host-aware — on Windows an absolute path leads with
     // a drive prefix ("C:/..."), not "/", so a bare leading-slash test would
     // mangle it via path.join and the script would silently never run.
-    if build._is_abs_path(script_ref) == 1 {
+    if bldr._is_abs_path(script_ref) == 1 {
         return script_ref
     }
     return path.join(source_dir, script_ref)
@@ -431,8 +431,8 @@ _resolve_script_path(source_dir: string, script_ref: string) {
 // `run` collides with neither a function nor a body local, so it
 // dispatches cleanly. See asks/ for the filed Aether bug.
 builder run(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     scripts = list.new()
     if _builder != null {
@@ -444,7 +444,7 @@ builder run(ctx: ptr): int {
     n = list.size(scripts)
     if n == 0 {
         println("${mod_dir}: no scripts declared")
-        build.fail(ctx, "no scripts declared")
+        bldr.fail(ctx, "no scripts declared")
         return 1
     }
 
@@ -453,10 +453,10 @@ builder run(ctx: ptr): int {
         s, _ = list.get(scripts, i)
         full = _resolve_script_path(source_dir, s)
         println("${mod_dir}: running ${s}")
-        rc = build._sh("bash ${full}")
+        rc = bldr._sh("bash ${full}")
         if rc != 0 {
             println("${mod_dir}: ${s} FAILED (exit ${rc})")
-            build.fail(ctx, "${s} FAILED (exit ${rc})")
+            bldr.fail(ctx, "${s} FAILED (exit ${rc})")
             return rc
         }
         i = i + 1
@@ -485,11 +485,11 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     // disk-bound tests, so substitute via shell.
     jobs_arg = jobs_str
     if string.equals(jobs_str, "0") == 1 {
-        np_raw, _np = build._sh_capture("nproc 2>/dev/null || echo 2")
+        np_raw, _np = bldr._sh_capture("nproc 2>/dev/null || echo 2")
         np_str = string.trim(np_raw)
         np_cmd = "echo $(( ${np_str} / 2 ))"
         if np_str == "1" { np_cmd = "echo 1" }
-        ja_raw, _ja = build._sh_capture(np_cmd)
+        ja_raw, _ja = bldr._sh_capture(np_cmd)
         jobs_arg = string.trim(ja_raw)
         if string.length(jobs_arg) == 0 { jobs_arg = "1" }
     }
@@ -513,24 +513,24 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     // fs.write_atomic — bypasses any shell heredoc/quoting hazards
     // when the body contains $1, ${1%%|*}, etc.
     // Native form: both paths are written with fs.write_atomic below, a native
-    // call that cannot see an MSYS `/tmp/...` path. See build._tar_dir's note.
-    list_file_raw, _lf = build._sh_capture("mktemp")
-    list_file = build._to_native_path(string.trim(list_file_raw))
-    runner_raw, _rf = build._sh_capture("mktemp")
-    runner_file = build._to_native_path(string.trim(runner_raw))
+    // call that cannot see an MSYS `/tmp/...` path. See bldr._tar_dir's note.
+    list_file_raw, _lf = bldr._sh_capture("mktemp")
+    list_file = bldr._to_native_path(string.trim(list_file_raw))
+    runner_raw, _rf = bldr._sh_capture("mktemp")
+    runner_file = bldr._to_native_path(string.trim(runner_raw))
 
     list_body = string.concat(items, "\n")
     _ewl = fs.write_atomic(list_file, list_body, string.length(list_body))
 
     runner_body = bash_runner_body()
     _ewr = fs.write_atomic(runner_file, runner_body, string.length(runner_body))
-    build._sh(string.concat("chmod +x ", runner_file))
+    bldr._sh(string.concat("chmod +x ", runner_file))
 
     pipe = bash_xargs_cmd(list_file, runner_file, jobs_arg)
 
-    out, _err = build._sh_capture(pipe)
-    build._sh(string.concat("rm -f ", list_file))
-    build._sh(string.concat("rm -f ", runner_file))
+    out, _err = bldr._sh_capture(pipe)
+    bldr._sh(string.concat("rm -f ", list_file))
+    bldr._sh(string.concat("rm -f ", runner_file))
 
     // Parse output line by line, render in completion order, count.
     failed = _parse_xargs_output(out)
@@ -592,8 +592,8 @@ _render_line(buf: string, lo: int, hi: int) {
 // If no scripts are declared, auto-discovers `test_*.sh` in the
 // module source dir.
 builder test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     scripts = list.new()
     if _builder != null {
@@ -643,7 +643,7 @@ builder test(ctx: ptr): int {
     // shell statements so the existing bash_chain_cmd path executes
     // them in the same `bash -c '...'` (PIDs need to survive across
     // `;` separators).
-    build._drain_pending_fixtures(ctx, _builder)
+    bldr._drain_pending_fixtures(ctx, _builder)
     fixture_seeds = null
     fixture_servers = null
     if _builder != null {
@@ -654,10 +654,10 @@ builder test(ctx: ptr): int {
             fixture_servers, _ = map.get(_builder, "fixture_servers")
         }
     }
-    has_fixtures = build._has_fixtures(_builder)
+    has_fixtures = bldr._has_fixtures(_builder)
     if has_fixtures == 1 {
-        synth_pre = build._synth_fixture_pre(fixture_seeds, fixture_servers)
-        synth_post = build._synth_fixture_post(fixture_seeds, fixture_servers)
+        synth_pre = bldr._synth_fixture_pre(fixture_seeds, fixture_servers)
+        synth_post = bldr._synth_fixture_post(fixture_seeds, fixture_servers)
         // Fixture pre runs FIRST (outermost wrap), so user pre_commands
         // see fixtures already up. Fixture post runs LAST so user
         // post_commands run before fixtures are torn down (e.g. to
@@ -735,7 +735,7 @@ builder test(ctx: ptr): int {
             s, _ = list.get(scripts, i)
             full = _resolve_script_path(source_dir, s)
             cmd = bash_chain_cmd(pre_cmds, full, post_cmds)
-            rc = build._sh(cmd)
+            rc = bldr._sh(cmd)
             if rc == 0 {
                 println("  PASS: ${s}")
                 passed = passed + 1
@@ -747,7 +747,7 @@ builder test(ctx: ptr): int {
         }
     }
 
-    build._record_test_result(ctx, passed, failed)
+    bldr._record_test_result(ctx, passed, failed)
 
     // Fire on_failure(...) hooks once if any script failed. Commands
     // see $AEB_TEST_PASSED / _FAILED / _TOTAL / $AEB_MODULE_DIR via
@@ -781,7 +781,7 @@ builder test(ctx: ptr): int {
                         full_cmd = string.concat(env_prefix, " bash -c '")
                         full_cmd = string.concat(full_cmd, fcmd)
                         full_cmd = string.concat(full_cmd, "'")
-                        frc = build._sh(full_cmd)
+                        frc = bldr._sh(full_cmd)
                         if frc != 0 {
                             println("  on_failure exited ${frc}: ${fcmd}")
                         }
@@ -794,7 +794,7 @@ builder test(ctx: ptr): int {
 
     if failed > 0 {
         println("${mod_dir}: tests FAILED (${passed} passed, ${failed} failed)")
-        build.fail(ctx, "tests FAILED (${passed} passed, ${failed} failed)")
+        bldr.fail(ctx, "tests FAILED (${passed} passed, ${failed} failed)")
         return 1
     }
     println("${mod_dir}: tests PASSED (${passed}/${n})")
@@ -812,10 +812,10 @@ test_discover(_ctx: ptr, sub_dir: string) {
     }
     scripts, _ = map.get(_ctx, "scripts")
 
-    source_dir = build._get(_ctx, "source_dir")
+    source_dir = bldr._get(_ctx, "source_dir")
     full_dir = path.join(source_dir, sub_dir)
     cmd = "ls '${full_dir}'/test_*.sh 2>/dev/null | sort"
-    raw, _err = build._sh_capture(cmd)
+    raw, _err = bldr._sh_capture(cmd)
     out = string.trim(raw)
     if string.length(out) == 0 {
         return 0
@@ -828,7 +828,7 @@ test_discover(_ctx: ptr, sub_dir: string) {
         c = string.substring(out, i, i + 1)
         if string.equals(c, "\n") == 1 {
             line = string.substring(out, start, i)
-            base_raw, _b = build._sh_capture("basename '${line}'")
+            base_raw, _b = bldr._sh_capture("basename '${line}'")
             base = string.trim(base_raw)
             rel = path.join(sub_dir, base)
             _e = list.add(scripts, rel)
@@ -838,7 +838,7 @@ test_discover(_ctx: ptr, sub_dir: string) {
     }
     if start < n {
         line = string.substring(out, start, n)
-        base_raw, _b = build._sh_capture("basename '${line}'")
+        base_raw, _b = bldr._sh_capture("basename '${line}'")
         base = string.trim(base_raw)
         rel = path.join(sub_dir, base)
         _e = list.add(scripts, rel)

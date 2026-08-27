@@ -17,7 +17,7 @@ import std.dir
 import std.cryptography
 
 import approval (jira_check_script, approval_json_check_script, canonicalize_attestation, attestation_evidence_json, _shell_quote)
-import build (_sh, _sh_capture)
+import bldr (_sh, _sh_capture)
 
 extern println(s: string)
 

@@ -7,10 +7,10 @@
 // Consumers that dep on this file get pytest installed into the venv
 // for running unit tests under `python -m pytest`.
 
-import build
+import bldr
 import python
 
 main() {
-    b = build.start()
+    b = bldr.start()
     python.wheel_registry(b, "pytest~")
 }

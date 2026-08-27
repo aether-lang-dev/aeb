@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for python.pytest_cmd, python.ruff_lint_cmd, python.mypy_cmd,
 // python.build_package_cmd, python.pip_install_cmd,
 // python.pip_install_requirements_cmd

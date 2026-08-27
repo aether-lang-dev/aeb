@@ -17,10 +17,10 @@
 // `selenium-manager`). The shape lands here either way; running it
 // is the next step once a host has both Python and Rust available.
 
-import build
+import bldr
 import python
 
 main() {
-    b = build.start()
+    b = bldr.start()
     python.package_existing(b)
 }

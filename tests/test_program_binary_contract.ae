@@ -1,4 +1,4 @@
-// Tests the universal runnable-binary contract: build.program_binary_of
+// Tests the universal runnable-binary contract: bldr.program_binary_of
 // resolves the `program_binary` artifact a binary builder publishes, and
 // falls back to the legacy per-SDK keys (c_binary, aether_binary) so a
 // dep built by an older builder still resolves. Lets one binary runner
@@ -7,7 +7,7 @@
 // Offline: writes fake artifact files under <root>/target/<dep>/ and
 // reads them back through the resolver.
 
-import build (program_binary_of, _sh, _sh_capture)
+import bldr (program_binary_of, _sh, _sh_capture)
 import std.string
 import std.os
 import std.io

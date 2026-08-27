@@ -6,12 +6,12 @@
 // apt) and puts its runtime jars on the classpath, so a .build.ae just
 // says groovy.groovyc(b).
 //
-//   import build
+//   import bldr
 //   import groovy
 //   import groovy (source_layout)
-//   aeb(cap) { b = build.start(); build.dep(b, "java/.build.ae")
+//   aeb(cap) { b = bldr.start(); bldr.dep(b, "java/.build.ae")
 //              groovy.groovyc(b) { source_layout("maven idiomatic") } }
-import build
+import bldr
 import cache
 import maven
 import std.string
@@ -141,14 +141,14 @@ _groovyc_bin(groovy_home: string) {
 _groovy_jars_nl(groovy_home: string) {
     if string.length(groovy_home) == 0 { return "" }
     libdir = path.join(groovy_home, "lib")
-    raw, _e = build._sh_capture("ls '${libdir}'/groovy-*.jar 2>/dev/null")
+    raw, _e = bldr._sh_capture("ls '${libdir}'/groovy-*.jar 2>/dev/null")
     return string.trim(raw)
 }
 
 // _nl_to_colon(s) — newline-separated → colon-separated (classpath form).
 _nl_to_colon(s: string) {
     if string.length(s) == 0 { return "" }
-    out, _e = build._sh_capture("printf '%s' '${s}' | tr '\n' ':' | sed 's/:$//'")
+    out, _e = bldr._sh_capture("printf '%s' '${s}' | tr '\n' ':' | sed 's/:$//'")
     return string.trim(out)
 }
 
@@ -189,7 +189,7 @@ _cache_key_for_groovyc(ctx: ptr, argfile_path: string, groovyc_cmd_str: string, 
     list.add(parts, string.concat("groovy-jars:", groovy_jars_nl))
     list.add(parts, string.concat("cmd:", groovyc_cmd_str))
 
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -208,8 +208,8 @@ _cache_key_for_groovyc(ctx: ptr, argfile_path: string, groovyc_cmd_str: string, 
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_cp = build._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        dep_cp = bldr._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp) > 0 {
             list.add(parts, string.concat("dep:", dm))
             list.add(parts, string.concat("dep-cp:", dep_cp))
@@ -247,12 +247,12 @@ _write_argfile(target_dir: string, name: string, file_list: string) {
 
 // groovy.groovyc(b) — compile src/main/groovy (or flat *.groovy).
 builder groovyc(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     classes_dir = path.join(target_dir, "classes")
-    build._mkdirs(classes_dir)
+    bldr._mkdirs(classes_dir)
     println("${mod_dir}: compiling prod code (groovyc)")
 
     groovy_home = _groovy_home()
@@ -260,11 +260,11 @@ builder groovyc(ctx: ptr): int {
     groovy_jars_nl = _groovy_jars_nl(groovy_home)
     groovy_cp = _nl_to_colon(groovy_jars_nl)
 
-    dep_cp = build._build_dep_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
-    classpath = build._cp_append(classes_dir, groovy_cp)
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, maven_cp)
+    classpath = bldr._cp_append(classes_dir, groovy_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, maven_cp)
 
     file_list = _source_files(_builder, source_dir, "src/main/groovy")
     if string.length(file_list) == 0 {
@@ -285,19 +285,19 @@ builder groovyc(ctx: ptr): int {
         if string.length(kerr) == 0 {
             cache_key = ck
             tmp_raw, _terr = os.exec("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, classes_dir)
+                    uerr = bldr._untar_into(tmp_tar, classes_dir)
                     os.system("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: groovyc cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
                         os.system("rm -rf '${classes_dir}'")
-                        build._mkdirs(classes_dir)
+                        bldr._mkdirs(classes_dir)
                     }
                 } else {
                     os.system("rm -f '${tmp_tar}'")
@@ -308,20 +308,20 @@ builder groovyc(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: groovyc failed")
-            build.fail(ctx, "groovyc failed")
+            bldr.fail(ctx, "groovyc failed")
             return rc
         }
         // Only cache a non-empty output tree (an exit-0-but-empty compile would
         // otherwise be served as a hit with zero .class files).
-        if string.length(cache_key) > 0 && build._dir_nonempty(classes_dir) == 1 {
-            tar_path, terr = build._tar_dir(classes_dir)
+        if string.length(cache_key) > 0 && bldr._dir_nonempty(classes_dir) == 1 {
+            tar_path, terr = bldr._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
                 os.system("rm -f '${tar_path}'")
@@ -337,7 +337,7 @@ builder groovyc(ctx: ptr): int {
     cp_out = string.concat(classes_dir, "\n")
     cp_out = string.concat(cp_out, groovy_jars_nl)
     if string.length(dep_cp) > 0 { cp_out = string.concat(string.concat(cp_out, "\n"), _colon_to_nl(dep_cp)) }
-    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
     return 0
 }
 
@@ -362,10 +362,10 @@ _min_int(builder_map: ptr, key: string) {
 }
 
 // _java_ge(want) — a JDK satisfying the version floor `want` (string), or "".
-// Thin wrapper over the shared build._java_ge; kept as a local name so the
+// Thin wrapper over the shared bldr._java_ge; kept as a local name so the
 // groovy resolver reads cleanly.
 _java_ge(want: string) {
-    return build._java_ge(want)
+    return bldr._java_ge(want)
 }
 
 // _groovy_core_jars_desc() — newline list of groovy-<ver>.jar core jars from
@@ -378,7 +378,7 @@ _groovy_core_jars_desc() {
     globs = "$GROOVY_JAR $GROOVY_HOME/lib/groovy-[0-9]*.jar $HOME/.m2/repository/org/apache/groovy/groovy/*/groovy-[0-9]*.jar $HOME/.m2/repository/org/codehaus/groovy/groovy/*/groovy-[0-9]*.jar $HOME/.gradle/wrapper/dists/*/*/*/lib/groovy-[0-9]*.jar"
     // ls the union, drop -sources/-indy, sort by the version embedded in the
     // basename (field after 'groovy-'), newest first, de-dup by that version.
-    out, _e = build._sh_capture("ls -1 ${globs} 2>/dev/null | grep -v sources | grep -v indy | awk -F/ '{n=$NF; sub(/^groovy-/,\"\",n); sub(/\\.jar$/,\"\",n); print n\"\\t\"$0}' | sort -Vr -k1,1 | cut -f2-")
+    out, _e = bldr._sh_capture("ls -1 ${globs} 2>/dev/null | grep -v sources | grep -v indy | awk -F/ '{n=$NF; sub(/^groovy-/,\"\",n); sub(/\\.jar$/,\"\",n); print n\"\\t\"$0}' | sort -Vr -k1,1 | cut -f2-")
     return string.trim(out)
 }
 
@@ -387,13 +387,13 @@ _groovy_core_jars_desc() {
 // then run it; return 1 iff it prints the ok token. The probe touches a
 // FFM-bearing dep class AND an Object extension method (withCloseable) so a
 // Groovy that compiles but can't run the binding is rejected. Delegates the
-// pass/fail decision to build._verify_toolchain.
+// pass/fail decision to bldr._verify_toolchain.
 _probe_groovy_toolchain(java_bin: string, groovy_jar: string, dep_classpath: string, probe_dir: string) {
     src = path.join(probe_dir, "Probe.groovy")
     body = "class Probe { static void main(args) { println('AEB_PROBE_OK') } }\n"
     _w = io.write_file(src, body)
     outdir = path.join(probe_dir, "out")
-    build._mkdirs(outdir)
+    bldr._mkdirs(outdir)
     // compile against the real dep classpath, then run — one shell so a
     // compile failure short-circuits the run (&&). ok token printed only on a
     // successful run. dep_classpath may be "" (no deps); harmless empty -cp.
@@ -401,7 +401,7 @@ _probe_groovy_toolchain(java_bin: string, groovy_jar: string, dep_classpath: str
     if string.length(dep_classpath) > 0 { cpc = string.concat(groovy_jar, string.concat(":", dep_classpath)) }
     runcp = string.concat(outdir, string.concat(":", dep_classpath))
     probe = "'${java_bin}' -cp '${groovy_jar}' org.codehaus.groovy.tools.FileSystemCompiler -cp '${cpc}' -d '${outdir}' '${src}' && '${java_bin}' -cp '${groovy_jar}:${runcp}' Probe"
-    return build._verify_toolchain(probe, "AEB_PROBE_OK")
+    return bldr._verify_toolchain(probe, "AEB_PROBE_OK")
 }
 
 // _resolve_capable_groovy(builder_map, dep_classpath, target_dir, jdk_floor) —
@@ -415,16 +415,16 @@ _probe_groovy_toolchain(java_bin: string, groovy_jar: string, dep_classpath: str
 // (…/groovy-4.0.24.jar → "4.0.24"), or "" if unparseable. Enforces the
 // min_groovy floor: the probe alone can't (a groovy 4 compiles the binding
 // whether the floor is 4 or 99), so the declared floor is checked against the
-// jar's own version via build._version_ge.
+// jar's own version via bldr._version_ge.
 _jar_groovy_version(jar: string) {
     // awk, not sed: a sed script with backslash escapes does not survive the
     // Aether-string -> _sh_capture -> shell path (comes back empty). awk's
     // match/substr is escape-free. Emit the full version (4.0.24), not just major.
-    raw, _e = build._sh_capture("basename '${jar}' | sed -e 's/^groovy-//' -e 's/\\.jar$//' 2>/dev/null || basename '${jar}'")
+    raw, _e = bldr._sh_capture("basename '${jar}' | sed -e 's/^groovy-//' -e 's/\\.jar$//' 2>/dev/null || basename '${jar}'")
     // The sed above may not survive escaping; fall back to awk field split.
     v = string.trim(raw)
     if string.length(v) == 0 || string.equals(v, jar) == 1 {
-        raw2, _e2 = build._sh_capture("basename '${jar}' | awk '{ n=$0; sub(/^groovy-/,\"\",n); sub(/\\.jar$/,\"\",n); print n }'")
+        raw2, _e2 = bldr._sh_capture("basename '${jar}' | awk '{ n=$0; sub(/^groovy-/,\"\",n); sub(/\\.jar$/,\"\",n); print n }'")
         v = string.trim(raw2)
     }
     return v
@@ -438,7 +438,7 @@ _resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: str
     }
 
     probe_dir = path.join(target_dir, ".groovy-probe")
-    build._mkdirs(probe_dir)
+    bldr._mkdirs(probe_dir)
 
     jars = _groovy_core_jars_desc()
     rest = jars
@@ -454,7 +454,7 @@ _resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: str
             floor_ok = 1
             if string.length(string.trim(groovy_floor)) > 0 {
                 jver = _jar_groovy_version(jar)
-                floor_ok = build._version_ge(jver, groovy_floor)
+                floor_ok = bldr._version_ge(jver, groovy_floor)
             }
             if floor_ok == 1 {
                 if _probe_groovy_toolchain(java_bin, jar, dep_classpath, probe_dir) == 1 {
@@ -469,15 +469,15 @@ _resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: str
 // groovy.groovyc_test(b) — compile src/test/groovy (or flat *.groovy)
 // into target/<mod>/test-classes, where java.junit5 scans.
 builder groovyc_test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     test_classes = path.join(target_dir, "test-classes")
-    build._mkdirs(test_classes)
+    bldr._mkdirs(test_classes)
 
-    dep_cp = build._build_dep_classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
+    lib_cp = bldr._build_lib_classpath(ctx)
 
     // Capable-toolchain gate. When a min_*/skip_below_* floor is declared, VERIFY
     // a groovyc+JVM by probing it against the real dep classpath (rather than
@@ -487,10 +487,10 @@ builder groovyc_test(ctx: ptr): int {
     // (green). A min_* requirement wins over a skip_below_* floor. Unset → today's
     // path (first groovyc found). The floor's version for messages: prefer the
     // hard req, else the skip floor.
-    req_g = build._str_key(_builder, "min_groovy")
-    req_j = build._str_key(_builder, "min_jdk")
-    skip_g = build._str_key(_builder, "skip_below_groovy")
-    skip_j = build._str_key(_builder, "skip_below_jdk")
+    req_g = bldr._str_key(_builder, "min_groovy")
+    req_j = bldr._str_key(_builder, "min_jdk")
+    skip_g = bldr._str_key(_builder, "skip_below_groovy")
+    skip_j = bldr._str_key(_builder, "skip_below_jdk")
     is_hard = 0
     if string.length(string.trim(req_g)) > 0 { is_hard = 1 }
     if string.length(string.trim(req_j)) > 0 { is_hard = 1 }
@@ -505,16 +505,16 @@ builder groovyc_test(ctx: ptr): int {
         if string.length(string.trim(eff_jdk)) == 0 { eff_jdk = skip_j }
         eff_groovy = req_g
         if string.length(string.trim(eff_groovy)) == 0 { eff_groovy = skip_g }
-        cap_dep_cp = build._cp_append(dep_cp, lib_cp)
+        cap_dep_cp = bldr._cp_append(dep_cp, lib_cp)
         capable_java, capable_jar = _resolve_capable_groovy(_builder, cap_dep_cp, target_dir, eff_jdk, eff_groovy)
         if string.length(capable_jar) == 0 {
             reason = "no capable Groovy ${eff_groovy}+ on a JDK ${eff_jdk}+ VM (groovyc can't read/run the JDK-22+ binding it compiles against)"
             if is_hard == 1 {
-                build.fail(ctx, "groovyc_test: ${reason} — min_groovy/min_jdk is a hard requirement; use skip_below_groovy/skip_below_jdk to skip instead")
+                bldr.fail(ctx, "groovyc_test: ${reason} — min_groovy/min_jdk is a hard requirement; use skip_below_groovy/skip_below_jdk to skip instead")
                 return 1
             }
             println("${mod_dir}: SKIPPED — ${reason}")
-            build._record_skip(ctx, reason)
+            bldr._record_skip(ctx, reason)
             return 0
         }
         println("${mod_dir}: groovy toolchain verified — ${capable_jar}")
@@ -537,17 +537,17 @@ builder groovyc_test(ctx: ptr): int {
         groovy_cp = capable_jar
     }
 
-    classpath = build._cp_append(test_classes, groovy_cp)
+    classpath = bldr._cp_append(test_classes, groovy_cp)
     // The module's OWN prod classes (groovyc emits to target_dir/classes, shared
     // with this leaf's prod builder) — a first-party input the tests reference,
     // so ahead of deps. Without it, tests can't resolve the module's own API.
     // (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md — same shape.)
     groovy_prod_classes = path.join(target_dir, "classes")
     if dir.exists(groovy_prod_classes) == 1 {
-        classpath = build._cp_append(classpath, groovy_prod_classes)
+        classpath = bldr._cp_append(classpath, groovy_prod_classes)
     }
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, lib_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, lib_cp)
 
     file_list = _source_files(_builder, source_dir, "src/test/groovy")
     if string.length(file_list) == 0 {
@@ -567,19 +567,19 @@ builder groovyc_test(ctx: ptr): int {
         if string.length(kerr) == 0 {
             cache_key = ck
             tmp_raw, _terr = os.exec("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, test_classes)
+                    uerr = bldr._untar_into(tmp_tar, test_classes)
                     os.system("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: groovyc (test) cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
                         os.system("rm -rf '${test_classes}'")
-                        build._mkdirs(test_classes)
+                        bldr._mkdirs(test_classes)
                     }
                 } else {
                     os.system("rm -f '${tmp_tar}'")
@@ -590,18 +590,18 @@ builder groovyc_test(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: groovyc (test) failed")
-            build.fail(ctx, "groovyc (test) failed")
+            bldr.fail(ctx, "groovyc (test) failed")
             return rc
         }
-        if string.length(cache_key) > 0 && build._dir_nonempty(test_classes) == 1 {
-            tar_path, terr = build._tar_dir(test_classes)
+        if string.length(cache_key) > 0 && bldr._dir_nonempty(test_classes) == 1 {
+            tar_path, terr = bldr._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
                 os.system("rm -f '${tar_path}'")
@@ -640,17 +640,17 @@ builder groovyc_test(ctx: ptr): int {
             if dir.exists(test_res) == 1 {
                 os.system("cp -R '${test_res}/.' '${test_classes}/' 2>/dev/null || true")
             }
-            run_cp = build._cp_append(test_classes, groovy_cp)
+            run_cp = bldr._cp_append(test_classes, groovy_cp)
             // The module's own prod classes on the RUN cp (see the compile-side
             // fix; groovy runs main_class in-builder with a SECOND classpath, so
             // that fix doesn't carry here). No-op for a test-only leaf.
             // (asks/jvm-run-builders-omit-own-prod-classes-from-run-classpath.md)
             groovy_run_prod = path.join(target_dir, "classes")
             if dir.exists(groovy_run_prod) == 1 {
-                run_cp = build._cp_append(run_cp, groovy_run_prod)
+                run_cp = bldr._cp_append(run_cp, groovy_run_prod)
             }
-            run_cp = build._cp_append(run_cp, dep_cp)
-            run_cp = build._cp_append(run_cp, lib_cp)
+            run_cp = bldr._cp_append(run_cp, dep_cp)
+            run_cp = bldr._cp_append(run_cp, lib_cp)
             jflags = ""
             if map.has(_builder, "jvm_flag") == 1 {
                 jf, _ = map.get(_builder, "jvm_flag")
@@ -666,15 +666,15 @@ builder groovyc_test(ctx: ptr): int {
             run_cmd = "${run_java}${jflags} -cp ${run_cp} ${main_cls}"
             // Honour env(K,V) on the run (e.g. HTMLSANITIZER_LIB for a uFFI/JNI
             // binding). Empty when no env() set — byte-identical otherwise.
-            run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
-            rrc = build._sh(run_cmd)
+            run_cmd = string.concat(bldr._env_export_prefix(_builder), run_cmd)
+            rrc = bldr._sh(run_cmd)
             if rrc != 0 {
                 println("${mod_dir}: ${main_cls} reported failures")
-                build._record_test_result_exitcode(ctx, 0, 1)
-                build.fail(ctx, "groovy conformance run failed")
+                bldr._record_test_result_exitcode(ctx, 0, 1)
+                bldr.fail(ctx, "groovy conformance run failed")
                 return 1
             }
-            build._record_test_result_exitcode(ctx, 1, 0)
+            bldr._record_test_result_exitcode(ctx, 1, 0)
         }
     }
     return 0
@@ -695,13 +695,13 @@ _source_files(builder_map: ptr, source_dir: string, maven_subdir: string) {
     if use_maven == 1 { root = path.join(source_dir, maven_subdir) }
     depth = ""
     if use_maven == 0 { depth = "-maxdepth 1 " }
-    raw, _e = build._sh_capture("find '${root}' ${depth}-name '*.groovy' 2>/dev/null | tr '\n' ' '")
+    raw, _e = bldr._sh_capture("find '${root}' ${depth}-name '*.groovy' 2>/dev/null | tr '\n' ' '")
     return string.trim(raw)
 }
 
 // _colon_to_nl(s) — colon-separated → newline-separated (artifact form).
 _colon_to_nl(s: string) {
     if string.length(s) == 0 { return "" }
-    out, _e = build._sh_capture("printf '%s' '${s}' | tr ':' '\n'")
+    out, _e = bldr._sh_capture("printf '%s' '${s}' | tr ':' '\n'")
     return string.trim(out)
 }

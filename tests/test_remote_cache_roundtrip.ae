@@ -19,7 +19,7 @@ import std.path
 import std.dir
 
 import cache
-import build (_sh, _sh_capture)
+import bldr (_sh, _sh_capture)
 
 _assert(label: string, cond: int) {
     if cond == 1 { println("PASS: ${label}") }

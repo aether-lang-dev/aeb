@@ -1,11 +1,11 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import kotlin
 import kotlin (source_layout, jvm_target, compiler_plugin)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     load_bom_file(b, "../../spring-boot.bom.ae")
     dep(b, "org.springframework.boot:spring-boot-starter-data-cassandra")
     dep(b, "org.jetbrains.kotlin:kotlin-stdlib")

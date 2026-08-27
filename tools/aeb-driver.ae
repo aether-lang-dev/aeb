@@ -26,7 +26,7 @@
 //
 // Reuses lib/build's marker readers + render so the summary is identical
 // to the all-in-one path.
-import build
+import bldr
 import aeblabel (file_to_label, infer_type)
 import agent (prereq_to_image)
 import std.string
@@ -171,7 +171,7 @@ _first_word(line: string) {
 // FIRST prereq token is used (a single node is one toolchain; multi-toolchain
 // belongs to separate dep nodes). "" prereq → "" image (host-native node).
 _node_image(node: string, extract_deps_bin: string) {
-    raw, eerr = build._sh_capture(string.concat(extract_deps_bin, string.concat(" --prereqs '", string.concat(node, "' 2>/dev/null"))))
+    raw, eerr = bldr._sh_capture(string.concat(extract_deps_bin, string.concat(" --prereqs '", string.concat(node, "' 2>/dev/null"))))
     if string.length(eerr) > 0 { return string.concat("", "") }
     t = string.trim(raw)
     if string.length(t) == 0 { return string.concat("", "") }
@@ -323,8 +323,8 @@ main() {
     aeb_dir = path.join(path.join(root, "target"), ".aeb")
     logs_dir = path.join(aeb_dir, "logs")
     rc_dir = path.join(aeb_dir, "rc")
-    build._mkdirs(logs_dir)
-    build._mkdirs(rc_dir)
+    bldr._mkdirs(logs_dir)
+    bldr._mkdirs(rc_dir)
 
     // --- Parse the edges file: ordered node list + per-node deps ---
     content, rerr = io.read_file(edges_file)
@@ -390,7 +390,7 @@ main() {
     // --- Choose parallel (make) or sequential ---
     jobs = os.getenv("AEB_JOBS")
     if string.length(jobs) == 0 {
-        np, _npe = build._sh_capture("nproc 2>/dev/null || echo 4")
+        np, _npe = bldr._sh_capture("nproc 2>/dev/null || echo 4")
         jobs = string.trim(np)
     }
     // AEB_SCHED=native opts into the in-process ready-queue scheduler
@@ -429,7 +429,7 @@ main() {
     have_make = 0
     if want_native == 0 {
         if string.equals(jobs, "1") == 0 {
-            mk_probe, _mpe = build._sh_capture("command -v make >/dev/null 2>&1 && echo y || echo n")
+            mk_probe, _mpe = bldr._sh_capture("command -v make >/dev/null 2>&1 && echo y || echo n")
             if string.equals(string.trim(mk_probe), "y") == 1 { have_make = 1 }
         }
     }
@@ -634,7 +634,7 @@ main() {
             mk = string.concat(mk, _node_cmd_timed(out_bin, root, node, label, log, rcmark, msmark, nimg, engine, selabel))
             mk = string.concat(mk, "\n")
         }
-        mk_path = path.join(aeb_dir, "build.mk")
+        mk_path = path.join(aeb_dir, "bldr.mk")
         _we = fs.write_atomic(mk_path, mk, string.length(mk))
         // -k: keep building independent nodes after a failure (parity with
         // the all-in-one run-everything behavior); rc != 0 if any failed.
@@ -642,7 +642,7 @@ main() {
         run = string.concat(run, " -k -f '")
         run = string.concat(run, mk_path)
         run = string.concat(run, "' all")
-        _mrc = build._sh(run)
+        _mrc = bldr._sh(run)
     } else {
         // --- Sequential fallback (no make / AEB_JOBS=1) ---
         i = 0
@@ -666,7 +666,7 @@ main() {
             // times in-process; the driver reconstructs from markers — this is
             // the timing equivalent of the .rc marker). See msmark read below.
             _n_start = clock_ns()
-            rc1 = build._sh(cmd)
+            rc1 = bldr._sh(cmd)
             _n_end = clock_ns()
             _we = io.write_file(rcmark, string.from_int(rc1))
             msmark = path.join(rc_dir, string.concat(_san(node), ".ms"))
@@ -718,19 +718,19 @@ main() {
         } else {
             _rw0 = map.put(rec, "wall_ms", "0")
         }
-        td = build._label_to_target_dir(root, label)
-        _rcc = map.put(rec, "cache", build._read_cache_outcome(td))
+        td = bldr._label_to_target_dir(root, label)
+        _rcc = map.put(rec, "cache", bldr._read_cache_outcome(td))
         // Test results are gated on the MARKER EXISTING, not on the type name —
         // any node whose build wrote pass/fail markers (via *_test SDK verbs)
         // gets the row, whatever its filename. No "type == test" inference.
-        tp, tf, tsk, thr = build._read_test_result(td)
+        tp, tf, tsk, thr = bldr._read_test_result(td)
         if thr == 1 {
             _rp = map.put(rec, "test_passed", string.from_int(tp))
             _rf = map.put(rec, "test_failed", string.from_int(tf))
             _rsk = map.put(rec, "test_skipped", string.from_int(tsk))
-            _rhr = map.put(rec, "test_has_report", string.from_int(build._read_test_report_flag(td)))
+            _rhr = map.put(rec, "test_has_report", string.from_int(bldr._read_test_report_flag(td)))
             if tf > 0 { node_failed = 1 }
-            tfn = build._read_test_failures(td)
+            tfn = bldr._read_test_failures(td)
             if string.length(tfn) > 0 { _rn = map.put(rec, "test_failed_names", tfn) }
         }
         // Keep rc in agreement with the logical outcome: a test node whose
@@ -755,7 +755,7 @@ main() {
             any_failed = 1
             log = path.join(logs_dir, _log_name(label))
             println("  ${type_word}: ${label} — FAILED (see ${log}):")
-            _cat = build._sh(string.concat(string.concat("cat '", log), "' 2>/dev/null"))
+            _cat = bldr._sh(string.concat(string.concat("cat '", log), "' 2>/dev/null"))
         }
     }
 
@@ -763,26 +763,26 @@ main() {
     telemetry_json = os.getenv("AEB_TELEMETRY_JSON")
     if string.length(telemetry_json) > 0 {
         tj_dir = path.dirname(telemetry_json)
-        if string.length(tj_dir) > 0 { build._mkdirs(tj_dir) }
-        tj_body = build.render_telemetry_json(records, total_ms)
+        if string.length(tj_dir) > 0 { bldr._mkdirs(tj_dir) }
+        tj_body = bldr.render_telemetry_json(records, total_ms)
         _tje = fs.write_atomic(telemetry_json, tj_body, string.length(tj_body))
     }
     tests_json = os.getenv("AEB_TESTS_JSON")
     if string.length(tests_json) > 0 {
         testj_dir = path.dirname(tests_json)
-        if string.length(testj_dir) > 0 { build._mkdirs(testj_dir) }
-        testj_body = build.render_tests_json(records)
+        if string.length(testj_dir) > 0 { bldr._mkdirs(testj_dir) }
+        testj_body = bldr.render_tests_json(records)
         _testje = fs.write_atomic(tests_json, testj_body, string.length(testj_body))
     }
     artifacts_json = os.getenv("AEB_ARTIFACTS_JSON")
     if string.length(artifacts_json) > 0 {
         artj_dir = path.dirname(artifacts_json)
-        if string.length(artj_dir) > 0 { build._mkdirs(artj_dir) }
-        artj_body = build.render_artifacts_json(root, records)
+        if string.length(artj_dir) > 0 { bldr._mkdirs(artj_dir) }
+        artj_body = bldr.render_artifacts_json(root, records)
         _artje = fs.write_atomic(artifacts_json, artj_body, string.length(artj_body))
     }
 
-    println(build.render_telemetry(records, total_ms))
+    println(bldr.render_telemetry(records, total_ms))
     if any_failed == 1 { exit(1) }
     return 0
 }

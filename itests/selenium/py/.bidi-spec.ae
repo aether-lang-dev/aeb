@@ -20,12 +20,12 @@
 // is the right behaviour: bumping the spec is a deliberate flow,
 // not a silent drift.
 
-import build
+import bldr
 import fetch
 import fetch (url, sha256, output_to)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     fetch.file(b) {
         url("https://raw.githubusercontent.com/w3c/webref/5301ec52f85f9156ae696f24523d722193fc0817/ed/cddl/webdriver-bidi-all.cddl")
         sha256("58baffeda459e2fee2d9b58a896eb4394e87e861ada5cb761a169d32e122138f")

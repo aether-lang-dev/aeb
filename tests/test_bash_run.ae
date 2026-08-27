@@ -10,14 +10,14 @@
 // through the closure-DSL form. This test closes that gap.
 //
 // It drives `bash.run(b) { ... }` and `bash.test(b) { ... }` the
-// way the orchestrator does (build.session → build.begin → builder)
+// way the orchestrator does (bldr.session → bldr.begin → builder)
 // and asserts a side effect: the declared script actually executed.
 // If a builder stops dispatching — a renamed-into-a-collision
 // builder, a codegen regression — the marker file is absent and
 // this fails loudly.
 
-import build
-import build (_sh, _sh_capture)
+import bldr
+import bldr (_sh, _sh_capture)
 import bash
 import bash (script)
 import std.string
@@ -60,8 +60,8 @@ main() {
 
     // --- bash.run dispatches ---
     _sh("rm -f '${marker}'")
-    s1 = build.session(".")
-    b1 = build.begin(s1, "m_run")
+    s1 = bldr.session(".")
+    b1 = bldr.begin(s1, "m_run")
     bash.run(b1) {
         script("${scr}")
     }
@@ -69,8 +69,8 @@ main() {
 
     // --- bash.test dispatches ---
     _sh("rm -f '${marker}'")
-    s2 = build.session(".")
-    b2 = build.begin(s2, "m_test")
+    s2 = bldr.session(".")
+    b2 = bldr.begin(s2, "m_test")
     bash.test(b2) {
         script("${scr}")
     }

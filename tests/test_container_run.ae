@@ -12,7 +12,7 @@
 // Needs podman + the ruby:alpine image; if podman is absent the test
 // skips cleanly so the suite stays green in minimal environments.
 
-import build
+import bldr
 import container
 import container (image_ref, command)
 import std.string
@@ -42,8 +42,8 @@ main() {
     // Drive the builder the way the orchestrator does — alpine ruby
     // prints a marker on pid-1 stdout. container.run RETURNS that
     // capture, so bind it to a var and use it imperatively.
-    s = build.session(".")
-    b = build.begin(s, "m_container_run")
+    s = bldr.session(".")
+    b = bldr.begin(s, "m_container_run")
     out = container.run(b) {
         image_ref("docker.io/library/ruby:alpine")
         command("ruby -e 'puts \"hello-from-aeb-container\"'")

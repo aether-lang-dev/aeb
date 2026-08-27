@@ -1,5 +1,5 @@
 // jest — Jest test runner SDK for aether.build
-import build
+import bldr
 import pnpm
 import std.string
 import std.io
@@ -38,12 +38,12 @@ jest_cmd(jest_bin: string, jest_config: string, timeout_secs: string, opts: ptr)
 
 // Run Jest tests using the project's jest.config.ts.
 builder test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     // Resolve npm deps first
     pnpm.resolve(ctx)
@@ -66,22 +66,22 @@ builder test(ctx: ptr): int {
     // Tee to target/<module>/test_output.log — durable record for
     // failure diagnosis, also feeds the summary parser. Jest
     // prints "Tests:  1 failed, 14 passed, 15 total" on stderr.
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = build._sh(full_cmd)
+    exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     if exit_code == 124 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests TIMEOUT")
-        build.fail(ctx, "jest tests TIMEOUT")
+        bldr.fail(ctx, "jest tests TIMEOUT")
         return exit_code
     }
     pj, fj = _parse_jest_counts(out_text)
-    build._record_test_result(ctx, pj, fj)
+    bldr._record_test_result(ctx, pj, fj)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "jest tests FAILED")
+        bldr.fail(ctx, "jest tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")

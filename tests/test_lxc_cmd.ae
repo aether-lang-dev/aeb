@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for lxc_create_cmd() — LXC container create command builder
 
 import container

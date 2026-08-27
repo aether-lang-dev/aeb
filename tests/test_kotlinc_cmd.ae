@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for kotlinc_cmd()
 
 import kotlin (kotlinc_cmd)

@@ -2,7 +2,7 @@
 //
 // _cache_key_for_groovyc(ctx, argfile_path, cmd, groovy_jars_nl, groovyc_bin)
 // reads .groovy sources via cache.hash_file and dep artifacts via
-// build._read_dep_artifact, so tests stage real fixtures under a tmpdir
+// bldr._read_dep_artifact, so tests stage real fixtures under a tmpdir
 // per case. Same shape as test_scala_cache.ae. Does NOT assert the
 // toolchain probe is non-empty (tolerates an absent groovyc).
 import std.string
@@ -15,7 +15,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import groovy (_cache_key_for_groovyc)
 
 _assert_eq(label: string, actual: string, expected: string) {

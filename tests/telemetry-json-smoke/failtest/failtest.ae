@@ -2,7 +2,7 @@
 //
 // Run under aether.driver_test. A std.spec `run_summary()` writes a structured
 // per-it() report to AE_SPEC_REPORT (set by aeb's driver_test spawn), which aeb
-// reads via build._parse_aeocha_report, so the telemetry JSON records
+// reads via bldr._parse_aeocha_report, so the telemetry JSON records
 // tests: {total:3, passed:2, failed:1, errored:0} — the granularity the CI
 // daemon wants, not a binary 0/1. Exit code is non-zero (a spec failed).
 //

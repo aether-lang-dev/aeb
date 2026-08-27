@@ -1,5 +1,5 @@
 // go — Go SDK for aether.build
-import build
+import bldr
 import cache
 import std.string
 import std.io
@@ -99,7 +99,7 @@ go_build_cmd(source_dir: string, out_path: string, opts: ptr) {
 go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
     env_prefix = ""
     if string.length(ld_path) > 0 {
-        dyld_var = build._dyld_env_var()
+        dyld_var = bldr._dyld_env_var()
         env_prefix = "${dyld_var}=${ld_path} "
     }
     if opts != null {
@@ -151,7 +151,7 @@ go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
 _go_version() {
     cached = os.getenv("_AEB_GO_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("go version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("go version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -177,7 +177,7 @@ _cache_key_for_go(ctx: ptr, argfile_path: string, go_build_cmd_str: string, sour
     list.add(parts, string.concat("go:", _go_version()))
     list.add(parts, string.concat("cmd:", go_build_cmd_str))
 
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -211,8 +211,8 @@ _cache_key_for_go(ctx: ptr, argfile_path: string, go_build_cmd_str: string, sour
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_sh = build._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        dep_sh = bldr._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
             list.add(parts, string.concat("dep:", dm))
             list.add(parts, string.concat("dep-sh:", dep_sh))
@@ -229,15 +229,15 @@ _cache_key_for_go(ctx: ptr, argfile_path: string, go_build_cmd_str: string, sour
 // Compile-check Go packages without producing a binary.
 // Useful for library packages and large single-module repos.
 builder check(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     ts_file = path.join(target_dir, ".timestamp")
-    if build._needs_rebuild(source_dir, ts_file) == 0 {
+    if bldr._needs_rebuild(source_dir, ts_file) == 0 {
         println("${mod_dir}: skipping Go compile check (not changed)")
         return 0
     }
@@ -253,7 +253,7 @@ builder check(ctx: ptr): int {
     }
 
     cmd = "cd '${root}' && go build ${pkg_pat}"
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: go build failed")
         return exit_code
@@ -264,12 +264,12 @@ builder check(ctx: ptr): int {
 }
 
 builder go_build(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     lib_dir = path.join(target_dir, "lib")
-    build._mkdirs(lib_dir)
+    bldr._mkdirs(lib_dir)
     ts_file = path.join(lib_dir, ".timestamp")
 
     println("${mod_dir}: compiling Go prod & test code")
@@ -289,14 +289,14 @@ builder go_build(ctx: ptr): int {
     // shared-lib output (libfoo.so / .dll) already carries its extension and
     // is left untouched (the .so↔.dll cross-platform story is separate).
     if string.index_of(out_name, ".") < 0 {
-        out_name = string.concat(out_name, build._exe_suffix())
+        out_name = string.concat(out_name, bldr._exe_suffix())
     }
     out_path = path.join(lib_dir, out_name)
     bld_cmd = go_build_cmd(source_dir, out_path, _builder)
 
     // Source set for the cache key (every .go under source_dir).
     argfile = path.join(target_dir, "go_sources.txt")
-    build._sh("find '${source_dir}' -name '*.go' > '${argfile}' 2>/dev/null || true")
+    bldr._sh("find '${source_dir}' -name '*.go' > '${argfile}' 2>/dev/null || true")
 
     // Cache check: the output is a single file, restored directly on a
     // hit (no tar). exit_code sentinel: 0 = hit, -1 = build below.
@@ -308,9 +308,9 @@ builder go_build(ctx: ptr): int {
             cache_key = ck
             grc = cache.get(cache_key, out_path)
             if string.length(grc) == 0 {
-                build._sh("chmod +x '${out_path}' 2>/dev/null || true")
+                bldr._sh("chmod +x '${out_path}' 2>/dev/null || true")
                 println("${mod_dir}: go build cache hit ${cache_key}")
-                build._record_cache(ctx, "hit")
+                bldr._record_cache(ctx, "hit")
                 exit_code = 0
             }
         }
@@ -318,15 +318,15 @@ builder go_build(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        build._sh("cd ${source_dir} && go mod tidy")
-        exit_code = build._sh(bld_cmd)
+        bldr._sh("cd ${source_dir} && go mod tidy")
+        exit_code = bldr._sh(bld_cmd)
         if exit_code != 0 {
             println("${mod_dir}: go build failed")
-            build.fail(ctx, "go build failed")
+            bldr.fail(ctx, "go build failed")
             return exit_code
         }
         if string.length(cache_key) > 0 {
@@ -337,7 +337,7 @@ builder go_build(ctx: ptr): int {
         }
     }
 
-    build._write_artifact(ctx, "ldlibdeps", out_path)
+    bldr._write_artifact(ctx, "ldlibdeps", out_path)
 
     deps, _ = map.get(ctx, "deps")
     shared_libs = string.concat(out_path, "")
@@ -345,22 +345,22 @@ builder go_build(ctx: ptr): int {
     n = 0
     while n < dep_count {
         dp4, _ = list.get(deps, n)
-        dm4 = build._strip_lang(dp4)
-        dep_sh = build._read_dep_artifact(ctx, dm4, "shared_library_deps_including_transitive")
+        dm4 = bldr._strip_lang(dp4)
+        dep_sh = bldr._read_dep_artifact(ctx, dm4, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
             shared_libs = string.concat(string.concat(shared_libs, "\n"), dep_sh)
         }
         n = n + 1
     }
-    build._write_artifact(ctx, "shared_library_deps_including_transitive", shared_libs)
+    bldr._write_artifact(ctx, "shared_library_deps_including_transitive", shared_libs)
 
     _ets = io.write_file(ts_file, "")
     return 0
 }
 
 builder go_test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     deps, _ = map.get(ctx, "deps")
 
     ld_path = ""
@@ -368,10 +368,10 @@ builder go_test(ctx: ptr): int {
     g = 0
     while g < dep_count {
         dp5, _ = list.get(deps, g)
-        dm5 = build._strip_lang(dp5)
-        dep_sh = build._read_dep_artifact(ctx, dm5, "shared_library_deps_including_transitive")
+        dm5 = bldr._strip_lang(dp5)
+        dep_sh = bldr._read_dep_artifact(ctx, dm5, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
-            sh_raw, _esh = build._sh_capture("dirname ${dep_sh} | head -1")
+            sh_raw, _esh = bldr._sh_capture("dirname ${dep_sh} | head -1")
             sh_dir = string.trim(sh_raw)
             if string.length(ld_path) > 0 {
                 ld_path = string.concat(string.concat(ld_path, ":"), sh_dir)
@@ -387,20 +387,20 @@ builder go_test(ctx: ptr): int {
     test_cmd = go_test_cmd(source_dir, ld_path, _builder)
     if _builder != null {
         if map.has(_builder, "pkg_pattern") == 1 {
-            root = build._get(ctx, "root")
+            root = bldr._get(ctx, "root")
             test_cmd = go_test_cmd(root, ld_path, _builder)
         }
     }
-    exit_code = build._sh(test_cmd)
+    exit_code = bldr._sh(test_cmd)
     if exit_code != 0 {
         // Default `go test` output doesn't include sub-test counts
         // (only -v does). Record coarse pass/fail. Future: parse
         // `--- PASS:` / `--- FAIL:` lines when -v is set.
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: Go tests FAILED")
         return exit_code
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: Go tests PASSED")
     return 0
 }

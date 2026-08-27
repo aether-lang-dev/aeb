@@ -1,5 +1,5 @@
 // rust — Rust/Cargo SDK for aether.build
-import build
+import bldr
 import cache
 import std.string
 import std.io
@@ -230,7 +230,7 @@ cargo_toml_content(opts: ptr) {
                 ver = _split_first(rest, "~")
                 feats = _split_second(rest, "~")
                 // Convert comma-separated to ["f1", "f2"]
-                _feat_toml_raw, _efeat_toml = build._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
+                _feat_toml_raw, _efeat_toml = bldr._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
                 feat_toml = string.trim(_feat_toml_raw)
                 toml = string.concat(toml, "${name} = { version = \"${ver}\", features = [\"${feat_toml}\"] }\n")
                 i = i + 1
@@ -369,7 +369,7 @@ cargo_workspace_toml_content(opts: ptr) {
     if opts != null {
         if map.has(opts, "exclude") == 1 {
             exc, _ = map.get(opts, "exclude")
-            _exc_toml_raw, _eexc_toml = build._sh_capture("echo '${exc}' | sed 's/,/\", \"/g'")
+            _exc_toml_raw, _eexc_toml = bldr._sh_capture("echo '${exc}' | sed 's/,/\", \"/g'")
             exc_toml = string.trim(_exc_toml_raw)
             toml = string.concat(toml, "exclude = [\"${exc_toml}\"]\n")
         }
@@ -430,13 +430,13 @@ cargo_workspace_toml_content(opts: ptr) {
         }
         if map.has(opts, "keywords") == 1 {
             kw, _ = map.get(opts, "keywords")
-            _kw_toml_raw, _ekw_toml = build._sh_capture("echo '${kw}' | sed 's/,/\", \"/g'")
+            _kw_toml_raw, _ekw_toml = bldr._sh_capture("echo '${kw}' | sed 's/,/\", \"/g'")
             kw_toml = string.trim(_kw_toml_raw)
             toml = string.concat(toml, "keywords = [\"${kw_toml}\"]\n")
         }
         if map.has(opts, "categories") == 1 {
             cats, _ = map.get(opts, "categories")
-            _cats_toml_raw, _ecats_toml = build._sh_capture("echo '${cats}' | sed 's/,/\", \"/g'")
+            _cats_toml_raw, _ecats_toml = bldr._sh_capture("echo '${cats}' | sed 's/,/\", \"/g'")
             cats_toml = string.trim(_cats_toml_raw)
             toml = string.concat(toml, "categories = [\"${cats_toml}\"]\n")
         }
@@ -478,7 +478,7 @@ cargo_workspace_toml_content(opts: ptr) {
                 rest = _split_second(entry, "~")
                 ver = _split_first(rest, "~")
                 feats = _split_second(rest, "~")
-                _feat_toml_raw, _efeat_toml = build._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
+                _feat_toml_raw, _efeat_toml = bldr._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
                 feat_toml = string.trim(_feat_toml_raw)
                 toml = string.concat(toml, "${name} = { version = \"${ver}\", features = [\"${feat_toml}\"] }\n")
                 i = i + 1
@@ -519,7 +519,7 @@ cargo_workspace_toml_content(opts: ptr) {
                     if first_field == 0 {
                         line = string.concat(line, ", ")
                     }
-                    _f_feat_toml_raw, _ef_feat_toml = build._sh_capture("echo '${f_feats}' | sed 's/,/\", \"/g'")
+                    _f_feat_toml_raw, _ef_feat_toml = bldr._sh_capture("echo '${f_feats}' | sed 's/,/\", \"/g'")
                     f_feat_toml = string.trim(_f_feat_toml_raw)
                     line = string.concat(line, "features = [\"${f_feat_toml}\"]")
                     first_field = 0
@@ -673,7 +673,7 @@ cargo_crate_toml_content(opts: ptr) {
                 rest = _split_second(entry, "~")
                 ver = _split_first(rest, "~")
                 feats = _split_second(rest, "~")
-                _feat_toml_raw, _efeat_toml = build._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
+                _feat_toml_raw, _efeat_toml = bldr._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
                 feat_toml = string.trim(_feat_toml_raw)
                 toml = string.concat(toml, "${name} = { version = \"${ver}\", features = [\"${feat_toml}\"] }\n")
                 i = i + 1
@@ -722,7 +722,7 @@ cargo_crate_toml_content(opts: ptr) {
         if map.has(opts, "_default_features") == 1 {
             df, _ = map.get(opts, "_default_features")
             // Convert comma-separated to "a", "b", "c"
-            _df_toml_raw, _edf_toml = build._sh_capture("echo '${df}' | sed 's/,/\", \"/g'")
+            _df_toml_raw, _edf_toml = bldr._sh_capture("echo '${df}' | sed 's/,/\", \"/g'")
             df_toml = string.trim(_df_toml_raw)
             toml = string.concat(toml, "default = [\"${df_toml}\"]\n")
         }
@@ -738,7 +738,7 @@ cargo_crate_toml_content(opts: ptr) {
                 if string.length(fdeps_csv) == 0 {
                     toml = string.concat(toml, "${fname} = []\n")
                 } else {
-                    _fdeps_toml_raw, _efdeps_toml = build._sh_capture("echo '${fdeps_csv}' | sed 's/,/\", \"/g'")
+                    _fdeps_toml_raw, _efdeps_toml = bldr._sh_capture("echo '${fdeps_csv}' | sed 's/,/\", \"/g'")
                     fdeps_toml = string.trim(_fdeps_toml_raw)
                     toml = string.concat(toml, "${fname} = [\"${fdeps_toml}\"]\n")
                 }
@@ -764,7 +764,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
     }
 
     // Extract simple deps: workspace_dep("name", "ver")
-    _simple_raw, _esimple = build._sh_capture("grep 'workspace_dep(' '${full_path}' | grep -v 'workspace_dep_features' | grep -v 'workspace_dep_full' | sed 's/.*workspace_dep(\"//; s/\", \"/~/; s/\").*//'")
+    _simple_raw, _esimple = bldr._sh_capture("grep 'workspace_dep(' '${full_path}' | grep -v 'workspace_dep_features' | grep -v 'workspace_dep_full' | sed 's/.*workspace_dep(\"//; s/\", \"/~/; s/\").*//'")
     simple = string.trim(_simple_raw)
     if string.length(simple) > 0 {
         if map.has(_ctx, "_ws_deps") == 0 {
@@ -774,7 +774,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
         si = 1
         sline = ""
         while si <= 500 {
-            _sline_raw, _esline = build._sh_capture("echo '${simple}' | sed -n '${si}p'")
+            _sline_raw, _esline = bldr._sh_capture("echo '${simple}' | sed -n '${si}p'")
             sline = string.trim(_sline_raw)
             if string.length(sline) == 0 {
                 si = 999
@@ -786,7 +786,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
     }
 
     // Extract feature deps: workspace_dep_features("name", "ver", "feat1,feat2")
-    _featured_raw, _efeatured = build._sh_capture("grep 'workspace_dep_features(' '${full_path}' | sed 's/.*workspace_dep_features(\"//; s/\", \"/~/g; s/\").*//'")
+    _featured_raw, _efeatured = bldr._sh_capture("grep 'workspace_dep_features(' '${full_path}' | sed 's/.*workspace_dep_features(\"//; s/\", \"/~/g; s/\").*//'")
     featured = string.trim(_featured_raw)
     if string.length(featured) > 0 {
         if map.has(_ctx, "_ws_deps_features") == 0 {
@@ -796,7 +796,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
         fi = 1
         fline = ""
         while fi <= 500 {
-            _fline_raw, _efline = build._sh_capture("echo '${featured}' | sed -n '${fi}p'")
+            _fline_raw, _efline = bldr._sh_capture("echo '${featured}' | sed -n '${fi}p'")
             fline = string.trim(_fline_raw)
             if string.length(fline) == 0 {
                 fi = 999
@@ -808,7 +808,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
     }
 
     // Extract full deps: workspace_dep_full("name", "ver", "feats", "pkg", "nodef")
-    _full_raw, _efull = build._sh_capture("grep 'workspace_dep_full(' '${full_path}' | sed 's/.*workspace_dep_full(\"//; s/\", \"/~/g; s/\").*//'")
+    _full_raw, _efull = bldr._sh_capture("grep 'workspace_dep_full(' '${full_path}' | sed 's/.*workspace_dep_full(\"//; s/\", \"/~/g; s/\").*//'")
     full = string.trim(_full_raw)
     if string.length(full) > 0 {
         if map.has(_ctx, "_ws_deps_full") == 0 {
@@ -818,7 +818,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
         fui = 1
         fuline = ""
         while fui <= 500 {
-            _fuline_raw, _efuline = build._sh_capture("echo '${full}' | sed -n '${fui}p'")
+            _fuline_raw, _efuline = bldr._sh_capture("echo '${full}' | sed -n '${fui}p'")
             fuline = string.trim(_fuline_raw)
             if string.length(fuline) == 0 {
                 fui = 999
@@ -836,14 +836,14 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
 _cargo_version() {
     cached = os.getenv("_AEB_CARGO_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("cargo --version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("cargo --version 2>&1 | head -1")
     return string.trim(raw)
 }
 
 _rustc_version() {
     cached = os.getenv("_AEB_RUSTC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("rustc --version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("rustc --version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -869,7 +869,7 @@ _cache_key_for_cargo(ctx: ptr, argfile_path: string, cargo_cmd_str: string, sour
     list.add(parts, string.concat("rustc:", _rustc_version()))
     list.add(parts, string.concat("cmd:", cargo_cmd_str))
 
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -903,8 +903,8 @@ _cache_key_for_cargo(ctx: ptr, argfile_path: string, cargo_cmd_str: string, sour
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_sh = build._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        dep_sh = bldr._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
             list.add(parts, string.concat("dep:", dm))
             list.add(parts, string.concat("dep-sh:", dep_sh))
@@ -919,11 +919,11 @@ _cache_key_for_cargo(ctx: ptr, argfile_path: string, cargo_cmd_str: string, sour
 // --- cargo_workspace builder: generate root Cargo.toml for a workspace ---
 
 builder cargo_workspace(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     // Generate workspace Cargo.toml
     toml = cargo_workspace_toml_content(_builder)
@@ -943,15 +943,15 @@ builder cargo_workspace(ctx: ptr): int {
 // Run `cargo check --workspace` on the whole workspace.
 // Use this in a workspace-root .tests.ae or .check.ae after all members generate.
 builder check_workspace(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     println("${mod_dir}: cargo check --workspace")
     cmd = "cd '${source_dir}' && cargo check --workspace"
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: cargo check --workspace failed")
         return exit_code
@@ -962,21 +962,21 @@ builder check_workspace(ctx: ptr): int {
 
 // Run `cargo test --workspace` on the whole workspace.
 builder test_workspace(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     println("${mod_dir}: cargo test --workspace")
     cmd = "cd '${source_dir}' && cargo test --workspace"
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: cargo test --workspace failed")
         return exit_code
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     _e = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
@@ -984,11 +984,11 @@ builder test_workspace(ctx: ptr): int {
 // --- cargo_crate builder: generate member Cargo.toml with workspace refs ---
 
 builder cargo_crate(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     // Generate member Cargo.toml only — use rust.check() separately for compilation
     toml = cargo_crate_toml_content(_builder)
@@ -1008,10 +1008,10 @@ builder cargo_crate(ctx: ptr): int {
 // The artifact is a newline-separated list of "name~path" entries. Consumers
 // of cargo_project / cargo_crate merge these with their DSL-declared path_deps.
 builder crate_vendored(ctx: ptr, name_and_path: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
-    build._write_artifact(ctx, "rust_path_deps_including_transitive", name_and_path)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+    bldr._write_artifact(ctx, "rust_path_deps_including_transitive", name_and_path)
     println("${mod_dir}: vendored crate ${name_and_path}")
     return 0
 }
@@ -1027,10 +1027,10 @@ builder crate_vendored(ctx: ptr, name_and_path: string): int {
 // The actual fetch happens when cargo itself is invoked on the generated
 // Cargo.toml in the consumer.
 builder crate_registry(ctx: ptr, name_and_ver: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
-    build._write_artifact(ctx, "rust_registry_deps_including_transitive", name_and_ver)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+    bldr._write_artifact(ctx, "rust_registry_deps_including_transitive", name_and_ver)
     println("${mod_dir}: registry crate ${name_and_ver}")
     return 0
 }
@@ -1038,10 +1038,10 @@ builder crate_registry(ctx: ptr, name_and_ver: string): int {
 // crate_registry_features — version dep with features.
 // Arg format: "name~version~feat1,feat2"
 builder crate_registry_features(ctx: ptr, name_ver_feats: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
-    build._write_artifact(ctx, "rust_registry_features_deps_including_transitive", name_ver_feats)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+    bldr._write_artifact(ctx, "rust_registry_features_deps_including_transitive", name_ver_feats)
     println("${mod_dir}: registry crate ${name_ver_feats}")
     return 0
 }
@@ -1060,10 +1060,10 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
     di = 0
     while di < dep_count {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
+        dm = bldr._strip_lang(dp)
 
         // --- path deps ---
-        raw_path = build._read_dep_artifact(ctx, dm, "rust_path_deps_including_transitive")
+        raw_path = bldr._read_dep_artifact(ctx, dm, "rust_path_deps_including_transitive")
         if string.length(raw_path) > 0 {
             if map.has(bld, "_path_deps") == 0 {
                 _e = map.put(bld, "_path_deps", list.new())
@@ -1071,7 +1071,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
             pd_list, _ = map.get(bld, "_path_deps")
             i = 1
             while i <= 200 {
-                _line_raw, _eline = build._sh_capture("printf '%s\\n' '${raw_path}' | sed -n '${i}p'")
+                _line_raw, _eline = bldr._sh_capture("printf '%s\\n' '${raw_path}' | sed -n '${i}p'")
                 line = string.trim(_line_raw)
                 if string.length(line) == 0 {
                     i = 999
@@ -1083,7 +1083,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
         }
 
         // --- simple registry deps ---
-        raw_reg = build._read_dep_artifact(ctx, dm, "rust_registry_deps_including_transitive")
+        raw_reg = bldr._read_dep_artifact(ctx, dm, "rust_registry_deps_including_transitive")
         if string.length(raw_reg) > 0 {
             if map.has(bld, "_crate_deps") == 0 {
                 _e = map.put(bld, "_crate_deps", list.new())
@@ -1091,7 +1091,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
             cd_list, _ = map.get(bld, "_crate_deps")
             j = 1
             while j <= 200 {
-                _rline_raw, _erline = build._sh_capture("printf '%s\\n' '${raw_reg}' | sed -n '${j}p'")
+                _rline_raw, _erline = bldr._sh_capture("printf '%s\\n' '${raw_reg}' | sed -n '${j}p'")
                 rline = string.trim(_rline_raw)
                 if string.length(rline) == 0 {
                     j = 999
@@ -1103,7 +1103,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
         }
 
         // --- feature registry deps ---
-        raw_feat = build._read_dep_artifact(ctx, dm, "rust_registry_features_deps_including_transitive")
+        raw_feat = bldr._read_dep_artifact(ctx, dm, "rust_registry_features_deps_including_transitive")
         if string.length(raw_feat) > 0 {
             if map.has(bld, "_crate_deps_features") == 0 {
                 _e = map.put(bld, "_crate_deps_features", list.new())
@@ -1111,7 +1111,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
             fd_list, _ = map.get(bld, "_crate_deps_features")
             k = 1
             while k <= 200 {
-                _fline_raw, _efline = build._sh_capture("printf '%s\\n' '${raw_feat}' | sed -n '${k}p'")
+                _fline_raw, _efline = bldr._sh_capture("printf '%s\\n' '${raw_feat}' | sed -n '${k}p'")
                 fline = string.trim(_fline_raw)
                 if string.length(fline) == 0 {
                     k = 999
@@ -1128,14 +1128,14 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
 }
 
 builder cargo_project(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     lib_dir = path.join(target_dir, "lib")
-    build._mkdirs(lib_dir)
+    bldr._mkdirs(lib_dir)
 
     ts_file = path.join(lib_dir, ".timestamp")
 
@@ -1165,11 +1165,11 @@ builder cargo_project(ctx: ptr): int {
     if string.length(cb_lib_name) > 0 {
         release_dir = path.join(lib_dir, "release")
         full_so = path.join(release_dir, cb_lib_name)
-        build._mkdirs(release_dir)
+        bldr._mkdirs(release_dir)
     }
 
     argfile = path.join(target_dir, "cargo_sources.txt")
-    build._sh("find '${source_dir}' -name '*.rs' > '${argfile}' 2>/dev/null || true")
+    bldr._sh("find '${source_dir}' -name '*.rs' > '${argfile}' 2>/dev/null || true")
 
     cache_key = ""
     exit_code = -1
@@ -1181,7 +1181,7 @@ builder cargo_project(ctx: ptr): int {
                 grc = cache.get(cache_key, full_so)
                 if string.length(grc) == 0 {
                     println("${mod_dir}: cargo cache hit ${cache_key}")
-                    build._record_cache(ctx, "hit")
+                    bldr._record_cache(ctx, "hit")
                     exit_code = 0
                 }
             }
@@ -1190,18 +1190,18 @@ builder cargo_project(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
             if string.length(full_so) > 0 {
-                build._record_cache(ctx, "miss")
+                bldr._record_cache(ctx, "miss")
             } else {
-                build._record_cache(ctx, "n/a")
+                bldr._record_cache(ctx, "n/a")
             }
         }
-        exit_code = build._sh(cargo_cmd)
+        exit_code = bldr._sh(cargo_cmd)
         if exit_code != 0 {
             println("${mod_dir}: cargo build failed")
-            build.fail(ctx, "cargo build failed")
+            bldr.fail(ctx, "cargo build failed")
             return exit_code
         }
         if string.length(cache_key) > 0 {
@@ -1216,8 +1216,8 @@ builder cargo_project(ctx: ptr): int {
 
     // Write shared library artifact if lib_name is set
     if string.length(full_so) > 0 {
-        build._write_artifact(ctx, "ldlibdeps", full_so)
-        build._write_artifact(ctx, "shared_library_deps_including_transitive", full_so)
+        bldr._write_artifact(ctx, "ldlibdeps", full_so)
+        bldr._write_artifact(ctx, "shared_library_deps_including_transitive", full_so)
     }
 
     _e = io.write_file(ts_file, "")
@@ -1235,7 +1235,7 @@ builder cargo_project(ctx: ptr): int {
 // That's destructive when the project ships a hand-tuned Cargo.toml
 // with workspace links, dev-dependencies, profiles.* tables,
 // platform-specific deps, [features], [[bin]] declarations,
-// build.rs hooks, etc. — anything lib/rust's TOML generator
+// bldr.rs hooks, etc. — anything lib/rust's TOML generator
 // doesn't model.
 //
 // `rust.cargo_project_existing(b)` is the right choice when the
@@ -1255,13 +1255,13 @@ builder cargo_project(ctx: ptr): int {
 //   profile / features / jobs — same as cargo_project; passed
 //                        through to `cargo_build_cmd`.
 builder cargo_project_existing(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     lib_dir = path.join(target_dir, "lib")
-    build._mkdirs(lib_dir)
+    bldr._mkdirs(lib_dir)
 
     cargo_toml = path.join(source_dir, "Cargo.toml")
     if file.exists(cargo_toml) == 0 {
@@ -1271,19 +1271,19 @@ builder cargo_project_existing(ctx: ptr): int {
     }
 
     ts_file = path.join(lib_dir, ".timestamp")
-    if build._needs_rebuild(source_dir, ts_file) == 0 {
+    if bldr._needs_rebuild(source_dir, ts_file) == 0 {
         println("${mod_dir}: skipping compilation of prod code (not changed)")
         return 0
     }
 
     cargo_dir = path.join(target_dir, ".cargo")
-    build._mkdirs(cargo_dir)
+    bldr._mkdirs(cargo_dir)
     cargo_config = path.join(cargo_dir, "config.toml")
     _write_cargo_config(cargo_config)
 
     println("${mod_dir}: compiling prod code (cargo build, existing Cargo.toml)")
     cargo_cmd = cargo_build_cmd(source_dir, target_dir, _builder)
-    exit_code = build._sh(cargo_cmd)
+    exit_code = bldr._sh(cargo_cmd)
     if exit_code != 0 {
         println("${mod_dir}: cargo build failed")
         return exit_code
@@ -1301,8 +1301,8 @@ builder cargo_project_existing(ctx: ptr): int {
             release_dir = path.join(lib_dir, "release")
             // cargo appends .exe on Windows; match it so the recorded path is
             // the file that actually exists (a crate name has no extension).
-            full_bin = path.join(release_dir, string.concat(bn, build._exe_suffix()))
-            build._write_artifact(ctx, "cargo_binary", full_bin)
+            full_bin = path.join(release_dir, string.concat(bn, bldr._exe_suffix()))
+            bldr._write_artifact(ctx, "cargo_binary", full_bin)
         }
     }
 
@@ -1364,10 +1364,10 @@ cargo_test_cmd(source_dir: string, target_dir: string, opts: ptr) {
 // `cargo test --workspace`). This is the single-crate-in-source_dir
 // shape that pairs naturally with `cargo_project_existing(b)`.
 builder cargo_test_existing(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     cargo_toml = path.join(source_dir, "Cargo.toml")
     if file.exists(cargo_toml) == 0 {
@@ -1376,14 +1376,14 @@ builder cargo_test_existing(ctx: ptr): int {
     }
 
     println("${mod_dir}: running tests (cargo test)")
-    cmd = string.concat(build._env_export_prefix(_builder), cargo_test_cmd(source_dir, target_dir, _builder))
-    exit_code = build._sh(cmd)
+    cmd = string.concat(bldr._env_export_prefix(_builder), cargo_test_cmd(source_dir, target_dir, _builder))
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
         return exit_code
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _e = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
@@ -1446,13 +1446,13 @@ _write_cargo_config(config_path: string) {
 // --- SDK functions ---
 
 builder cargo_build(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     cdeps, _ = map.get(ctx, "cargo_deps")
 
     lib_dir = path.join(target_dir, "lib")
-    build._mkdirs(lib_dir)
+    bldr._mkdirs(lib_dir)
 
     ts_file = path.join(lib_dir, ".timestamp")
 
@@ -1471,12 +1471,12 @@ builder cargo_build(ctx: ptr): int {
         }
         i = i + 1
     }
-    build._write_artifact(ctx, "cargo_deps_including_transitive", cdep_content)
+    bldr._write_artifact(ctx, "cargo_deps_including_transitive", cdep_content)
 
     cargo_dir = path.join(target_dir, ".cargo")
-    build._mkdirs(cargo_dir)
+    bldr._mkdirs(cargo_dir)
     cargo_config = path.join(cargo_dir, "config.toml")
-    build._sh("mkdir -p ${cargo_dir}")
+    bldr._sh("mkdir -p ${cargo_dir}")
     _write_cargo_config(cargo_config)
 
     cargo_cmd = cargo_build_cmd(source_dir, target_dir, _builder)
@@ -1495,11 +1495,11 @@ builder cargo_build(ctx: ptr): int {
     }
     release_dir = path.join(lib_dir, "release")
     full_so = path.join(release_dir, cb_lib_name)
-    build._mkdirs(release_dir)
+    bldr._mkdirs(release_dir)
 
     // Source set for the cache key (every .rs under source_dir).
     argfile = path.join(target_dir, "cargo_sources.txt")
-    build._sh("find '${source_dir}' -name '*.rs' > '${argfile}' 2>/dev/null || true")
+    bldr._sh("find '${source_dir}' -name '*.rs' > '${argfile}' 2>/dev/null || true")
 
     // Cache check: single-file restore of the .so. exit_code sentinel:
     // 0 = hit, -1 = build below.
@@ -1512,7 +1512,7 @@ builder cargo_build(ctx: ptr): int {
             grc = cache.get(cache_key, full_so)
             if string.length(grc) == 0 {
                 println("${mod_dir}: cargo cache hit ${cache_key}")
-                build._record_cache(ctx, "hit")
+                bldr._record_cache(ctx, "hit")
                 exit_code = 0
             }
         }
@@ -1520,14 +1520,14 @@ builder cargo_build(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        exit_code = build._sh(cargo_cmd)
+        exit_code = bldr._sh(cargo_cmd)
         if exit_code != 0 {
             println("${mod_dir}: cargo build failed")
-            build.fail(ctx, "cargo build failed")
+            bldr.fail(ctx, "cargo build failed")
             return exit_code
         }
         if string.length(cache_key) > 0 {
@@ -1540,8 +1540,8 @@ builder cargo_build(ctx: ptr): int {
         }
     }
 
-    build._write_artifact(ctx, "ldlibdeps", full_so)
-    build._write_artifact(ctx, "shared_library_deps_including_transitive", full_so)
+    bldr._write_artifact(ctx, "ldlibdeps", full_so)
+    bldr._write_artifact(ctx, "shared_library_deps_including_transitive", full_so)
     _e = io.write_file(ts_file, "")
     return 0
 }
@@ -1549,11 +1549,11 @@ builder cargo_build(ctx: ptr): int {
 // Compile-check a workspace crate via cargo check -p <name>.
 // Runs from the workspace root (where Cargo.toml [workspace] lives).
 builder check(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     // Derive crate name from Cargo.toml or DSL
     crate = ""
@@ -1577,7 +1577,7 @@ builder check(ctx: ptr): int {
         }
     }
 
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: cargo check failed")
         return exit_code
@@ -1589,11 +1589,11 @@ builder check(ctx: ptr): int {
 
 // Run tests for a workspace crate via cargo test -p <name>.
 builder test(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     crate = ""
     if _builder != null {
@@ -1616,15 +1616,15 @@ builder test(ctx: ptr): int {
         }
     }
 
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         // cargo test prints "test result: ok. N passed; F failed; ..."
         // Coarse record for now; per-test parsing is a follow-up.
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
         return exit_code
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _e = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
@@ -1632,11 +1632,11 @@ builder test(ctx: ptr): int {
 
 // Build a workspace crate binary via cargo build -p <name> --release.
 builder build_crate(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     crate = ""
     if _builder != null {
@@ -1663,7 +1663,7 @@ builder build_crate(ctx: ptr): int {
         }
     }
 
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: cargo build failed")
         return exit_code

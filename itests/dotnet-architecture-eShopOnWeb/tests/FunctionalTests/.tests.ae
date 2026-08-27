@@ -1,8 +1,8 @@
-import build
+import bldr
 import dotnet
 
 main() {
-    b = build.start()
-    build.dep(b, "tests/FunctionalTests/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "tests/FunctionalTests/.build.ae")
     dotnet.test(b)
 }

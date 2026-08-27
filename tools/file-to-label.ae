@@ -1,4 +1,4 @@
-// file-to-label — derive a build.begin() module label from a file path
+// file-to-label — derive a bldr.begin() module label from a file path
 //
 // Thin CLI front-end. The derivation logic lives in the shared
 // `aeblabel` module (tools/aeblabel/module.ae) — this file is just

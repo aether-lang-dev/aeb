@@ -1,11 +1,11 @@
-import build
+import bldr
 import dotnet
 import dotnet (root_namespace, test_project, nuget)
 
 main() {
-    b = build.start()
-    build.dep(b, "src/Infrastructure/.build.ae")
-    build.dep(b, "tests/UnitTests/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "src/Infrastructure/.build.ae")
+    bldr.dep(b, "tests/UnitTests/.build.ae")
     dotnet.build_project(b) {
         root_namespace("Microsoft.eShopWeb.IntegrationTests")
         test_project()

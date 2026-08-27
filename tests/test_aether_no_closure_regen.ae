@@ -28,7 +28,7 @@
 import aether (_expand_transitive_regens)
 import aether (_has_manual_overrides)
 import aether (no_closure_regen)
-import build (_sh, _sh_capture)
+import bldr (_sh, _sh_capture)
 import std.string
 import std.os
 import std.list

@@ -13,14 +13,14 @@
 // (same "aeb invokes a SAST engine rather than becoming one" principle as 1b).
 //
 // Coordinate extraction is STATIC and greppable (the veto philosophy: read
-// the declaration, never run the build): a `build.dep(b, "<x>")` whose arg
+// the declaration, never run the build): a `bldr.dep(b, "<x>")` whose arg
 // has a `:` and no `/` is a maven coordinate (the same classification
 // lib/build uses). v1 is maven-only; cargo (`.crate.ae`) and npm
 // (`npm:<pkg>`) follow the same shape.
 //
 // Output (stdout): JSON { "maven": ["g:a:v", ...] } — the resolved
 // transitive closure, sorted + de-duped (the resolver already sorts).
-import build
+import bldr
 import std.string
 import std.os
 import std.file
@@ -71,7 +71,7 @@ main() {
             cmd = string.concat(cmd, string.concat(" '", string.concat(c, "'")))
             ci = ci + 1
         }
-        out, _e = build._sh_capture(cmd)
+        out, _e = bldr._sh_capture(cmd)
         _parse_lines_into(out, resolved, rseen)
     }
 

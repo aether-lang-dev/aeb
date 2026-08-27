@@ -1,17 +1,17 @@
-import build
+import bldr
 import dart
 import dart (dart_bin, analyze_flag)
 
 // booking_app: a Flutter app depending on three local melos packages.
-// build.dep edges replace `melos bootstrap`'s ordering; the sibling
+// bldr.dep edges replace `melos bootstrap`'s ordering; the sibling
 // resolution itself is the committed pubspec_overrides.yaml. analyze runs
 // with --no-fatal-infos because flutter analyze (unlike dart analyze)
 // treats an upstream `sort_pub_dependencies` info as fatal.
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "packages/bk_ticketing/.build.ae")
-    build.dep(b, "packages/bk_ui_kit/.build.ae")
-    build.dep(b, "packages/bk_utilities/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "packages/bk_ticketing/.build.ae")
+    bldr.dep(b, "packages/bk_ui_kit/.build.ae")
+    bldr.dep(b, "packages/bk_utilities/.build.ae")
     dart.pub_get(b) { dart_bin("flutter") }
     dart.analyze(b) { dart_bin("flutter")  analyze_flag("--no-fatal-infos") }
 }

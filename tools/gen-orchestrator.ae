@@ -32,13 +32,13 @@ main() {
     }
 
     // Header. The orchestrator imports `build` so it gets its own static
-    // copies of build.session and build.done — each translation unit is
+    // copies of bldr.session and bldr.done — each translation unit is
     // self-contained because aetherc emits cloned-from-import functions
     // with C `static` storage class, so the build helpers can no longer
     // be called across TU boundaries via extern. The full std.* import
     // block must be repeated here because `import std.*` scope does not
     // propagate transitively through `import build`.
-    println("import build")
+    println("import bldr")
     println("import std.string")
     println("import std.io")
     println("import std.os")
@@ -73,7 +73,7 @@ main() {
 
     // main() calls everything in topo order, accumulating per-module
     // telemetry records (label, type, wall_ms, cache outcome). At the
-    // end it hands the records list to build.render_telemetry for the
+    // end it hands the records list to bldr.render_telemetry for the
     // stdout summary block.
     //
     // Records live only for the orchestrator's lifetime — the
@@ -81,7 +81,7 @@ main() {
     // (file dump, web viewer, etc.) plug in here without touching
     // the data model.
     println("main() {")
-    println("    s = build.session(aether_args_get(1))")
+    println("    s = bldr.session(aether_args_get(1))")
     println("    _root = aether_args_get(1)")
     // Optional per-node selector (nodes-as-subprocesses, slice A): when a
     // second arg is present, run ONLY the node whose label matches it and
@@ -118,24 +118,24 @@ main() {
         // node `return 1` exit falsely-green — the presubmit bug,
         // asks/node-nonzero-return-not-propagated-to-exit-code.md).
         //
-        // A non-zero node return that did NOT already go through build.fail()
+        // A non-zero node return that did NOT already go through bldr.fail()
         // (e.g. a custom gate that just `return 1`s) is marked failed here, so
         // both the status/JSON and the any_failed gate below see it. The
-        // explicit build.fail() channel still works and takes precedence (a
+        // explicit bldr.fail() channel still works and takes precedence (a
         // node that failed via fail() stays failed regardless of its rc).
         println("    _nrc = ${fname}(s)")
-        // Mark failed at the SESSION level: build.fail() takes a NODE ctx (it
+        // Mark failed at the SESSION level: bldr.fail() takes a NODE ctx (it
         // reads _session/module_dir off it) — we hold the session s here, so
-        // call the session primitive build._mark_failed(s, label, reason)
+        // call the session primitive bldr._mark_failed(s, label, reason)
         // directly. This is the same list any_failed(s) reads below.
-        println("    if _nrc != 0 { build._mark_failed(s, \"${label}\", string.concat(\"node returned non-zero rc=\", string.from_int(_nrc))) }")
-        println("    build.done(s, \"${label}\")")
+        println("    if _nrc != 0 { bldr._mark_failed(s, \"${label}\", string.concat(\"node returned non-zero rc=\", string.from_int(_nrc))) }")
+        println("    bldr.done(s, \"${label}\")")
         println("    _end = clock_ns()")
         println("    _rec = map.new()")
         println("    map.put(_rec, \"label\", \"${label}\")")
         println("    map.put(_rec, \"type\", \"${type_word}\")")
         println("    map.put(_rec, \"wall_ms\", string.from_int((_end - _start) / 1000000))")
-        println("    _st = build.status_of(s, \"${label}\")")
+        println("    _st = bldr.status_of(s, \"${label}\")")
         println("    if string.length(_st) == 0 { _st = \"passed\" }")
         println("    map.put(_rec, \"status\", _st)")
         // rc reflects the node's logical outcome so the JSON's rc agrees
@@ -146,21 +146,21 @@ main() {
         println("    _rc = \"0\"")
         println("    if string.equals(_st, \"failed\") == 1 { _rc = \"1\" }")
         println("    map.put(_rec, \"rc\", _rc)")
-        println("    _td = build._label_to_target_dir(_root, \"${label}\")")
-        println("    map.put(_rec, \"cache\", build._read_cache_outcome(_td))")
+        println("    _td = bldr._label_to_target_dir(_root, \"${label}\")")
+        println("    map.put(_rec, \"cache\", bldr._read_cache_outcome(_td))")
         // Read the test-result marker for EVERY node — gated at runtime on the
         // marker existing (_thr), NOT on the type name. A node whose build wrote
         // pass/fail markers (via a *_test SDK verb) gets the row whatever its
         // filename; one that didn't leaves _thr=0 and renders the plain line.
         // No "type == test" inference.
-        println("    _tp, _tf, _tsk, _thr = build._read_test_result(_td)")
+        println("    _tp, _tf, _tsk, _thr = bldr._read_test_result(_td)")
         println("    if _thr == 1 {")
         println("        map.put(_rec, \"test_passed\", string.from_int(_tp))")
         println("        map.put(_rec, \"test_failed\", string.from_int(_tf))")
         println("        map.put(_rec, \"test_skipped\", string.from_int(_tsk))")
-        println("        map.put(_rec, \"test_has_report\", string.from_int(build._read_test_report_flag(_td)))")
+        println("        map.put(_rec, \"test_has_report\", string.from_int(bldr._read_test_report_flag(_td)))")
         println("    }")
-        println("    _tfn = build._read_test_failures(_td)")
+        println("    _tfn = bldr._read_test_failures(_td)")
         println("    if string.length(_tfn) > 0 {")
         println("        map.put(_rec, \"test_failed_names\", _tfn)")
         println("    }")
@@ -177,25 +177,25 @@ main() {
     println("    _telemetry_json = os.getenv(\"AEB_TELEMETRY_JSON\")")
     println("    if string.length(_telemetry_json) > 0 {")
     println("        _tj_dir = path.dirname(_telemetry_json)")
-    println("        if string.length(_tj_dir) > 0 { build._mkdirs(_tj_dir) }")
-    println("        _tj_body = build.render_telemetry_json(_records, _total_ms)")
+    println("        if string.length(_tj_dir) > 0 { bldr._mkdirs(_tj_dir) }")
+    println("        _tj_body = bldr.render_telemetry_json(_records, _total_ms)")
     println("        _tj_err = fs.write_atomic(_telemetry_json, _tj_body, string.length(_tj_body))")
     println("    }")
     println("    _tests_json = os.getenv(\"AEB_TESTS_JSON\")")
     println("    if string.length(_tests_json) > 0 {")
     println("        _testj_dir = path.dirname(_tests_json)")
-    println("        if string.length(_testj_dir) > 0 { build._mkdirs(_testj_dir) }")
-    println("        _testj_body = build.render_tests_json(_records)")
+    println("        if string.length(_testj_dir) > 0 { bldr._mkdirs(_testj_dir) }")
+    println("        _testj_body = bldr.render_tests_json(_records)")
     println("        _testj_err = fs.write_atomic(_tests_json, _testj_body, string.length(_testj_body))")
     println("    }")
     println("    _artifacts_json = os.getenv(\"AEB_ARTIFACTS_JSON\")")
     println("    if string.length(_artifacts_json) > 0 {")
     println("        _artj_dir = path.dirname(_artifacts_json)")
-    println("        if string.length(_artj_dir) > 0 { build._mkdirs(_artj_dir) }")
-    println("        _artj_body = build.render_artifacts_json(_root, _records)")
+    println("        if string.length(_artj_dir) > 0 { bldr._mkdirs(_artj_dir) }")
+    println("        _artj_body = bldr.render_artifacts_json(_root, _records)")
     println("        _artj_err = fs.write_atomic(_artifacts_json, _artj_body, string.length(_artj_body))")
     println("    }")
-    println("    println(build.render_telemetry(_records, _total_ms))")
+    println("    println(bldr.render_telemetry(_records, _total_ms))")
     println("    }")
     // Redden the build on any recorded failure. OUTSIDE the _sel guard so
     // it fires in BOTH modes: per-node, this node-subprocess exits
@@ -203,6 +203,6 @@ main() {
     // any_failed gate (aeb-driver.ae) catches it; in-process (all-in-one),
     // this is the whole run, so the build exits non-zero directly. A
     // green run still falls through to the implicit 0 return.
-    println("    if build.any_failed(s) == 1 { exit(1) }")
+    println("    if bldr.any_failed(s) == 1 { exit(1) }")
     println("}")
 }

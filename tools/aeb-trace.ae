@@ -19,7 +19,7 @@
 // computation records `<computed>` (treat opacity itself as a vetoable
 // signal). A strong veto INPUT for build-grammar escapes, not a soundness
 // proof.
-import build
+import bldr
 import std.string
 import std.os
 import std.file
@@ -51,26 +51,26 @@ main() {
 
     // --- stage a temp working dir with the doppelganger std/ ---
     root = "target/_aeb"
-    build._sh("mkdir -p '${root}' 2>/dev/null")
+    bldr._sh("mkdir -p '${root}' 2>/dev/null")
     work = path.join(root, ".trace")
-    build._sh("rm -rf '${work}' 2>/dev/null")
-    build._sh("mkdir -p '${work}' 2>/dev/null")
+    bldr._sh("rm -rf '${work}' 2>/dev/null")
+    bldr._sh("mkdir -p '${work}' 2>/dev/null")
     // copy the doppelganger std/ into work so `--lib <work>` (cwd-style) shadows
     // std.os — aetherc only shadows the builtin stdlib from a cwd-local --lib.
-    build._sh("cp -R '${dop}/std' '${work}/std' 2>/dev/null")
+    bldr._sh("cp -R '${dop}/std' '${work}/std' 2>/dev/null")
 
     // --- transform the aeb(cap)/main() node into a callable node fn ---
     node_ae = path.join(work, "node.ae")
     label = _label_of(target)
     tcmd = "'${transform}' '${target}' traced_node '${label}' '${node_ae}' '${lib}' '${aeb}' 2>/dev/null"
-    _tr = build._sh(tcmd)
+    _tr = bldr._sh(tcmd)
     if file.exists(node_ae) == 0 {
         println("aeb-trace: transform failed for ${target}")
         exit(3)
     }
 
     // --- append a main() harness that starts a session + calls the node ---
-    harness = "\nmain() {\n    _s = build.start()\n    _r = traced_node(_s)\n    return 0\n}\n"
+    harness = "\nmain() {\n    _s = bldr.start()\n    _r = traced_node(_s)\n    return 0\n}\n"
     combined = path.join(work, "combined.ae")
     nb, _re = io.read_file(node_ae)
     _w = io.write_file(combined, string.concat(nb, harness))
@@ -84,7 +84,7 @@ main() {
     abs_lib = _abs(lib)
     abs_bin = _abs(bin)
     bcmd = "cd '${work}' && '${_ae_bin()}' build combined.ae --lib . --lib '${abs_lib}' -o '${abs_bin}' >/dev/null 2>&1"
-    brc = build._sh(bcmd)
+    brc = bldr._sh(bcmd)
     if file.exists(bin) == 0 {
         println("aeb-trace: trace build failed (target may use a build path the doppelganger can't follow)")
         exit(3)
@@ -93,14 +93,14 @@ main() {
     // --- run it: every effect RECORDS to the trace file instead of firing ---
     trace = path.join(work, "trace.tsv")
     abs_trace = _abs(trace)
-    build._sh("rm -f '${abs_trace}' 2>/dev/null")
+    bldr._sh("rm -f '${abs_trace}' 2>/dev/null")
     // Run from the target's dir so relative paths resolve as the real build
     // would see them; AEB_TRACE_FILE (absolute) is read by the doppelganger.
     tgt_dir = _dir_of(target)
     run_from = tgt_dir
     if string.length(run_from) == 0 { run_from = "." }
     rcmd = "cd '${run_from}' && AEB_TRACE_FILE='${abs_trace}' '${abs_bin}' >/dev/null 2>&1"
-    _rr = build._sh(rcmd)
+    _rr = bldr._sh(rcmd)
 
     // --- read the trace, emit JSON grouped by category ---
     println(_emit_json(trace))
@@ -202,7 +202,7 @@ _abs(p: string) {
     if string.length(p) > 0 {
         if string.equals(string.substring(p, 0, 1), "/") == 1 { return p }
     }
-    cwd, _e = build._sh_capture("pwd")
+    cwd, _e = bldr._sh_capture("pwd")
     return path.join(string.trim(cwd), p)
 }
 

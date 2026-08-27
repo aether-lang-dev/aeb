@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for image_build_cmd() — OCI container build command builder
 
 import container

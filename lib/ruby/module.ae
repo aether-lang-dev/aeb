@@ -11,11 +11,11 @@
 //
 // Common shape:
 //
-//     import build
+//     import bldr
 //     import ruby
 //
 //     main() {
-//         b = build.start()
+//         b = bldr.start()
 //         ruby.install(b)
 //         ruby.rspec(b)
 //         ruby.rubocop(b)
@@ -26,14 +26,14 @@
 //     import ruby (gemspec)
 //
 //     main() {
-//         b = build.start()
+//         b = bldr.start()
 //         ruby.install(b)
 //         ruby.package(b) {
 //             gemspec("selenium-webdriver.gemspec")
 //         }
 //     }
 
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -178,7 +178,7 @@ _resolve_bundle_path(builder_map: ptr, root: string) {
         if map.has(builder_map, "ruby_bundle_path") == 1 {
             p, _ = map.get(builder_map, "ruby_bundle_path")
             if string.length(p) > 0 {
-                if build._is_abs_path(p) == 1 { return p }
+                if bldr._is_abs_path(p) == 1 { return p }
                 return path.join(root, p)
             }
         }
@@ -222,23 +222,23 @@ _rspec_args_str(builder_map: ptr) {
 // Gemfile.lock matches the closure on disk. The `.timestamp` file
 // lets aeb's dep-edge handling see "install ran."
 builder install(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
-    source_dir = build._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: installing gems (bundle)")
 
     bundle = _resolve_bundle_bin()
     bp = _resolve_bundle_path(_builder, root)
-    build._mkdirs(bp)
+    bldr._mkdirs(bp)
 
     cmd = bundle_install_cmd(bundle, source_dir, bp)
-    rc = build._sh(cmd)
+    rc = bldr._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: bundle install FAILED")
-        build.fail(ctx, "bundle install FAILED")
+        bldr.fail(ctx, "bundle install FAILED")
         return rc
     }
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -247,27 +247,27 @@ builder install(ctx: ptr): int {
 
 // Run rspec via bundler. Reads rspec_arg(...) entries.
 builder rspec(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (rspec)")
 
     bundle = _resolve_bundle_bin()
     args_str = _rspec_args_str(_builder)
-    cmd = string.concat(build._env_export_prefix(_builder), rspec_cmd(bundle, source_dir, args_str))
-    rc = build._sh(cmd)
+    cmd = string.concat(bldr._env_export_prefix(_builder), rspec_cmd(bundle, source_dir, args_str))
+    rc = bldr._sh(cmd)
     if rc != 0 {
         // rspec exits non-zero on test failure; record one logical
         // failure. A future iteration could parse rspec's
         // `--format=json` output for per-example pass/fail counts.
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return rc
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
@@ -275,11 +275,11 @@ builder rspec(ctx: ptr): int {
 
 // Run rubocop via bundler.
 builder rubocop(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: linting (rubocop)")
 
     bundle = _resolve_bundle_bin()
@@ -290,10 +290,10 @@ builder rubocop(ctx: ptr): int {
         }
     }
     cmd = rubocop_cmd(bundle, source_dir, cfg)
-    rc = build._sh(cmd)
+    rc = bldr._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: lint FAILED")
-        build.fail(ctx, "lint FAILED")
+        bldr.fail(ctx, "lint FAILED")
         return rc
     }
     println("${mod_dir}: lint PASSED")
@@ -312,38 +312,38 @@ builder rubocop(ctx: ptr): int {
 // LLM.md § "a builder must not share a name with a function in
 // its module" formalises this rule.
 builder package(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
 
     if _builder == null {
-        build.fail(ctx, "ruby.package: no builder context")
+        bldr.fail(ctx, "ruby.package: no builder context")
         return 1
     }
     if map.has(_builder, "ruby_gemspec") == 0 {
         println("${mod_dir}: ruby.package requires gemspec(\"<name>.gemspec\")")
-        build.fail(ctx, "ruby.package requires gemspec")
+        bldr.fail(ctx, "ruby.package requires gemspec")
         return 1
     }
     gemspec_rel, _ = map.get(_builder, "ruby_gemspec")
     gemspec_abs = path.join(source_dir, gemspec_rel)
     if file.exists(gemspec_abs) == 0 {
         println("${mod_dir}: ruby.package: gemspec not found at ${gemspec_abs}")
-        build.fail(ctx, "gemspec not found")
+        bldr.fail(ctx, "gemspec not found")
         return 1
     }
 
     dist_dir = path.join(target_dir, "dist")
-    build._mkdirs(dist_dir)
+    bldr._mkdirs(dist_dir)
     println("${mod_dir}: packaging (gem build)")
 
     gem_bin = _resolve_gem_bin()
     gemspec_basename = path.basename(gemspec_rel)
     cmd = gem_build_cmd(gem_bin, source_dir, gemspec_basename, dist_dir)
-    rc = build._sh(cmd)
+    rc = bldr._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: gem build FAILED")
-        build.fail(ctx, "gem build FAILED")
+        bldr.fail(ctx, "gem build FAILED")
         return rc
     }
     println("${mod_dir}: packaging done → ${dist_dir}")

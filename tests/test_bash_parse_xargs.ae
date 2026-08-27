@@ -15,7 +15,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import bash (_parse_xargs_output)
 
 _assert_eq_int(label: string, actual: int, expected: int) {

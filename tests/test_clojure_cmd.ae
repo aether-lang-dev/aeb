@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for clojure.clj_aot_compile_cmd, clojure.clj_load_check_cmd,
 // clojure.clj_test_cmd
 

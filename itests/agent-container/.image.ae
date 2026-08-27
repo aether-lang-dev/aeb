@@ -9,7 +9,7 @@
 // LAUNCHING it (podman run -d -p 9440:9440 -v ...:Z --name --replace) is a
 // SEPARATE concern, still done by the deploy-*.sh scripts today; a future
 // .service.ae using a container.service launch builder will own it and
-// build.dep() this file so `aeb .service.ae` builds-then-launches in order.
+// bldr.dep() this file so `aeb .service.ae` builds-then-launches in order.
 // (The split mirrors podman's own `build` vs `run`, and aeb's one-node-per-
 // .ae DAG shape.)
 //
@@ -28,12 +28,12 @@
 // the aeb-agent -> the aeb-test build SUBJECT cloned into /work -> EXPOSE
 // 9440. See itests/agent-container/Containerfile for the prose reference.
 
-import build
+import bldr
 import container
 import container (from, arg, run_step, expose, entrypoint, workdir, tag)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     container.image(b) {
         from("debian:trixie-slim")
         arg("AEB_REF", "main")

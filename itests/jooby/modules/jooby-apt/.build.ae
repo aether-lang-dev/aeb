@@ -1,5 +1,5 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, no_module_info)
@@ -11,8 +11,8 @@ import java (release, source_layout, no_module_info)
 // annotations by NAME through the model API, so jooby core isn't a compile dep.
 // Classpath-mode: no module-info.java.
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "modules/jooby-javadoc/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "modules/jooby-javadoc/.build.ae")
     load_bom_file(b, "../../jooby.bom.ae")
     java.javac(b) { release("21")  source_layout("maven idiomatic")  no_module_info() }
 }

@@ -15,7 +15,7 @@ import std.map
 import std.path
 import std.dir
 
-import build (_sh, _sh_capture)
+import bldr (_sh, _sh_capture)
 
 extern println(s: string)
 

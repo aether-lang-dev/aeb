@@ -1,5 +1,5 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, no_module_info)
@@ -12,8 +12,8 @@ import java (release, source_layout, no_module_info)
 // on --module-path and jooby-netty's JPMS `requires io.netty.*` can't match —
 // compile classpath-mode instead.
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "jooby/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "jooby/.build.ae")
     load_bom_file(b, "../../jooby.bom.ae")
     dep(b, "io.netty:netty-handler")
     dep(b, "io.netty:netty-codec-http")

@@ -18,8 +18,8 @@ import std.map
 import std.path
 import std.dir
 
-import build
-import build (_sh, _sh_capture)
+import bldr
+import bldr (_sh, _sh_capture)
 import aether (_resolve_libaether_dir, _resolve_aether_include)
 
 _assert_eq(label: string, actual: string, expected: string) {

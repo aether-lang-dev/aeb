@@ -2,7 +2,7 @@ import std.string
 import std.io
 import std.list
 
-import build
+import bldr
 // Tests for nim_c_run_cmd() — the pure per-file `nim c -r` command builder.
 
 import nim (nim_c_run_cmd)

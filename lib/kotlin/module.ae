@@ -1,5 +1,5 @@
 // kotlin — Kotlin SDK for aether.build
-import build
+import bldr
 import cache
 import maven
 import std.string
@@ -159,7 +159,7 @@ _kotlinc_bin(kotlin_home: string) {
 _kotlinc_version(kotlinc_bin: string) {
     cached = os.getenv("_AEB_KOTLINC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("'${kotlinc_bin}' -version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("'${kotlinc_bin}' -version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -209,7 +209,7 @@ _cache_key_for_kotlinc(ctx: ptr, builder_map: ptr, argfile_path: string, kotlinc
 
     list.add(parts, string.concat("cmd:", kotlinc_cmd_str))
 
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -228,8 +228,8 @@ _cache_key_for_kotlinc(ctx: ptr, builder_map: ptr, argfile_path: string, kotlinc
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_cp = build._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        dep_cp = bldr._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp) > 0 {
             list.add(parts, string.concat("dep:", dm))
             list.add(parts, string.concat("dep-cp:", dep_cp))
@@ -273,16 +273,16 @@ _cache_key_for_kotlinc(ctx: ptr, builder_map: ptr, argfile_path: string, kotlinc
 // --- SDK functions ---
 
 builder kotlinc(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_name = build._get(ctx, "module")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_name = bldr._get(ctx, "module")
+    mod_dir = bldr._get(ctx, "module_dir")
     deps, _ = map.get(ctx, "deps")
 
     classes_dir = path.join(target_dir, "classes")
-    build._mkdirs(classes_dir)
+    bldr._mkdirs(classes_dir)
     ts_dir = path.join(classes_dir, mod_name)
-    build._mkdirs(ts_dir)
+    bldr._mkdirs(ts_dir)
     ts_file = path.join(ts_dir, ".timestamp")
 
     println("${mod_dir}: compiling prod code")
@@ -294,11 +294,11 @@ builder kotlinc(ctx: ptr): int {
     // kotlinc's version (not bare PATH kotlinc).
     _ekb = map.put(_builder, "_kotlinc_bin", kotlinc_bin)
 
-    dep_cp = build._build_dep_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
-    classpath = build._cp_append(classes_dir, stdlib_jar)
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, maven_cp)
+    classpath = bldr._cp_append(classes_dir, stdlib_jar)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, maven_cp)
 
     // Write source file list to argfile
     argfile = path.join(target_dir, "kotlinc_sources.txt")
@@ -306,10 +306,10 @@ builder kotlinc(ctx: ptr): int {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/main/kotlin")
-            build._sh("find '${src_root}' -name '*.kt' > '${argfile}' 2>/dev/null || true")
+            bldr._sh("find '${src_root}' -name '*.kt' > '${argfile}' 2>/dev/null || true")
         }
     } else {
-        build._sh("find '${source_dir}' -maxdepth 1 -name '*.kt' > '${argfile}' 2>/dev/null || true")
+        bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.kt' > '${argfile}' 2>/dev/null || true")
     }
 
     af_raw, _eaf = io.read_file(argfile)
@@ -333,24 +333,24 @@ builder kotlinc(ctx: ptr): int {
         ck, kerr = _cache_key_for_kotlinc(ctx, _builder, argfile, kc_cmd, stdlib_jar)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, classes_dir)
-                    build._sh("rm -f '${tmp_tar}'")
+                    uerr = bldr._untar_into(tmp_tar, classes_dir)
+                    bldr._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: kotlinc cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        build._sh("rm -rf '${classes_dir}'")
-                        build._mkdirs(classes_dir)
-                        build._mkdirs(ts_dir)
+                        bldr._sh("rm -rf '${classes_dir}'")
+                        bldr._mkdirs(classes_dir)
+                        bldr._mkdirs(ts_dir)
                     }
                 } else {
-                    build._sh("rm -f '${tmp_tar}'")
+                    bldr._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -358,14 +358,14 @@ builder kotlinc(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        exit_code = build._sh(kc_cmd)
+        exit_code = bldr._sh(kc_cmd)
         if exit_code != 0 {
             println("${mod_dir}: kotlinc failed")
-            build.fail(ctx, "kotlinc failed")
+            bldr.fail(ctx, "kotlinc failed")
             return exit_code
         }
         // Only cache a NON-EMPTY output tree: a compile that exits 0 but emits
@@ -373,11 +373,11 @@ builder kotlinc(ctx: ptr): int {
         // would otherwise cache an empty tree and later serve it as a "cache
         // hit" with zero classes — a real trap the html-sanitizer migration hit
         // (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md note 1).
-        if string.length(cache_key) > 0 && build._dir_nonempty(classes_dir) == 1 {
-            tar_path, terr = build._tar_dir(classes_dir)
+        if string.length(cache_key) > 0 && bldr._dir_nonempty(classes_dir) == 1 {
+            tar_path, terr = bldr._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                build._sh("rm -f '${tar_path}'")
+                bldr._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: kotlinc cache write failed: ${perr}")
                 }
@@ -393,15 +393,15 @@ builder kotlinc(ctx: ptr): int {
     if string.length(maven_cp) > 0 {
         cp_out = string.concat(string.concat(cp_out, "\n"), maven_cp)
     }
-    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
 
     dep_count = list.size(deps)
     ld_out = ""
     k = 0
     while k < dep_count {
         dp2, _ = list.get(deps, k)
-        dm2 = build._strip_lang(dp2)
-        dep_ld = build._read_dep_artifact(ctx, dm2, "ldlibdeps")
+        dm2 = bldr._strip_lang(dp2)
+        dep_ld = bldr._read_dep_artifact(ctx, dm2, "ldlibdeps")
         if string.length(dep_ld) > 0 {
             if string.length(ld_out) > 0 {
                 ld_out = string.concat(string.concat(ld_out, "\n"), dep_ld)
@@ -411,21 +411,21 @@ builder kotlinc(ctx: ptr): int {
         }
         k = k + 1
     }
-    build._write_artifact(ctx, "ldlibdeps", ld_out)
+    bldr._write_artifact(ctx, "ldlibdeps", ld_out)
     _ew = io.write_file(ts_file, "")
     return 0
 }
 
 builder kotlinc_test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_name = build._get(ctx, "module")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_name = bldr._get(ctx, "module")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     test_classes = path.join(target_dir, "test-classes")
-    build._mkdirs(test_classes)
+    bldr._mkdirs(test_classes)
     ts_dir = path.join(test_classes, mod_name)
-    build._mkdirs(ts_dir)
+    bldr._mkdirs(ts_dir)
     ts_file = path.join(ts_dir, ".timestamp")
 
     println("${mod_dir}: compiling test code")
@@ -435,10 +435,10 @@ builder kotlinc_test(ctx: ptr): int {
     kotlinc_bin = _kotlinc_bin(kotlin_home)
     _ekb = map.put(_builder, "_kotlinc_bin", kotlinc_bin)
 
-    dep_cp = build._build_dep_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
-    classpath = build._cp_append(test_classes, stdlib_jar)
+    lib_cp = bldr._build_lib_classpath(ctx)
+    classpath = bldr._cp_append(test_classes, stdlib_jar)
     // The module's OWN prod classes: kotlinc (this leaf's prod builder) emits to
     // target_dir/classes, which the tests reference. Both builders share one
     // target_dir, so it's trivially derivable — append it (first-party input, so
@@ -448,14 +448,14 @@ builder kotlinc_test(ctx: ptr): int {
     // (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md)
     prod_classes = path.join(target_dir, "classes")
     if dir.exists(prod_classes) == 1 {
-        classpath = build._cp_append(classpath, prod_classes)
+        classpath = bldr._cp_append(classpath, prod_classes)
     }
-    classpath = build._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
     // Test-scope maven deps (junit, mockito, mockk, …) declared via dep() in
     // the .tests.ae. The main kotlinc builder already folds these in; without
     // it here, kotlinc_test can't resolve test-only libraries.
-    classpath = build._cp_append(classpath, maven_cp)
-    classpath = build._cp_append(classpath, lib_cp)
+    classpath = bldr._cp_append(classpath, maven_cp)
+    classpath = bldr._cp_append(classpath, lib_cp)
 
     // Honor source_layout("maven idiomatic") like kotlinc does: tests live
     // under src/test/kotlin (recursively), not flat in source_dir.
@@ -475,11 +475,11 @@ builder kotlinc_test(ctx: ptr): int {
         // then compiles the .java against those .kt classes. Harmless when the
         // sources don't cross-reference (kotlinc still emits only .kt).
         jsrc = path.join(source_dir, "src/test/java")
-        fl_raw, _efl = build._sh_capture("{ find '${tsrc}' -name '*.kt' 2>/dev/null ; find '${jsrc}' -name '*.java' 2>/dev/null ; } | tr '\n' ' '")
+        fl_raw, _efl = bldr._sh_capture("{ find '${tsrc}' -name '*.kt' 2>/dev/null ; find '${jsrc}' -name '*.java' 2>/dev/null ; } | tr '\n' ' '")
         file_list = string.trim(fl_raw)
     } else {
         kt_pat = path.join(source_dir, "*.kt")
-        file_list = build._collect_file_list(kt_pat)
+        file_list = bldr._collect_file_list(kt_pat)
     }
     if string.length(file_list) == 0 {
         println("${mod_dir}: no Kotlin test source files found")
@@ -514,24 +514,24 @@ builder kotlinc_test(ctx: ptr): int {
         ck, kerr = _cache_key_for_kotlinc(ctx, _builder, test_argfile, kc_cmd, stdlib_jar)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, test_classes)
-                    build._sh("rm -f '${tmp_tar}'")
+                    uerr = bldr._untar_into(tmp_tar, test_classes)
+                    bldr._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: kotlinc (test) cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        build._sh("rm -rf '${test_classes}'")
-                        build._mkdirs(test_classes)
-                        build._mkdirs(ts_dir)
+                        bldr._sh("rm -rf '${test_classes}'")
+                        bldr._mkdirs(test_classes)
+                        bldr._mkdirs(ts_dir)
                     }
                 } else {
-                    build._sh("rm -f '${tmp_tar}'")
+                    bldr._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -539,22 +539,22 @@ builder kotlinc_test(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        exit_code = build._sh(kc_cmd)
+        exit_code = bldr._sh(kc_cmd)
         if exit_code != 0 {
             println("${mod_dir}: kotlinc (test) failed")
-            build.fail(ctx, "kotlinc (test) failed")
+            bldr.fail(ctx, "kotlinc (test) failed")
             return exit_code
         }
         // Only cache a NON-EMPTY tree (see the prod builder above).
-        if string.length(cache_key) > 0 && build._dir_nonempty(test_classes) == 1 {
-            tar_path, terr = build._tar_dir(test_classes)
+        if string.length(cache_key) > 0 && bldr._dir_nonempty(test_classes) == 1 {
+            tar_path, terr = bldr._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                build._sh("rm -f '${tar_path}'")
+                bldr._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: kotlinc (test) cache write failed: ${perr}")
                 }
@@ -567,19 +567,19 @@ builder kotlinc_test(ctx: ptr): int {
 }
 
 builder kotlin_test(ctx: ptr, test_class: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     test_classes = path.join(target_dir, "test-classes")
-    dep_cp = build._build_dep_classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
+    lib_cp = bldr._build_lib_classpath(ctx)
 
     // Runtime stdlib must match what kotlinc_test compiled against —
     // use the same resolved home (not the historic /usr/share default).
     kotlin_home = _kotlin_home()
     stdlib_jar = path.join(kotlin_home, "lib/kotlin-stdlib.jar")
 
-    classpath = build._cp_append(test_classes, stdlib_jar)
+    classpath = bldr._cp_append(test_classes, stdlib_jar)
     // The module's OWN prod classes on the RUN classpath: the tests compile
     // against target_dir/classes (5a7f94b) and must also FIND them at run time,
     // or a test-referenced prod class throws ClassNotFoundException. Guarded by
@@ -587,24 +587,24 @@ builder kotlin_test(ctx: ptr, test_class: string): int {
     // (asks/jvm-run-builders-omit-own-prod-classes-from-run-classpath.md)
     prod_classes = path.join(target_dir, "classes")
     if dir.exists(prod_classes) == 1 {
-        classpath = build._cp_append(classpath, prod_classes)
+        classpath = bldr._cp_append(classpath, prod_classes)
     }
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, lib_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, lib_cp)
 
     // JDK gate: min_jdk(N) hard-requires (FAIL if unmet); skip_below_jdk(N) is a
     // portable-fleet floor (SKIP if unmet). The FFM binding these suites exercise
     // is JDK-22+; an older ambient `java` fails at run time, which a false pass
     // would hide.
-    min_jdk_v = build._str_key(_builder, "kotlin_min_jdk")
-    skip_jdk_v = build._str_key(_builder, "kotlin_skip_below_jdk")
-    run_java_bin, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, test_class)
+    min_jdk_v = bldr._str_key(_builder, "kotlin_min_jdk")
+    skip_jdk_v = bldr._str_key(_builder, "kotlin_skip_below_jdk")
+    run_java_bin, jdk_status = bldr._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, test_class)
     if string.equals(jdk_status, "toolow") == 1 {
-        build.fail(ctx, "kotlin_test: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
+        bldr.fail(ctx, "kotlin_test: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
         return 1
     }
     if string.equals(jdk_status, "fail") == 1 {
-        build.fail(ctx, "kotlin_test: no JDK ${min_jdk_v}+ to run ${test_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
+        bldr.fail(ctx, "kotlin_test: no JDK ${min_jdk_v}+ to run ${test_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1
     }
     if string.equals(jdk_status, "skip") == 1 { return 0 }
@@ -627,15 +627,15 @@ builder kotlin_test(ctx: ptr, test_class: string): int {
     // other declared env actually reaches the JVM. Empty when no env() was set,
     // so this is byte-identical for callers that don't inject. (Previously env()
     // was silently accepted and ignored on the JVM run builders.)
-    run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
-    exit_code = build._sh(run_cmd)
+    run_cmd = string.concat(bldr._env_export_prefix(_builder), run_cmd)
+    exit_code = bldr._sh(run_cmd)
     if exit_code != 0 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     return 0
 }

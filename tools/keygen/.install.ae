@@ -8,8 +8,8 @@
 //
 // Prefix hardcoded to ~/.local (skeleton). The wrapper pins AEB_HOME for
 // parity with the agent/lease wrappers, though aeb-keygen only needs the lib.
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import std.os
 import std.io
 import std.string
@@ -17,10 +17,10 @@ import std.string
 extern println(s: string)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "tools/keygen/.dist.ae")
 
-    root = build.root(b)
+    root = bldr.root(b)
     src_bin = string.concat(root, "/target/dist/tools/keygen/bin/aeb-keygen")
 
     home = os.getenv("HOME")
@@ -34,7 +34,7 @@ main() {
     rc = os.system(string.concat(string.concat("cp -f '", src_bin), string.concat("' '", string.concat(dst_bin, "'"))))
     if rc != 0 {
         println("aeb-keygen install: failed to copy ${src_bin} → ${dst_bin}")
-        build.fail(b, "aeb-keygen install: copy failed (did .dist build it?)")
+        bldr.fail(b, "aeb-keygen install: copy failed (did .dist build it?)")
         return 1
     }
 
@@ -45,7 +45,7 @@ main() {
     werr = io.write_file(wrapper, w)
     if string.length(werr) > 0 {
         println("aeb-keygen install: failed to write wrapper ${wrapper}: ${werr}")
-        build.fail(b, "aeb-keygen install: wrapper write failed")
+        bldr.fail(b, "aeb-keygen install: wrapper write failed")
         return 1
     }
     _c = os.system(string.concat("chmod +x '", string.concat(wrapper, "'")))

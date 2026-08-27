@@ -9,7 +9,7 @@
 //
 // See TODO.md § "Windows support (cut-down runner)".
 
-import build (_basename, _dirname, _path_ext, _path_join, _path_to_slashes, _is_windows)
+import bldr (_basename, _dirname, _path_ext, _path_join, _path_to_slashes, _is_windows)
 import std.string
 
 extern println(s: string)

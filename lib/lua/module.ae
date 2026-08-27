@@ -5,9 +5,9 @@
 // build step) override/extend with step(...). Env injection (e.g.
 // LUA_CPATH, a shared `.so` path) rides the shared env(...) setter.
 //
-//   import build
+//   import bldr
 //   import lua
-//   import build (env, step)
+//   import bldr (env, step)
 //   lua.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
 //       env("LUA_CPATH", "./?.so;;")
@@ -16,7 +16,7 @@
 //   }
 //
 // Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
-import build
+import bldr
 import std.string
 import std.os
 import std.file
@@ -68,7 +68,7 @@ _lua54_pkg() {
     while i < n {
         nm, _ = list.get(for_names, i)
         i = i + 1
-        rc = build._sh("pkg-config --exists ${nm}")
+        rc = bldr._sh("pkg-config --exists ${nm}")
         if rc == 0 { return nm }
     }
     return ""
@@ -76,12 +76,12 @@ _lua54_pkg() {
 
 // _lua54_cflags() / _lua54_libs() — resolved via pkg-config when available,
 // else the usual Debian/Homebrew fallbacks. Returns ("", "") when Lua 5.4
-// headers can't be found at all (caller SKIPs). Mirrors build.sh's cascade.
+// headers can't be found at all (caller SKIPs). Mirrors bldr.sh's cascade.
 _lua54_flags() {
     pkg = _lua54_pkg()
     if string.length(pkg) > 0 {
-        cf_raw, _e1 = build._sh_capture("pkg-config --cflags ${pkg}")
-        lb_raw, _e2 = build._sh_capture("pkg-config --libs ${pkg}")
+        cf_raw, _e1 = bldr._sh_capture("pkg-config --cflags ${pkg}")
+        lb_raw, _e2 = bldr._sh_capture("pkg-config --libs ${pkg}")
         return string.trim(cf_raw), string.trim(lb_raw)
     }
     if file.exists("/usr/include/lua5.4/lua.h") == 1 {
@@ -96,9 +96,9 @@ _lua54_flags() {
 // _lua54_interp() — a `lua5.4` / `lua`(5.4) interpreter on PATH, else "".
 // (A built ./lua54 host is checked by the caller after building it.)
 _lua54_interp() {
-    rc = build._sh("command -v lua5.4 >/dev/null 2>&1")
+    rc = bldr._sh("command -v lua5.4 >/dev/null 2>&1")
     if rc == 0 { return "lua5.4" }
-    rc2 = build._sh("command -v lua >/dev/null 2>&1 && lua -v 2>&1 | grep -q 'Lua 5.4'")
+    rc2 = bldr._sh("command -v lua >/dev/null 2>&1 && lua -v 2>&1 | grep -q 'Lua 5.4'")
     if rc2 == 0 { return "lua" }
     return ""
 }
@@ -117,15 +117,15 @@ _lua54_interp() {
 // (passing _builder) call this: a builder that calls another builder as a
 // nested `f(ctx)` does NOT propagate the closure's _builder, so the shared work
 // must take the map as a parameter. Returns: 0 built, 1 failed, 2 SKIPPED (no
-// headers) — the caller maps 2 to build._record_skip.
+// headers) — the caller maps 2 to bldr._record_skip.
 _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_dir: string) {
     cf, lb = _lua54_flags()
     if string.length(cf) == 0 { return 2 }
 
-    cc = build._default_cc()
+    cc = bldr._default_cc()
     ccflags = "-O2 -fPIC -Wall -Wextra"
     shared = "-shared"
-    if build._is_macos() == 1 { shared = "-bundle -undefined dynamic_lookup" }
+    if bldr._is_macos() == 1 { shared = "-bundle -undefined dynamic_lookup" }
 
     srcs = ""
     if bmap != null {
@@ -141,7 +141,7 @@ _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_
         }
     }
     if string.length(string.trim(srcs)) == 0 {
-        build.fail(ctx, "lua: at least one c_source(\"...\") is required")
+        bldr.fail(ctx, "lua: at least one c_source(\"...\") is required")
         return 1
     }
 
@@ -156,13 +156,13 @@ _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_
     // causes "multiple Lua VMs" crashes. cflags (headers) + -ldl only.
     println("${mod_dir}: building Lua C extension (${cc})")
     build_cmd = "${cc} ${ccflags} ${shared} ${cf} ${srcs} -o '${ext_path}' -ldl"
-    rc = build._sh(build_cmd)
+    rc = bldr._sh(build_cmd)
     if rc != 0 {
         println("${mod_dir}: Lua extension build failed")
-        build.fail(ctx, "lua extension build failed")
+        bldr.fail(ctx, "lua extension build failed")
         return 1
     }
-    build._write_artifact(ctx, "lua_extension", ext_path)
+    bldr._write_artifact(ctx, "lua_extension", ext_path)
 
     // Optional host, only when no lua5.4 interpreter is on PATH.
     if bmap != null {
@@ -173,13 +173,13 @@ _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_
                 println("${mod_dir}: no lua5.4 on PATH — building bundled host")
                 // The host DOES link liblua (it's the interpreter).
                 host_cmd = "${cc} ${ccflags} ${cf} '${path.join(source_dir, hsrc)}' -o '${host_path}' ${lb} -lm -ldl"
-                hrc = build._sh(host_cmd)
+                hrc = bldr._sh(host_cmd)
                 if hrc != 0 {
                     println("${mod_dir}: bundled host build failed")
-                    build.fail(ctx, "lua host build failed")
+                    bldr.fail(ctx, "lua host build failed")
                     return 1
                 }
-                build._write_artifact(ctx, "lua_host", host_path)
+                bldr._write_artifact(ctx, "lua_host", host_path)
             }
         }
     }
@@ -187,16 +187,16 @@ _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_
 }
 
 builder c_extension(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     rc = _build_lua_ext(ctx, _builder, source_dir, target_dir, mod_dir)
     if rc == 2 {
         reason = "Lua 5.4 headers not found (install liblua5.4-dev)"
         println("${mod_dir}: SKIPPED — ${reason}")
-        build._record_skip(ctx, reason)
+        bldr._record_skip(ctx, reason)
         return 0
     }
     if rc != 0 { return rc }
@@ -209,10 +209,10 @@ builder c_extension(ctx: ptr): int {
 // and the src .lua. SKIPs when no Lua 5.4 headers OR no interpreter (distro or
 // the bundled ./lua54 host). Replaces lua/run_tests.sh.
 builder conformance(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     // Build the extension (+ optional host) via the shared helper — NOT the
     // c_extension builder, since a nested builder call wouldn't see _builder.
@@ -220,7 +220,7 @@ builder conformance(ctx: ptr): int {
     if brc == 2 {
         reason = "Lua 5.4 headers not found (install liblua5.4-dev)"
         println("${mod_dir}: SKIPPED — ${reason}")
-        build._record_skip(ctx, reason)
+        bldr._record_skip(ctx, reason)
         return 0
     }
     if brc != 0 { return brc }
@@ -235,7 +235,7 @@ builder conformance(ctx: ptr): int {
         } else {
             reason = "no Lua 5.4 interpreter (no lua5.4 on PATH, no bundled host)"
             println("${mod_dir}: SKIPPED — ${reason}")
-            build._record_skip(ctx, reason)
+            bldr._record_skip(ctx, reason)
             return 0
         }
     }
@@ -248,22 +248,22 @@ builder conformance(ctx: ptr): int {
     println("${mod_dir}: running ${conf} (lua)")
     // ./?.so finds the extension; ./src/?.lua finds the pure-lua module.
     run_cmd = "cd '${source_dir}' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' ${interp} '${conf}'"
-    run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
-    rc = build._sh(run_cmd)
+    run_cmd = string.concat(bldr._env_export_prefix(_builder), run_cmd)
+    rc = bldr._sh(run_cmd)
     if rc != 0 {
-        build._record_test_result_exitcode(ctx, 0, 1)
+        bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: conformance FAILED")
-        build.fail(ctx, "lua conformance failed")
+        bldr.fail(ctx, "lua conformance failed")
         return 1
     }
-    build._record_test_result_exitcode(ctx, 1, 0)
+    bldr._record_test_result_exitcode(ctx, 1, 0)
     println("${mod_dir}: conformance PASSED")
     return 0
 }
 
 // lua.test(b) — `busted` by default. Reports pass/fail telemetry.
 builder test(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (lua)")
-    return build._run_project(ctx, _builder, "busted", 1)
+    return bldr._run_project(ctx, _builder, "busted", 1)
 }

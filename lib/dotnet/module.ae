@@ -3,7 +3,7 @@
 // Generates .{name}.generated.csproj from .build.ae declarations,
 // then compiles via dotnet build and tests via dotnet test.
 // NuGet versions come from Directory.Packages.props (central management).
-import build
+import bldr
 import cache
 import std.string
 import std.io
@@ -187,7 +187,7 @@ dotnet_pack_cmd(csproj: string, config: string, out_dir: string) {
 // tests/test_dotnet_cmd.ae.
 _resolve_csproj_path(source_dir: string, csproj_rel: string) {
     if string.length(csproj_rel) == 0 { return "" }
-    if build._is_abs_path(csproj_rel) == 1 { return csproj_rel }
+    if bldr._is_abs_path(csproj_rel) == 1 { return csproj_rel }
     return path.join(source_dir, csproj_rel)
 }
 
@@ -419,7 +419,7 @@ _append_content_inputs(bld: ptr, argfile: string, source_dir: string, root: stri
             // leading dir; a plain path lists just that path. Either way,
             // expand relative to source_dir and append real files.
             lead = _glob_lead_dir(glob)
-            build._sh("find '${source_dir}/${lead}' -type f ! -path '*/bin/*' ! -path '*/obj/*' >> '${argfile}' 2>/dev/null || true")
+            bldr._sh("find '${source_dir}/${lead}' -type f ! -path '*/bin/*' ! -path '*/obj/*' >> '${argfile}' 2>/dev/null || true")
             i = i + 1
         }
     }
@@ -431,7 +431,7 @@ _append_content_inputs(bld: ptr, argfile: string, source_dir: string, root: stri
             e2, _ = list.get(nrs, j)
             idx2 = string.index_of(e2, "~")
             npath = string.substring(e2, idx2 + 1, string.length(e2))
-            build._sh("test -f '${root}/${npath}' && echo '${root}/${npath}' >> '${argfile}' || true")
+            bldr._sh("test -f '${root}/${npath}' && echo '${root}/${npath}' >> '${argfile}' || true")
             j = j + 1
         }
     }
@@ -470,7 +470,7 @@ _last_index_of(s: string, needle: string) {
 _dotnet_version() {
     cached = os.getenv("_AEB_DOTNET_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("dotnet --version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("dotnet --version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -515,7 +515,7 @@ _cache_key_for_dotnet(ctx: ptr, argfile_path: string, csproj_fingerprint: string
     list.add(parts, string.concat("csproj:", csproj_fingerprint))
     list.add(parts, string.concat("config:", config))
 
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -539,13 +539,13 @@ _cache_key_for_dotnet(ctx: ptr, argfile_path: string, csproj_fingerprint: string
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_n = build._read_dep_artifact(ctx, dm, "dotnet_nuget_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        dep_n = bldr._read_dep_artifact(ctx, dm, "dotnet_nuget_deps_including_transitive")
         if string.length(dep_n) > 0 {
             list.add(parts, string.concat("dep-nuget:", dm))
             list.add(parts, string.concat("dep-nuget-deps:", dep_n))
         }
-        dep_v = build._read_dep_artifact(ctx, dm, "dotnet_vendored_refs_including_transitive")
+        dep_v = bldr._read_dep_artifact(ctx, dm, "dotnet_vendored_refs_including_transitive")
         if string.length(dep_v) > 0 {
             list.add(parts, string.concat("dep-vendored:", dm))
             list.add(parts, string.concat("dep-vendored-refs:", dep_v))
@@ -566,33 +566,33 @@ _cache_key_for_dotnet(ctx: ptr, argfile_path: string, csproj_fingerprint: string
 _dotnet_cache_restore(ctx: ptr, argfile: string, fingerprint: string, config: string, source_dir: string, root: string) {
     map.put(ctx, "_dotnet_cache_key", "")
     if cache.available() == 0 {
-        build._record_cache(ctx, "unavailable")
+        bldr._record_cache(ctx, "unavailable")
         return 0
     }
     ck, kerr = _cache_key_for_dotnet(ctx, argfile, fingerprint, config, source_dir, root)
     if string.length(kerr) > 0 {
-        build._record_cache(ctx, "miss")
+        bldr._record_cache(ctx, "miss")
         return 0
     }
     map.put(ctx, "_dotnet_cache_key", ck)
     bin_dir = path.join(path.join(source_dir, "bin"), config)
-    tmp_raw, _terr = build._sh_capture("mktemp")
-    tmp_tar = build._to_native_path(string.trim(tmp_raw))
+    tmp_raw, _terr = bldr._sh_capture("mktemp")
+    tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
     if string.length(tmp_tar) > 0 {
         grc = cache.get(ck, tmp_tar)
         if string.length(grc) == 0 {
-            uerr = build._untar_into(tmp_tar, bin_dir)
-            build._sh("rm -f '${tmp_tar}'")
+            uerr = bldr._untar_into(tmp_tar, bin_dir)
+            bldr._sh("rm -f '${tmp_tar}'")
             if string.length(uerr) == 0 {
-                build._record_cache(ctx, "hit")
+                bldr._record_cache(ctx, "hit")
                 return 1
             }
-            build._sh("rm -rf '${bin_dir}'")
+            bldr._sh("rm -rf '${bin_dir}'")
         } else {
-            build._sh("rm -f '${tmp_tar}'")
+            bldr._sh("rm -f '${tmp_tar}'")
         }
     }
-    build._record_cache(ctx, "miss")
+    bldr._record_cache(ctx, "miss")
     return 0
 }
 
@@ -604,11 +604,11 @@ _dotnet_cache_store(ctx: ptr, config: string, source_dir: string) {
     ck, _ = map.get(ctx, "_dotnet_cache_key")
     if string.length(ck) == 0 { return 0 }
     bin_dir = path.join(path.join(source_dir, "bin"), config)
-    if build._dir_nonempty(bin_dir) == 0 { return 0 }
-    tar_path, terr = build._tar_dir(bin_dir)
+    if bldr._dir_nonempty(bin_dir) == 0 { return 0 }
+    tar_path, terr = bldr._tar_dir(bin_dir)
     if string.length(terr) == 0 {
         perr = cache.put(ck, tar_path)
-        build._sh("rm -f '${tar_path}'")
+        bldr._sh("rm -f '${tar_path}'")
     }
     return 0
 }
@@ -624,9 +624,9 @@ _dotnet_cache_store(ctx: ptr, config: string, source_dir: string) {
 //
 // Arg format: "name~version" (e.g. "Shouldly~4.3.0")
 builder nuget_registry(ctx: ptr, name_and_ver: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
     artifact_path = path.join(target_dir, "dotnet_nuget_deps_including_transitive")
     existing = ""
     if file.exists(artifact_path) == 1 {
@@ -649,9 +649,9 @@ builder nuget_registry(ctx: ptr, name_and_ver: string): int {
 //
 // Arg format: "name~path" (path relative to project root)
 builder nuget_vendored(ctx: ptr, name_and_path: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
     artifact_path = path.join(target_dir, "dotnet_vendored_refs_including_transitive")
     existing = ""
     if file.exists(artifact_path) == 1 {
@@ -668,14 +668,14 @@ builder nuget_vendored(ctx: ptr, name_and_path: string): int {
 }
 
 builder build_project(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
-    pn_raw, _ep = build._sh_capture("basename '${source_dir}'")
+    pn_raw, _ep = bldr._sh_capture("basename '${source_dir}'")
     project_name = string.trim(pn_raw)
 
     // Collect package refs: inline nuget() + .nupkg.ae registry deps.
@@ -711,12 +711,12 @@ builder build_project(ctx: ptr): int {
     dli = 0
     while dli < dl_count {
         dp_n, _ = list.get(dep_list, dli)
-        dm_n = build._strip_lang(dp_n)
-        raw_n = build._read_dep_artifact(ctx, dm_n, "dotnet_nuget_deps_including_transitive")
+        dm_n = bldr._strip_lang(dp_n)
+        raw_n = bldr._read_dep_artifact(ctx, dm_n, "dotnet_nuget_deps_including_transitive")
         if string.length(raw_n) > 0 {
             ni = 1
             while ni <= 200 {
-                ln_raw, _eln = build._sh_capture("printf '%s\\n' '${raw_n}' | sed -n '${ni}p'")
+                ln_raw, _eln = bldr._sh_capture("printf '%s\\n' '${raw_n}' | sed -n '${ni}p'")
                 line_n = string.trim(ln_raw)
                 if string.length(line_n) == 0 {
                     ni = 999
@@ -736,12 +736,12 @@ builder build_project(ctx: ptr): int {
     dli2 = 0
     while dli2 < dl_count {
         dp_r, _ = list.get(dep_list, dli2)
-        dm_r = build._strip_lang(dp_r)
-        raw_r = build._read_dep_artifact(ctx, dm_r, "dotnet_vendored_refs_including_transitive")
+        dm_r = bldr._strip_lang(dp_r)
+        raw_r = bldr._read_dep_artifact(ctx, dm_r, "dotnet_vendored_refs_including_transitive")
         if string.length(raw_r) > 0 {
             ri = 1
             while ri <= 200 {
-                lr_raw, _elr = build._sh_capture("printf '%s\\n' '${raw_r}' | sed -n '${ri}p'")
+                lr_raw, _elr = bldr._sh_capture("printf '%s\\n' '${raw_r}' | sed -n '${ri}p'")
                 line_r = string.trim(lr_raw)
                 if string.length(line_r) == 0 {
                     ri = 999
@@ -750,7 +750,7 @@ builder build_project(ctx: ptr): int {
                         idx = string.index_of(line_r, "~")
                         r_name = string.substring(line_r, 0, idx)
                         r_path = string.substring(line_r, idx + 1, string.length(line_r))
-                        hr_raw, _ehr = build._sh_capture("python3 -c \"import os; print(os.path.relpath('${root}/${r_path}', '${source_dir}'))\"")
+                        hr_raw, _ehr = bldr._sh_capture("python3 -c \"import os; print(os.path.relpath('${root}/${r_path}', '${source_dir}'))\"")
                         hint_rel = string.trim(hr_raw)
                         entry = string.concat(r_name, "~")
                         entry = string.concat(entry, hint_rel)
@@ -763,7 +763,7 @@ builder build_project(ctx: ptr): int {
         dli2 = dli2 + 1
     }
 
-    // ProjectReferences from build.dep() module deps. The Include path
+    // ProjectReferences from bldr.dep() module deps. The Include path
     // (relative to source_dir) is computed here and passed as a plain
     // string list to csproj_content.
     project_refs = list.new()
@@ -773,16 +773,16 @@ builder build_project(ctx: ptr): int {
     while i < dep_count {
         dp, _ = list.get(deps, i)
         dep_dir = path.join(root, dp)
-        rel_raw, _erel = build._sh_capture("python3 -c \"import os; print(os.path.relpath('${dep_dir}', '${source_dir}'))\"")
+        rel_raw, _erel = bldr._sh_capture("python3 -c \"import os; print(os.path.relpath('${dep_dir}', '${source_dir}'))\"")
         rel = string.trim(rel_raw)
-        dc_raw, _edc = build._sh_capture("ls '${dep_dir}'/.*.generated.csproj 2>/dev/null | head -1")
+        dc_raw, _edc = bldr._sh_capture("ls '${dep_dir}'/.*.generated.csproj 2>/dev/null | head -1")
         dep_csproj = string.trim(dc_raw)
         if string.length(dep_csproj) == 0 {
-            dc2_raw, _edc2 = build._sh_capture("ls '${dep_dir}'/*.csproj 2>/dev/null | head -1")
+            dc2_raw, _edc2 = bldr._sh_capture("ls '${dep_dir}'/*.csproj 2>/dev/null | head -1")
             dep_csproj = string.trim(dc2_raw)
         }
         if string.length(dep_csproj) > 0 {
-            cn_raw, _ecn = build._sh_capture("basename '${dep_csproj}'")
+            cn_raw, _ecn = bldr._sh_capture("basename '${dep_csproj}'")
             csproj_name = string.trim(cn_raw)
             ref_path = string.concat(rel, "/")
             ref_path = string.concat(ref_path, csproj_name)
@@ -819,19 +819,19 @@ builder build_project(ctx: ptr): int {
     cached = 0
     if is_test == 0 {
         argfile = path.join(target_dir, "dotnet_sources.txt")
-        build._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        bldr._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
         _append_content_inputs(_builder, argfile, source_dir, root)
         cached = _dotnet_cache_restore(ctx, argfile, xml, config, source_dir, root)
         if cached == 1 {
             println("${mod_dir}: dotnet cache hit")
         }
     } else {
-        build._record_cache(ctx, "n/a")
+        bldr._record_cache(ctx, "n/a")
     }
 
     if cached == 0 {
         cmd = dotnet_build_cmd(csproj, config)
-        exit_code = build._sh(cmd)
+        exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: dotnet build failed")
             return exit_code
@@ -873,11 +873,11 @@ builder build_project(ctx: ptr): int {
 //                   — `dotnet build --configuration <name>`. Default
 //                     "Release". Same setter as `dotnet.build_project`.
 builder build_project_existing(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
+    bldr._mkdirs(target_dir)
 
     // Resolve .csproj path: explicit setter override > single-file
     // glob > error.
@@ -890,7 +890,7 @@ builder build_project_existing(ctx: ptr): int {
     csproj = _resolve_csproj_path(source_dir, csproj_rel)
     if string.length(csproj) == 0 {
         // No explicit setter — scan source_dir for a single .csproj.
-        cs_raw, _ecs = build._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null")
+        cs_raw, _ecs = bldr._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null")
         cs_list = string.trim(cs_raw)
         nl_pos = string.index_of(cs_list, "\n")
         if string.length(cs_list) == 0 {
@@ -931,19 +931,19 @@ builder build_project_existing(ctx: ptr): int {
         fp_raw, _efp = io.read_file(csproj)
         fingerprint = string.trim(fp_raw)
         argfile = path.join(target_dir, "dotnet_sources.txt")
-        build._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        bldr._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
         _append_content_inputs(_builder, argfile, source_dir, root)
         cached = _dotnet_cache_restore(ctx, argfile, fingerprint, config, source_dir, root)
         if cached == 1 {
             println("${mod_dir}: dotnet cache hit")
         }
     } else {
-        build._record_cache(ctx, "n/a")
+        bldr._record_cache(ctx, "n/a")
     }
 
     if cached == 0 {
         cmd = dotnet_build_cmd(csproj, config)
-        exit_code = build._sh(cmd)
+        exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: dotnet build failed")
             return exit_code
@@ -959,17 +959,17 @@ builder build_project_existing(ctx: ptr): int {
 
 // Run dotnet test on a test project.
 builder test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (dotnet)")
 
-    cs_raw, _ecs = build._sh_capture("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
+    cs_raw, _ecs = bldr._sh_capture("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
     csproj = string.trim(cs_raw)
     if string.length(csproj) == 0 {
-        cs2_raw, _ecs2 = build._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
+        cs2_raw, _ecs2 = bldr._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
         csproj = string.trim(cs2_raw)
     }
 
@@ -984,7 +984,7 @@ builder test(ctx: ptr): int {
     // Honour env(K,V) on the run (e.g. a native lib path a P/Invoke binding
     // loads). Empty when no env() was set — byte-identical otherwise.
     // (asks/sdk-builders-cannot-set-env-for-the-test-run.md)
-    cmd = string.concat(build._env_export_prefix(_builder), cmd)
+    cmd = string.concat(bldr._env_export_prefix(_builder), cmd)
     // Tee output to target/<module>/test_output.log so the same
     // bytes serve two roles: (1) summary parsing for telemetry,
     // (2) durable record for failure diagnosis after the build
@@ -993,10 +993,10 @@ builder test(ctx: ptr): int {
     //   "Passed!  - Failed: 0, Passed: 14, Skipped: 0, Total: 14"
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = build._sh(full_cmd)
+    exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     pd, fd = _parse_dotnet_counts(out_text)
-    build._record_test_result(ctx, pd, fd)
+    bldr._record_test_result(ctx, pd, fd)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
         return exit_code
@@ -1074,7 +1074,7 @@ _is_digit_dn(c: string) {
 // so a downstream `.dist.ae`/publish leaf can `dep_artifact(b, "...",
 // "nupkg")` it (mirroring how core/.build.ae publishes `shared_lib`).
 //
-// Typical shape: a `.dist.ae` that `build.dep`s the library's `.build.ae`
+// Typical shape: a `.dist.ae` that `bldr.dep`s the library's `.build.ae`
 // (so the `.{name}.generated.csproj` already exists next to the sources),
 // then declares the packaging setters:
 //   package_id("Servirtium.Vcr"); package_version("1.0.0")
@@ -1088,11 +1088,11 @@ _is_digit_dn(c: string) {
 // csproj from its own `_builder` map so they take effect — this is why
 // pack accepts the same generation setters as build_project.
 builder pack(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
+    bldr._mkdirs(target_dir)
 
     config = "Release"
     if _builder != null {
@@ -1113,7 +1113,7 @@ builder pack(ctx: ptr): int {
         if map.has(_builder, "content_files") == 1 { has_pkg_setters = 1 }
     }
     if has_pkg_setters == 1 {
-        pn_raw, _ep = build._sh_capture("basename '${source_dir}'")
+        pn_raw, _ep = bldr._sh_capture("basename '${source_dir}'")
         project_name = string.trim(pn_raw)
         // pack-side csproj: packaging metadata + declared item groups.
         // Package/vendored/project refs from deps are NOT re-walked here
@@ -1126,10 +1126,10 @@ builder pack(ctx: ptr): int {
         csproj = path.join(source_dir, ".${project_name}.generated.csproj")
         _ew = io.write_file(csproj, xml)
     } else {
-        cs_raw, _ecs = build._sh_capture("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
+        cs_raw, _ecs = bldr._sh_capture("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
         csproj = string.trim(cs_raw)
         if string.length(csproj) == 0 {
-            cs2_raw, _ecs2 = build._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
+            cs2_raw, _ecs2 = bldr._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
             csproj = string.trim(cs2_raw)
         }
     }
@@ -1140,11 +1140,11 @@ builder pack(ctx: ptr): int {
     }
 
     out_dir = path.join(target_dir, "nupkg")
-    build._sh("rm -rf '${out_dir}' && mkdir -p '${out_dir}'")
+    bldr._sh("rm -rf '${out_dir}' && mkdir -p '${out_dir}'")
 
     println("${mod_dir}: packing (dotnet pack)")
     cmd = dotnet_pack_cmd(csproj, config, out_dir)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: dotnet pack failed")
         return exit_code
@@ -1152,13 +1152,13 @@ builder pack(ctx: ptr): int {
 
     // Locate the produced .nupkg (exclude .symbols.nupkg) and publish
     // its absolute path as the `nupkg` artifact.
-    np_raw, _enp = build._sh_capture("ls '${out_dir}'/*.nupkg 2>/dev/null | grep -v '\\.symbols\\.nupkg$' | head -1")
+    np_raw, _enp = bldr._sh_capture("ls '${out_dir}'/*.nupkg 2>/dev/null | grep -v '\\.symbols\\.nupkg$' | head -1")
     nupkg = string.trim(np_raw)
     if string.length(nupkg) == 0 {
         println("${mod_dir}: pack: dotnet pack produced no .nupkg in ${out_dir}")
         return 1
     }
-    build.publish_artifact(ctx, "nupkg", nupkg)
+    bldr.publish_artifact(ctx, "nupkg", nupkg)
     println("${mod_dir}: packed ${nupkg}")
 
     _ets = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -1169,7 +1169,7 @@ builder pack(ctx: ptr): int {
 // (builds, unlike the `--no-build` `test` builder). Foundation-backed:
 // honors env(K,V)/step/workdir.
 builder test_existing(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (dotnet test)")
-    return build._run_project(ctx, _builder, "dotnet test --nologo", 1)
+    return bldr._run_project(ctx, _builder, "dotnet test --nologo", 1)
 }

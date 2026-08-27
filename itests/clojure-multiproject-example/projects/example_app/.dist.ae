@@ -6,7 +6,7 @@
 // natural packaging step for a gen-class app is a `lein uberjar`-style
 // standalone jar. aeb's no-leiningen analogue is `clojure.uberjar(b)`.
 //
-// Chain: build.dep on .build.ae compiles + writes the maven_classpath
+// Chain: bldr.dep on .build.ae compiles + writes the maven_classpath
 // artifact (clojure.jar + any deps) into the shared target_dir;
 // clojure.uberjar then AOT-compiles main_ns, stages src + every maven
 // jar, and bundles a runnable standalone jar.
@@ -14,14 +14,14 @@
 // Output: target/<mod>/bin/example_app-standalone.jar.
 // Run: java -jar .../example_app-standalone.jar  (prints the greeting).
 
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import clojure
 import clojure (main_ns)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     load_bom_file(b, "../../clojars.bom.ae")
     load_bom_file(b, "../../clojure-dep-patches.bom.ae")
     dep(b, "org.clojure:clojure:1.12.0")

@@ -20,15 +20,15 @@
 // The runtime usage (#1) doesn't strictly need this declaration —
 // torchgen.gen is importable in-tree without `pip install`. The
 // wheel declaration matters when another `.build.ae` wants to
-// `build.dep("torchgen/.whl.ae")` to express "I need torchgen's
+// `bldr.dep("torchgen/.whl.ae")` to express "I need torchgen's
 // codegen primitives in my venv."
 
-import build
+import bldr
 import python
 
 main() {
-    b = build.start()
-    build.begin(b, "torchgen:wheel")
+    b = bldr.start()
+    bldr.begin(b, "torchgen:wheel")
 
     // pip-installable name + version-pin tilde shorthand consumed by
     // `python.install`. The version follows pytorch's source tree
@@ -37,5 +37,5 @@ main() {
     // self-reference; for downstream venvs it's the install line.
     python.wheel_registry(b, "torchgen~")
 
-    build.done(b, "torchgen:wheel")
+    bldr.done(b, "torchgen:wheel")
 }

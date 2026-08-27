@@ -1,8 +1,8 @@
 // Integration test for the directory-tree cache round-trip that the
 // SDK wirings (kotlin/scala/ts/dotnet/clojure) rely on:
 //
-//   build._tar_dir(src) -> cache.put(key, tar)
-//   cache.get(key, tar2) -> build._untar_into(tar2, restore)
+//   bldr._tar_dir(src) -> cache.put(key, tar)
+//   cache.get(key, tar2) -> bldr._untar_into(tar2, restore)
 //   => restore is byte-identical to src
 //
 // Unlike test_*_cache.ae (which only check key DERIVATION) and
@@ -21,8 +21,8 @@ import std.map
 import std.path
 import std.dir
 
-import build
-import build (_sh, _sh_capture)
+import bldr
+import bldr (_sh, _sh_capture)
 import cache
 
 _assert(label: string, cond: int) {
@@ -79,11 +79,11 @@ main() {
     _stage_tree(src)
 
     // --- _dir_nonempty guard ---
-    _assert("_dir_nonempty: populated tree -> 1", build._dir_nonempty(src))
+    _assert("_dir_nonempty: populated tree -> 1", bldr._dir_nonempty(src))
     empty = path.join(tmp, "empty")
     fs.mkdir_p(empty)
-    _assert("_dir_nonempty: empty dir -> 0", _eq0(build._dir_nonempty(empty)))
-    _assert("_dir_nonempty: missing dir -> 0", _eq0(build._dir_nonempty(path.join(tmp, "nope"))))
+    _assert("_dir_nonempty: empty dir -> 0", _eq0(bldr._dir_nonempty(empty)))
+    _assert("_dir_nonempty: missing dir -> 0", _eq0(bldr._dir_nonempty(path.join(tmp, "nope"))))
 
     // --- tar -> put -> get -> untar round-trip ---
     parts = list.new()
@@ -94,7 +94,7 @@ main() {
 
     _assert("has: miss before put", _eq0(cache.has(key)))
 
-    tar1, terr = build._tar_dir(src)
+    tar1, terr = bldr._tar_dir(src)
     _assert("_tar_dir ok", _eq_str(terr, ""))
     perr = cache.put(key, tar1)
     _sh("rm -f '${tar1}'")
@@ -111,7 +111,7 @@ main() {
     _assert("cache.get ok (hit)", _eq_str(gerr, ""))
 
     restore = path.join(tmp, "restore")
-    uerr = build._untar_into(tar2, restore)
+    uerr = bldr._untar_into(tar2, restore)
     _sh("rm -f '${tar2}'")
     _assert("_untar_into ok", _eq_str(uerr, ""))
 
@@ -136,14 +136,14 @@ main() {
     ctx = map.new()
     td = path.join(tmp, "target_mod")
     map.put(ctx, "target_dir", td)
-    build._record_cache(ctx, "hit")
+    bldr._record_cache(ctx, "hit")
     _assert("_record_cache/_read_cache_outcome -> hit",
-        _eq_str(build._read_cache_outcome(td), "hit"))
-    build._record_cache(ctx, "miss")
+        _eq_str(bldr._read_cache_outcome(td), "hit"))
+    bldr._record_cache(ctx, "miss")
     _assert("_record_cache overwrite -> miss",
-        _eq_str(build._read_cache_outcome(td), "miss"))
+        _eq_str(bldr._read_cache_outcome(td), "miss"))
     _assert("_read_cache_outcome absent -> n/a",
-        _eq_str(build._read_cache_outcome(path.join(tmp, "no_marker")), "n/a"))
+        _eq_str(bldr._read_cache_outcome(path.join(tmp, "no_marker")), "n/a"))
 
     _sh("rm -rf '${tmp}'")
     println("cache tree round-trip done")

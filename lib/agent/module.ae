@@ -3,7 +3,7 @@
 // Two sides, one module:
 //   - ORIGINATOR: `agent.dispatch(b) { endpoint(...) target(...) }` in a
 //     fan-out .ae target. Fires a request to a remote aeb-agent, awaits a
-//     terse verdict, folds pass/fail into build.fail/any_failed.
+//     terse verdict, folds pass/fail into bldr.fail/any_failed.
 //   - AGENT-side decision helpers (pure): does an incoming request's
 //     purpose match a scope's accept rule? is a job slot free? These are
 //     consumed by tools/aeb-agent (the listener exe) and tested offline.
@@ -28,7 +28,7 @@
 //       }
 //   }
 
-import build
+import bldr
 import std.http
 import std.http.client
 import std.string
@@ -846,7 +846,7 @@ dispatch_request_json(guid: string, target: string, purpose: string,
 // dispatch_request_json_ex — adds the optional per-dispatch routing fields:
 //   image    — run_on=podman toolchain image override (agent gates via
 //              --allow-image). "" omits it.
-//   command  — run_on=vm RAW build command (build.sh / make / cmake) run in
+//   command  — run_on=vm RAW build command (bldr.sh / make / cmake) run in
 //              the tree root instead of `aeb <target>`; the agent honours it
 //              only with --allow-vm-command. "" omits it (default aeb <target>).
 // Both are emitted only when non-empty, so the wire stays minimal and the
@@ -1036,9 +1036,9 @@ _lease_node(pool_content: string, purp: string, token_hint: string, want_platfor
 // Walking skeleton: synchronous http (the agent replies with the final
 // verdict in-band); fire-async + webhook-back is a later thickening.
 // v1 backpressure: busy / rejected / unreachable / no-leasable-node all
-// FAIL BACK to the user (build.fail), no retry.
+// FAIL BACK to the user (bldr.fail), no retry.
 builder dispatch(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     // NB: locals must NOT be named target/purpose — those are setter
     // function names in this module, and string interpolation of a bare
@@ -1068,7 +1068,7 @@ builder dispatch(ctx: ptr): int {
     }
     if string.length(tgt) == 0 {
         println("${mod_dir}: agent.dispatch requires target(...)")
-        build.fail(ctx, "agent.dispatch: no target")
+        bldr.fail(ctx, "agent.dispatch: no target")
         return 1
     }
 
@@ -1080,7 +1080,7 @@ builder dispatch(ctx: ptr): int {
         pool_file = os.getenv("AEB_AGENTS")
         if string.length(pool_file) == 0 {
             println("${mod_dir}: agent.dispatch needs endpoint(...) or a pool via --agents/$AEB_AGENTS")
-            build.fail(ctx, "agent.dispatch: no endpoint and no --agents pool")
+            bldr.fail(ctx, "agent.dispatch: no endpoint and no --agents pool")
             return 1
         }
         pool_content, _pe = io.read_file(pool_file)
@@ -1089,7 +1089,7 @@ builder dispatch(ctx: ptr): int {
             disp = want_platform
             if string.length(disp) == 0 { disp = "any platform" }
             println("${mod_dir}: no leasable agent in pool for purpose='${purp}' platform='${disp}' (all busy/unreachable/incompatible)")
-            build.fail(ctx, "agent.dispatch: no leasable node in pool")
+            bldr.fail(ctx, "agent.dispatch: no leasable node in pool")
             return 1
         }
         // leased = "url\ttoken"
@@ -1116,15 +1116,15 @@ builder dispatch(ctx: ptr): int {
             if string.length(pf) > 0 {
                 first = string.substring(pf, 0, 1)
                 if string.equals(first, "/") == 0 {
-                    pf_abs = path.join(build._get(ctx, "source_dir"), pf)
+                    pf_abs = path.join(bldr._get(ctx, "source_dir"), pf)
                 }
                 if file.exists(pf_abs) == 0 {
                     println("${mod_dir}: agent.dispatch patch_file not found: ${pf_abs}")
-                    build.fail(ctx, "agent.dispatch: patch_file not found")
+                    bldr.fail(ctx, "agent.dispatch: patch_file not found")
                     return 1
                 }
                 // base64 (single line, -w0) so it's one clean JSON value.
-                enc_raw, _ee = build._sh_capture("base64 -w0 '${pf_abs}' 2>/dev/null || base64 '${pf_abs}' | tr -d '\n'")
+                enc_raw, _ee = bldr._sh_capture("base64 -w0 '${pf_abs}' 2>/dev/null || base64 '${pf_abs}' | tr -d '\n'")
                 patch_b64 = string.trim(enc_raw)
             }
         }
@@ -1150,7 +1150,7 @@ builder dispatch(ctx: ptr): int {
         // Transport failure — agent unreachable. v1: fail back to user.
         client.request_free(creq)
         println("${mod_dir}: dispatch ${guid} FAILED — ${err} (agent unreachable)")
-        build.fail(ctx, "agent unreachable: ${err}")
+        bldr.fail(ctx, "agent unreachable: ${err}")
         return 1
     }
     // Parse BEFORE freeing: response_body returns a borrowed buffer owned
@@ -1169,17 +1169,17 @@ builder dispatch(ctx: ptr): int {
         reason = status
         if string.length(reason) == 0 { reason = "http ${code}" }
         println("${mod_dir}: dispatch ${guid} REFUSED — ${reason} (HTTP ${code})")
-        build.fail(ctx, "agent refused: ${reason}")
+        bldr.fail(ctx, "agent refused: ${reason}")
         return 1
     }
     if string.equals(status, "done") == 0 {
         println("${mod_dir}: dispatch ${guid} unexpected status '${status}'")
-        build.fail(ctx, "agent dispatch status ${status}")
+        bldr.fail(ctx, "agent dispatch status ${status}")
         return 1
     }
     if string.equals(result, "pass") == 0 {
         println("${mod_dir}: dispatch ${guid} → remote build FAILED")
-        build.fail(ctx, "remote build failed on agent")
+        bldr.fail(ctx, "remote build failed on agent")
         return 1
     }
     println("${mod_dir}: dispatch ${guid} → remote build PASSED")
@@ -1322,7 +1322,7 @@ _veto_tree_size_cap(repo: string) {
     cap_mb, _cerr = string.to_int(string.trim(capstr))
     if cap_mb <= 0 { return "" }
     // `du -sm` → size in MB (first whitespace-delimited field).
-    out, _e = build._sh_capture("du -sm '${repo}' 2>/dev/null | awk '{print $1}'")
+    out, _e = bldr._sh_capture("du -sm '${repo}' 2>/dev/null | awk '{print $1}'")
     sz_mb, _serr = string.to_int(string.trim(out))
     if sz_mb > cap_mb {
         return "tree is ${sz_mb} MB, exceeds AEB_AGENT_MAX_TREE_MB=${cap_mb} (veto:tree-size)"
@@ -1392,7 +1392,7 @@ _veto_run_rules(repo: string, target: string, patch_path: string) {
         reason = _veto_rule_field(row, 3)
         cmd = _veto_scan_cmd(scope, pattern, scan_root, patch_path)
         if string.length(cmd) > 0 {
-            if build._sh(cmd) == 0 {
+            if bldr._sh(cmd) == 0 {
                 // reason + the rule id, so the operator log is actionable.
                 return string.concat(reason, string.concat(" (veto:", string.concat(rid, ")")))
             }

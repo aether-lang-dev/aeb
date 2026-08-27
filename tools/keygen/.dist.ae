@@ -7,11 +7,11 @@
 //
 // Install (puts it on PATH): aeb tools/keygen/.install.ae, or the bundle
 // aeb tools/remote-agent/.install.ae (agent + lease + keygen together).
-import build
+import bldr
 import aether
 import aether (source, output)
 main() {
-    b = build.start()
+    b = bldr.start()
     aether.program(b) {
         source("../aeb-keygen.ae")
         output("aeb-keygen")

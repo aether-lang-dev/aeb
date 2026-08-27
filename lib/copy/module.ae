@@ -35,7 +35,7 @@
 // passes through. The `path.join` trap (LLM.md § path.join) is
 // dodged via the same `_resolve_path` shape lib/fetch uses.
 
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -87,7 +87,7 @@ cp_tree_cmd(src_abs: string, dst_abs: string) {
 // lib/fetch's `_resolve_path`.
 _resolve_path(source_dir: string, p: string) {
     if string.length(p) == 0 { return p }
-    if build._is_abs_path(p) == 1 { return p }
+    if bldr._is_abs_path(p) == 1 { return p }
     return path.join(source_dir, p)
 }
 
@@ -131,13 +131,13 @@ _validate_setters(b_map: ptr, mod_dir: string, builder_name: string) {
 
 // copy.file(b) — single-file copy. Mtime-skip when dst is fresh.
 builder file(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
 
     if _validate_setters(_builder, mod_dir, "file") == 0 {
-        build.fail(ctx, "copy.file: missing from(...) or to(...)")
+        bldr.fail(ctx, "copy.file: missing from(...) or to(...)")
         return 1
     }
 
@@ -148,12 +148,12 @@ builder file(ctx: ptr): int {
 
     if file.exists(src_abs) == 0 {
         println("${mod_dir}: copy.file: source not found at ${src_abs}")
-        build.fail(ctx, "copy.file: source not found at ${src_abs}")
+        bldr.fail(ctx, "copy.file: source not found at ${src_abs}")
         return 1
     }
 
     // Parent dir of dst must exist before cp can write into it.
-    build._mkdirs(path.dirname(dst_abs))
+    bldr._mkdirs(path.dirname(dst_abs))
 
     if _needs_copy(src_abs, dst_abs) == 0 {
         println("${mod_dir}: copy.file up-to-date ${dst_rel}")
@@ -161,10 +161,10 @@ builder file(ctx: ptr): int {
     }
 
     println("${mod_dir}: copying ${src_rel} → ${dst_rel}")
-    rc = build._sh(cp_file_cmd(src_abs, dst_abs))
+    rc = bldr._sh(cp_file_cmd(src_abs, dst_abs))
     if rc != 0 {
         println("${mod_dir}: copy.file: cp failed")
-        build.fail(ctx, "copy.file: cp failed")
+        bldr.fail(ctx, "copy.file: cp failed")
         return rc
     }
     return 0
@@ -176,13 +176,13 @@ builder file(ctx: ptr): int {
 // MVP. Callers that need deeper staleness should `rm -rf dst`
 // between runs.
 builder tree(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
 
     if _validate_setters(_builder, mod_dir, "tree") == 0 {
-        build.fail(ctx, "copy.tree: missing from(...) or to(...)")
+        bldr.fail(ctx, "copy.tree: missing from(...) or to(...)")
         return 1
     }
 
@@ -193,14 +193,14 @@ builder tree(ctx: ptr): int {
 
     if dir.exists(src_abs) == 0 {
         println("${mod_dir}: copy.tree: source directory not found at ${src_abs}")
-        build.fail(ctx, "copy.tree: source directory not found at ${src_abs}")
+        bldr.fail(ctx, "copy.tree: source directory not found at ${src_abs}")
         return 1
     }
 
     // Parent dir of dst must exist. cp -rf <src> <parent_of_dst>/
     // would place src under dst's parent; we want dst itself to
     // become the target, so the parent (not dst) is what we mkdir.
-    build._mkdirs(path.dirname(dst_abs))
+    bldr._mkdirs(path.dirname(dst_abs))
 
     if _needs_copy(src_abs, dst_abs) == 0 {
         println("${mod_dir}: copy.tree up-to-date ${dst_rel}")
@@ -208,10 +208,10 @@ builder tree(ctx: ptr): int {
     }
 
     println("${mod_dir}: copying tree ${src_rel} → ${dst_rel}")
-    rc = build._sh(cp_tree_cmd(src_abs, dst_abs))
+    rc = bldr._sh(cp_tree_cmd(src_abs, dst_abs))
     if rc != 0 {
         println("${mod_dir}: copy.tree: cp failed")
-        build.fail(ctx, "copy.tree: cp failed")
+        bldr.fail(ctx, "copy.tree: cp failed")
         return rc
     }
     return 0

@@ -2,7 +2,7 @@
 //
 // _cache_key_for_kotlinc(ctx, builder_map, argfile_path, cmd, stdlib_jar)
 // reads .kt sources via cache.hash_file, the stdlib jar via
-// cache.hash_file, and dep artifacts via build._read_dep_artifact, so
+// cache.hash_file, and dep artifacts via bldr._read_dep_artifact, so
 // tests stage real fixtures under a tmpdir per case. Same shape as
 // test_java_cache.ae. Unlike java's test, this does NOT assert the
 // toolchain probe is non-empty: kotlinc is often absent on a dev box,
@@ -18,7 +18,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import kotlin (_cache_key_for_kotlinc)
 
 _assert_eq(label: string, actual: string, expected: string) {

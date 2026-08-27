@@ -2,14 +2,14 @@
 //
 // Two .c sources under src/, linked into one native binary. Proves
 // lib/c.program: glob source expansion, per-TU compile, link, and
-// the cross-platform compiler/suffix defaults from build._host_os().
+// the cross-platform compiler/suffix defaults from bldr._host_os().
 
-import build
+import bldr
 import c
 import c (sources, cflag, output_file)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     c.program(b) {
         sources("src/*.c")
         cflag("-O2")

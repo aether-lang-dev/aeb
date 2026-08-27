@@ -1,12 +1,12 @@
-import build
+import bldr
 import dotnet
 import dotnet (root_namespace, nullable, implicit_usings, test_project, nuget)
 
 main() {
-    b = build.start()
-    build.dep(b, "src/ApplicationCore/.build.ae")
-    build.dep(b, "src/PublicApi/.build.ae")
-    build.dep(b, "src/Web/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "src/ApplicationCore/.build.ae")
+    bldr.dep(b, "src/PublicApi/.build.ae")
+    bldr.dep(b, "src/Web/.build.ae")
     dotnet.build_project(b) {
         root_namespace("Microsoft.eShopWeb.FunctionalTests")
         nullable()

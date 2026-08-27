@@ -1,10 +1,10 @@
-import build
+import bldr
 import dotnet
 import dotnet (root_namespace, nullable, nuget)
 
 main() {
-    b = build.start()
-    build.dep(b, "src/BlazorShared/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "src/BlazorShared/.build.ae")
     dotnet.build_project(b) {
         root_namespace("Microsoft.eShopWeb.ApplicationCore")
         nullable()

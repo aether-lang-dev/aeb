@@ -7,16 +7,16 @@
 // loud on drift instead of regenerating).
 //
 // Downstream JS `.build.ae` files (e.g.
-// `javascript/selenium-webdriver/.build.ae`) `build.dep` on this
+// `javascript/selenium-webdriver/.build.ae`) `bldr.dep` on this
 // file so node_modules is in place before their own `pnpm.run(...)`
 // calls.
 
-import build
+import bldr
 import pnpm
 import pnpm (frozen_lockfile)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     pnpm.install(b) {
         frozen_lockfile()
     }

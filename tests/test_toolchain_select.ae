@@ -4,7 +4,7 @@
 // Design: docs/toolchain-selection-and-locks.md
 //         asks/versioned-bom-and-self-validating-lock.md
 
-import build (_digits_prefix, _version_is_floor, _match_major_version,
+import bldr (_digits_prefix, _version_is_floor, _match_major_version,
               _jvm_dir_major, _select_jvm_home, _toolchain_not_found_msg,
               lock_validate)
 import std.string

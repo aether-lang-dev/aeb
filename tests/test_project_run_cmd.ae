@@ -4,7 +4,7 @@
 // aware maven/python/dotnet/dart/gleam/zig verbs). Confirms the EXACT shell
 // string that would be exec'd across the env / step / workdir permutations.
 
-import build (_project_run_cmd, _run_project_cmd, _env_export_prefix, env, step, workdir)
+import bldr (_project_run_cmd, _run_project_cmd, _env_export_prefix, env, step, workdir)
 import std.string
 import std.list
 import std.map

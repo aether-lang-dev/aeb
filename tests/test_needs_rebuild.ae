@@ -1,4 +1,4 @@
-// Regression test for build._needs_rebuild — the node-level up-to-date scan.
+// Regression test for bldr._needs_rebuild — the node-level up-to-date scan.
 //
 // The bug (asks/kotlin-node-cache-hit-ignores-test-source-edits.md): the old
 // form globbed `source_dir/*` (TOP LEVEL ONLY), so a source NESTED under a
@@ -8,7 +8,7 @@
 // The fix walks the tree recursively (`find … -newer`). This test pins the
 // nested case that the old top-level glob missed.
 
-import build (_needs_rebuild, _sh, _sh_capture)
+import bldr (_needs_rebuild, _sh, _sh_capture)
 import std.string
 import std.os
 import std.path
@@ -29,9 +29,9 @@ main() {
     dir = _mktempdir()
     // A source nested two levels down — the shape the top-level glob missed.
     nested_dir = path.join(dir, "src/test/kotlin/demo")
-    build._sh("mkdir -p '${nested_dir}'")
+    bldr._sh("mkdir -p '${nested_dir}'")
     nested = path.join(nested_dir, "T.kt")
-    build._sh("printf 'v1' > '${nested}'")
+    bldr._sh("printf 'v1' > '${nested}'")
 
     ts = path.join(dir, ".ts")
 
@@ -41,24 +41,24 @@ main() {
 
     // 2. Marker NEWER than every source -> up to date (0). Create the marker
     //    after the source, so the source is older.
-    build._sh("sleep 1 && touch '${ts}'")
+    bldr._sh("sleep 1 && touch '${ts}'")
     _assert("marker newer than nested source -> up to date (0)",
         _needs_rebuild(dir, ts) == 0)
 
     // 3. THE REGRESSION: edit the NESTED source so it is newer than the marker.
     //    The old top-level `source_dir/*` glob never saw it -> stale (0, the
     //    bug). The recursive find sees it -> needs rebuild (1).
-    build._sh("sleep 1 && printf 'v2-EDITED' > '${nested}'")
+    bldr._sh("sleep 1 && printf 'v2-EDITED' > '${nested}'")
     _assert("nested source edited after marker -> needs rebuild (1)",
         _needs_rebuild(dir, ts) == 1)
 
     // 4. target/ under source_dir must NOT force a rebuild (it holds this
     //    node's own newer outputs). Refresh the marker, then drop a newer file
     //    under target/ only.
-    build._sh("touch '${ts}' && mkdir -p '${dir}/target' && sleep 1 && touch '${dir}/target/out.o'")
+    bldr._sh("touch '${ts}' && mkdir -p '${dir}/target' && sleep 1 && touch '${dir}/target/out.o'")
     _assert("newer file under target/ is ignored -> up to date (0)",
         _needs_rebuild(dir, ts) == 0)
 
-    build._sh("rm -rf '${dir}'")
+    bldr._sh("rm -rf '${dir}'")
     println("needs_rebuild tests done")
 }

@@ -21,7 +21,7 @@
 // dot-prefixed in-tree target — see docs/build-veto-and-sandbox.md) via the
 // closure-DSL below (`veto.policy`/`deny`/`banned`/`allow_exec`/…), which
 // lowers onto the same "<kind>\t<arg>" rule list `decide()` consumes.
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -358,7 +358,7 @@ _node_verdict(kind: string, callee: string, name: string, modpath: string,
         // banned: a substring that must not appear in ANY literal argument of
         // any call (banned coordinate / host / command fragment). e.g.
         // "banned\tevil.com" vetoes maven.dep("…evil.com…") or
-        // build._sh("curl http://evil.com"). Reads the LITERAL arg only — a
+        // bldr._sh("curl http://evil.com"). Reads the LITERAL arg only — a
         // computed arg can't be string-matched, but a deny-exec/net rule will
         // have fail-closed it already; banned is the targeted-substring layer
         // on top of the category deny.
@@ -649,20 +649,20 @@ _str_opt(builder_map: ptr, key: string, dflt: string) {
 }
 
 builder check(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     aetherc_bin = _str_opt(_builder, "veto_aetherc", "aetherc")
     tgt_rel = _str_opt(_builder, "veto_target", "")
     if string.length(tgt_rel) == 0 {
         println("${mod_dir}: veto.check: declare target(\"path/to/file.ae\")")
-        build.fail(ctx, "veto.check: no target() declared")
+        bldr.fail(ctx, "veto.check: no target() declared")
         return 1
     }
     tgt = tgt_rel
-    if build._is_abs_path(tgt_rel) == 0 { tgt = path.join(source_dir, tgt_rel) }
+    if bldr._is_abs_path(tgt_rel) == 0 { tgt = path.join(source_dir, tgt_rel) }
 
     lib_roots = list.new()
     if _builder != null {
@@ -672,18 +672,18 @@ builder check(ctx: ptr): int {
 
     println("${mod_dir}: vetting ${tgt_rel} (aetherc --emit=ast)")
     cmd = emit_ast_cmd(aetherc_bin, _lib_flags(lib_roots), tgt)
-    ast_json, _err = build._sh_capture(cmd)
+    ast_json, _err = bldr._sh_capture(cmd)
     // os.exec gives us stdout; capture the exit via a marker run.
-    rc = build._sh(string.concat(cmd, " >/dev/null 2>&1"))
+    rc = bldr._sh(string.concat(cmd, " >/dev/null 2>&1"))
 
     reason = decide(ast_json, rc, lib_roots, rules)
     if string.length(reason) > 0 {
         println("${mod_dir}: VETOED — ${reason}")
-        build.fail(ctx, "vetoed: ${reason}")
+        bldr.fail(ctx, "vetoed: ${reason}")
         return 1
     }
     println("${mod_dir}: veto CLEAR")
-    build._write_artifact(ctx, "veto_verdict", "clear")
+    bldr._write_artifact(ctx, "veto_verdict", "clear")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }

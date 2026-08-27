@@ -1,11 +1,11 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, enable_preview, test_timeout, parameters)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "mongodb/aot-optimization/.build.ae")
     dep(b, "mongodb/util/.build.ae")
     load_bom_file(b, "../../spring-boot.bom.ae")

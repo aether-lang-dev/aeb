@@ -1,5 +1,5 @@
 // ts — TypeScript SDK for aether.build
-import build
+import bldr
 import cache
 import pnpm
 import std.string
@@ -131,7 +131,7 @@ mocha_cmd(node_path: string, ld_path: string, dyld_var: string, mocha_bin: strin
 _tsc_version(tsc_bin: string) {
     cached = os.getenv("_AEB_TSC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("'${tsc_bin}' --version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("'${tsc_bin}' --version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -153,22 +153,22 @@ _ts_out_dir(builder_map: ptr, target_dir: string) {
     return path.join(target_dir, "js")
 }
 
-// _tar_out_dir_no_tsbuildinfo(src_dir) — like build._tar_dir but
+// _tar_out_dir_no_tsbuildinfo(src_dir) — like bldr._tar_dir but
 // excludes *.tsbuildinfo. That file encodes absolute paths + mtimes;
 // caching it cross-machine is poison (and on a hit we restore a tree
 // tsc never produced, so a stale .tsbuildinfo would mislead a later
 // incremental tsc). The cache key already captures every real input,
 // so incremental state is redundant. Returns (tar_path, "") or ("",err).
 _tar_out_dir_no_tsbuildinfo(src_dir: string) {
-    tmp_raw, _err = build._sh_capture("mktemp")
+    tmp_raw, _err = bldr._sh_capture("mktemp")
     // Native form — the tarball is later read by cache.put via fs.read_binary,
-    // which cannot see an MSYS `/tmp/...` path. See build._tar_dir's note.
-    tmp = build._to_native_path(string.trim(tmp_raw))
+    // which cannot see an MSYS `/tmp/...` path. See bldr._tar_dir's note.
+    tmp = bldr._to_native_path(string.trim(tmp_raw))
     if string.length(tmp) == 0 {
         return "", "mktemp failed"
     }
     cmd = "tar -cf '${tmp}' -C '${src_dir}' --exclude='*.tsbuildinfo' . 2>&1"
-    out, eerr = build._sh_capture(cmd)
+    out, eerr = bldr._sh_capture(cmd)
     if string.length(eerr) > 0 {
         return "", string.concat("tar failed: ", eerr)
     }
@@ -204,7 +204,7 @@ _cache_key_for_tsc(ctx: ptr, argfile_path: string, tsconfig_path: string, tsc_cm
 
     list.add(parts, string.concat("cmd:", tsc_cmd_str))
 
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -223,13 +223,13 @@ _cache_key_for_tsc(ctx: ptr, argfile_path: string, tsconfig_path: string, tsc_cm
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_td = build._read_dep_artifact(ctx, dm, "typescript_module_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        dep_td = bldr._read_dep_artifact(ctx, dm, "typescript_module_deps_including_transitive")
         if string.length(dep_td) > 0 {
             list.add(parts, string.concat("dep-ts:", dm))
             list.add(parts, string.concat("dep-ts-mods:", dep_td))
         }
-        dep_npm = build._read_dep_artifact(ctx, dm, "npm_deps_including_transitive")
+        dep_npm = bldr._read_dep_artifact(ctx, dm, "npm_deps_including_transitive")
         if string.length(dep_npm) > 0 {
             list.add(parts, string.concat("dep-npm:", dm))
             list.add(parts, string.concat("dep-npm-deps:", dep_npm))
@@ -250,10 +250,10 @@ _cache_key_for_tsc(ctx: ptr, argfile_path: string, tsconfig_path: string, tsc_cm
 // Coord format:
 //     libs:javascript/ffi-napi  — name in libs/javascript/npm_vendored/package-map
 builder npm_vendored(ctx: ptr, coord: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
-    build._write_artifact(ctx, "npm_deps_including_transitive", coord)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+    bldr._write_artifact(ctx, "npm_deps_including_transitive", coord)
     println("${mod_dir}: vendored npm ${coord}")
     return 0
 }
@@ -265,10 +265,10 @@ builder npm_vendored(ctx: ptr, coord: string): int {
 // Coord format:
 //     name~version  (e.g. "react~18.3.1")
 builder npm_registry(ctx: ptr, name_and_ver: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
-    build._write_artifact(ctx, "npm_registry_deps_including_transitive", name_and_ver)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+    bldr._write_artifact(ctx, "npm_registry_deps_including_transitive", name_and_ver)
     println("${mod_dir}: registry npm ${name_and_ver}")
     return 0
 }
@@ -283,18 +283,18 @@ _merge_npm_registry_deps(ctx: ptr) {
     di = 0
     while di < dep_count {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        raw = build._read_dep_artifact(ctx, dm, "npm_registry_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        raw = bldr._read_dep_artifact(ctx, dm, "npm_registry_deps_including_transitive")
         if string.length(raw) > 0 {
             i = 1
             while i <= 200 {
-                l_raw, _el = build._sh_capture("printf '%s\\n' '${raw}' | sed -n '${i}p'")
+                l_raw, _el = bldr._sh_capture("printf '%s\\n' '${raw}' | sed -n '${i}p'")
                 line = string.trim(l_raw)
                 if string.length(line) == 0 {
                     i = 999
                 } else {
                     // Translate "name~version" to "name:version" for pnpm.resolve
-                    c_raw, _ec = build._sh_capture("printf '%s' '${line}' | sed 's/~/:/'")
+                    c_raw, _ec = bldr._sh_capture("printf '%s' '${line}' | sed 's/~/:/'")
                     colonized = string.trim(c_raw)
                     _ea = list.add(npm_deps_list, colonized)
                     i = i + 1
@@ -307,16 +307,16 @@ _merge_npm_registry_deps(ctx: ptr) {
 }
 
 builder tsc_files(ctx: ptr): int {
-    root = build._get(ctx, "root")
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_name = build._get(ctx, "module")
-    mod_dir = build._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_name = bldr._get(ctx, "module")
+    mod_dir = bldr._get(ctx, "module_dir")
     deps, _ = map.get(ctx, "deps")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     ts_file = path.join(target_dir, ".timestamp")
-    if build._needs_rebuild(source_dir, ts_file) == 0 {
+    if bldr._needs_rebuild(source_dir, ts_file) == 0 {
         println("${mod_dir}: skipping compilation of prod code (not changed)")
         return 0
     }
@@ -328,14 +328,14 @@ builder tsc_files(ctx: ptr): int {
     i = 0
     while i < dep_count {
         dp6, _ = list.get(deps, i)
-        dm6 = build._strip_lang(dp6)
-        dep_td = build._read_dep_artifact(ctx, dm6, "typescript_module_deps_including_transitive")
+        dm6 = bldr._strip_lang(dp6)
+        dep_td = bldr._read_dep_artifact(ctx, dm6, "typescript_module_deps_including_transitive")
         if string.length(dep_td) > 0 {
             ts_deps = string.concat(string.concat(ts_deps, "\n"), dep_td)
         }
         i = i + 1
     }
-    build._write_artifact(ctx, "typescript_module_deps_including_transitive", ts_deps)
+    bldr._write_artifact(ctx, "typescript_module_deps_including_transitive", ts_deps)
 
     // Merge registry npm deps from .npm.ae dep files into ctx.npm_deps
     _merge_npm_registry_deps(ctx)
@@ -356,8 +356,8 @@ builder tsc_files(ctx: ptr): int {
     i = 0
     while i < dep_count {
         dp7, _ = list.get(deps, i)
-        dm7 = build._strip_lang(dp7)
-        dep_npm = build._read_dep_artifact(ctx, dm7, "npm_deps_including_transitive")
+        dm7 = bldr._strip_lang(dp7)
+        dep_npm = bldr._read_dep_artifact(ctx, dm7, "npm_deps_including_transitive")
         if string.length(dep_npm) > 0 {
             if string.length(npm_out) > 0 {
                 npm_out = string.concat(string.concat(npm_out, "\n"), dep_npm)
@@ -367,14 +367,14 @@ builder tsc_files(ctx: ptr): int {
         }
         i = i + 1
     }
-    build._write_artifact(ctx, "npm_deps_including_transitive", npm_out)
+    bldr._write_artifact(ctx, "npm_deps_including_transitive", npm_out)
 
     shared_out = ""
     i = 0
     while i < dep_count {
         dp8, _ = list.get(deps, i)
-        dm8 = build._strip_lang(dp8)
-        dep_sh = build._read_dep_artifact(ctx, dm8, "shared_library_deps_including_transitive")
+        dm8 = bldr._strip_lang(dp8)
+        dep_sh = bldr._read_dep_artifact(ctx, dm8, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
             if string.length(shared_out) > 0 {
                 shared_out = string.concat(string.concat(shared_out, "\n"), dep_sh)
@@ -384,29 +384,29 @@ builder tsc_files(ctx: ptr): int {
         }
         i = i + 1
     }
-    build._write_artifact(ctx, "shared_library_deps_including_transitive", shared_out)
+    bldr._write_artifact(ctx, "shared_library_deps_including_transitive", shared_out)
 
     gen_cmd = "${root}/shared-build-scripts/generate-typescript-base-tsconfig-json.sh '${root}' '${source_dir}' '${target_dir}' '${ts_deps}'"
-    build._sh(gen_cmd)
+    bldr._sh(gen_cmd)
 
     npm_file = path.join(target_dir, "npm_deps_including_transitive")
     if file.exists(npm_file) == 1 {
         npm_content, _ernc = io.read_file(npm_file)
         if string.length(npm_content) > 0 {
-            na_raw, _ena = build._sh_capture("echo '${npm_content}' | tr '\n' ' '")
+            na_raw, _ena = bldr._sh_capture("echo '${npm_content}' | tr '\n' ' '")
             npm_args = string.trim(na_raw)
-            ts_raw, _ets = build._sh_capture("echo '${target_dir}' | sed 's|.*/target/||'")
+            ts_raw, _ets = bldr._sh_capture("echo '${target_dir}' | sed 's|.*/target/||'")
             tgt_suffix = string.trim(ts_raw)
             npm_cmd = "${root}/shared-build-scripts/add-npm-deps-to-base-tsconfig-json.sh ${root} ${mod_name} ${tgt_suffix} ${npm_args}"
-            build._sh(npm_cmd)
+            bldr._sh(npm_cmd)
         }
     }
 
     cmd = tsc_files_cmd(source_dir, _builder)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: tsc failed")
-        build.fail(ctx, "tsc failed")
+        bldr.fail(ctx, "tsc failed")
         return exit_code
     }
 
@@ -415,9 +415,9 @@ builder tsc_files(ctx: ptr): int {
 }
 
 builder mocha(ctx: ptr, test_file: string): int {
-    root = build._get(ctx, "root")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     deps, _ = map.get(ctx, "deps")
 
     js_dir = path.join(target_dir, "js")
@@ -429,10 +429,10 @@ builder mocha(ctx: ptr, test_file: string): int {
     i = 0
     while i < dep_count {
         dp9, _ = list.get(deps, i)
-        dm9 = build._strip_lang(dp9)
-        dep_td = build._read_dep_artifact(ctx, dm9, "typescript_module_deps_including_transitive")
+        dm9 = bldr._strip_lang(dp9)
+        dep_td = bldr._read_dep_artifact(ctx, dm9, "typescript_module_deps_including_transitive")
         if string.length(dep_td) > 0 {
-            df_raw, _edf = build._sh_capture("echo '${dep_td}' | tr '\n' ':' | sed 's/:$//'")
+            df_raw, _edf = bldr._sh_capture("echo '${dep_td}' | tr '\n' ':' | sed 's/:$//'")
             dep_td_flat = string.trim(df_raw)
             node_path = string.concat(string.concat(node_path, ":"), dep_td_flat)
         }
@@ -452,10 +452,10 @@ builder mocha(ctx: ptr, test_file: string): int {
     i = 0
     while i < dep_count {
         dpA, _ = list.get(deps, i)
-        dmA = build._strip_lang(dpA)
-        dep_sh = build._read_dep_artifact(ctx, dmA, "shared_library_deps_including_transitive")
+        dmA = bldr._strip_lang(dpA)
+        dep_sh = bldr._read_dep_artifact(ctx, dmA, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
-            sh_raw, _esh = build._sh_capture("dirname ${dep_sh} | head -1")
+            sh_raw, _esh = bldr._sh_capture("dirname ${dep_sh} | head -1")
             sh_dir = string.trim(sh_raw)
             if string.length(ld_path) > 0 {
                 ld_path = string.concat(string.concat(ld_path, ":"), sh_dir)
@@ -471,18 +471,18 @@ builder mocha(ctx: ptr, test_file: string): int {
 
     dyld_var = ""
     if string.length(ld_path) > 0 {
-        dyld_var = build._dyld_env_var()
+        dyld_var = bldr._dyld_env_var()
     }
     run_cmd = mocha_cmd(node_path, ld_path, dyld_var, mocha_bin, _builder, test_file)
-    exit_code = build._sh(run_cmd)
+    exit_code = bldr._sh(run_cmd)
     if exit_code != 0 {
         // mocha summary parsing not yet wired; coarse record.
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     return 0
 }
@@ -502,12 +502,12 @@ skip_lib_check(_ctx: ptr) {
 // Uses tsc from .aeb/node_modules/.bin/tsc.
 // The tsconfig chain handles path aliases and module resolution.
 builder tsc(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     // Merge registry npm deps from .npm.ae dep files into ctx.npm_deps
     _merge_npm_registry_deps(ctx)
@@ -537,7 +537,7 @@ builder tsc(ctx: ptr): int {
     // Source set for the cache key: every .ts under source_dir except
     // declaration files and anything inside node_modules.
     argfile = path.join(target_dir, "tsc_sources.txt")
-    build._sh("find '${source_dir}' -name '*.ts' ! -name '*.d.ts' ! -path '*/node_modules/*' > '${argfile}' 2>/dev/null || true")
+    bldr._sh("find '${source_dir}' -name '*.ts' ! -name '*.d.ts' ! -path '*/node_modules/*' > '${argfile}' 2>/dev/null || true")
 
     // Cache check: restore the out-dir tree on hit (sans *.tsbuildinfo)
     // and skip tsc. exit_code sentinel: 0 = cache hit, -1 = run tsc.
@@ -547,22 +547,22 @@ builder tsc(ctx: ptr): int {
         ck, kerr = _cache_key_for_tsc(ctx, argfile, tc, cmd, tsc_bin)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, out_dir_c)
-                    build._sh("rm -f '${tmp_tar}'")
+                    uerr = bldr._untar_into(tmp_tar, out_dir_c)
+                    bldr._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: tsc cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        build._sh("rm -rf '${out_dir_c}'")
+                        bldr._sh("rm -rf '${out_dir_c}'")
                     }
                 } else {
-                    build._sh("rm -f '${tmp_tar}'")
+                    bldr._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -570,14 +570,14 @@ builder tsc(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        exit_code = build._sh(cmd)
+        exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: tsc failed")
-            build.fail(ctx, "tsc failed")
+            bldr.fail(ctx, "tsc failed")
             return exit_code
         }
         // Only populate the cache when the assumed out-dir actually
@@ -585,11 +585,11 @@ builder tsc(ctx: ptr): int {
         // output elsewhere) leaves out_dir_c empty → we skip the put →
         // no future false hit. Self-correcting, no-hacks.
         if string.length(cache_key) > 0 {
-            if build._dir_nonempty(out_dir_c) == 1 {
+            if bldr._dir_nonempty(out_dir_c) == 1 {
                 tar_path, terr = _tar_out_dir_no_tsbuildinfo(out_dir_c)
                 if string.length(terr) == 0 {
                     perr = cache.put(cache_key, tar_path)
-                    build._sh("rm -f '${tar_path}'")
+                    bldr._sh("rm -f '${tar_path}'")
                     if string.length(perr) > 0 {
                         println("${mod_dir}: tsc cache write failed: ${perr}")
                     }

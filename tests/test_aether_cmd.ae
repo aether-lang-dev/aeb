@@ -11,7 +11,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import aether (aetherc_emit_lib_cmd, aether_link_cmd)
 
 _assert_eq(label: string, actual: string, expected: string) {

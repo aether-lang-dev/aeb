@@ -1,11 +1,11 @@
-// Build the program first (build.dep on its .build.ae), then run the
+// Build the program first (bldr.dep on its .build.ae), then run the
 // argv assertion in test_argv.sh (auto-discovered by bash.test).
-import build
+import bldr
 import bash
-import build (dep)
+import bldr (dep)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "app/.build.ae")
     bash.test(b)
 }

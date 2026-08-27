@@ -13,7 +13,7 @@
 // enumeration variant of the bug can't return silently.
 
 import aether (_expand_transitive_regens)
-import build (_sh, _sh_capture)
+import bldr (_sh, _sh_capture)
 import std.string
 import std.os
 import std.list

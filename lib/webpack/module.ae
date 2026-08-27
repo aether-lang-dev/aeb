@@ -1,5 +1,5 @@
 // webpack — Webpack bundler SDK for aether.build
-import build
+import bldr
 import pnpm
 import std.string
 import std.io
@@ -29,12 +29,12 @@ webpack_cmd(node_modules_dir: string, webpack_bin: string, config_path: string) 
 // --- SDK functions ---
 
 builder bundle(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     pnpm.resolve(ctx)
 
     wp_config = path.join(source_dir, "webpack.aeb.config.js")
@@ -52,10 +52,10 @@ builder bundle(ctx: ptr): int {
     nm_dir = path.join(aeb_dir, "node_modules")
     cmd = webpack_cmd(nm_dir, webpack_bin, wp_config)
 
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: webpack failed")
-        build.fail(ctx, "webpack failed")
+        bldr.fail(ctx, "webpack failed")
         return exit_code
     }
     println("${mod_dir}: bundle complete")

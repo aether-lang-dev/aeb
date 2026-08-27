@@ -2,7 +2,7 @@
 //
 // _cache_key_for_javac(ctx, b_map_map, argfile_path, cmd) reads
 // .java sources via cache.hash_file and the dep artifacts via
-// build._read_dep_artifact, so tests stage real fixtures under a
+// bldr._read_dep_artifact, so tests stage real fixtures under a
 // tmpdir per case. Same shape as test_aether_cache.ae.
 import std.string
 import std.io
@@ -14,7 +14,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import java (_cache_key_for_javac, _jdk_version)
 
 _assert_eq(label: string, actual: string, expected: string) {

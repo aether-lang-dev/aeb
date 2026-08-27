@@ -1,9 +1,9 @@
-import build
+import bldr
 import go
 import go (pkg)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     go.go_test(b) {
         pkg("./container/...")
     }

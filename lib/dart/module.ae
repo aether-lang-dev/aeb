@@ -17,7 +17,7 @@
 // `dart pub get`. So where python._ensure_venv creates an isolated
 // interpreter, dart just runs `dart pub get` in source_dir and lets
 // the SDK manage `.dart_tool/`.
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -356,11 +356,11 @@ _dart_of(builder_map: ptr) {
 // builder — runs in source_dir, materialises `.dart_tool/`. Mirror of
 // python.install.
 builder pub_get(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: resolving deps (dart pub get)")
 
     dart = _dart_of(_builder)
@@ -373,10 +373,10 @@ builder pub_get(ctx: ptr): int {
     }
 
     cmd = pub_get_cmd(dart, source_dir, offline_flag)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: pub get FAILED")
-        build.fail(ctx, "pub get FAILED")
+        bldr.fail(ctx, "pub get FAILED")
         return exit_code
     }
     println("${mod_dir}: pub get done")
@@ -388,11 +388,11 @@ builder pub_get(ctx: ptr): int {
 // python.lint / typecheck (Dart folds lint + type-check into one
 // command).
 builder analyze(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: analysing (dart analyze)")
 
     dart = _dart_of(_builder)
@@ -403,10 +403,10 @@ builder analyze(ctx: ptr): int {
         }
     }
     cmd = analyze_cmd(dart, source_dir, analyze_args_part(analyze_flags))
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: analyze FAILED")
-        build.fail(ctx, "analyze FAILED")
+        bldr.fail(ctx, "analyze FAILED")
         return exit_code
     }
     println("${mod_dir}: analyze PASSED")
@@ -416,13 +416,13 @@ builder analyze(ctx: ptr): int {
 
 // Run tests via `dart test`. Mirror of python.pytest: tee output to
 // target/<module>/test_output.log, parse the summary line for pass/
-// fail counts, feed build._record_test_result.
+// fail counts, feed bldr._record_test_result.
 builder test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     dart = _dart_of(_builder)
 
@@ -438,10 +438,10 @@ builder test(ctx: ptr): int {
                     if string.length(ov) > 0 { pg_offline = " --offline" }
                 }
                 println("${mod_dir}: resolving deps (dart pub get)")
-                pg_rc = build._sh(pub_get_cmd(dart, source_dir, pg_offline))
+                pg_rc = bldr._sh(pub_get_cmd(dart, source_dir, pg_offline))
                 if pg_rc != 0 {
                     println("${mod_dir}: pub get FAILED")
-                    build.fail(ctx, "pub get FAILED")
+                    bldr.fail(ctx, "pub get FAILED")
                     return pg_rc
                 }
             }
@@ -464,16 +464,16 @@ builder test(ctx: ptr): int {
     }
     args_part = test_args_part(conc, names, flags, tpath)
 
-    cmd = string.concat(build._env_export_prefix(_builder), test_cmd(dart, source_dir, args_part))
+    cmd = string.concat(bldr._env_export_prefix(_builder), test_cmd(dart, source_dir, args_part))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = build._sh(full_cmd)
+    exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     tp_cnt, tf_cnt = _parse_dart_test_counts(out_text)
-    build._record_test_result(ctx, tp_cnt, tf_cnt)
+    bldr._record_test_result(ctx, tp_cnt, tf_cnt)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -556,11 +556,11 @@ _is_digit_dart(c: string) {
 // exe format) so a downstream test runner can drive it, same
 // contract as c.program / aether.program.
 builder compile(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     dart = _dart_of(_builder)
 
@@ -595,21 +595,21 @@ builder compile(ctx: ptr): int {
 
     println("${mod_dir}: compiling (dart compile ${fmt})")
     cmd = compile_cmd(dart, source_dir, fmt, entry, out_abs)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: compile FAILED")
-        build.fail(ctx, "compile FAILED")
+        bldr.fail(ctx, "compile FAILED")
         return exit_code
     }
 
     // Publish the runnable-binary artifact for exe-format outputs, so
-    // a language-agnostic test runner (build.program_binary_of) finds
+    // a language-agnostic test runner (bldr.program_binary_of) finds
     // it. Other formats (js/kernel/snapshot) aren't directly runnable
     // as a host binary, so they don't claim program_binary.
     if string.equals(fmt, "exe") == 1 {
-        build._write_artifact(ctx, "program_binary", out_abs)
+        bldr._write_artifact(ctx, "program_binary", out_abs)
     }
-    build._write_artifact(ctx, "dart_compile_output", out_abs)
+    bldr._write_artifact(ctx, "dart_compile_output", out_abs)
 
     println("${mod_dir}: compile done → ${out_abs}")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -651,10 +651,10 @@ _strip_dart_ext(name: string) {
 // artifacts is a follow-up). Today's behaviour is "run if any declared
 // input is newer than the oldest declared output."
 builder codegen(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     // Resolve working directory. codegen_cwd is relative to source_dir
     // unless absolute. Default to source_dir.
@@ -663,7 +663,7 @@ builder codegen(ctx: ptr): int {
         if map.has(_builder, "codegen_cwd") == 1 {
             rel, _ = map.get(_builder, "codegen_cwd")
             if string.length(rel) > 0 {
-                if build._is_abs_path(rel) == 1 {
+                if bldr._is_abs_path(rel) == 1 {
                     cwd = rel
                 } else {
                     cwd = path.join(source_dir, rel)
@@ -705,7 +705,7 @@ builder codegen(ctx: ptr): int {
     }
     if string.length(driver_form) == 0 {
         println("${mod_dir}: codegen: declare codegen_driver(\"build_runner\") or codegen_script(\"tool/gen.dart\")")
-        build.fail(ctx, "codegen: no codegen_driver() or codegen_script() declared")
+        bldr.fail(ctx, "codegen: no codegen_driver() or codegen_script() declared")
         return 1
     }
 
@@ -737,10 +737,10 @@ builder codegen(ctx: ptr): int {
     if skip == 0 {
         cmd = dart_codegen_cmd(dart, cwd, driver_form, driver_name, args)
         println("${mod_dir}: codegen running")
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: codegen FAILED")
-            build.fail(ctx, "codegen FAILED")
+            bldr.fail(ctx, "codegen FAILED")
             return rc
         }
     } else {
@@ -751,13 +751,13 @@ builder codegen(ctx: ptr): int {
     missing = _codegen_check_outputs(cwd, outputs, mod_dir)
     if missing > 0 {
         println("${mod_dir}: codegen: ${missing} declared output(s) missing — check codegen_output() vs the generator's actual output set")
-        build.fail(ctx, "codegen: ${missing} declared output(s) missing")
+        bldr.fail(ctx, "codegen: ${missing} declared output(s) missing")
         return 1
     }
 
     // Record artifact: newline-separated absolute output paths.
     out_listing = _codegen_format_output_list(cwd, outputs)
-    build._write_artifact(ctx, "dart_codegen_outputs", out_listing)
+    bldr._write_artifact(ctx, "dart_codegen_outputs", out_listing)
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
@@ -883,7 +883,7 @@ _codegen_format_output_list(cwd: string, outputs: ptr) {
 // joined against cwd; absolute passes through.
 _codegen_resolve(cwd: string, p: string) {
     if string.length(p) == 0 { return p }
-    if build._is_abs_path(p) == 1 { return p }
+    if bldr._is_abs_path(p) == 1 { return p }
     return path.join(cwd, p)
 }
 
@@ -891,7 +891,7 @@ _codegen_resolve(cwd: string, p: string) {
 // full step/env control (e.g. `dart pub get` then `dart test -j 1`).
 // Foundation-backed counterpart to the metadata-owning `test` builder.
 builder test_existing(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (dart test)")
-    return build._run_project(ctx, _builder, "dart test", 1)
+    return bldr._run_project(ctx, _builder, "dart test", 1)
 }

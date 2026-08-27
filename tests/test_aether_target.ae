@@ -9,7 +9,7 @@
 // decide the flag spliced into that command and the output extension.)
 
 import aether (_node_target, _target_flag, _program_out_suffix, target)
-import build (_exe_suffix)
+import bldr (_exe_suffix)
 import std.string
 import std.map
 

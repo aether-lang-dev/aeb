@@ -16,7 +16,7 @@
 // Needs python3 for the listener; if absent the test skips cleanly
 // so the suite stays green in minimal environments.
 
-import build
+import bldr
 import webhook
 import webhook (url)
 import std.string
@@ -127,8 +127,8 @@ main() {
 
     // Drive the builder the way the orchestrator does. {{ci}} also
     // exercises real interpolation inside the builder.
-    s = build.session(".")
-    b = build.begin(s, "m_webhook")
+    s = bldr.session(".")
+    b = bldr.begin(s, "m_webhook")
     webhook.fire(b) {
         url("http://127.0.0.1:${port}/hook?probe=aeb&ci={{ci}}")
     }

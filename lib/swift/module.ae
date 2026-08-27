@@ -7,7 +7,7 @@
 //
 // Style mirror: lib/dart / lib/gleam. No venv: SwiftPM uses the system
 // `swift` on PATH plus a per-project `.build/` resolved by the toolchain.
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -91,18 +91,18 @@ _release_of(builder_map: ptr) {
 // Resolve dependencies via `swift package resolve`. The install-
 // equivalent. Mirror of dart.pub_get.
 builder resolve(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: resolving deps (swift package resolve)")
 
     swift = _swift_of(_builder)
-    exit_code = build._sh(resolve_cmd(swift, source_dir))
+    exit_code = bldr._sh(resolve_cmd(swift, source_dir))
     if exit_code != 0 {
         println("${mod_dir}: resolve FAILED")
-        build.fail(ctx, "resolve FAILED")
+        bldr.fail(ctx, "resolve FAILED")
         return exit_code
     }
     println("${mod_dir}: resolve done")
@@ -115,48 +115,48 @@ builder resolve(ctx: ptr): int {
 // runnable surface is `swift run`, which needs the toolchain — so (like
 // gleam.build) no host program_binary is published.
 builder build_pkg(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     swift = _swift_of(_builder)
     println("${mod_dir}: building (swift build)")
     cmd = build_cmd(swift, source_dir, _config_flag(_release_of(_builder)))
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: build FAILED")
-        build.fail(ctx, "build FAILED")
+        bldr.fail(ctx, "build FAILED")
         return exit_code
     }
-    build._write_artifact(ctx, "swift_build_output", path.join(source_dir, ".build"))
+    bldr._write_artifact(ctx, "swift_build_output", path.join(source_dir, ".build"))
     println("${mod_dir}: build done")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
 
 // Run tests via `swift test`. Mirror of dart.test: tee output, parse
-// XCTest's summary for pass/fail, feed build._record_test_result.
+// XCTest's summary for pass/fail, feed bldr._record_test_result.
 builder test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (swift test)")
 
     swift = _swift_of(_builder)
     cmd = test_cmd(swift, source_dir, _config_flag(_release_of(_builder)))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = build._sh(full_cmd)
+    exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     tp_cnt, tf_cnt = _parse_xctest_counts(out_text)
-    build._record_test_result(ctx, tp_cnt, tf_cnt)
+    bldr._record_test_result(ctx, tp_cnt, tf_cnt)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")

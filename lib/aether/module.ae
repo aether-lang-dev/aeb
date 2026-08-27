@@ -4,7 +4,7 @@
 // Aether runtime to produce a native binary. Optionally links against shared
 // libraries from upstream deps (e.g. Rust cdylibs) via the standard
 // `shared_library_deps_including_transitive` artifact.
-import build
+import bldr
 import cache
 import std.string
 import std.io
@@ -99,7 +99,7 @@ ready_after_ms(_ctx: ptr, n: int) {
 }
 
 // binary_under_test(b, name) { path(...); env_var(...) }
-// — declare a binary built by an upstream `build.dep` that the
+// — declare a binary built by an upstream `bldr.dep` that the
 // driver needs to spawn. Repeatable: each call exposes one binary.
 //
 // Sub-setters:
@@ -403,15 +403,15 @@ no_closure_regen(_ctx: ptr) {
 // lib/c). These thin forwarders keep lib/aether's existing internal
 // call sites unchanged.
 _resolve_aether_dir() {
-    return build._resolve_aether_dir()
+    return bldr._resolve_aether_dir()
 }
 
 _resolve_libaether_dir(aether_dir: string) {
-    return build._resolve_libaether_dir(aether_dir)
+    return bldr._resolve_libaether_dir(aether_dir)
 }
 
 _resolve_aether_include(aether_dir: string) {
-    return build._resolve_aether_include(aether_dir)
+    return bldr._resolve_aether_include(aether_dir)
 }
 
 _collect_shared_libs(ctx: ptr) {
@@ -422,8 +422,8 @@ _collect_shared_libs(ctx: ptr) {
     i = 0
     while i < n {
         dp, _ = list.get(deps, i)
-        dm = build._strip_lang(dp)
-        sh = build._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        sh = bldr._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
         if string.length(sh) > 0 {
             if string.length(out) > 0 {
                 out = string.concat(out, "\n")
@@ -441,7 +441,7 @@ _collect_ld_path(shared_libs_text: string) {
         return ""
     }
     cmd = "echo '${shared_libs_text}' | xargs -n1 dirname 2>/dev/null | sort -u | tr '\n' ':' | sed 's/:$//'"
-    out, _eerr = build._sh_capture(cmd)
+    out, _eerr = bldr._sh_capture(cmd)
     return string.trim(out)
 }
 
@@ -537,7 +537,7 @@ _toolchain_version() {
     cached = os.getenv("_AEB_AETHER_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
     ae_bin = _ae_bin()
-    raw, _err = build._sh_capture("${ae_bin} --version 2>/dev/null | head -1")
+    raw, _err = bldr._sh_capture("${ae_bin} --version 2>/dev/null | head -1")
     ver = string.trim(raw)
     if string.length(ver) > 0 { _s = os.setenv("_AEB_AETHER_VERSION_CACHE", ver) }
     return ver
@@ -545,7 +545,7 @@ _toolchain_version() {
 
 // --- Transitive Aether import-closure scan -------------------------
 //
-// aeb's DAG models build.dep() target edges only; the Aether `import`
+// aeb's DAG models bldr.dep() target edges only; the Aether `import`
 // graph inside a target's source is invisible to it. Without the scan
 // below, a target's cache key hashes just its entry .ae (+ declared
 // extra_sources) — so editing a widely-imported module never busts a
@@ -807,7 +807,7 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
     // would serve stale binaries there. The guard reads as "tolerating
     // synthetic test inputs"; it must not quietly mean "always skip on
     // Windows". (asks/windows-fanout-aetherc-invoked-as-directory.md)
-    aetherc_bin = path.join(_resolve_aether_dir(), string.concat("aetherc", build._exe_suffix()))
+    aetherc_bin = path.join(_resolve_aether_dir(), string.concat("aetherc", bldr._exe_suffix()))
     if file.exists(aetherc_bin) == 1 {
         ach, acherr = cache.hash_file(aetherc_bin)
         if string.length(acherr) > 0 {
@@ -1063,7 +1063,7 @@ _has_manual_overrides(builder_map: ptr) {
 // in exactly one place; the local wrapper is kept because callers here invoke
 // it bare (dozens of sites) and to preserve the ask-doc trail above.
 _is_abs_path(p: string) {
-    return build._is_abs_path(p)
+    return bldr._is_abs_path(p)
 }
 
 _resolved_user_include_dirs(builder_map: ptr, source_dir: string) {
@@ -1139,8 +1139,8 @@ _collect_dep_header_dirs(ctx: ptr) {
     while i < n {
         dp, _ = list.get(deps, i)
         i = i + 1
-        dm = build._strip_lang(dp)
-        dirs = build._read_dep_artifact(ctx, dm, "c_header_dirs")
+        dm = bldr._strip_lang(dp)
+        dirs = bldr._read_dep_artifact(ctx, dm, "c_header_dirs")
         if string.length(dirs) > 0 {
             lines = string.split(dirs, "\n")
             m = string.array_size(lines)
@@ -1295,7 +1295,7 @@ _ae_build_cmd_delegated(ae_build_args: string, root: string, image: string, work
 }
 
 // _ae_build_lib_flags(compile_lib) — turn a separator-joined AEB_COMPILE_LIB
-// value (<a><sep><b>…, sep = build._path_sep(): ':' POSIX / ';' Windows) into a
+// value (<a><sep><b>…, sep = bldr._path_sep(): ':' POSIX / ';' Windows) into a
 // repeated-flag fragment " --lib a --lib b". Empty in → "". Repeated flags (not
 // a joined --lib value) keep it Windows-shell-safe (aetherc's first --lib resets
 // the chain, each subsequent appends). Pure string assembly.
@@ -1306,7 +1306,7 @@ _ae_build_cmd_delegated(ae_build_args: string, root: string, image: string, work
 // One invocation per module (d55f064): `pkg-config --libs a b` is
 // all-or-nothing, so a missing a.pc silently drops b's flags too.
 _pkg_config_libs(mod: string) {
-    out, err = build._sh_capture("pkg-config --libs ${mod} 2>/dev/null")
+    out, err = bldr._sh_capture("pkg-config --libs ${mod} 2>/dev/null")
     if string.length(err) > 0 { return "" }
     return string.trim(out)
 }
@@ -1336,14 +1336,14 @@ _pkg_config_libs(mod: string) {
 // is the right default: if libaether was built without a dep, it does not
 // reference its symbols either.
 _resolve_sysdeps() {
-    if build._is_windows() == 1 {
+    if bldr._is_windows() == 1 {
         existing = os.getenv("PKG_CONFIG_PATH")
         mingw = "/mingw64/lib/pkgconfig"
         if string.length(existing) == 0 {
             _sp = os.setenv("PKG_CONFIG_PATH", mingw)
         } else {
             if string.index_of(existing, mingw) < 0 {
-                _sp2 = os.setenv("PKG_CONFIG_PATH", string.concat(existing, string.concat(build._path_sep(), mingw)))
+                _sp2 = os.setenv("PKG_CONFIG_PATH", string.concat(existing, string.concat(bldr._path_sep(), mingw)))
             }
         }
     }
@@ -1367,7 +1367,7 @@ _resolve_sysdeps() {
 
 _ae_build_lib_flags(compile_lib: string) {
     if string.length(compile_lib) == 0 { return "" }
-    sep = build._path_sep()
+    sep = bldr._path_sep()
     out = ""
     rest = compile_lib
     while string.length(rest) > 0 {
@@ -1391,8 +1391,8 @@ _ae_build_lib_flags(compile_lib: string) {
 // (e.g. " --emit=csrc --with=net" from ae_csrc_flags) for emit-mode
 // builds where -o is an output BASE, not a binary path.
 _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, emit_flags: string) {
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
     ae_bin = _ae_bin()
 
     // Coverage: cross-cutting CLI flag set by the trampoline as
@@ -1439,27 +1439,27 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     // local `ae build`, unchanged for normal hosts.
     container_image = os.getenv("AEB_COMPILE_CONTAINER")
     if string.length(container_image) > 0 {
-        root = build._get(ctx, "root")
+        root = bldr._get(ctx, "root")
         wsrc = _rewrite_under_root(src_path, root, "/work")
         wbin = _rewrite_under_root(bin_path, root, "/work")
         // Run `ae build` from the module's source dir IN the container so it
         // finds the module's aether.toml (ae reads "aether.toml" from CWD). The
         // in-container source dir is the source dir rewritten root/… → /work/….
-        wsrcdir = _rewrite_under_root(build._get(ctx, "source_dir"), root, "/work")
+        wsrcdir = _rewrite_under_root(bldr._get(ctx, "source_dir"), root, "/work")
         // NB: lib_flags carry host paths; inside the container they're rewritten
         // root/… → /work/… so the SDK lib resolves at the bind-mounted location.
         wlibs = _rewrite_under_root(lib_flags, root, "/work")
         args = "build${cov_flag}${tgt_flag}${emit_flags} ${wsrc} -o ${wbin}${wlibs}"
         cmd = _ae_build_cmd_delegated(args, root, container_image, wsrcdir)
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: ae build (in ${container_image}) failed")
-            build.fail(ctx, "ae build (containerized) failed")
+            bldr.fail(ctx, "ae build (containerized) failed")
             return rc
         }
         // Same delegation as the local path below — the toolchain in the
         // container owns the staleness decision, so aeb reports "n/a".
-        build._record_cache(ctx, "n/a")
+        bldr._record_cache(ctx, "n/a")
         return 0
     }
 
@@ -1471,10 +1471,10 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     // for the libffi-using tinygo bridge); the other bridges had empty tomls.
     // (source_dir read at the top of this fn.)
     cmd = "cd ${source_dir} && ${ae_bin} build${cov_flag}${tgt_flag}${emit_flags} ${src_path} -o ${bin_path}${lib_flags}"
-    rc = build._sh(cmd)
+    rc = bldr._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: ae build failed")
-        build.fail(ctx, "ae build failed")
+        bldr.fail(ctx, "ae build failed")
         return rc
     }
     // This path delegates staleness to `ae build`'s own incremental cache, so
@@ -1484,7 +1484,7 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     // same; but then every `aether.program` on the default path printed a
     // marker it had never written, and a genuine miss was indistinguishable
     // from "this SDK does not cache". Say it explicitly.
-    build._record_cache(ctx, "n/a")
+    bldr._record_cache(ctx, "n/a")
     return 0
 }
 
@@ -1940,7 +1940,7 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
     // Generated C lands under <target_dir>/regen/ (Gap 2) — never beside
     // the committed .ae source. mkdir it once.
     regen_out = path.join(target_dir, "regen")
-    build._mkdirs(regen_out)
+    bldr._mkdirs(regen_out)
 
     // Ensure extra_source list exists so we can append generated paths.
     if map.has(builder_map, "extra_source") == 0 {
@@ -2012,7 +2012,7 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
                 caps = _detect_caps(ae_abs)
             }
             cmd = aetherc_emit_lib_cmd(aetherc, ae_abs, c_abs, caps)
-            rc = build._sh(cmd)
+            rc = bldr._sh(cmd)
             if rc != 0 {
                 println("${mod_dir}: aetherc --emit=lib failed for ${rel}")
                 return rc
@@ -2088,7 +2088,7 @@ _find_extern_definer(project_root: string, sym: string) {
     if string.length(sym) == 0 { return "" }
     pattern = string.concat(sym, "(")
     cmd = "grep -rl --include='module_generated.c' -F -- '${pattern}' '${project_root}' 2>/dev/null | head -1"
-    out, _err = build._sh_capture(cmd)
+    out, _err = bldr._sh_capture(cmd)
     found_c = string.trim(out)
     if string.length(found_c) == 0 { return "" }
     mod_dir = path.dirname(found_c)
@@ -2103,7 +2103,7 @@ _find_extern_definer(project_root: string, sym: string) {
 // failure; the caller can fall back to the absolute path.
 _relpath_for_hint(from_dir: string, to_file: string) {
     cmd = "python3 -c \"import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))\" '${to_file}' '${from_dir}' 2>/dev/null"
-    out, _err = build._sh_capture(cmd)
+    out, _err = bldr._sh_capture(cmd)
     return string.trim(out)
 }
 
@@ -2115,7 +2115,7 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
     syms = _extract_undefined_refs(stderr_text)
     n = list.size(syms)
     if n == 0 { return 0 }
-    root = build._get(ctx, "root")
+    root = bldr._get(ctx, "root")
     if string.length(root) == 0 { return 0 }
 
     by_module = map.new()
@@ -2182,9 +2182,9 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
 // .build.ae declares any of those — bypasses aether.toml entirely so
 // the .build.ae is the single source of truth.
 _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, c_path: string) {
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
 
     ae_dir = _resolve_aether_dir()
     // .exe on Windows: the file on disk is aetherc.exe, and every OTHER site
@@ -2192,7 +2192,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // and the bin_path composition further down this same file). This one did
     // not, so the composed command named a file that does not exist.
     // (asks/windows-fanout-aetherc-invoked-as-directory.md)
-    aetherc = path.join(ae_dir, string.concat("aetherc", build._exe_suffix()))
+    aetherc = path.join(ae_dir, string.concat("aetherc", bldr._exe_suffix()))
 
     // Phase 0a: expand regen entries to cover every transitive
     // project-local sibling import. Without this the consumer has to
@@ -2227,10 +2227,10 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     lib_dir = _resolve_libaether_dir(ae_dir)
     if string.length(lib_dir) == 0 {
         println("${mod_dir}: libaether.a not found near ${ae_dir} — your Aether install looks incomplete")
-        build.fail(ctx, "libaether.a not found")
+        bldr.fail(ctx, "libaether.a not found")
         return 1
     }
-    dup_flag = build._dup_symbol_link_flag()
+    dup_flag = bldr._dup_symbol_link_flag()
     shared_libs = _collect_shared_libs(ctx)
 
     // Resolve extra `-I` include dirs (user include_dir + dep
@@ -2280,15 +2280,15 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
             cache_key = ck
             // mkdir parent so cache.get's atomic write has somewhere to land.
             bin_parent = path.dirname(bin_path)
-            build._mkdirs(bin_parent)
+            bldr._mkdirs(bin_parent)
             grc = "miss"
             if no_cache == 0 {
                 grc = cache.get(cache_key, bin_path)
             }
             if string.length(grc) == 0 {
-                build._sh("chmod +x ${bin_path}")
+                bldr._sh("chmod +x ${bin_path}")
                 println("${mod_dir}: aether cache hit ${cache_key}")
-                build._record_cache(ctx, "hit")
+                bldr._record_cache(ctx, "hit")
                 return 0
             }
             // grc != "" means miss or transport error — fall through.
@@ -2308,11 +2308,11 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
             // failed read — so it is formatted into the line HERE, never
             // stashed for later.
             println("${mod_dir}: cache key not computable (${kerr}) — building without cache")
-            build._record_cache(ctx, "key-error")
+            bldr._record_cache(ctx, "key-error")
         }
     }
     if cache.available() == 0 {
-        build._record_cache(ctx, "unavailable")
+        bldr._record_cache(ctx, "unavailable")
     }
 
     // Phase 1: aetherc src.ae → src.c
@@ -2354,10 +2354,10 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // vg/* from aevg/). See asks/aether-program-per-node-lib-search-path.md.
     lib_flag = string.concat(lib_flag, _node_lib_flags(builder_map, source_dir))
     ac_cmd = "${aetherc}${lib_flag} ${src_path} ${c_path}"
-    rc = build._sh(ac_cmd)
+    rc = bldr._sh(ac_cmd)
     if rc != 0 {
         println("${mod_dir}: aetherc failed")
-        build.fail(ctx, "aetherc failed")
+        bldr.fail(ctx, "aetherc failed")
         return rc
     }
 
@@ -2367,10 +2367,10 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     rpath_link = ""
     if string.length(shared_libs) > 0 {
         extra_cmd = "echo '${shared_libs}' | tr '\n' ' '"
-        el_raw, _e1 = build._sh_capture(extra_cmd)
+        el_raw, _e1 = bldr._sh_capture(extra_cmd)
         extra_link = string.trim(el_raw)
         rpath_cmd = "echo '${shared_libs}' | xargs -n1 dirname 2>/dev/null | sort -u | sed 's|^|-Wl,-rpath,|' | tr '\n' ' '"
-        rp_raw, _e2 = build._sh_capture(rpath_cmd)
+        rp_raw, _e2 = bldr._sh_capture(rpath_cmd)
         rpath_link = string.trim(rp_raw)
     }
 
@@ -2432,7 +2432,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // now and splice the literal -I run.
     // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
     // HEADER-BEARING DIRS ONLY, not every dir under the root. When inc_root is
-    // a dev checkout (see build._resolve_aether_include) a bare `-type d` sweep
+    // a dev checkout (see bldr._resolve_aether_include) a bare `-type d` sweep
     // pulls in .git/, asks/, benchmarks/ and hundreds more that hold no .h —
     // which is how the link line once measured 39 KB / 621 args and blew
     // Windows' ~32 KB CreateProcess ceiling
@@ -2442,7 +2442,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     inc_flags = ""
     if string.length(inc_root) > 0 {
         find_inc = "find ${inc_root} -type d -name .git -prune -o -type d -name build -prune -o -name *.h -print | sed -e s,/[^/]*$,, -e s,^,-I, | sort -u"
-        inc_raw, _ierr = build._sh_capture(find_inc)
+        inc_raw, _ierr = bldr._sh_capture(find_inc)
         inc_flags = _flags_from_lines(inc_raw)
     }
     // Plus the user/dep extra include dirs (Gap 1) — so an extra_source
@@ -2477,21 +2477,21 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // gcc path bypasses `ae build`, so it reads the header itself here; the
     // ae-build shell-out path gets this from the toolchain (>=0.532.0). Plus the
     // dev-layout <lib_dir>/contrib on -L so a contrib veneer archive resolves.
-    _eo12 = map.put(opts, "aether_link", build._aether_link_libs(c_path))
-    _eo13 = map.put(opts, "contrib_L", build._contrib_lib_dir_flag(lib_dir))
+    _eo12 = map.put(opts, "aether_link", bldr._aether_link_libs(c_path))
+    _eo13 = map.put(opts, "contrib_L", bldr._contrib_lib_dir_flag(lib_dir))
     gcc_cmd = aether_link_cmd(opts)
     // Capture gcc stderr to a per-module file so a link failure can
     // be mined for `undefined reference` symbols (Option B in
     // asks/transitive-regen-extern-followup.md). The user still sees
     // gcc's output — we replay it on the failure path before the
     // hint lines.
-    target_dir = build._get(ctx, "target_dir")
+    target_dir = bldr._get(ctx, "target_dir")
     gcc_stderr_path = path.join(target_dir, "_gcc_stderr.log")
     gcc_with_capture = string.concat(gcc_cmd, " 2>")
     gcc_with_capture = string.concat(gcc_with_capture, gcc_stderr_path)
-    rc = build._sh(gcc_with_capture)
+    rc = bldr._sh(gcc_with_capture)
     if rc != 0 {
-        build._sh("cat ${gcc_stderr_path} >&2 2>/dev/null")
+        bldr._sh("cat ${gcc_stderr_path} >&2 2>/dev/null")
         // Name the log. The replay above goes to stderr, so anyone who
         // redirected it (or scrolled past a multi-node build) needs the
         // path to go back to — issue #13 asked for exactly this.
@@ -2500,7 +2500,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
         if string.length(stderr_text) > 0 {
             _emit_extern_hints(ctx, source_dir, stderr_text)
         }
-        build.fail(ctx, "gcc link failed")
+        bldr.fail(ctx, "gcc link failed")
         return rc
     }
 
@@ -2526,15 +2526,15 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // though the build went on to succeed. It renders distinctly so the row
     // cannot be mistaken for a clean rebuild, and it is the breadcrumb back to
     // the unhashable input.
-    if string.equals(build._read_cache_outcome(build._get(ctx, "target_dir")), "key-error") == 0 {
-        build._record_cache(ctx, "miss")
+    if string.equals(bldr._read_cache_outcome(bldr._get(ctx, "target_dir")), "key-error") == 0 {
+        bldr._record_cache(ctx, "miss")
     }
     return 0
 }
 
 // Router: shell out to `ae build` by default; take the manual path
 // when the user declared extra_source(...) / link_flag(...) / regen(...)
-// OR when the module has shared-library deps (a `build.dep` on a
+// OR when the module has shared-library deps (a `bldr.dep` on a
 // crate/lib that produced a `shared_library_deps_including_transitive`
 // artifact — e.g. a Rust cdylib the Aether program FFIs into). `ae
 // build` knows nothing about those .so files, so the default
@@ -2552,11 +2552,11 @@ _build_binary(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string, c_
     tgt = _node_target(builder_map)
     if string.length(tgt) > 0 {
         if _has_manual_overrides(builder_map) == 1 {
-            build.fail(ctx, "aether.program: target() cross-compiles via `ae build` and cannot be combined with extra_source/link_flag/include_dir/regen (host-only manual link) — use aether.csrc + a c.program cross build for hand-linked C")
+            bldr.fail(ctx, "aether.program: target() cross-compiles via `ae build` and cannot be combined with extra_source/link_flag/include_dir/regen (host-only manual link) — use aether.csrc + a c.program cross build for hand-linked C")
             return 1
         }
         if string.length(_collect_shared_libs(ctx)) > 0 {
-            build.fail(ctx, "aether.program: target() cross-compiles via `ae build` and cannot consume cross-language shared-lib deps (they are host artifacts)")
+            bldr.fail(ctx, "aether.program: target() cross-compiles via `ae build` and cannot consume cross-language shared-lib deps (they are host artifacts)")
             return 1
         }
         return _shell_out_ae_build(ctx, builder_map, src_path, bin_path, "")
@@ -2597,7 +2597,7 @@ _target_flag(builder_map: ptr) {
 // Pure string work.
 _program_out_suffix(builder_map: ptr) {
     t = _node_target(builder_map)
-    if string.length(t) == 0 { return build._exe_suffix() }
+    if string.length(t) == 0 { return bldr._exe_suffix() }
     if string.index_of(t, "wasm") >= 0 { return ".wasm" }
     if string.index_of(t, "windows") >= 0 { return ".exe" }
     return ""
@@ -2605,9 +2605,9 @@ _program_out_suffix(builder_map: ptr) {
 
 _default_source_name(ctx: ptr) {
     // Default source file name = last path component of module dir + ".ae"
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     cmd = "basename '${mod_dir}'"
-    base_raw, _eerr = build._sh_capture(cmd)
+    base_raw, _eerr = bldr._sh_capture(cmd)
     base = string.trim(base_raw)
     return string.concat(base, ".ae")
 }
@@ -2645,12 +2645,12 @@ _default_source_name(ctx: ptr) {
 // AEB_COMPILE_CONTAINER per-step delegation seam is honored too (same as the
 // other builders) for non-aeb-ctr hosts that delegate one step at a time.
 builder tinygo_lib(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     lib_dir = path.join(target_dir, "lib")
-    build._mkdirs(lib_dir)
+    bldr._mkdirs(lib_dir)
 
     go_name = "main.go"
     if _builder != null {
@@ -2671,7 +2671,7 @@ builder tinygo_lib(ctx: ptr): int {
     // COMPILE phase — skipped under --execute-only (the .so was built in the
     // container pass already). The artifact-write below runs in both passes so
     // dependents can locate the .so regardless. (two-aeb duality.)
-    if build._compile_enabled() == 1 {
+    if bldr._compile_enabled() == 1 {
         println("${mod_dir}: compiling Go c-shared lib (sidecar for contrib.host.tinygo)")
 
         // Per-step container delegation (AEB_COMPILE_CONTAINER): host-aeb has
@@ -2682,7 +2682,7 @@ builder tinygo_lib(ctx: ptr): int {
         // is required for -buildmode=c-shared with `import "C"` exports.
         container_image = os.getenv("AEB_COMPILE_CONTAINER")
         if string.length(container_image) > 0 {
-            root = build._get(ctx, "root")
+            root = bldr._get(ctx, "root")
             wgo = _rewrite_under_root(go_path, root, "/work")
             wso = _rewrite_under_root(so_path, root, "/work")
             engine = os.getenv("AEB_CONTAINER_ENGINE")
@@ -2691,38 +2691,38 @@ builder tinygo_lib(ctx: ptr): int {
             if string.length(selabel) == 0 { selabel = "Z" }
             mount = "-v ${root}:/work:${selabel}"
             cmd = "${engine} run --rm -e CGO_ENABLED=1 ${mount} -w /work --entrypoint go ${container_image} build -buildmode=c-shared -o ${wso} ${wgo}"
-            rc = build._sh(cmd)
+            rc = bldr._sh(cmd)
             if rc != 0 {
                 println("${mod_dir}: go build (in ${container_image}) failed")
-                build.fail(ctx, "go c-shared build (containerized) failed")
+                bldr.fail(ctx, "go c-shared build (containerized) failed")
                 return rc
             }
         } else {
             cmd = "CGO_ENABLED=1 go build -buildmode=c-shared -o ${so_path} ${go_path}"
-            rc = build._sh(cmd)
+            rc = bldr._sh(cmd)
             if rc != 0 {
                 println("${mod_dir}: go build failed")
-                build.fail(ctx, "go c-shared build failed")
+                bldr.fail(ctx, "go c-shared build failed")
                 return rc
             }
         }
     }
 
     // Declared output: the sidecar .so path. A downstream program/program_test
-    // that dep()s this node resolves it (build._dep_target_dir) so its .ae can
+    // that dep()s this node resolves it (bldr._dep_target_dir) so its .ae can
     // tinygo.load(it). Written in both passes so the host pass can locate it.
-    build._write_artifact(ctx, "tinygo_shared_lib", so_path)
-    build._write_artifact(ctx, "shared_library", so_path)
+    bldr._write_artifact(ctx, "tinygo_shared_lib", so_path)
+    bldr._write_artifact(ctx, "shared_library", so_path)
     return 0
 }
 
 builder program(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     bin_dir = path.join(target_dir, "bin")
-    build._mkdirs(bin_dir)
+    bldr._mkdirs(bin_dir)
 
     src_name = _default_source_name(ctx)
     if _builder != null {
@@ -2745,20 +2745,20 @@ builder program(ctx: ptr): int {
     // built in the container pass; the host pass only executes). The
     // artifact-writes below still run in both passes so dependents can
     // locate the binary regardless. (two-aeb duality, docs/two-aeb-duality.md)
-    if build._compile_enabled() == 1 {
+    if bldr._compile_enabled() == 1 {
         println("${mod_dir}: compiling Aether program")
         rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
         if rc != 0 {
-            build.fail(ctx, "aether program build failed")
+            bldr.fail(ctx, "aether program build failed")
             return rc
         }
     }
 
-    build._write_artifact(ctx, "aether_binary", bin_path)
-    // Universal runnable-binary contract (build.program_binary_of), so a
+    bldr._write_artifact(ctx, "aether_binary", bin_path)
+    // Universal runnable-binary contract (bldr.program_binary_of), so a
     // c.tests (or any) suite can run this binary the same way it runs a
     // c.program's — without the artifact key being SDK-specific.
-    build._write_artifact(ctx, "program_binary", bin_path)
+    bldr._write_artifact(ctx, "program_binary", bin_path)
     return 0
 }
 
@@ -2780,7 +2780,7 @@ builder program(ctx: ptr): int {
 // Deliberately a SEPARATE builder, not an emit() mode on
 // aether.program: the artifact contract differs (no program_binary —
 // nothing here is runnable), and program's downstream consumers
-// (c.tests via build.program_binary_of) must never find a
+// (c.tests via bldr.program_binary_of) must never find a
 // half-populated node. Same reasoning that made tinygo_lib its own
 // builder. Manual-path setters (extra_source/link_flag/regen) are not
 // honoured here — csrc is always the `ae build` shell-out; a node
@@ -2802,11 +2802,11 @@ builder program(ctx: ptr): int {
 // AEB_COMPILE_CONTAINER per-step delegation seam is honoured via the
 // shared _shell_out_ae_build.
 builder csrc(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     src_name = _default_source_name(ctx)
     if _builder != null {
@@ -2831,21 +2831,21 @@ builder csrc(ctx: ptr): int {
         }
     }
 
-    if build._compile_enabled() == 1 {
+    if bldr._compile_enabled() == 1 {
         println("${mod_dir}: emitting C source package (--emit=csrc)")
         rc = _shell_out_ae_build(ctx, _builder, src_path, out_base, ae_csrc_flags(cap_csv))
         if rc != 0 {
-            build.fail(ctx, "aether csrc emit failed")
+            bldr.fail(ctx, "aether csrc emit failed")
             return rc
         }
     }
 
     c_path = string.concat(out_base, ".c")
     h_path = string.concat(out_base, ".h")
-    build._write_artifact(ctx, "c_source", c_path)
-    build._write_artifact(ctx, "c_header", h_path)
-    build._write_artifact(ctx, "c_header_dirs", target_dir)
-    build._write_artifact(ctx, "c_needs_aether_runtime", "1")
+    bldr._write_artifact(ctx, "c_source", c_path)
+    bldr._write_artifact(ctx, "c_header", h_path)
+    bldr._write_artifact(ctx, "c_header_dirs", target_dir)
+    bldr._write_artifact(ctx, "c_needs_aether_runtime", "1")
     return 0
 }
 
@@ -2872,16 +2872,16 @@ builder csrc(ctx: ptr): int {
 //   c_header_dirs + c_needs_aether_runtime        if a companion .h is emitted
 //
 // A SEPARATE builder, not an emit() mode on program: it publishes no
-// program_binary, so it must not be findable by build.program_binary_of — the
+// program_binary, so it must not be findable by bldr.program_binary_of — the
 // same reasoning that made csrc separate. Setters (source/output/extra_source/
 // caps/target/link_flag/include_dir) are program's, reused as-is.
 builder shared_lib(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     lib_dir = path.join(target_dir, "lib")
-    build._mkdirs(lib_dir)
+    bldr._mkdirs(lib_dir)
 
     src_name = _default_source_name(ctx)
     if _builder != null {
@@ -2904,12 +2904,12 @@ builder shared_lib(ctx: ptr): int {
     // COMPILE phase — skipped under --execute-only (the .so was built in the
     // container pass). Artifact writes below run in both passes so dependents
     // resolve the path either way. (two-aeb duality.)
-    if build._compile_enabled() == 1 {
+    if bldr._compile_enabled() == 1 {
         println("${mod_dir}: compiling Aether shared library (--emit=lib)")
         rc = _shell_out_ae_build(ctx, _builder, src_path, so_path,
                                  ae_lib_flags(cap_csv, _builder, source_dir))
         if rc != 0 {
-            build.fail(ctx, "aether shared_lib build failed")
+            bldr.fail(ctx, "aether shared_lib build failed")
             return rc
         }
     }
@@ -2917,29 +2917,29 @@ builder shared_lib(ctx: ptr): int {
     // Publish the native-lib wiring set. ldlibdeps + the transitive key are what
     // lib/java (-Djava.library.path) and lib/go read, so a JVM/Go consumer
     // dep()ing this node loads the .so with no path plumbing in the leaf.
-    build._write_artifact(ctx, "shared_lib", so_path)
-    build._write_artifact(ctx, "shared_library", so_path)
-    build._write_artifact(ctx, "ldlibdeps", so_path)
-    build._write_artifact(ctx, "shared_library_deps_including_transitive", so_path)
+    bldr._write_artifact(ctx, "shared_lib", so_path)
+    bldr._write_artifact(ctx, "shared_library", so_path)
+    bldr._write_artifact(ctx, "ldlibdeps", so_path)
+    bldr._write_artifact(ctx, "shared_library_deps_including_transitive", so_path)
 
     // --emit=lib also emits a catalog header next to the .so; publish its dir so
     // a c.program consumer can -I it, mirroring csrc. Best-effort: only if present.
     h_path = string.concat(csrc_default_output(out_name), ".h")
     h_full = path.join(lib_dir, h_path)
     if file.exists(h_full) == 1 {
-        build._write_artifact(ctx, "c_header_dirs", lib_dir)
-        build._write_artifact(ctx, "c_needs_aether_runtime", "1")
+        bldr._write_artifact(ctx, "c_header_dirs", lib_dir)
+        bldr._write_artifact(ctx, "c_needs_aether_runtime", "1")
     }
     return 0
 }
 
 builder program_test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     bin_dir = path.join(target_dir, "bin")
-    build._mkdirs(bin_dir)
+    bldr._mkdirs(bin_dir)
 
     src_name = _default_source_name(ctx)
     if _builder != null {
@@ -2948,24 +2948,24 @@ builder program_test(ctx: ptr): int {
         }
     }
     src_path = path.join(source_dir, src_name)
-    bin_path = path.join(bin_dir, string.concat("test_program", build._exe_suffix()))
+    bin_path = path.join(bin_dir, string.concat("test_program", bldr._exe_suffix()))
     c_path = path.join(target_dir, "test_program.c")
 
     // COMPILE phase — skipped under --execute-only (built in the container
     // pass already). EXECUTE phase below — skipped under --compile-only.
     // Two-aeb duality: compile in container, execute on host
     // (docs/two-aeb-duality.md).
-    if build._compile_enabled() == 1 {
+    if bldr._compile_enabled() == 1 {
         println("${mod_dir}: compiling Aether test")
         rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
         if rc != 0 {
             println("${mod_dir}: tests FAILED (compile)")
-            build.fail(ctx, "aether test build failed")
+            bldr.fail(ctx, "aether test build failed")
             return rc
         }
     }
 
-    if build._execute_enabled() == 0 {
+    if bldr._execute_enabled() == 0 {
         // --compile-only: binary built (or already present), don't run it.
         return 0
     }
@@ -2976,27 +2976,27 @@ builder program_test(ctx: ptr): int {
     println("${mod_dir}: running Aether tests")
     run_cmd = bin_path
     if string.length(ld_path) > 0 {
-        dyld_var = build._dyld_env_var()
+        dyld_var = bldr._dyld_env_var()
         run_cmd = "${dyld_var}=${ld_path} ${bin_path}"
     }
-    rc = build._sh(run_cmd)
+    rc = bldr._sh(run_cmd)
     if rc != 0 {
         // aether.program_test runs one binary; non-zero exit = 1
         // logical failure. Exit-code-synthesised (no per-test report),
         // so the telemetry JSON gets `tests: null` + rc only. Runners
         // with sub-test counts (junit5, pytest, …) report finer granularity.
-        build._record_test_result_exitcode(ctx, 0, 1)
+        bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "aether tests failed")
+        bldr.fail(ctx, "aether tests failed")
         return rc
     }
-    build._record_test_result_exitcode(ctx, 1, 0)
+    bldr._record_test_result_exitcode(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     return 0
 }
 
 // aether.driver_test(b) — like program_test, but with binaries-
-// under-test exposed as env vars and the build.fixture lifecycle
+// under-test exposed as env vars and the bldr.fixture lifecycle
 // (seed dirs / spawn servers / kill on cleanup) wrapped around the
 // driver invocation.
 //
@@ -3020,7 +3020,7 @@ builder program_test(ctx: ptr): int {
 // Pairs with the bash.test fixture grammar — the same
 // fixture_seed / fixture_server setters work in both closures
 // because they write to the same map keys consumed by
-// build._synth_fixture_pre/_post.
+// bldr._synth_fixture_pre/_post.
 //
 // What this is NOT:
 //   - A test discovery mechanism. One driver per .tests-*.ae,
@@ -3032,13 +3032,13 @@ builder program_test(ctx: ptr): int {
 //     stay on program_test. driver_test is for tests *driving a
 //     separate binary*.
 builder driver_test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
     bin_dir = path.join(target_dir, "bin")
-    build._mkdirs(bin_dir)
+    bldr._mkdirs(bin_dir)
 
     // Driver source: prefer explicit, fall back to default
     // (same convention as program_test).
@@ -3060,15 +3060,15 @@ builder driver_test(ctx: ptr): int {
             out_name, _ = map.get(_builder, "output")
         }
     }
-    bin_path = path.join(bin_dir, string.concat(out_name, build._exe_suffix()))
+    bin_path = path.join(bin_dir, string.concat(out_name, bldr._exe_suffix()))
     c_path = path.join(target_dir, string.concat(out_name, ".c"))
 
     println("${mod_dir}: compiling Aether driver")
     rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
     if rc != 0 {
-        build._record_test_result_exitcode(ctx, 0, 1)
+        bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: driver FAILED (compile)")
-        build.fail(ctx, "aether driver build failed")
+        bldr.fail(ctx, "aether driver build failed")
         return rc
     }
 
@@ -3095,7 +3095,7 @@ builder driver_test(ctx: ptr): int {
             _eclear = map.put(ctx, "_pending_binaries_under_test", list.new())
         }
     }
-    build._drain_pending_fixtures(ctx, _builder)
+    bldr._drain_pending_fixtures(ctx, _builder)
 
     // Validate binaries-under-test exist. Resolve relative paths
     // against the workspace root so users can write
@@ -3112,7 +3112,7 @@ builder driver_test(ctx: ptr): int {
         i = 0
         while i < bn {
             rec, _ = list.get(buts, i)
-            f = build._split_tabs(rec, 3)
+            f = bldr._split_tabs(rec, 3)
             name, _ = list.get(f, 0)
             decl_path, _ = list.get(f, 1)
             env_var_override, _ = list.get(f, 2)
@@ -3126,14 +3126,14 @@ builder driver_test(ctx: ptr): int {
             }
             if file.exists(resolved) == 0 {
                 println("${mod_dir}: binary_under_test \"${name}\" not found at ${resolved}")
-                println("${mod_dir}: did you forget a build.dep on the producing module?")
-                build._record_test_result_exitcode(ctx, 0, 1)
+                println("${mod_dir}: did you forget a bldr.dep on the producing module?")
+                bldr._record_test_result_exitcode(ctx, 0, 1)
                 return 1
             }
             // Default env-var name is <UPPER(name)>_BIN; user may override.
             ev = env_var_override
             if string.length(ev) == 0 {
-                up = build._upper_ascii_word(name)
+                up = bldr._upper_ascii_word(name)
                 ev = string.concat(up, "_BIN")
             }
             // Render `export <EV>="<resolved>"` — a single shell
@@ -3170,9 +3170,9 @@ builder driver_test(ctx: ptr): int {
         list.add(pre_cmds, line)
         i = i + 1
     }
-    if build._has_fixtures(_builder) == 1 {
-        fpre = build._synth_fixture_pre(fixture_seeds, fixture_servers)
-        fpost = build._synth_fixture_post(fixture_seeds, fixture_servers)
+    if bldr._has_fixtures(_builder) == 1 {
+        fpre = bldr._synth_fixture_pre(fixture_seeds, fixture_servers)
+        fpost = bldr._synth_fixture_post(fixture_seeds, fixture_servers)
         fn = list.size(fpre)
         i = 0
         while i < fn {
@@ -3198,7 +3198,7 @@ builder driver_test(ctx: ptr): int {
     env_prefix = ""
     // Rust cdylib deps: prepend the platform dyld var (same as program_test).
     if string.length(ld_path) > 0 {
-        dyld_var = build._dyld_env_var()
+        dyld_var = bldr._dyld_env_var()
         env_prefix = string.concat(env_prefix, string.concat(dyld_var, string.concat("=\"", string.concat(ld_path, "\" "))))
     }
     // std.spec report transport (the aeocha successor): AE_SPEC_FORMAT=aeocha +
@@ -3211,8 +3211,8 @@ builder driver_test(ctx: ptr): int {
     // read the file below. Hand-rolled drivers write no report and keep the
     // exit-code fallback. The file lives in the module's target dir so it is
     // native-form on Windows and cleaned with it.
-    spec_report = path.join(build._get(ctx, "target_dir"), "_spec_report.txt")
-    _srm = build._sh(string.concat("rm -f \"", string.concat(spec_report, "\"")))
+    spec_report = path.join(bldr._get(ctx, "target_dir"), "_spec_report.txt")
+    _srm = bldr._sh(string.concat("rm -f \"", string.concat(spec_report, "\"")))
     env_prefix = string.concat(env_prefix, "AE_SPEC_FORMAT=aeocha ")
     env_prefix = string.concat(env_prefix, string.concat("AE_SPEC_REPORT=\"", string.concat(spec_report, "\" ")))
     exec_cmd = string.concat(env_prefix, string.concat("\"", string.concat(bin_path, "\"")))
@@ -3221,14 +3221,14 @@ builder driver_test(ctx: ptr): int {
     // mechanism (it works on every platform); its pipe payload is no longer a
     // report source — see the transport note above. rc/run_err are what we use.
     println("${mod_dir}: running Aether driver")
-    prog, argv = build._exec_chain_argv(pre_cmds, exec_cmd, post_cmds)
+    prog, argv = bldr._exec_chain_argv(pre_cmds, exec_cmd, post_cmds)
     _pipe_ignored, rc, run_err = os.run_pipe_drain_and_wait(prog, argv, null)
     if string.length(run_err) > 0 {
         // Spawn itself failed (binary not found, permission
         // denied, Windows fall-through, …). Distinct from the
         // driver running and exiting non-zero. No report → exit-code
         // granularity (tests: null in the JSON).
-        build._record_test_result_exitcode(ctx, 0, 1)
+        bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: driver spawn error: ${run_err}")
         return 1
     }
@@ -3242,7 +3242,7 @@ builder driver_test(ctx: ptr): int {
         report = fraw
     }
 
-    passed, failed, errored, skipped, failed_names, has_report = build._parse_aeocha_report(report)
+    passed, failed, errored, skipped, failed_names, has_report = bldr._parse_aeocha_report(report)
     if has_report == 0 {
         // No structured report — fall back to exit-code mapping
         // (preserves behaviour for hand-rolled drivers that just
@@ -3262,15 +3262,15 @@ builder driver_test(ctx: ptr): int {
     // std.spec 0.545 skip verbs); no report → exit-code-mapped 1/0 (tests: null,
     // rc only). Mirrors the for_ci_use.md granularity split.
     if has_report == 1 {
-        build._record_test_result_skips(ctx, passed, total_failed, skipped)
+        bldr._record_test_result_skips(ctx, passed, total_failed, skipped)
     } else {
-        build._record_test_result_exitcode(ctx, passed, total_failed)
+        bldr._record_test_result_exitcode(ctx, passed, total_failed)
     }
     // Persist failed-test names so the orchestrator can render
     // them under the FAIL line in [telemetry]. No-op when
     // failed_names is empty (all-pass run, or hand-rolled driver
     // with no report).
-    build._record_test_failures(ctx, failed_names)
+    bldr._record_test_failures(ctx, failed_names)
     if rc != 0 {
         if has_report == 1 {
             println("${mod_dir}: driver FAILED (${passed} passed, ${total_failed} failed)")

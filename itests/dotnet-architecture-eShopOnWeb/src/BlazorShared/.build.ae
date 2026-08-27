@@ -1,9 +1,9 @@
-import build
+import bldr
 import dotnet
 import dotnet (root_namespace, assembly_name, nuget)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dotnet.build_project(b) {
         root_namespace("BlazorShared")
         assembly_name("BlazorShared")

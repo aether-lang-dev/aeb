@@ -10,7 +10,7 @@
 // (lib/dart, lib/python). The compiler defaults to `c++` (the portable
 // alias for the system C++ compiler — g++/clang++); override with
 // cxx("clang++").
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -163,7 +163,7 @@ _expand_sources(source_dir: string, pats: ptr) {
     while i < n {
         p, _ = list.get(pats, i)
         if string.length(p) > 0 {
-            raw, _e = build._sh_capture("cd '${source_dir}' && ls -1 ${p} 2>/dev/null")
+            raw, _e = bldr._sh_capture("cd '${source_dir}' && ls -1 ${p} 2>/dev/null")
             lines = string.split(string.trim(raw), "\n")
             m = string.array_size(lines)
             j = 0
@@ -202,20 +202,20 @@ _out_name_of(builder_map: ptr, mod_dir: string) {
 // --- SDK functions ---
 
 // Compile C++ sources into a native binary. Publishes the
-// program_binary artifact (build.program_binary_of contract), so a
+// program_binary artifact (bldr.program_binary_of contract), so a
 // language-agnostic test runner (incl. c.tests) can drive it.
 builder program(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     cxx_bin = _cxx_of(_builder)
     sources = _expand_sources(source_dir, _list_or_null(_builder, "cpp_sources"))
     if list.size(sources) == 0 {
         println("${mod_dir}: cpp.program: no sources — declare source(\"src/*.cpp\")")
-        build.fail(ctx, "cpp.program: no sources declared")
+        bldr.fail(ctx, "cpp.program: no sources declared")
         return 1
     }
 
@@ -229,15 +229,15 @@ builder program(ctx: ptr): int {
                           _list_or_null(_builder, "cpp_cxxflags"),
                           _list_or_null(_builder, "cpp_link_flags"),
                           out_abs)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: compile FAILED")
-        build.fail(ctx, "compile FAILED")
+        bldr.fail(ctx, "compile FAILED")
         return exit_code
     }
 
-    build._write_artifact(ctx, "program_binary", out_abs)
-    build._write_artifact(ctx, "cpp_binary", out_abs)
+    bldr._write_artifact(ctx, "program_binary", out_abs)
+    bldr._write_artifact(ctx, "cpp_binary", out_abs)
     println("${mod_dir}: compile done → ${out_abs}")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
@@ -246,19 +246,19 @@ builder program(ctx: ptr): int {
 // Build a C++ test binary and run it. PASS iff the binary exits 0
 // (the lowest-common-denominator contract that works for any C++ test
 // framework — gtest, Catch2, doctest, or a hand-rolled main). Records a
-// binary-grain test result (1/0 or 0/1) via build._record_test_result.
+// binary-grain test result (1/0 or 0/1) via bldr._record_test_result.
 builder tests(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     cxx_bin = _cxx_of(_builder)
     sources = _expand_sources(source_dir, _list_or_null(_builder, "cpp_sources"))
     if list.size(sources) == 0 {
         println("${mod_dir}: cpp.tests: no sources — declare source(\"test/*.cpp\")")
-        build.fail(ctx, "cpp.tests: no sources declared")
+        bldr.fail(ctx, "cpp.tests: no sources declared")
         return 1
     }
 
@@ -272,24 +272,24 @@ builder tests(ctx: ptr): int {
                           _list_or_null(_builder, "cpp_cxxflags"),
                           _list_or_null(_builder, "cpp_link_flags"),
                           test_bin)
-    bc = build._sh(cmd)
+    bc = bldr._sh(cmd)
     if bc != 0 {
         println("${mod_dir}: test build FAILED")
-        build._record_test_result(ctx, 0, 1)
-        build.fail(ctx, "test build FAILED")
+        bldr._record_test_result(ctx, 0, 1)
+        bldr.fail(ctx, "test build FAILED")
         return bc
     }
 
     println("${mod_dir}: running tests")
     out_path = path.join(target_dir, "test_output.log")
-    rc = build._sh("'${test_bin}' 2>&1 | tee '${out_path}'")
+    rc = bldr._sh("'${test_bin}' 2>&1 | tee '${out_path}'")
     if rc != 0 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return rc
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0

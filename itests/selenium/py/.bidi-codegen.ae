@@ -26,13 +26,13 @@
 // if any declared output is missing — silent partial generation
 // can't slip past.
 
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import python
 import python (codegen_script, codegen_input, codegen_arg, codegen_output)
 
 main() {
-    b = build.start()
+    b = bldr.start()
 
     // The fetch step is upstream — run .bidi-spec.ae first so
     // specs/all.cddl exists before this codegen reads it. Aeb's

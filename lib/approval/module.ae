@@ -4,7 +4,7 @@
 // target if required status/labels/fields are not present. It does not
 // pause for a human and does not own approval workflow state.
 
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -519,9 +519,9 @@ jira_check_script(base_url_v: string, issue_v: string, token_env_v: string,
 // --- Builder entry point ---
 
 builder jira(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     base = ""
     issue_key = ""
@@ -545,26 +545,26 @@ builder jira(ctx: ptr): int {
 
     if string.length(base) == 0 {
         println("${mod_dir}: approval.jira requires base_url(\"...\")")
-        build.fail(ctx, "approval.jira requires base_url(\"...\")")
+        bldr.fail(ctx, "approval.jira requires base_url(\"...\")")
         return 1
     }
     if string.length(issue_key) == 0 {
         println("${mod_dir}: approval.jira requires issue(\"...\")")
-        build.fail(ctx, "approval.jira requires issue(\"...\")")
+        bldr.fail(ctx, "approval.jira requires issue(\"...\")")
         return 1
     }
 
     script = jira_check_script(base, issue_key, token, req_status, labels, fields, evidence_path, timeout_s)
     script_path = path.join(target_dir, "jira-approval-check.sh")
     _e = fs.write_atomic(script_path, script, string.length(script))
-    build._sh(string.concat("chmod +x ", script_path))
-    rc = build._sh(string.concat("bash ", script_path))
+    bldr._sh(string.concat("chmod +x ", script_path))
+    rc = bldr._sh(string.concat("bash ", script_path))
     if rc != 0 {
         println("${mod_dir}: approval.jira rejected ${issue_key}")
-        build.fail(ctx, "approval.jira rejected ${issue_key}")
+        bldr.fail(ctx, "approval.jira rejected ${issue_key}")
         return rc
     }
-    build._write_artifact(ctx, "approval_jira_evidence", evidence_path)
+    bldr._write_artifact(ctx, "approval_jira_evidence", evidence_path)
     return 0
 }
 
@@ -636,33 +636,33 @@ _curl_fetch_cmd(fetch_url: string, token_env_v: string) {
 }
 
 _write_and_run(ctx: ptr, provider: string, script: string, evidence_path: string) {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
     script_path = path.join(target_dir, string.concat(provider, "-approval-check.sh"))
     _e = fs.write_atomic(script_path, script, string.length(script))
-    build._sh(string.concat("chmod +x ", script_path))
-    rc = build._sh(string.concat("bash ", script_path))
+    bldr._sh(string.concat("chmod +x ", script_path))
+    rc = bldr._sh(string.concat("bash ", script_path))
     if rc != 0 {
         println("${mod_dir}: approval.${provider} rejected")
-        build.fail(ctx, "approval.${provider} rejected")
+        bldr.fail(ctx, "approval.${provider} rejected")
         return rc
     }
-    build._write_artifact(ctx, string.concat("approval_", string.concat(provider, "_evidence")), evidence_path)
+    bldr._write_artifact(ctx, string.concat("approval_", string.concat(provider, "_evidence")), evidence_path)
     return 0
 }
 
 _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
                        evidence_path: string, verify_prefix: string) {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     attest_text = _opt(bld, "attestation_text", "")
     attest_cmd = _opt(bld, "attestation_command", "")
     if string.length(attest_text) == 0 && string.length(attest_cmd) == 0 {
         println("${mod_dir}: approval.${provider} requires attestation_text(...) or attestation_command(...)")
-        build.fail(ctx, "approval.${provider} requires attestation_text(...) or attestation_command(...)")
+        bldr.fail(ctx, "approval.${provider} requires attestation_text(...) or attestation_command(...)")
         return 1
     }
 
@@ -671,16 +671,16 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
         raw_path = path.join(target_dir, string.concat(provider, "-attestation.raw"))
         cmd = string.concat(attest_cmd, " > ")
         cmd = string.concat(cmd, _shell_quote(raw_path))
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: approval.${provider} attestation_command failed")
-            build.fail(ctx, "approval.${provider} attestation_command failed")
+            bldr.fail(ctx, "approval.${provider} attestation_command failed")
             return rc
         }
         raw, rerr = fs.read(raw_path)
         if string.length(rerr) > 0 {
             println("${mod_dir}: approval.${provider} could not read attestation: ${rerr}")
-            build.fail(ctx, "approval.${provider} could not read attestation: ${rerr}")
+            bldr.fail(ctx, "approval.${provider} could not read attestation: ${rerr}")
             return 1
         }
     }
@@ -689,7 +689,7 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
     digest, derr = cryptography.sha256_hex(canon, string.length(canon))
     if string.length(derr) > 0 {
         println("${mod_dir}: approval.${provider} sha256 failed: ${derr}")
-        build.fail(ctx, "approval.${provider} sha256 failed: ${derr}")
+        bldr.fail(ctx, "approval.${provider} sha256 failed: ${derr}")
         return 1
     }
 
@@ -699,10 +699,10 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
     verify_cmd = string.concat(verify_cmd, " ")
     verify_cmd = string.concat(verify_cmd, _shell_quote(verify_url))
     verify_cmd = string.concat(verify_cmd, " >/dev/null")
-    vrc = build._sh(verify_cmd)
+    vrc = bldr._sh(verify_cmd)
     if vrc != 0 {
         println("${mod_dir}: approval.${provider} attestation verification failed ${verify_url}")
-        build.fail(ctx, "approval.${provider} attestation verification failed ${verify_url}")
+        bldr.fail(ctx, "approval.${provider} attestation verification failed ${verify_url}")
         return vrc
     }
 
@@ -710,19 +710,19 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
     merr = fs.mkdir_p(parent)
     if string.length(merr) > 0 {
         println("${mod_dir}: approval.${provider} could not create evidence directory: ${merr}")
-        build.fail(ctx, "approval.${provider} could not create evidence directory: ${merr}")
+        bldr.fail(ctx, "approval.${provider} could not create evidence directory: ${merr}")
         return 1
     }
     evidence_body = attestation_evidence_json(provider, subj, digest, verify_url, canon)
     werr = fs.write_atomic(evidence_path, evidence_body, string.length(evidence_body))
     if string.length(werr) > 0 {
         println("${mod_dir}: approval.${provider} could not write evidence: ${werr}")
-        build.fail(ctx, "approval.${provider} could not write evidence: ${werr}")
+        bldr.fail(ctx, "approval.${provider} could not write evidence: ${werr}")
         return 1
     }
 
     println("approval.${provider}: attestation verified ${digest}")
-    build._write_artifact(ctx, string.concat("approval_", string.concat(provider, "_evidence")), evidence_path)
+    bldr._write_artifact(ctx, string.concat("approval_", string.concat(provider, "_evidence")), evidence_path)
     return 0
 }
 
@@ -730,8 +730,8 @@ _generic_builder(ctx: ptr, bld: ptr, provider: string, fetch_cmd: string,
                  default_approvals_path: string, default_id_path: string,
                  default_at_path: string, default_status_path: string,
                  default_status: string) {
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
     subj = _env_or_literal(bld, "subject", "subject_env", _env_or_literal(bld, "issue", "issue_env", provider))
     evidence_path = _opt(bld, "evidence", path.join(target_dir, string.concat(provider, "-approval.json")))
     timeout_s = _opt(bld, "timeout", "30")
@@ -759,21 +759,21 @@ _generic_builder(ctx: ptr, bld: ptr, provider: string, fetch_cmd: string,
 }
 
 builder attestation(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
     subj = _env_or_literal(_builder, "subject", "subject_env", "attestation")
     evidence_path = _opt(_builder, "evidence", path.join(target_dir, "attestation-approval.json"))
     verify_prefix = _opt(_builder, "verify_via", "")
     if string.length(verify_prefix) == 0 {
         println("approval.attestation requires verify_via(\"...\")")
-        build.fail(ctx, "approval.attestation requires verify_via(\"...\")")
+        bldr.fail(ctx, "approval.attestation requires verify_via(\"...\")")
         return 1
     }
     attest_text = _opt(_builder, "attestation_text", "")
     attest_cmd = _opt(_builder, "attestation_command", "")
     if string.length(attest_text) == 0 && string.length(attest_cmd) == 0 {
         println("approval.attestation requires attestation_text(...) or attestation_command(...)")
-        build.fail(ctx, "approval.attestation requires attestation_text(...) or attestation_command(...)")
+        bldr.fail(ctx, "approval.attestation requires attestation_text(...) or attestation_command(...)")
         return 1
     }
     return _run_attestation_check(ctx, _builder, "attestation", subj, evidence_path, verify_prefix)
@@ -783,7 +783,7 @@ builder http(ctx: ptr): int {
     fetch_url = _env_or_literal(_builder, "url", "url_env", "")
     if string.length(fetch_url) == 0 {
         println("approval.http requires url(\"...\")")
-        build.fail(ctx, "approval.http requires url(\"...\")")
+        bldr.fail(ctx, "approval.http requires url(\"...\")")
         return 1
     }
     token = _opt(_builder, "token_env", "APPROVAL_TOKEN")
@@ -795,7 +795,7 @@ builder command(ctx: ptr): int {
     cmd = _opt(_builder, "run", "")
     if string.length(cmd) == 0 {
         println("approval.command requires run(\"...\")")
-        build.fail(ctx, "approval.command requires run(\"...\")")
+        bldr.fail(ctx, "approval.command requires run(\"...\")")
         return 1
     }
     fetch_cmd = _command_fetch_cmd(cmd, _builder)
@@ -809,7 +809,7 @@ builder servicenow(ctx: ptr): int {
         change = _env_or_literal(_builder, "issue", "issue_env", "")
         if string.length(base) == 0 || string.length(change) == 0 {
             println("approval.servicenow requires url(\"...\") or base_url(\"...\") + issue(\"CHG...\")")
-            build.fail(ctx, "approval.servicenow requires url(\"...\") or base_url(\"...\") + issue(\"CHG...\")")
+            bldr.fail(ctx, "approval.servicenow requires url(\"...\") or base_url(\"...\") + issue(\"CHG...\")")
             return 1
         }
         fetch_url = string.concat(base, "/api/now/table/sysapproval_approver?sysparm_display_value=true&sysparm_query=sysapproval.number=")
@@ -829,7 +829,7 @@ builder github(ctx: ptr): int {
         env = _opt(_builder, "environment", "")
         if string.length(own) == 0 || string.length(repo_v) == 0 || string.length(env) == 0 {
             println("approval.github requires url(\"...\") or owner(...), repo(...), environment(...)")
-            build.fail(ctx, "approval.github requires url(\"...\") or owner(...), repo(...), environment(...)")
+            bldr.fail(ctx, "approval.github requires url(\"...\") or owner(...), repo(...), environment(...)")
             return 1
         }
         fetch_url = string.concat(base, "/repos/")
@@ -852,7 +852,7 @@ builder gitlab(ctx: ptr): int {
         deployment_v = _opt(_builder, "deployment", "")
         if string.length(project_v) == 0 || string.length(deployment_v) == 0 {
             println("approval.gitlab requires url(\"...\") or project(...) + deployment(...)")
-            build.fail(ctx, "approval.gitlab requires url(\"...\") or project(...) + deployment(...)")
+            bldr.fail(ctx, "approval.gitlab requires url(\"...\") or project(...) + deployment(...)")
             return 1
         }
         fetch_url = string.concat(base, "/api/v4/projects/")
@@ -870,7 +870,7 @@ builder azure_devops(ctx: ptr): int {
     fetch_url = _opt(_builder, "url", "")
     if string.length(fetch_url) == 0 {
         println("approval.azure_devops requires url(\"...\") for the checks/approvals endpoint")
-        build.fail(ctx, "approval.azure_devops requires url(\"...\") for the checks/approvals endpoint")
+        bldr.fail(ctx, "approval.azure_devops requires url(\"...\") for the checks/approvals endpoint")
         return 1
     }
     token = _opt(_builder, "token_env", "AZURE_DEVOPS_TOKEN")

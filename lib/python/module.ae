@@ -19,7 +19,7 @@
 // that is the natural place to extend caching here if a real consumer
 // asks. Until then these builders simply leave the cache marker absent,
 // which the orchestrator renders as `[n/a]` in telemetry.
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -309,7 +309,7 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
 _ensure_venv(root: string) {
     venv = path.join(root, ".aeb/venv")
     if file.exists(venv) == 0 {
-        build._sh("python3 -m venv '${venv}'")
+        bldr._sh("python3 -m venv '${venv}'")
     }
     return venv
 }
@@ -325,9 +325,9 @@ _ensure_venv(root: string) {
 // Multiple calls append to the same artifact so one .whl.ae can bundle
 // several related coords.
 builder wheel_registry(ctx: ptr, name_and_ver: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
     artifact_path = path.join(target_dir, "python_pypi_deps_including_transitive")
     existing = ""
     if file.exists(artifact_path) == 1 {
@@ -349,9 +349,9 @@ builder wheel_registry(ctx: ptr, name_and_ver: string): int {
 // Arg format: local path to the .whl file (relative to project root)
 // Multiple calls append to the same artifact.
 builder wheel_vendored(ctx: ptr, wheel_path: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
     artifact_path = path.join(target_dir, "python_vendored_wheels_including_transitive")
     existing = ""
     if file.exists(artifact_path) == 1 {
@@ -368,11 +368,11 @@ builder wheel_vendored(ctx: ptr, wheel_path: string): int {
 }
 
 builder install(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: installing deps (pip)")
 
     venv = _ensure_venv(root)
@@ -384,7 +384,7 @@ builder install(ctx: ptr): int {
             req, _ = map.get(_builder, "requirements_file")
             req_path = path.join(root, req)
             if file.exists(req_path) == 1 {
-                build._sh(pip_install_requirements_cmd(pip_bin, req_path))
+                bldr._sh(pip_install_requirements_cmd(pip_bin, req_path))
             }
         }
     }
@@ -397,7 +397,7 @@ builder install(ctx: ptr): int {
             i = 0
             while i < count {
                 pkg, _ = list.get(pkgs, i)
-                build._sh(pip_install_cmd(pip_bin, pkg))
+                bldr._sh(pip_install_cmd(pip_bin, pkg))
                 i = i + 1
             }
         }
@@ -409,12 +409,12 @@ builder install(ctx: ptr): int {
     dli = 0
     while dli < dl_count {
         dp_w, _ = list.get(dep_list, dli)
-        dm_w = build._strip_lang(dp_w)
-        raw_pypi = build._read_dep_artifact(ctx, dm_w, "python_pypi_deps_including_transitive")
+        dm_w = bldr._strip_lang(dp_w)
+        raw_pypi = bldr._read_dep_artifact(ctx, dm_w, "python_pypi_deps_including_transitive")
         if string.length(raw_pypi) > 0 {
             pi = 1
             while pi <= 200 {
-                pr_raw, _epr = build._sh_capture("printf '%s\\n' '${raw_pypi}' | sed -n '${pi}p'")
+                pr_raw, _epr = bldr._sh_capture("printf '%s\\n' '${raw_pypi}' | sed -n '${pi}p'")
                 pline = string.trim(pr_raw)
                 if string.length(pline) == 0 {
                     pi = 999
@@ -425,25 +425,25 @@ builder install(ctx: ptr): int {
                     //   "django~"              → "django" (no version)
                     // Rule: if spec starts with a comparator char (<>=~!), use as-is;
                     //       otherwise default to == for exact version pinning.
-                    ps_raw, _eps = build._sh_capture("printf '%s' '${pline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
+                    ps_raw, _eps = bldr._sh_capture("printf '%s' '${pline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
                     pip_spec = string.trim(ps_raw)
-                    build._sh(pip_install_cmd(pip_bin, pip_spec))
+                    bldr._sh(pip_install_cmd(pip_bin, pip_spec))
                     pi = pi + 1
                 }
             }
         }
-        raw_whl = build._read_dep_artifact(ctx, dm_w, "python_vendored_wheels_including_transitive")
+        raw_whl = bldr._read_dep_artifact(ctx, dm_w, "python_vendored_wheels_including_transitive")
         if string.length(raw_whl) > 0 {
             wi = 1
             while wi <= 200 {
-                wr_raw, _ewr = build._sh_capture("printf '%s\\n' '${raw_whl}' | sed -n '${wi}p'")
+                wr_raw, _ewr = bldr._sh_capture("printf '%s\\n' '${raw_whl}' | sed -n '${wi}p'")
                 wline = string.trim(wr_raw)
                 if string.length(wline) == 0 {
                     wi = 999
                 } else {
                     // wline is a path relative to project root
                     wheel_full = path.join(root, wline)
-                    build._sh(pip_install_cmd(pip_bin, wheel_full))
+                    bldr._sh(pip_install_cmd(pip_bin, wheel_full))
                     wi = wi + 1
                 }
             }
@@ -457,12 +457,12 @@ builder install(ctx: ptr): int {
 
 // Run pytest using the .aeb/venv/ python.
 builder pytest(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (pytest)")
 
     venv = _ensure_venv(root)
@@ -475,20 +475,20 @@ builder pytest(ctx: ptr): int {
     // language has no -D equivalent for. Empty when no env() was set, so
     // byte-identical for callers that don't inject.
     // (asks/sdk-builders-cannot-set-env-for-the-test-run.md)
-    cmd = string.concat(build._env_export_prefix(_builder), cmd)
+    cmd = string.concat(bldr._env_export_prefix(_builder), cmd)
     // Tee to target/<module>/test_output.log — durable record for
     // failure diagnosis, also feeds the summary parser. Pytest
     // prints "===== 14 passed, 1 failed in 0.34s =====" at the end.
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = build._sh(full_cmd)
+    exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     pp, pf = _parse_pytest_counts(out_text)
-    build._record_test_result(ctx, pp, pf)
+    bldr._record_test_result(ctx, pp, pf)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -553,12 +553,12 @@ _is_digit_py(c: string) {
 
 // Lint Python source with ruff.
 builder lint(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: linting (ruff)")
 
     venv = _ensure_venv(root)
@@ -567,14 +567,14 @@ builder lint(ctx: ptr): int {
 
     // Ensure ruff is installed
     if file.exists(ruff) == 0 {
-        build._sh("'${pip_bin}' install -q ruff")
+        bldr._sh("'${pip_bin}' install -q ruff")
     }
 
     cmd = ruff_lint_cmd(ruff, source_dir)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: lint FAILED")
-        build.fail(ctx, "lint FAILED")
+        bldr.fail(ctx, "lint FAILED")
         return exit_code
     }
     println("${mod_dir}: lint PASSED")
@@ -584,12 +584,12 @@ builder lint(ctx: ptr): int {
 
 // Type-check Python source with mypy.
 builder typecheck(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: type-checking (mypy)")
 
     venv = _ensure_venv(root)
@@ -598,15 +598,15 @@ builder typecheck(ctx: ptr): int {
 
     // Ensure mypy is installed
     if file.exists(mypy) == 0 {
-        build._sh("'${pip_bin}' install -q mypy")
+        bldr._sh("'${pip_bin}' install -q mypy")
     }
 
     py = path.join(venv, "bin/python")
     cmd = mypy_cmd(py, source_dir, root)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: typecheck FAILED")
-        build.fail(ctx, "typecheck FAILED")
+        bldr.fail(ctx, "typecheck FAILED")
         return exit_code
     }
     println("${mod_dir}: typecheck PASSED")
@@ -617,13 +617,13 @@ builder typecheck(ctx: ptr): int {
 // Build a Python package (wheel + sdist).
 // Generates pyproject.toml from DSL setters, then runs python -m build.
 builder package(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
     dist_dir = path.join(target_dir, "dist")
-    build._mkdirs(dist_dir)
+    bldr._mkdirs(dist_dir)
 
     venv = _ensure_venv(root)
     pip_bin = path.join(venv, "bin/pip")
@@ -649,17 +649,17 @@ builder package(ctx: ptr): int {
     pdi = 0
     while pdi < pkg_dep_count {
         pdp, _ = list.get(pkg_deps, pdi)
-        pdm = build._strip_lang(pdp)
-        raw_p = build._read_dep_artifact(ctx, pdm, "python_pypi_deps_including_transitive")
+        pdm = bldr._strip_lang(pdp)
+        raw_p = bldr._read_dep_artifact(ctx, pdm, "python_pypi_deps_including_transitive")
         if string.length(raw_p) > 0 {
             ppi = 1
             while ppi <= 200 {
-                pl_raw, _epl = build._sh_capture("printf '%s\\n' '${raw_p}' | sed -n '${ppi}p'")
+                pl_raw, _epl = bldr._sh_capture("printf '%s\\n' '${raw_p}' | sed -n '${ppi}p'")
                 plline = string.trim(pl_raw)
                 if string.length(plline) == 0 {
                     ppi = 999
                 } else {
-                    ps_raw, _eps = build._sh_capture("printf '%s' '${plline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
+                    ps_raw, _eps = bldr._sh_capture("printf '%s' '${plline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
                     pip_spec = string.trim(ps_raw)
                     _e_b = list.add(dep_specs, pip_spec)
                     ppi = ppi + 1
@@ -676,7 +676,7 @@ builder package(ctx: ptr): int {
     println("${mod_dir}: packaging (python -m build)")
 
     // Ensure build tool is installed
-    build._sh("'${pip_bin}' install -q build")
+    bldr._sh("'${pip_bin}' install -q build")
 
     // python -m build doesn't support --config for pyproject path.
     // Instead, write pyproject.toml directly (overwrite if exists).
@@ -684,10 +684,10 @@ builder package(ctx: ptr): int {
     _ew2 = io.write_file(real_pyproject, toml)
 
     cmd = build_package_cmd(py, source_dir, dist_dir)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: packaging failed")
-        build.fail(ctx, "packaging failed")
+        bldr.fail(ctx, "packaging failed")
         return exit_code
     }
     println("${mod_dir}: packaging done → ${dist_dir}")
@@ -727,13 +727,13 @@ builder package(ctx: ptr): int {
 // `build_package_cmd` shape, so this builder is a drop-in for any
 // downstream that consumes the dist artifact.
 builder package_existing(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
     dist_dir = path.join(target_dir, "dist")
-    build._mkdirs(dist_dir)
+    bldr._mkdirs(dist_dir)
 
     // Resolve pyproject.toml: explicit override > source_dir default.
     pyproject_rel = "pyproject.toml"
@@ -744,14 +744,14 @@ builder package_existing(ctx: ptr): int {
     }
     pyproject_abs = pyproject_rel
     if string.length(pyproject_rel) > 0 {
-        if build._is_abs_path(pyproject_rel) == 0 {
+        if bldr._is_abs_path(pyproject_rel) == 0 {
             pyproject_abs = path.join(source_dir, pyproject_rel)
         }
     }
     if file.exists(pyproject_abs) == 0 {
         println("${mod_dir}: python.package_existing: pyproject.toml not found at ${pyproject_abs}")
         println("${mod_dir}: did you mean python.package(b) (which generates one) or set pyproject_path(\"...\")?")
-        build.fail(ctx, "pyproject.toml not found at ${pyproject_abs}")
+        bldr.fail(ctx, "pyproject.toml not found at ${pyproject_abs}")
         return 1
     }
 
@@ -761,7 +761,7 @@ builder package_existing(ctx: ptr): int {
 
     // Ensure the `build` package is installed in the venv. Same
     // shape as `python.package`; idempotent on re-run.
-    build._sh("'${pip_bin}' install -q build")
+    bldr._sh("'${pip_bin}' install -q build")
 
     // `python -m build` runs from the dir containing pyproject.toml.
     // If the override pointed somewhere else, cd to that dir.
@@ -772,10 +772,10 @@ builder package_existing(ctx: ptr): int {
 
     println("${mod_dir}: packaging via existing pyproject.toml (${pyproject_abs})")
     cmd = build_package_cmd(py, build_dir, dist_dir)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: packaging failed")
-        build.fail(ctx, "packaging failed")
+        bldr.fail(ctx, "packaging failed")
         return exit_code
     }
     println("${mod_dir}: packaging done → ${dist_dir}")
@@ -805,11 +805,11 @@ builder package_existing(ctx: ptr): int {
 // multi-file artifacts is a follow-up. Today's behaviour is "run if
 // any declared input is newer than the oldest declared output."
 builder codegen(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
+    bldr._mkdirs(target_dir)
 
     // Resolve working directory. codegen_cwd is relative to source_dir
     // unless absolute. Default to source_dir.
@@ -818,7 +818,7 @@ builder codegen(ctx: ptr): int {
         if map.has(_builder, "codegen_cwd") == 1 {
             rel, _ = map.get(_builder, "codegen_cwd")
             if string.length(rel) > 0 {
-                if build._is_abs_path(rel) == 1 {
+                if bldr._is_abs_path(rel) == 1 {
                     cwd = rel
                 } else {
                     cwd = path.join(source_dir, rel)
@@ -861,7 +861,7 @@ builder codegen(ctx: ptr): int {
     }
     if string.length(driver_form) == 0 {
         println("${mod_dir}: codegen: declare codegen_driver(\"module\") or codegen_script(\"path.py\")")
-        build.fail(ctx, "codegen: no codegen_driver() or codegen_script() declared")
+        bldr.fail(ctx, "codegen: no codegen_driver() or codegen_script() declared")
         return 1
     }
 
@@ -895,10 +895,10 @@ builder codegen(ctx: ptr): int {
     if skip == 0 {
         cmd = python_codegen_cmd(py, cwd, driver_form, driver_name, args)
         println("${mod_dir}: codegen running")
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: codegen FAILED")
-            build.fail(ctx, "codegen FAILED")
+            bldr.fail(ctx, "codegen FAILED")
             return rc
         }
     } else {
@@ -909,7 +909,7 @@ builder codegen(ctx: ptr): int {
     missing = _codegen_check_outputs(cwd, outputs, mod_dir)
     if missing > 0 {
         println("${mod_dir}: codegen: ${missing} declared output(s) missing — check codegen_output() vs the tool's actual output set")
-        build.fail(ctx, "codegen: ${missing} declared output(s) missing")
+        bldr.fail(ctx, "codegen: ${missing} declared output(s) missing")
         return 1
     }
 
@@ -917,7 +917,7 @@ builder codegen(ctx: ptr): int {
     // paths (absolute). Downstream consumers can read this as a
     // build artifact and feed it into their compile step.
     out_listing = _codegen_format_output_list(cwd, outputs)
-    build._write_artifact(ctx, "python_codegen_outputs", out_listing)
+    bldr._write_artifact(ctx, "python_codegen_outputs", out_listing)
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
@@ -1062,7 +1062,7 @@ _codegen_format_output_list(cwd: string, outputs: ptr) {
 // joined against cwd; absolute passes through.
 _codegen_resolve(cwd: string, p: string) {
     if string.length(p) == 0 { return p }
-    if build._is_abs_path(p) == 1 { return p }
+    if bldr._is_abs_path(p) == 1 { return p }
     return path.join(cwd, p)
 }
 
@@ -1070,7 +1070,7 @@ _codegen_resolve(cwd: string, p: string) {
 // venv), the "drive an existing project" counterpart to the venv-based
 // `pytest` builder. Foundation-backed: honors env(K,V)/step/workdir.
 builder test(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (pytest)")
-    return build._run_project(ctx, _builder, "python3 -m pytest -q", 1)
+    return bldr._run_project(ctx, _builder, "python3 -m pytest -q", 1)
 }

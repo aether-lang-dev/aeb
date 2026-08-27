@@ -5,13 +5,13 @@
 // directory to this program's include path, so main.c can #include
 // the generated gen_values.h / gen_names.h.
 
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import c
 import c (sources, output_file)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "gen/.build.ae")
     c.program(b) {
         sources("src/main.c")

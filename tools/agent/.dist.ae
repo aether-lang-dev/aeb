@@ -9,11 +9,11 @@
 // NOT wired into `make`. The agent is an opt-in network server; `make`
 // must not recurse into aeb to build it. Build + install it deliberately:
 //   aeb tools/agent/.install.ae   (deps this, then installs to ~/.local)
-import build
+import bldr
 import aether
 import aether (source, output)
 main() {
-    b = build.start()
+    b = bldr.start()
     aether.program(b) {
         source("../aeb-agent.ae")
         output("aeb-agent")

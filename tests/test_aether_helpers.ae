@@ -11,7 +11,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import aether (_paired_generated_c, _detect_caps_from_content, _regen_action)
 
 _assert_eq(label: string, actual: string, expected: string) {

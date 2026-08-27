@@ -1,9 +1,9 @@
-import build
+import bldr
 import dart
 import dart (dart_bin)
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "packages/bk_ticketing/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "packages/bk_ticketing/.build.ae")
     dart.test(b) { dart_bin("flutter") }
 }

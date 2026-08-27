@@ -13,14 +13,14 @@
 // / packaging step (a `.dist.ae`, `container.image`, etc.) pulls that
 // file out of `target/<module>/` into the distributable.
 
-import build
+import bldr
 import std.os
 import std.io
 import std.string
 import std.path
 
 main() {
-    b = build.start()
+    b = bldr.start()
 
     // --- Idiomatic SDK builders would go here, e.g. ---
     //   java.javac(b) { release("21") }
@@ -37,8 +37,8 @@ main() {
     formatted = format_recent(string.trim(log_raw))
 
     // 3. Write into the target dir for a later archive step to pull in.
-    tdir = build.target_dir(b)
-    build.mkdirs(tdir)
+    tdir = bldr.target_dir(b)
+    bldr.mkdirs(tdir)
     outfile = path.join(tdir, "RECENT_CHANGES.txt")
     werr = io.write_file(outfile, formatted)
     if string.length(werr) > 0 {

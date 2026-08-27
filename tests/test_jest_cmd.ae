@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import pnpm
 // Tests for jest.jest_cmd()
 

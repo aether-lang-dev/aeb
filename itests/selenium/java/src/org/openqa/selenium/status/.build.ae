@@ -34,13 +34,13 @@
 // package-info.class into target/<module>/classes/, classpath
 // drawn entirely from the resolved jspecify jar.
 
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import java
 import java (release)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "org.jspecify:jspecify:1.0.0")
     java.javac(b) {
         release("17")

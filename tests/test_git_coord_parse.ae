@@ -4,7 +4,7 @@
 // grammar: @ref finds, =sha verifies, #synonym names; '-' slug separator (not
 // '@', which aeb's symbol encoder can't handle).
 
-import build (_git_repo, _git_ref, _git_synonym, _git_sha, _git_synonym_relpath, _git_pkg_slug, _git_sha_matches)
+import bldr (_git_repo, _git_ref, _git_synonym, _git_sha, _git_synonym_relpath, _git_pkg_slug, _git_sha_matches)
 import std.string
 
 extern println(s: string)

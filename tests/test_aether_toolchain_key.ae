@@ -14,7 +14,7 @@
 // mechanism (the avn doc's manual procedure covers it end to end).
 
 import aether (_cache_key_for_aether_link, _toolchain_version)
-import build (_sh, _sh_capture)
+import bldr (_sh, _sh_capture)
 import std.string
 import std.os
 

@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for go_build_cmd() and go_test_cmd()
 
 import go
@@ -27,9 +27,9 @@ _assert_eq(label: string, actual: string, expected: string) {
 main() {
     // The dynamic-library env var is host-specific (DYLD_LIBRARY_PATH on
     // macOS, LD_LIBRARY_PATH on Linux) — go_test_cmd emits whatever the
-    // host uses via build._dyld_env_var(). Mirror that here so the
+    // host uses via bldr._dyld_env_var(). Mirror that here so the
     // expectation is correct on both platforms.
-    dyld = build._dyld_env_var()
+    dyld = bldr._dyld_env_var()
     cmd1 = go_build_cmd("/src/mymod", "/out/lib/mymod.so", null)
     _assert_eq("build: no-config", cmd1,
         "cd /src/mymod && go build -o /out/lib/mymod.so")

@@ -1,9 +1,9 @@
-import build
+import bldr
 import rust
 import rust (crate_name, edition, crate_dep, crate_dep_features)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     rust.cargo_project(b) {
         crate_name("store")
         edition("2021")

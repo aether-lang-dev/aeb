@@ -42,14 +42,14 @@
 // per-OS binary staging, license-file propagation, and similar.
 // See lib/copy/module.ae for the SDK.
 
-import build
+import bldr
 import copy
 import copy (from, to)
 import ruby
 import ruby (gemspec)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     copy.file(b) {
         from("../LICENSE")
         to("LICENSE")

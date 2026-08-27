@@ -8,12 +8,12 @@
 //   - links the committed C library cbits.c via extra_source(); cbits.c
 //     #includes ../inc/rom.h, resolved via include_dir() (Gap 1).
 //   - auto-links libaether.a
-import build
+import bldr
 import aether
 import aether (source, output, extra_source, include_dir)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     aether.program(b) {
         source("app.ae")
         extra_source("cbits.c")

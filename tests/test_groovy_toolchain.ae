@@ -1,14 +1,14 @@
 // Unit tests for the groovy capable-toolchain probe + the shared
-// build._verify_toolchain / build._record_skip primitives (the SDK-native
+// bldr._verify_toolchain / bldr._record_skip primitives (the SDK-native
 // replacement for html-sanitizer's groovy/run-tests.sh probe+exit-77).
 //
 // The live selection (_java_ge / _groovy_core_jars_desc / _resolve_capable_
 // groovy) is proven end-to-end against a real box in the change that added it
 // — here we cover the PURE decision logic that has no toolchain dependency:
-//   build._verify_toolchain(probe_cmd, ok_token) — token/version-marker gate
+//   bldr._verify_toolchain(probe_cmd, ok_token) — token/version-marker gate
 //   groovy._min_int(builder_map, key)            — declared minimum as int
 
-import build (_verify_toolchain, _java_ge)
+import bldr (_verify_toolchain, _java_ge)
 import groovy (_min_int, min_groovy, min_jdk)
 import std.string
 import std.map
@@ -49,7 +49,7 @@ main() {
     _assert("min_int: reads min_jdk", _min_int(b2, "min_jdk") == 22)
     _assert("min_int: reads min_groovy", _min_int(b2, "min_groovy") == 4)
 
-    // --- build._java_ge: shared JDK selector (string floor now) ---
+    // --- bldr._java_ge: shared JDK selector (string floor now) ---
     // Two box-agnostic invariants: empty floor and unsatisfiable both -> "".
     // ("" = "caller uses default java"; "999" = "SKIP/FAIL signal".)
     _assert("java_ge: \"\" -> \"\" (no requirement)", string.length(_java_ge("")) == 0)

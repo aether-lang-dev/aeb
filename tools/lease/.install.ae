@@ -7,8 +7,8 @@
 //
 // Prefix hardcoded to ~/.local (skeleton). The wrapper pins AEB_HOME for
 // parity with the agent wrapper, though aeb-lease itself only needs the lib.
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import std.os
 import std.io
 import std.string
@@ -16,10 +16,10 @@ import std.string
 extern println(s: string)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "tools/lease/.dist.ae")
 
-    root = build.root(b)
+    root = bldr.root(b)
     src_bin = string.concat(root, "/target/dist/tools/lease/bin/aeb-lease")
 
     home = os.getenv("HOME")
@@ -33,7 +33,7 @@ main() {
     rc = os.system(string.concat(string.concat("cp -f '", src_bin), string.concat("' '", string.concat(dst_bin, "'"))))
     if rc != 0 {
         println("aeb-lease install: failed to copy ${src_bin} → ${dst_bin}")
-        build.fail(b, "aeb-lease install: copy failed (did .dist build it?)")
+        bldr.fail(b, "aeb-lease install: copy failed (did .dist build it?)")
         return 1
     }
 
@@ -44,7 +44,7 @@ main() {
     werr = io.write_file(wrapper, w)
     if string.length(werr) > 0 {
         println("aeb-lease install: failed to write wrapper ${wrapper}: ${werr}")
-        build.fail(b, "aeb-lease install: wrapper write failed")
+        bldr.fail(b, "aeb-lease install: wrapper write failed")
         return 1
     }
     _c = os.system(string.concat("chmod +x '", string.concat(wrapper, "'")))

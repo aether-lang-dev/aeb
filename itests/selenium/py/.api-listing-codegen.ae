@@ -29,12 +29,12 @@
 // PyTorch torchgen leaf and most codegen tools that reach outside
 // their declared inputs.
 
-import build
+import bldr
 import python
 import python (codegen_script, codegen_input_dir, codegen_output)
 
 main() {
-    b = build.start()
+    b = bldr.start()
 
     python.codegen(b) {
         codegen_script("generate_api_module_listing.py")

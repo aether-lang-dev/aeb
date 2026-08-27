@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for dockerfile_content() — Dockerfile string generation
 
 import container

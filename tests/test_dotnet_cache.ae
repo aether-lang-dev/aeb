@@ -2,7 +2,7 @@
 //
 // _cache_key_for_dotnet(ctx, argfile, csproj_fingerprint, config,
 // source_dir, root) reads .cs sources + optional props files via
-// cache.hash_file and dep artifacts via build._read_dep_artifact.
+// cache.hash_file and dep artifacts via bldr._read_dep_artifact.
 // Stages fixtures under a tmpdir per case. Tolerates absent dotnet.
 import std.string
 import std.io
@@ -14,7 +14,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import dotnet (_cache_key_for_dotnet)
 
 _assert_eq(label: string, actual: string, expected: string) {

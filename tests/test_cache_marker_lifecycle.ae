@@ -31,7 +31,7 @@ import std.map
 import std.path
 import std.dir
 
-import build (_record_cache, _read_cache_outcome, _format_telemetry_line)
+import bldr (_record_cache, _read_cache_outcome, _format_telemetry_line)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -119,7 +119,7 @@ main() {
     // --- a blank marker degrades to n/a ----------------------------------
     // A truncated/interrupted write must not read as a decision.
     td_blank = path.join(tdir, "m-blank")
-    build._mkdirs(td_blank)
+    bldr._mkdirs(td_blank)
     _e = io.write_file(path.join(td_blank, ".aeb_cache"), "")
     _assert_eq("blank marker reads n/a", _read_cache_outcome(td_blank), "n/a")
 

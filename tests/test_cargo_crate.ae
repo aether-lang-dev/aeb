@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for cargo_crate_toml_content() — workspace member crate Cargo.toml generation
 
 import rust

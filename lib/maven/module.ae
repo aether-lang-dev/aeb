@@ -12,7 +12,7 @@
 // resolved a given coordinate set, every subsequent build with the
 // same inputs short-circuits to a content-addressable lookup
 // against $AEB_CACHE_DIR (default ~/.cache/aeb, XDG). See lib/cache.
-import build
+import bldr
 import cache
 import std.string
 import std.io
@@ -33,7 +33,7 @@ import std.zlib
 // Path is relative to the module's source directory.
 
 load_bom_file(ctx: ptr, rel_path: string) {
-    source_dir = build._get(ctx, "source_dir")
+    source_dir = bldr._get(ctx, "source_dir")
     full_path = path.join(source_dir, rel_path)
     if file.exists(full_path) == 0 {
         println("warning: BOM file not found: ${full_path}")
@@ -184,9 +184,9 @@ resolve(ctx: ptr) {
         return ""
     }
 
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
-    mod_dir = build._get(ctx, "module_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
+    mod_dir = bldr._get(ctx, "module_dir")
 
     // Try the content-addressable cache first. Skipping the Java
     // resolver subprocess saves ~1-3s per cache hit on a warm
@@ -202,7 +202,7 @@ resolve(ctx: ptr) {
             if string.length(gerr) == 0 {
                 println("${mod_dir}: maven cache hit ${cache_key}")
                 _ec = map.put(ctx, "_maven_resolved", cached)
-                build._write_artifact(ctx, "maven_classpath", cached)
+                bldr._write_artifact(ctx, "maven_classpath", cached)
                 return cached
             }
         }
@@ -226,7 +226,7 @@ resolve(ctx: ptr) {
     // SLF4J warnings go to stderr, os.exec captures stdout only
 
     println("${mod_dir}: resolving maven dependencies")
-    result_raw, _eerr = build._sh_capture(cmd)
+    result_raw, _eerr = bldr._sh_capture(cmd)
     result = string.trim(result_raw)
     if string.length(result) == 0 {
         println("${mod_dir}: warning: no maven jars resolved")
@@ -234,7 +234,7 @@ resolve(ctx: ptr) {
 
     // Cache and write artifact for downstream modules
     _e2 = map.put(ctx, "_maven_resolved", result)
-    build._write_artifact(ctx, "maven_classpath", result)
+    bldr._write_artifact(ctx, "maven_classpath", result)
 
     // Populate the content-addressable cache so future builds with
     // the same dep set short-circuit. Best-effort: a write failure
@@ -266,8 +266,8 @@ classpath(ctx: ptr) {
     i = 0
     while i < count {
         dp, _ = list.get(deps, i)
-        dm = build._strip_lang(dp)
-        dep_mvn = build._read_dep_artifact(ctx, dm, "maven_classpath")
+        dm = bldr._strip_lang(dp)
+        dep_mvn = bldr._read_dep_artifact(ctx, dm, "maven_classpath")
         if string.length(dep_mvn) > 0 {
             if string.length(own_cp) > 0 {
                 tmp = string.concat(own_cp, ":")
@@ -280,7 +280,7 @@ classpath(ctx: ptr) {
     }
     _e = map.put(ctx, "_maven_cp_built", own_cp)
     // Write merged classpath so downstream modules see transitive deps
-    build._write_artifact(ctx, "maven_classpath", own_cp)
+    bldr._write_artifact(ctx, "maven_classpath", own_cp)
     return own_cp
 }
 
@@ -291,12 +291,12 @@ classpath(ctx: ptr) {
 // sibling module first), workdir(...). Named `install`, not `build`, so it
 // does not shadow the imported `build` module inside this file.
 builder test(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (mvn test)")
-    return build._run_project(ctx, _builder, "mvn -q test", 1)
+    return bldr._run_project(ctx, _builder, "mvn -q test", 1)
 }
 builder install(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: building (mvn install)")
-    return build._run_project(ctx, _builder, "mvn -q -DskipTests install", 0)
+    return bldr._run_project(ctx, _builder, "mvn -q -DskipTests install", 0)
 }

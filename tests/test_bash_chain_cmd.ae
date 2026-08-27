@@ -12,7 +12,7 @@ import std.map
 import std.path
 import std.dir
 
-import build (_exec_chain_cmd)
+import bldr (_exec_chain_cmd)
 import bash (bash_chain_cmd)
 
 _assert_eq(label: string, actual: string, expected: string) {

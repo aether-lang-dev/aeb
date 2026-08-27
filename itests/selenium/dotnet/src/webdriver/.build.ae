@@ -15,10 +15,10 @@
 // resolved by `dotnet restore` (run implicitly as part of
 // `dotnet build`).
 
-import build
+import bldr
 import dotnet
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dotnet.build_project_existing(b)
 }

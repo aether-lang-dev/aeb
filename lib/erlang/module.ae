@@ -8,9 +8,9 @@
 // Env injection rides the shared env(...) setter. (Named `compile`, not
 // `build`, so it does not shadow the imported `build` module here.)
 //
-//   import build
+//   import bldr
 //   import erlang
-//   import build (env)
+//   import bldr (env)
 //   import erlang (escript)
 //   erlang.eunit(b) {
 //       env("ERL_LIBS", libs)
@@ -18,7 +18,7 @@
 //   }
 //
 // Setters: env(K,V) [lib/build], step("…") [bespoke compile], escript("…").
-import build
+import bldr
 import std.string
 import std.os
 import std.io
@@ -78,10 +78,10 @@ escript_cmd(source_dir: string, script: string) {
 // _erts_include() — the erts include dir holding erl_nif.h, asked of the
 // running erl (correct for kerl/asdf/Homebrew/relocated installs, unlike a
 // hardcoded /usr/lib/erlang), with a /usr/include fallback (Debian erlang-dev).
-// Returns "" when erl_nif.h can't be found. Mirrors build.sh.
+// Returns "" when erl_nif.h can't be found. Mirrors bldr.sh.
 _erts_include() {
     q = "erl -noshell -eval 'io:format(\"~s\", [filename:join([code:root_dir(), \"erts-\" ++ erlang:system_info(version), \"include\"])]), halt(0).'"
-    raw, _e = build._sh_capture(q)
+    raw, _e = bldr._sh_capture(q)
     inc = string.trim(raw)
     if string.length(inc) > 0 {
         if file.exists(path.join(inc, "erl_nif.h")) == 1 { return inc }
@@ -100,29 +100,29 @@ _erts_include() {
 // reporting a clean load error) — it dlopens it, so -ldl (not on macOS);
 // (2) erl_nif.h is found by asking erl, not guessing.
 builder nif(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     // toolchain: erlc + erl + a C compiler, else SKIP.
-    if build._sh("command -v erlc >/dev/null 2>&1") != 0 {
+    if bldr._sh("command -v erlc >/dev/null 2>&1") != 0 {
         reason = "erlc not on PATH (install erlang)"
         println("${mod_dir}: SKIPPED — ${reason}")
-        build._record_skip(ctx, reason)
+        bldr._record_skip(ctx, reason)
         return 0
     }
-    if build._sh("command -v erl >/dev/null 2>&1") != 0 {
+    if bldr._sh("command -v erl >/dev/null 2>&1") != 0 {
         reason = "erl not on PATH (install erlang)"
         println("${mod_dir}: SKIPPED — ${reason}")
-        build._record_skip(ctx, reason)
+        bldr._record_skip(ctx, reason)
         return 0
     }
     erts_inc = _erts_include()
     if string.length(erts_inc) == 0 {
         reason = "erl_nif.h not found (install erlang-dev / erlang-devel)"
         println("${mod_dir}: SKIPPED — ${reason}")
-        build._record_skip(ctx, reason)
+        bldr._record_skip(ctx, reason)
         return 0
     }
 
@@ -138,27 +138,27 @@ builder nif(ctx: ptr): int {
         if map.has(_builder, "erl_engine_lib") == 1 { engine, _ = map.get(_builder, "erl_engine_lib") }
     }
     if string.length(nif_src) == 0 {
-        build.fail(ctx, "erlang.nif: nif_source(\"...\") is required")
+        bldr.fail(ctx, "erlang.nif: nif_source(\"...\") is required")
         return 1
     }
 
     app_dir = path.join(path.join(source_dir, "_build"), app_nm)
     ebin = path.join(app_dir, "ebin")
     priv = path.join(app_dir, "priv")
-    build._mkdirs(ebin)
-    build._mkdirs(priv)
+    bldr._mkdirs(ebin)
+    bldr._mkdirs(priv)
 
-    cc = build._default_cc()
+    cc = bldr._default_cc()
     ldl = "-ldl"
-    if build._is_macos() == 1 { ldl = "" }
+    if bldr._is_macos() == 1 { ldl = "" }
 
     // 1. the NIF .so — NO engine lib on the link line (dlopen'd, not linked).
     println("${mod_dir}: building NIF (${cc})")
     nif_out = path.join(priv, "${app_nm}.so")
     nif_cmd = "${cc} -O2 -fPIC -Wall -Wextra -shared -I'${erts_inc}' '${path.join(source_dir, nif_src)}' -o '${nif_out}' ${ldl}"
-    if build._sh(nif_cmd) != 0 {
+    if bldr._sh(nif_cmd) != 0 {
         println("${mod_dir}: NIF build failed")
-        build.fail(ctx, "erlang NIF build failed")
+        bldr.fail(ctx, "erlang NIF build failed")
         return 1
     }
 
@@ -177,9 +177,9 @@ builder nif(ctx: ptr): int {
         }
     }
     if string.length(string.trim(esrcs)) > 0 {
-        if build._sh("erlc -o '${ebin}'${esrcs}") != 0 {
+        if bldr._sh("erlc -o '${ebin}'${esrcs}") != 0 {
             println("${mod_dir}: erlc failed")
-            build.fail(ctx, "erlc failed")
+            bldr.fail(ctx, "erlc failed")
             return 1
         }
     }
@@ -187,17 +187,17 @@ builder nif(ctx: ptr): int {
     // 3. the .app file — straight copy of app.src (no rebar substitutions).
     if string.length(app_src_v) > 0 {
         appdst = path.join(ebin, "${app_nm}.app")
-        build._sh("cp -f '${path.join(source_dir, app_src_v)}' '${appdst}'")
+        bldr._sh("cp -f '${path.join(source_dir, app_src_v)}' '${appdst}'")
     }
 
     // 4. stage the engine .so beside the NIF so priv/ is self-contained.
     if string.length(engine) > 0 {
         if file.exists(engine) == 1 {
-            build._sh("cp -f '${engine}' '${path.join(priv, "libhtmlsanitizer.so")}'")
+            bldr._sh("cp -f '${engine}' '${path.join(priv, "libhtmlsanitizer.so")}'")
         }
     }
 
-    build._write_artifact(ctx, "erlang_app", app_dir)
+    bldr._write_artifact(ctx, "erlang_app", app_dir)
     println("${mod_dir}: built ${app_dir}")
     _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
@@ -208,21 +208,21 @@ builder nif(ctx: ptr): int {
 // erlang.compile(b) — run the declared build steps (bespoke NIF/erlc/stage);
 // success/fail telemetry. Default `rebar3 compile` when no step()s declared.
 builder compile(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: building (erlang)")
-    return build._run_project(ctx, _builder, "rebar3 compile", 0)
+    return bldr._run_project(ctx, _builder, "rebar3 compile", 0)
 }
 
 // erlang.eunit(b) — `rebar3 eunit` by default, or `escript <path>` when
 // escript("…") is declared. Pass/fail telemetry. Honors explicit step()s.
 builder eunit(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     // Back-compat: a binding that wrote step("…") keeps the generic path.
     if _builder != null {
         if map.has(_builder, "proc_steps") == 1 {
             println("${mod_dir}: running tests (eunit)")
-            return build._run_project(ctx, _builder, "rebar3 eunit", 1)
+            return bldr._run_project(ctx, _builder, "rebar3 eunit", 1)
         }
     }
 
@@ -231,18 +231,18 @@ builder eunit(ctx: ptr): int {
         if map.has(_builder, "escript_path") == 1 {
             sp, _ = map.get(_builder, "escript_path")
             if string.length(sp) > 0 {
-                source_dir = build._get(ctx, "source_dir")
-                target_dir = build._get(ctx, "target_dir")
-                build._mkdirs(target_dir)
+                source_dir = bldr._get(ctx, "source_dir")
+                target_dir = bldr._get(ctx, "target_dir")
+                bldr._mkdirs(target_dir)
                 println("${mod_dir}: running tests (escript ${sp})")
-                rc = build._sh(string.concat(build._env_export_prefix(_builder), escript_cmd(source_dir, sp)))
+                rc = bldr._sh(string.concat(bldr._env_export_prefix(_builder), escript_cmd(source_dir, sp)))
                 if rc != 0 {
-                    build._record_test_result(ctx, 0, 1)
+                    bldr._record_test_result(ctx, 0, 1)
                     println("${mod_dir}: tests FAILED")
-                    build.fail(ctx, "tests FAILED")
+                    bldr.fail(ctx, "tests FAILED")
                     return rc
                 }
-                build._record_test_result(ctx, 1, 0)
+                bldr._record_test_result(ctx, 1, 0)
                 println("${mod_dir}: tests PASSED")
                 _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
                 return 0
@@ -252,5 +252,5 @@ builder eunit(ctx: ptr): int {
 
     // Default: rebar3 eunit through the generic path.
     println("${mod_dir}: running tests (eunit)")
-    return build._run_project(ctx, _builder, "rebar3 eunit", 1)
+    return bldr._run_project(ctx, _builder, "rebar3 eunit", 1)
 }

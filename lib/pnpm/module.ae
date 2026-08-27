@@ -4,7 +4,7 @@
 // creates a node_modules layout in .aeb/node_modules/.
 // Separate from the TypeScript language SDK — a TS project might use
 // yarn or npm instead of pnpm.
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -79,10 +79,10 @@ resolve(ctx: ptr) {
         return ""
     }
 
-    root = build._get(ctx, "root")
+    root = bldr._get(ctx, "root")
     aeb_dir = path.join(root, ".aeb")
     nm_dir = path.join(aeb_dir, "node_modules")
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     // Check if node_modules already exists and has content
     if file.exists(nm_dir) == 1 {
@@ -105,13 +105,13 @@ resolve(ctx: ptr) {
     // COREPACK_ENABLE_STRICT=0 allows pnpm to work even when
     // a parent package.json declares a different package manager
     cmd = pnpm_add_cmd(aeb_dir, npm_deps)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: warning: pnpm add failed")
     }
 
     _e5 = map.put(ctx, "_npm_resolved", nm_dir)
-    build._write_artifact(ctx, "npm_node_modules", nm_dir)
+    bldr._write_artifact(ctx, "npm_node_modules", nm_dir)
     return nm_dir
 }
 
@@ -203,10 +203,10 @@ _script_args_str(builder_map: ptr) {
 // Distinct from `pnpm.resolve(ctx)` (above), which is the
 // aeb-declared dep flow for .npm.ae files.
 builder install(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    bldr._mkdirs(target_dir)
 
     frozen = 0
     if _builder != null {
@@ -217,10 +217,10 @@ builder install(ctx: ptr): int {
 
     println("${mod_dir}: pnpm install")
     cmd = pnpm_install_cmd(source_dir, frozen)
-    rc = build._sh(cmd)
+    rc = bldr._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: pnpm install FAILED")
-        build.fail(ctx, "pnpm install FAILED")
+        bldr.fail(ctx, "pnpm install FAILED")
         return rc
     }
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -232,18 +232,18 @@ builder install(ctx: ptr): int {
 // append args after the script name (separated by `--` so they reach
 // the script, not pnpm itself).
 builder run(ctx: ptr, script: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    bldr._mkdirs(target_dir)
 
     args_str = _script_args_str(_builder)
     println("${mod_dir}: pnpm run ${script}")
     cmd = pnpm_run_cmd(source_dir, script, args_str)
-    rc = build._sh(cmd)
+    rc = bldr._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: pnpm run ${script} FAILED")
-        build.fail(ctx, "pnpm run ${script} FAILED")
+        bldr.fail(ctx, "pnpm run ${script} FAILED")
         return rc
     }
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")

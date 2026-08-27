@@ -1,12 +1,12 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import kotlin
 import kotlin (source_layout)
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "jooby/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "jooby/.build.ae")
     load_bom_file(b, "../../jooby.bom.ae")
     dep(b, "org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     dep(b, "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")

@@ -9,7 +9,7 @@
 // arithmetic) — their cross-module return type isn't inferred as int, so `+`
 // is rejected but `== 1` typechecks (the same idiom every SDK uses on them).
 
-import build (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix, _is_abs_path)
+import bldr (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix, _is_abs_path)
 import std.string
 
 extern println(s: string)

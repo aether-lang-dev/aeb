@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for dotnet.dotnet_build_cmd, dotnet.dotnet_test_cmd
 
 import dotnet

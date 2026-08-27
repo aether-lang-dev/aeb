@@ -1,5 +1,5 @@
 // angular — Angular compiler and build SDK for aether.build
-import build
+import bldr
 import pnpm
 import std.string
 import std.io
@@ -51,12 +51,12 @@ ng_build_cmd(ng_bin: string, app_name: string, configuration: string) {
 
 // Compile Angular TypeScript using ngc (Angular compiler).
 builder ngc(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     // Resolve npm deps first
     pnpm.resolve(ctx)
@@ -76,7 +76,7 @@ builder ngc(ctx: ptr): int {
     ngc_bin = path.join(aeb_dir, "node_modules/.bin/ngc")
     cmd = ngc_cmd(ngc_bin, tc, _builder)
 
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: ngc failed")
         return exit_code
@@ -88,16 +88,16 @@ builder ngc(ctx: ptr): int {
 
 // Build Angular app for production using ng CLI.
 builder ng_build(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    root = build._get(ctx, "root")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    root = bldr._get(ctx, "root")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     pnpm.resolve(ctx)
 
     // Extract app name from source_dir (e.g. .../apps/products → products)
-    app_name_raw, _eerr = build._sh_capture("basename '${source_dir}'")
+    app_name_raw, _eerr = bldr._sh_capture("basename '${source_dir}'")
     app_name = string.trim(app_name_raw)
 
     println("${mod_dir}: building (ng build)")
@@ -106,7 +106,7 @@ builder ng_build(ctx: ptr): int {
     ng_bin = path.join(aeb_dir, "node_modules/.bin/ng")
     cmd = ng_build_cmd(ng_bin, app_name, "production")
 
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: ng build failed")
         return exit_code

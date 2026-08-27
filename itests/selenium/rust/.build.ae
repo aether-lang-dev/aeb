@@ -11,7 +11,7 @@
 // `binary_name("selenium-manager")` setter is the artifact-write
 // hint; downstream consumers (e.g., the Python wheel that vendors
 // selenium-manager into the wheel via setuptools-rust) can
-// `build.dep` on this file and read the `cargo_binary` artifact
+// `bldr.dep` on this file and read the `cargo_binary` artifact
 // for the path.
 //
 // **Not converted in this pass:** the Bazel-side `rust_test` rules
@@ -25,12 +25,12 @@
 // is pinned; cargo just verifies). Roughly 5-10 minutes clean
 // build on a recent dev box.
 
-import build
+import bldr
 import rust
 import rust (binary_name)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     rust.cargo_project_existing(b) {
         binary_name("selenium-manager")
     }

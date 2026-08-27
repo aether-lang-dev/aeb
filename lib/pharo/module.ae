@@ -6,16 +6,16 @@
 // project provides; override with step(...). Env injection (e.g. a shared
 // `.so` path via uFFI, PHARO_DIR) rides the shared env(...) setter.
 //
-//   import build
+//   import bldr
 //   import pharo
-//   import build (env)
+//   import bldr (env)
 //   pharo.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
 //       env("PHARO_DIR", pharo_dir)
 //   }
 //
 // Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
-import build
+import bldr
 import std.string
 import std.os
 import std.file
@@ -50,7 +50,7 @@ suite(_ctx: ptr, name: string) {
 // downloaded — a runner that installs a VM behind your back is worse than a
 // clear skip.
 _pharo_bin() {
-    p, _e = build._sh_capture("command -v pharo 2>/dev/null")
+    p, _e = bldr._sh_capture("command -v pharo 2>/dev/null")
     onpath = string.trim(p)
     if string.length(onpath) > 0 { return onpath }
     pdir = os.getenv("PHARO_DIR")
@@ -67,7 +67,7 @@ _pharo_bin() {
 _pharo_image(source_dir: string) {
     pdir = os.getenv("PHARO_DIR")
     if string.length(pdir) == 0 { pdir = path.join(os.getenv("HOME"), ".local/pharo") }
-    raw, _e = build._sh_capture("ls '${pdir}'/*.image '${source_dir}'/*.image 2>/dev/null | head -1")
+    raw, _e = bldr._sh_capture("ls '${pdir}'/*.image '${source_dir}'/*.image 2>/dev/null | head -1")
     return string.trim(raw)
 }
 
@@ -81,23 +81,23 @@ _pharo_image(source_dir: string) {
 // against the developer's own image would bake this package (and any load
 // failure) into it.
 builder sunit(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     vm = _pharo_bin()
     if string.length(vm) == 0 {
         reason = "pharo not installed (no `pharo` on PATH, none under $PHARO_DIR)"
         println("${mod_dir}: SKIPPED — ${reason}")
-        build._record_skip(ctx, reason)
+        bldr._record_skip(ctx, reason)
         return 0
     }
     img = _pharo_image(source_dir)
     if string.length(img) == 0 {
         reason = "a Pharo VM was found but no .image under $PHARO_DIR"
         println("${mod_dir}: SKIPPED — ${reason}")
-        build._record_skip(ctx, reason)
+        bldr._record_skip(ctx, reason)
         return 0
     }
 
@@ -110,7 +110,7 @@ builder sunit(ctx: ptr): int {
         if map.has(_builder, "pharo_suite") == 1 { suite_v, _ = map.get(_builder, "pharo_suite") }
     }
     if string.length(baseline_v) == 0 {
-        build.fail(ctx, "pharo.sunit: baseline(\"...\") is required")
+        bldr.fail(ctx, "pharo.sunit: baseline(\"...\") is required")
         return 1
     }
     if string.length(suite_v) == 0 { suite_v = baseline_v }
@@ -118,12 +118,12 @@ builder sunit(ctx: ptr): int {
     // Throwaway work dir (removed on the shell line's own trap). Copy image +
     // its .changes / .sources companions so the VM boots cleanly.
     work = path.join(target_dir, "pharo-work")
-    build._sh("rm -rf '${work}' && mkdir -p '${work}'")
-    build._sh("cp '${img}' '${work}/Work.image'")
+    bldr._sh("rm -rf '${work}' && mkdir -p '${work}'")
+    bldr._sh("cp '${img}' '${work}/Work.image'")
     imgbase = string.substring(img, 0, string.length(img) - 6)
-    build._sh("[ -f '${imgbase}.changes' ] && cp '${imgbase}.changes' '${work}/Work.changes' || true")
+    bldr._sh("[ -f '${imgbase}.changes' ] && cp '${imgbase}.changes' '${work}/Work.changes' || true")
     imgdir = path.dirname(img)
-    build._sh("for s in '${imgbase}.sources' '${imgdir}'/*.sources; do [ -f \"$s\" ] && cp \"$s\" '${work}/' 2>/dev/null || true; done")
+    bldr._sh("for s in '${imgbase}.sources' '${imgdir}'/*.sources; do [ -f \"$s\" ] && cp \"$s\" '${work}/' 2>/dev/null || true; done")
 
     // Metacello load script reading Tonel straight from the working tree.
     tonel_path = path.join(source_dir, tonel)
@@ -132,34 +132,34 @@ builder sunit(ctx: ptr): int {
     _w = io.write_file(load_st, st_body)
 
     // Env (e.g. HTMLSANITIZER_LIB for the uFFI engine .so) rides env(...).
-    envp = build._env_export_prefix(_builder)
+    envp = bldr._env_export_prefix(_builder)
 
     println("${mod_dir}: loading ${baseline_v} into a throwaway Pharo image")
     // Run from $work so Pharo's PharoDebug.log / *.fuel litter lands there.
     load_cmd = "${envp}cd '${work}' && '${vm}' --headless '${work}/Work.image' st --quit '${load_st}'"
-    if build._sh(load_cmd) != 0 {
+    if bldr._sh(load_cmd) != 0 {
         println("${mod_dir}: package load failed")
-        build.fail(ctx, "pharo package load failed")
+        bldr.fail(ctx, "pharo package load failed")
         return 1
     }
 
     println("${mod_dir}: running SUnit (${suite_v})")
     test_cmd = "${envp}cd '${work}' && '${vm}' --headless '${work}/Work.image' test --junit-xml-output '${suite_v}'"
-    rc = build._sh(test_cmd)
+    rc = bldr._sh(test_cmd)
     if rc != 0 {
-        build._record_test_result_exitcode(ctx, 0, 1)
+        bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: SUnit reported failures")
-        build.fail(ctx, "pharo SUnit failed")
+        bldr.fail(ctx, "pharo SUnit failed")
         return 1
     }
-    build._record_test_result_exitcode(ctx, 1, 0)
+    bldr._record_test_result_exitcode(ctx, 1, 0)
     println("${mod_dir}: SUnit PASSED")
     return 0
 }
 
 // pharo.test(b) — project `./run-tests.sh` by default. Reports pass/fail.
 builder test(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (pharo)")
-    return build._run_project(ctx, _builder, "./run-tests.sh", 1)
+    return bldr._run_project(ctx, _builder, "./run-tests.sh", 1)
 }

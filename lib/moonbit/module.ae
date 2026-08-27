@@ -21,7 +21,7 @@
 //
 // No venv equivalent: MoonBit uses the system `moon` on PATH plus a
 // per-project resolved dep set materialised by `moon install`.
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -257,19 +257,19 @@ _target_of(builder_map: ptr) {
 // Resolve dependencies via `moon install`. The install-equivalent;
 // runs in source_dir. Mirror of dart.pub_get.
 builder install(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: resolving deps (moon install)")
 
     moon = _moon_of(_builder)
     cmd = install_cmd(moon, source_dir)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: moon install FAILED")
-        build.fail(ctx, "moon install FAILED")
+        bldr.fail(ctx, "moon install FAILED")
         return exit_code
     }
     println("${mod_dir}: moon install done")
@@ -280,19 +280,19 @@ builder install(ctx: ptr): int {
 // Type-check via `moon check` (compilation checks, no object files).
 // Mirror of dart.analyze.
 builder check(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: checking (moon check)")
 
     moon = _moon_of(_builder)
     cmd = check_cmd(moon, source_dir, _target_flag(_target_of(_builder)))
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: check FAILED")
-        build.fail(ctx, "check FAILED")
+        bldr.fail(ctx, "check FAILED")
         return exit_code
     }
     println("${mod_dir}: check PASSED")
@@ -302,13 +302,13 @@ builder check(ctx: ptr): int {
 
 // Run tests via `moon test`. Mirror of dart.test: tee output to
 // target/<module>/test_output.log, parse MoonBit's summary line for
-// pass/fail counts, feed build._record_test_result.
+// pass/fail counts, feed bldr._record_test_result.
 builder test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (moon test)")
 
     moon = _moon_of(_builder)
@@ -325,13 +325,13 @@ builder test(ctx: ptr): int {
     cmd = test_cmd(moon, source_dir, pkg_part, _target_flag(_target_of(_builder)))
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = build._sh(full_cmd)
+    exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     tp_cnt, tf_cnt = _parse_moon_test_counts(out_text)
-    build._record_test_result(ctx, tp_cnt, tf_cnt)
+    bldr._record_test_result(ctx, tp_cnt, tf_cnt)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -403,11 +403,11 @@ _is_digit_moon(c: string) {
 // documented, so it's declared rather than guessed). Mirror of
 // dart.compile.
 builder build(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     moon = _moon_of(_builder)
     release_flag = ""
@@ -420,10 +420,10 @@ builder build(ctx: ptr): int {
 
     println("${mod_dir}: building (moon build)")
     cmd = build_cmd(moon, source_dir, _target_flag(_target_of(_builder)), release_flag)
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: build FAILED")
-        build.fail(ctx, "build FAILED")
+        bldr.fail(ctx, "build FAILED")
         return exit_code
     }
 
@@ -435,19 +435,19 @@ builder build(ctx: ptr): int {
             art_rel, _ = map.get(_builder, "build_artifact")
             if string.length(art_rel) > 0 {
                 art_abs = art_rel
-                if build._is_abs_path(art_rel) == 0 {
+                if bldr._is_abs_path(art_rel) == 0 {
                     art_abs = path.join(source_dir, art_rel)
                 }
                 if file.exists(art_abs) == 0 {
                     println("${mod_dir}: build_artifact not found at ${art_abs} — check the path against moon's output layout")
-                    build.fail(ctx, "build_artifact not found at ${art_abs}")
+                    bldr.fail(ctx, "build_artifact not found at ${art_abs}")
                     return 1
                 }
                 out_name = _out_name_of(_builder, mod_dir)
                 out_abs = path.join(target_dir, out_name)
-                build._sh("cp '${art_abs}' '${out_abs}'")
-                build._write_artifact(ctx, "program_binary", out_abs)
-                build._write_artifact(ctx, "moonbit_build_output", out_abs)
+                bldr._sh("cp '${art_abs}' '${out_abs}'")
+                bldr._write_artifact(ctx, "program_binary", out_abs)
+                bldr._write_artifact(ctx, "moonbit_build_output", out_abs)
                 println("${mod_dir}: build done → ${out_abs}")
                 _ewp = io.write_file(path.join(target_dir, ".timestamp"), "")
                 return 0
@@ -495,10 +495,10 @@ _out_name_of(builder_map: ptr, mod_dir: string) {
 // artifacts is a follow-up). Today: "run if any declared input is
 // newer than the oldest declared output."
 builder codegen(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     // Resolve working directory. codegen_cwd relative to source_dir
     // unless absolute. Default source_dir.
@@ -507,7 +507,7 @@ builder codegen(ctx: ptr): int {
         if map.has(_builder, "codegen_cwd") == 1 {
             rel, _ = map.get(_builder, "codegen_cwd")
             if string.length(rel) > 0 {
-                if build._is_abs_path(rel) == 1 {
+                if bldr._is_abs_path(rel) == 1 {
                     cwd = rel
                 } else {
                     cwd = path.join(source_dir, rel)
@@ -534,7 +534,7 @@ builder codegen(ctx: ptr): int {
     }
     if string.length(driver_form) == 0 {
         println("${mod_dir}: codegen: declare codegen_program(\"prog\") or codegen_script(\"moon-run-target\")")
-        build.fail(ctx, "codegen: no codegen_program() or codegen_script() declared")
+        bldr.fail(ctx, "codegen: no codegen_program() or codegen_script() declared")
         return 1
     }
 
@@ -562,10 +562,10 @@ builder codegen(ctx: ptr): int {
     if skip == 0 {
         cmd = moonbit_codegen_cmd(moon, cwd, driver_form, driver_name, args)
         println("${mod_dir}: codegen running")
-        rc = build._sh(cmd)
+        rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: codegen FAILED")
-            build.fail(ctx, "codegen FAILED")
+            bldr.fail(ctx, "codegen FAILED")
             return rc
         }
     } else {
@@ -575,12 +575,12 @@ builder codegen(ctx: ptr): int {
     missing = _codegen_check_outputs(cwd, outputs, mod_dir)
     if missing > 0 {
         println("${mod_dir}: codegen: ${missing} declared output(s) missing — check codegen_output() vs the generator's actual output set")
-        build.fail(ctx, "codegen: ${missing} declared output(s) missing")
+        bldr.fail(ctx, "codegen: ${missing} declared output(s) missing")
         return 1
     }
 
     out_listing = _codegen_format_output_list(cwd, outputs)
-    build._write_artifact(ctx, "moonbit_codegen_outputs", out_listing)
+    bldr._write_artifact(ctx, "moonbit_codegen_outputs", out_listing)
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
@@ -705,6 +705,6 @@ _codegen_format_output_list(cwd: string, outputs: ptr) {
 // against cwd; absolute passes through.
 _codegen_resolve(cwd: string, p: string) {
     if string.length(p) == 0 { return p }
-    if build._is_abs_path(p) == 1 { return p }
+    if bldr._is_abs_path(p) == 1 { return p }
     return path.join(cwd, p)
 }

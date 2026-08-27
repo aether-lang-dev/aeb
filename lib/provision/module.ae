@@ -2,7 +2,7 @@
 //
 // Implements the PROBE + PREFLIGHT half of
 // docs/build-prerequisites-and-provisioning.md. A build node declares system
-// toolchain prerequisites with build.prereq(b, "<tc>:<ver>"); tools/extract-deps
+// toolchain prerequisites with bldr.prereq(b, "<tc>:<ver>"); tools/extract-deps
 // --prereqs collects them statically; the flattened set (transitive union over
 // the dep DAG) is what preflight here consumes.
 //
@@ -10,7 +10,7 @@
 //     flatten set -> probe each token vs the host -> any missing yields the
 //     DISTINCT `unmet-prereqs: [tok ...]` verdict (NOT build-failed). Never
 //     installs. Runs identically on Windows and Linux — pure probing through
-//     the build._sh chokepoint, no podman.
+//     the bldr._sh chokepoint, no podman.
 //
 // The token grammar is "<toolchain>:<version>" (exact version, v1). The probe
 // for each toolchain is a small operator-owned map; aeb ships defaults for its
@@ -22,7 +22,7 @@
 // present," nothing about whether the build is permitted to run (that is the
 // veto/sandbox's job — orthogonal layers).
 
-import build
+import bldr
 import std.string
 import std.list
 import std.map
@@ -122,7 +122,7 @@ _probe_binary(tc: string) {
 // 1 if the binary is on PATH, else 0. Uses `command -v` (a POSIX shell builtin
 // cmd.exe lacks) through the build chokepoint, so it's Windows-correct.
 _binary_present(bin: string) {
-    out, _e = build._sh_capture(string.concat("command -v ", string.concat(bin, " >/dev/null 2>&1 && echo Y || echo N")))
+    out, _e = bldr._sh_capture(string.concat("command -v ", string.concat(bin, " >/dev/null 2>&1 && echo Y || echo N")))
     if string.index_of(out, "Y") >= 0 { return 1 }
     return 0
 }

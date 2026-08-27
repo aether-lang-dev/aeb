@@ -23,7 +23,7 @@ extern exit(code: int)
 
 // Auto-prepend "./" so fs.glob's recursive `**` marker fires.
 // Mirrors the same trick `tools/scan-ae-files.ae` uses; see also
-// the runtime `build.scan(...)` setter.
+// the runtime `bldr.scan(...)` setter.
 prepend_dot_slash(pattern: string) {
     if string.length(pattern) == 0 { return pattern }
     first = string.substring(pattern, 0, 1)
@@ -102,7 +102,7 @@ _dir_of(p: string) {
 // by cloning the repo (pinned) into target/_pkg/<slug>/ and returning the
 // root-relative path to the synonym's `.name.ae` inside it — so the dep DAG
 // the orchestrator builds points at a real on-disk .ae. The runtime
-// build._git_dep does the SAME clone (idempotent: an existing pinned tree is
+// bldr._git_dep does the SAME clone (idempotent: an existing pinned tree is
 // reused), so extraction and runtime agree on the path. Grammar + slug logic
 // mirror lib/build/module.ae's _git_* helpers. See asks/dep-git-coordinate.md.
 
@@ -237,7 +237,7 @@ resolve_dep_rel(dep: string, base_dir: string) {
     }
     // Package/coordinate deps are NOT file-DAG nodes — the language SDK
     // resolves them at build time (maven jars onto the classpath, npm packages
-    // via pnpm). Mirror the runtime build.dep rule (lib/build/module.ae:
+    // via pnpm). Mirror the runtime bldr.dep rule (lib/build/module.ae:
     // "Maven coordinates contain colons; module paths use slashes"): an npm:
     // prefix or any remaining ':' means a coordinate. Emit no edge — otherwise
     // a `dep(b, "hiccup:hiccup:2.0.0-RC3")` fabricated a phantom node and the
@@ -384,7 +384,7 @@ main() {
     // Pass 2: scan(b, "...") — glob-based bulk dep discovery.
     // Each pattern expands to every matching file at extraction time;
     // each match becomes a dep of the file containing the scan() call.
-    // Runtime-side build.scan() expands the same set; aeb-main's
+    // Runtime-side bldr.scan() expands the same set; aeb-main's
     // `seen` map dedups when the BFS hits the same file via two
     // routes.
     //
@@ -430,7 +430,7 @@ main() {
                     dir_list_free(matches)
                 }
                 // Glob errors and zero-match cases are handled at
-                // runtime by `build.scan` (loud failure with a clear
+                // runtime by `bldr.scan` (loud failure with a clear
                 // message). Here at extraction time we silently produce
                 // an empty contribution — extract-deps shouldn't be
                 // the place that reports user errors.

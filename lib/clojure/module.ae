@@ -3,7 +3,7 @@
 // Compiles Clojure source via java+clojure.jar and runs tests
 // via clojure.test (built into Clojure). Maven deps are resolved
 // via the maven module (Clojure uses Maven coordinates).
-import build
+import bldr
 import cache
 import maven
 import std.string
@@ -157,9 +157,9 @@ _dep_src_classpath(ctx: ptr) {
     i = 0
     while i < count {
         dp, _ = list.get(deps, i)
-        dm = build._strip_lang(dp)
-        dep_src = build._read_dep_artifact(ctx, dm, "clojure_src_path")
-        cp = build._cp_append(cp, dep_src)
+        dm = bldr._strip_lang(dp)
+        dep_src = bldr._read_dep_artifact(ctx, dm, "clojure_src_path")
+        cp = bldr._cp_append(cp, dep_src)
         i = i + 1
     }
     return cp
@@ -174,7 +174,7 @@ _dep_src_classpath(ctx: ptr) {
 _clj_java_version() {
     cached = os.getenv("_AEB_JAVA_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("java -version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("java -version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -198,7 +198,7 @@ _cache_key_for_clj(ctx: ptr, argfile_path: string, aot_cmd_str: string, maven_cp
     list.add(parts, string.concat("ns:", ns))
     list.add(parts, string.concat("cmd:", aot_cmd_str))
 
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -217,8 +217,8 @@ _cache_key_for_clj(ctx: ptr, argfile_path: string, aot_cmd_str: string, maven_cp
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_src = build._read_dep_artifact(ctx, dm, "clojure_src_path")
+        dm = bldr._strip_lang(dp)
+        dep_src = bldr._read_dep_artifact(ctx, dm, "clojure_src_path")
         if string.length(dep_src) > 0 {
             list.add(parts, string.concat("dep:", dm))
             list.add(parts, string.concat("dep-src:", dep_src))
@@ -233,12 +233,12 @@ _cache_key_for_clj(ctx: ptr, argfile_path: string, aot_cmd_str: string, maven_cp
 // If main_ns is set, AOT compiles to .class files.
 // Otherwise validates sources are loadable.
 builder compile(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     classes_dir = path.join(target_dir, "classes")
-    build._mkdirs(classes_dir)
+    bldr._mkdirs(classes_dir)
 
     println("${mod_dir}: compiling (clojure)")
 
@@ -257,24 +257,24 @@ builder compile(ctx: ptr): int {
         tmp_a = string.concat(all_src, ":")
         all_src = string.concat(tmp_a, dep_src)
     }
-    build._write_artifact(ctx, "clojure_src_path", all_src)
+    bldr._write_artifact(ctx, "clojure_src_path", all_src)
 
-    // JVM jar deps from build.dep'd modules (clojure runtime + any cross-language
+    // JVM jar deps from bldr.dep'd modules (clojure runtime + any cross-language
     // component like a Java binding the ns :imports). Republished below so a
     // dependent test node inherits them by depping THIS build node alone.
-    jvm_dep_cp = build._build_dep_classpath(ctx)
+    jvm_dep_cp = bldr._build_dep_classpath(ctx)
     if string.length(jvm_dep_cp) > 0 {
-        nl_raw, _enl = build._sh_capture("printf '%s' '${jvm_dep_cp}' | tr ':' '\n'")
-        build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", string.trim(nl_raw))
+        nl_raw, _enl = bldr._sh_capture("printf '%s' '${jvm_dep_cp}' | tr ':' '\n'")
+        bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", string.trim(nl_raw))
     }
 
     // Build classpath: own src + classes + dep src + jvm jars + maven deps
     cp = src_root
-    cp = build._cp_append(cp, classes_dir)
-    cp = build._cp_append(cp, dep_src)
-    cp = build._cp_append(cp, jvm_dep_cp)
+    cp = bldr._cp_append(cp, classes_dir)
+    cp = bldr._cp_append(cp, dep_src)
+    cp = bldr._cp_append(cp, jvm_dep_cp)
     maven_cp = maven.classpath(ctx)
-    cp = build._cp_append(cp, maven_cp)
+    cp = bldr._cp_append(cp, maven_cp)
 
     // AOT compile if main_ns is set
     if _builder != null {
@@ -284,7 +284,7 @@ builder compile(ctx: ptr): int {
 
             // Source set for the cache key (every .clj under src/).
             argfile = path.join(target_dir, "clj_sources.txt")
-            build._sh("find '${src_root}' -name '*.clj' > '${argfile}' 2>/dev/null || true")
+            bldr._sh("find '${src_root}' -name '*.clj' > '${argfile}' 2>/dev/null || true")
 
             // Cache check: restore the AOT classes/ tree on hit.
             cache_key = ""
@@ -293,23 +293,23 @@ builder compile(ctx: ptr): int {
                 ck, kerr = _cache_key_for_clj(ctx, argfile, cmd, maven_cp, ns)
                 if string.length(kerr) == 0 {
                     cache_key = ck
-                    tmp_raw, _terr = build._sh_capture("mktemp")
-                    tmp_tar = build._to_native_path(string.trim(tmp_raw))
+                    tmp_raw, _terr = bldr._sh_capture("mktemp")
+                    tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
                     if string.length(tmp_tar) > 0 {
                         grc = cache.get(cache_key, tmp_tar)
                         if string.length(grc) == 0 {
-                            uerr = build._untar_into(tmp_tar, classes_dir)
-                            build._sh("rm -f '${tmp_tar}'")
+                            uerr = bldr._untar_into(tmp_tar, classes_dir)
+                            bldr._sh("rm -f '${tmp_tar}'")
                             if string.length(uerr) == 0 {
                                 println("${mod_dir}: clojure AOT cache hit ${cache_key}")
-                                build._record_cache(ctx, "hit")
+                                bldr._record_cache(ctx, "hit")
                                 exit_code = 0
                             } else {
-                                build._sh("rm -rf '${classes_dir}'")
-                                build._mkdirs(classes_dir)
+                                bldr._sh("rm -rf '${classes_dir}'")
+                                bldr._mkdirs(classes_dir)
                             }
                         } else {
-                            build._sh("rm -f '${tmp_tar}'")
+                            bldr._sh("rm -f '${tmp_tar}'")
                         }
                     }
                 }
@@ -317,21 +317,21 @@ builder compile(ctx: ptr): int {
 
             if exit_code == -1 {
                 if cache.available() == 0 {
-                    build._record_cache(ctx, "unavailable")
+                    bldr._record_cache(ctx, "unavailable")
                 } else {
-                    build._record_cache(ctx, "miss")
+                    bldr._record_cache(ctx, "miss")
                 }
-                exit_code = build._sh(cmd)
+                exit_code = bldr._sh(cmd)
                 if exit_code != 0 {
                     println("${mod_dir}: clojure AOT compilation failed")
-                    build.fail(ctx, "clojure AOT compilation failed")
+                    bldr.fail(ctx, "clojure AOT compilation failed")
                     return exit_code
                 }
                 if string.length(cache_key) > 0 {
-                    tar_path, terr = build._tar_dir(classes_dir)
+                    tar_path, terr = bldr._tar_dir(classes_dir)
                     if string.length(terr) == 0 {
                         perr = cache.put(cache_key, tar_path)
-                        build._sh("rm -f '${tar_path}'")
+                        bldr._sh("rm -f '${tar_path}'")
                         if string.length(perr) > 0 {
                             println("${mod_dir}: clojure AOT cache write failed: ${perr}")
                         }
@@ -348,19 +348,19 @@ builder compile(ctx: ptr): int {
     // compile error in the binding's own code fails the BUILD, not just tests.
     discover = "find '${src_root}' -name '*.clj' -type f"
     discover = string.concat(discover, " | sed 's|^${src_root}/||; s|/|.|g; s|_|-|g; s|\\.clj$||'")
-    ns_raw, _ed = build._sh_capture(discover)
+    ns_raw, _ed = bldr._sh_capture(discover)
     ns_list = string.trim(ns_raw)
     if string.length(ns_list) == 0 {
         _e0 = io.write_file(path.join(target_dir, ".timestamp"), "")
         return 0
     }
-    quoted_raw, _eq2 = build._sh_capture("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
+    quoted_raw, _eq2 = bldr._sh_capture("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
     quoted = string.trim(quoted_raw)
     cmd = "java -cp '${cp}' clojure.main -e \"(require ${quoted})\""
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: clojure load-check failed")
-        build.fail(ctx, "clojure load-check failed")
+        bldr.fail(ctx, "clojure load-check failed")
         return exit_code
     }
 
@@ -379,7 +379,7 @@ builder compile(ctx: ptr): int {
 _clojure_runtime_jars() {
     env_dir = os.getenv("CLOJURE_JARS")
     if string.length(env_dir) > 0 {
-        raw, _e = build._sh_capture("ls '${env_dir}'/*.jar 2>/dev/null | tr '\n' ':'")
+        raw, _e = bldr._sh_capture("ls '${env_dir}'/*.jar 2>/dev/null | tr '\n' ':'")
         c = string.trim(raw)
         if string.length(c) > 0 { return c }
     }
@@ -387,17 +387,17 @@ _clojure_runtime_jars() {
     // the runtime + spec) — the wrapper resolves to `java -cp <this> clojure.main`,
     // so pointing our OWN verified `java` at it is cleaner than the wrapper (it
     // hardcodes its own java and drops jvm flags). Checked before the m2 trio.
-    sys_raw, _es = build._sh_capture("ls /usr/share/java/clojure-*.jar /usr/share/java/clojure.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
+    sys_raw, _es = bldr._sh_capture("ls /usr/share/java/clojure-*.jar /usr/share/java/clojure.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
     sys = string.trim(sys_raw)
     if string.length(sys) > 0 { return sys }
 
     // clojure-<ver>.jar + its two spec deps, all three or nothing.
-    cj_raw, _e1 = build._sh_capture("ls $HOME/.m2/repository/org/clojure/clojure/*/clojure-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/clojure/*/*/clojure-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
+    cj_raw, _e1 = bldr._sh_capture("ls $HOME/.m2/repository/org/clojure/clojure/*/clojure-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/clojure/*/*/clojure-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
     cj = string.trim(cj_raw)
     if string.length(cj) == 0 { return "" }
-    sa_raw, _e2 = build._sh_capture("ls $HOME/.m2/repository/org/clojure/spec.alpha/*/spec.alpha-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/spec.alpha/*/*/spec.alpha-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
+    sa_raw, _e2 = bldr._sh_capture("ls $HOME/.m2/repository/org/clojure/spec.alpha/*/spec.alpha-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/spec.alpha/*/*/spec.alpha-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
     sa = string.trim(sa_raw)
-    cs_raw, _e3 = build._sh_capture("ls $HOME/.m2/repository/org/clojure/core.specs.alpha/*/core.specs.alpha-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/core.specs.alpha/*/*/core.specs.alpha-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
+    cs_raw, _e3 = bldr._sh_capture("ls $HOME/.m2/repository/org/clojure/core.specs.alpha/*/core.specs.alpha-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/core.specs.alpha/*/*/core.specs.alpha-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
     cs = string.trim(cs_raw)
     if string.length(sa) == 0 { return "" }
     if string.length(cs) == 0 { return "" }
@@ -407,7 +407,7 @@ _clojure_runtime_jars() {
 // _clojure_cli() — the `clojure` or `clj` CLI path, or "". It brings its own
 // runtime, so it's the fallback when no jars are found.
 _clojure_cli() {
-    c, _e = build._sh_capture("command -v clojure 2>/dev/null || command -v clj 2>/dev/null")
+    c, _e = bldr._sh_capture("command -v clojure 2>/dev/null || command -v clj 2>/dev/null")
     return string.trim(c)
 }
 
@@ -420,32 +420,32 @@ _clojure_cli() {
 // min_jdk(22), jvm_flag("--enable-native-access=ALL-UNNAMED"),
 // source_layout(...) (src/test roots). deps supply the Java-binding classpath.
 builder run_main(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     mns = ""
     if _builder != null {
         if map.has(_builder, "main_ns") == 1 { mns, _ = map.get(_builder, "main_ns") }
     }
     if string.length(mns) == 0 {
-        build.fail(ctx, "clojure.run_main: main_ns(\"...\") is required")
+        bldr.fail(ctx, "clojure.run_main: main_ns(\"...\") is required")
         return 1
     }
 
     // JDK gate: min_jdk(N) hard-requires (FAIL if unmet); skip_below_jdk(N) is a
     // portable-fleet floor (SKIP if unmet). run_java is "" (ambient) with no
     // floor; downstream prefixes it only when non-empty.
-    min_jdk_v = build._str_key(_builder, "clojure_min_jdk")
-    skip_jdk_v = build._str_key(_builder, "clojure_skip_below_jdk")
-    sel_java, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, "the FFM binding")
+    min_jdk_v = bldr._str_key(_builder, "clojure_min_jdk")
+    skip_jdk_v = bldr._str_key(_builder, "clojure_skip_below_jdk")
+    sel_java, jdk_status = bldr._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, "the FFM binding")
     if string.equals(jdk_status, "toolow") == 1 {
-        build.fail(ctx, "run_main: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
+        bldr.fail(ctx, "run_main: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
         return 1
     }
     if string.equals(jdk_status, "fail") == 1 {
-        build.fail(ctx, "run_main: no JDK ${min_jdk_v}+ to run the FFM binding on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
+        bldr.fail(ctx, "run_main: no JDK ${min_jdk_v}+ to run the FFM binding on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1
     }
     if string.equals(jdk_status, "skip") == 1 { return 0 }
@@ -464,11 +464,11 @@ builder run_main(ctx: ptr): int {
             }
         }
     }
-    dep_cp = build._build_dep_classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
-    src_cp = build._cp_append(src_root, test_root)
-    src_cp = build._cp_append(src_cp, dep_cp)
-    src_cp = build._cp_append(src_cp, lib_cp)
+    dep_cp = bldr._build_dep_classpath(ctx)
+    lib_cp = bldr._build_lib_classpath(ctx)
+    src_cp = bldr._cp_append(src_root, test_root)
+    src_cp = bldr._cp_append(src_cp, dep_cp)
+    src_cp = bldr._cp_append(src_cp, lib_cp)
 
     // jvm_flag run.
     jflags = ""
@@ -492,14 +492,14 @@ builder run_main(ctx: ptr): int {
     clj_jars = _clojure_runtime_jars()
     run_cmd = ""
     if string.length(clj_jars) > 0 {
-        full_cp = build._cp_append(clj_jars, src_cp)
+        full_cp = bldr._cp_append(clj_jars, src_cp)
         run_cmd = "'${rjava}'${jflags} -cp '${full_cp}' clojure.main -m ${mns}"
     } else {
         cli = _clojure_cli()
         if string.length(cli) == 0 {
             reason = "clojure not installed (no runtime jars, no clojure/clj CLI)"
             println("${mod_dir}: SKIPPED — ${reason}")
-            build._record_skip(ctx, reason)
+            bldr._record_skip(ctx, reason)
             return 0
         }
         // The CLI manages its own runtime; hand it our classpath via -Scp and
@@ -507,7 +507,7 @@ builder run_main(ctx: ptr): int {
         // JDK so it launches on 22+.
         jhome = ""
         if string.length(run_java) > 0 {
-            jhraw, _jhe = build._sh_capture("dirname \"$(dirname '${run_java}')\"")
+            jhraw, _jhe = bldr._sh_capture("dirname \"$(dirname '${run_java}')\"")
             jhome = string.trim(jhraw)
         }
         envp = ""
@@ -517,26 +517,26 @@ builder run_main(ctx: ptr): int {
     }
 
     println("${mod_dir}: running ${mns} (clojure)")
-    run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
-    rrc = build._sh(run_cmd)
+    run_cmd = string.concat(bldr._env_export_prefix(_builder), run_cmd)
+    rrc = bldr._sh(run_cmd)
     if rrc != 0 {
-        build._record_test_result_exitcode(ctx, 0, 1)
+        bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: ${mns} reported failures")
-        build.fail(ctx, "clojure conformance run failed")
+        bldr.fail(ctx, "clojure conformance run failed")
         return 1
     }
-    build._record_test_result_exitcode(ctx, 1, 0)
+    bldr._record_test_result_exitcode(ctx, 1, 0)
     println("${mod_dir}: ${mns} PASSED")
     _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
 
 builder test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
 
     println("${mod_dir}: running tests (clojure)")
 
@@ -554,24 +554,24 @@ builder test(ctx: ptr): int {
 
     // Build classpath: src + test + dep src + maven deps
     cp = src_root
-    cp = build._cp_append(cp, test_root)
+    cp = bldr._cp_append(cp, test_root)
 
     dep_src = _dep_src_classpath(ctx)
-    cp = build._cp_append(cp, dep_src)
+    cp = bldr._cp_append(cp, dep_src)
 
     maven_cp = maven.classpath(ctx)
-    cp = build._cp_append(cp, maven_cp)
+    cp = bldr._cp_append(cp, maven_cp)
 
-    // JVM jar deps from build.dep'd modules — the clojure runtime jars and
+    // JVM jar deps from bldr.dep'd modules — the clojure runtime jars and
     // any cross-language component (e.g. a Java binding the tests :import).
-    jvm_dep_cp = build._build_dep_classpath(ctx)
-    cp = build._cp_append(cp, jvm_dep_cp)
+    jvm_dep_cp = bldr._build_dep_classpath(ctx)
+    cp = bldr._cp_append(cp, jvm_dep_cp)
 
     // Discover test namespaces from *_test.clj files
     discover = "find '${test_root}' -name '*_test.clj' -type f"
     discover = string.concat(discover, " | sed 's|^${test_root}/||; s|/|.|g; s|_|-|g; s|\\.clj$||'")
 
-    ns_list_raw, _e_disc = build._sh_capture(discover)
+    ns_list_raw, _e_disc = bldr._sh_capture(discover)
     ns_list = string.trim(ns_list_raw)
     if string.length(ns_list) == 0 {
         println("${mod_dir}: no test files found")
@@ -580,7 +580,7 @@ builder test(ctx: ptr): int {
     }
 
     // Convert newline-separated ns list to space-separated quoted symbols
-    quoted_raw, _e_q = build._sh_capture("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
+    quoted_raw, _e_q = bldr._sh_capture("echo '${ns_list}' | sed \"s/^/'/; s/$/ /\" | tr -d '\\n'")
     quoted = string.trim(quoted_raw)
 
     timeout_secs = ""
@@ -592,20 +592,20 @@ builder test(ctx: ptr): int {
     cmd = clj_test_cmd(cp, quoted, timeout_secs)
     // Inject env (e.g. SERVIRTIUM_VCR_LIB) so the clojure.main JVM — and any
     // native lib a :import'd binding loads — sees it.
-    cmd = string.concat(build._env_export_prefix(_builder), cmd)
+    cmd = string.concat(bldr._env_export_prefix(_builder), cmd)
 
     // clojure.test prints a summary of the form
     //   "Ran 14 tests containing 30 assertions. 0 failures, 0 errors."
     // Coarse record for now (1/1 success, 0/1 failure); full
     // test-count parsing is a follow-up if a Clojure consumer cares.
-    exit_code = build._sh(cmd)
+    exit_code = bldr._sh(cmd)
     if exit_code != 0 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "clojure tests FAILED")
+        bldr.fail(ctx, "clojure tests FAILED")
         return exit_code
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _e4 = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
@@ -640,18 +640,18 @@ builder test(ctx: ptr): int {
 // in a `.dist.ae` alongside a `.build.ae` in the same directory means
 // they share target_dir, so the artifact is present after compile.
 builder uberjar(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     if _builder == null {
         println("${mod_dir}: clojure.uberjar: empty builder block — declare main_ns(...)")
-        build.fail(ctx, "clojure.uberjar: empty builder block — declare main_ns(...)")
+        bldr.fail(ctx, "clojure.uberjar: empty builder block — declare main_ns(...)")
         return 1
     }
     if map.has(_builder, "main_ns") == 0 {
         println("${mod_dir}: clojure.uberjar: missing main_ns(\"...\")")
-        build.fail(ctx, "clojure.uberjar: missing main_ns(\"...\")")
+        bldr.fail(ctx, "clojure.uberjar: missing main_ns(\"...\")")
         return 1
     }
     ns, _ = map.get(_builder, "main_ns")
@@ -666,13 +666,13 @@ builder uberjar(ctx: ptr): int {
     }
 
     bin_dir = path.join(target_dir, "bin")
-    build._mkdirs(bin_dir)
+    bldr._mkdirs(bin_dir)
     jar_path = path.join(bin_dir, jar_name)
 
     // Fresh staging dir.
     stage_dir = path.join(target_dir, "_uber")
-    _e0 = build._sh("rm -rf '${stage_dir}'")
-    build._mkdirs(stage_dir)
+    _e0 = bldr._sh("rm -rf '${stage_dir}'")
+    bldr._mkdirs(stage_dir)
 
     src_root = path.join(source_dir, "src")
 
@@ -684,24 +684,24 @@ builder uberjar(ctx: ptr): int {
         mvn_raw, _emv = io.read_file(mvn_file)
         maven_cp = string.trim(mvn_raw)
     }
-    aot_cp = build._cp_append(src_root, maven_cp)
+    aot_cp = bldr._cp_append(src_root, maven_cp)
 
     // 1. AOT-compile main_ns into the staging dir.
     println("${mod_dir}: AOT-compiling ${ns}")
     aot_cmd = clj_aot_compile_cmd(stage_dir, aot_cp, ns)
-    rc_aot = build._sh(aot_cmd)
+    rc_aot = bldr._sh(aot_cmd)
     if rc_aot != 0 {
         println("${mod_dir}: clojure.uberjar: AOT compile failed")
-        build.fail(ctx, "clojure.uberjar: AOT compile failed")
+        bldr.fail(ctx, "clojure.uberjar: AOT compile failed")
         return rc_aot
     }
 
     // 2. Stage the source tree so non-AOT namespaces load at runtime.
     if dir.exists(src_root) == 1 {
-        rc_src = build._sh(uber_copy_tree_cmd(src_root, stage_dir))
+        rc_src = bldr._sh(uber_copy_tree_cmd(src_root, stage_dir))
         if rc_src != 0 {
             println("${mod_dir}: clojure.uberjar: staging sources failed")
-            build.fail(ctx, "clojure.uberjar: staging sources failed")
+            bldr.fail(ctx, "clojure.uberjar: staging sources failed")
             return rc_src
         }
     }
@@ -716,10 +716,10 @@ builder uberjar(ctx: ptr): int {
             entry = string.array_get(parts, pi)
             if string.length(entry) > 0 {
                 if _ends_with_jar(entry) == 1 {
-                    rc_uz = build._sh(uber_unzip_jar_cmd(entry, stage_dir))
+                    rc_uz = bldr._sh(uber_unzip_jar_cmd(entry, stage_dir))
                     if rc_uz != 0 {
                         println("${mod_dir}: clojure.uberjar: unzipping ${entry} failed")
-                        build.fail(ctx, "clojure.uberjar: unzipping ${entry} failed")
+                        bldr.fail(ctx, "clojure.uberjar: unzipping ${entry} failed")
                         string.array_free(parts)
                         return rc_uz
                     }
@@ -732,7 +732,7 @@ builder uberjar(ctx: ptr): int {
 
     // 4. Manifest. Main-Class is the dash-munged namespace.
     meta_dir = path.join(stage_dir, "META-INF")
-    build._mkdirs(meta_dir)
+    bldr._mkdirs(meta_dir)
     manifest_path = path.join(meta_dir, "MANIFEST.MF")
     main_class = _ns_to_main_class(ns)
     mf = string.concat("Manifest-Version: 1.0\nMain-Class: ", main_class)
@@ -741,16 +741,16 @@ builder uberjar(ctx: ptr): int {
 
     // 5. Jar it.
     println("${mod_dir}: building uberjar ${jar_name}")
-    rc = build._sh(uber_jar_cmd(jar_path, stage_dir))
+    rc = bldr._sh(uber_jar_cmd(jar_path, stage_dir))
     if rc != 0 {
         println("${mod_dir}: clojure.uberjar: jar command failed")
-        build.fail(ctx, "clojure.uberjar: jar command failed")
+        bldr.fail(ctx, "clojure.uberjar: jar command failed")
         return rc
     }
 
     println("${mod_dir}: built ${jar_path}")
     println("  run: java -jar ${jar_path}")
-    build._write_artifact(ctx, "clojure_uberjar", jar_path)
+    bldr._write_artifact(ctx, "clojure_uberjar", jar_path)
     _ets = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }

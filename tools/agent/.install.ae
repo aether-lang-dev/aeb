@@ -13,8 +13,8 @@
 // dep on .dist.ae is the aeb-native sequencing: the binary is built
 // before this node runs (topo order), and a build failure of .dist
 // reddens this install via the normal DAG.
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import std.os
 import std.io
 import std.string
@@ -22,10 +22,10 @@ import std.string
 extern println(s: string)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "tools/agent/.dist.ae")
 
-    root = build.root(b)
+    root = bldr.root(b)
     // .dist.ae is a `.dist.ae` node, so aeb lands its aether.program output
     // under target/dist/<module>/bin/ (the dist: node type prefixes "dist/").
     // (Was target/tools/agent/bin — the missing "dist/" made the copy fail.)
@@ -43,7 +43,7 @@ main() {
     rc = os.system(string.concat(string.concat("cp -f '", src_bin), string.concat("' '", string.concat(dst_bin, "'"))))
     if rc != 0 {
         println("aeb-agent install: failed to copy ${src_bin} → ${dst_bin}")
-        build.fail(b, "aeb-agent install: copy failed (did .dist build it?)")
+        bldr.fail(b, "aeb-agent install: copy failed (did .dist build it?)")
         return 1
     }
 
@@ -58,7 +58,7 @@ main() {
     werr = io.write_file(wrapper, w)
     if string.length(werr) > 0 {
         println("aeb-agent install: failed to write wrapper ${wrapper}: ${werr}")
-        build.fail(b, "aeb-agent install: wrapper write failed")
+        bldr.fail(b, "aeb-agent install: wrapper write failed")
         return 1
     }
     _c = os.system(string.concat("chmod +x '", string.concat(wrapper, "'")))

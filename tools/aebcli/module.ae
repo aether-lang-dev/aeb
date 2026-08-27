@@ -23,7 +23,7 @@ import std.string
 import std.list
 
 // NOTE: this is a deliberate copy of lib/build's `_has_windows_drive_prefix`.
-// It cannot `import build` and call `build._has_windows_drive_prefix` because
+// It cannot `import build` and call `bldr._has_windows_drive_prefix` because
 // a two-level transitive qualified call (test -> aebcli -> build) trips the
 // known Aether qualified-symbol-resolution bug (TODO.md § "Aether compiler
 // issues", the `maven.classpath` two-level item). Consolidate onto the single

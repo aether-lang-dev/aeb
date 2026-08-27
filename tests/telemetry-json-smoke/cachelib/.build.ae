@@ -4,12 +4,12 @@
 // path (lib/aether _compile_and_link), which is content-address cached.
 // First build → cache miss; an unchanged re-build → cache: hit, which
 // the telemetry JSON must render as status "cache-hit".
-import build
+import bldr
 import aether
 import aether (source, output, extra_source)
 
 aeb(cap) {
-    b = build.start()
+    b = bldr.start()
     aether.program(b) {
         source("cachelib.ae")
         output("cachelib")

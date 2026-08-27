@@ -3,16 +3,16 @@
 // Two shapes:
 //   * nim.build / nim.test with an empty block → `nimble build` / `nimble test`.
 //   * An FFI binding that compiles-and-runs explicit test files declares each
-//     with test_file(...) — one literal per file, greppable like build.dep —
+//     with test_file(...) — one literal per file, greppable like bldr.dep —
 //     plus nim_flag(...) for compiler flags. nim.test then loops *in Aether*,
 //     running `nim c -r <flags> "<file>"` per file and reporting per-file
 //     pass/fail telemetry. No shell `for`-loop, no step("…") escape hatch:
 //     the iteration is aeb's (portable, no /bin/sh control-flow) and every
 //     input stays a literal a `grep` can see.
 //
-//   import build
+//   import bldr
 //   import nim
-//   import build (env)
+//   import bldr (env)
 //   import nim (test_file, nim_flag)
 //   nim.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
@@ -27,7 +27,7 @@
 //   }
 //
 // Setters: env(K,V) [from lib/build], test_file("…"), nim_flag("…").
-import build
+import bldr
 import std.string
 import std.list
 import std.map
@@ -38,7 +38,7 @@ import std.path
 // --- Setters (fixed-arity, one literal per call) ---
 
 // test_file(path) — one Nim test file to `nim c -r`. Repeat per file; each
-// stays a literal string in the build file (greppable, like build.dep), so a
+// stays a literal string in the build file (greppable, like bldr.dep), so a
 // reviewer enumerates the suite with grep, not by running the build.
 test_file(_ctx: ptr, f: string) {
     if map.has(_ctx, "nim_test_files") == 0 {
@@ -90,15 +90,15 @@ _join_flags(l: ptr) {
 // nim.build(b) — `nimble build` (override with test_file/nim_flag for the
 // explicit `nim c …` shape, same as test).
 builder build(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: compiling (nim)")
-    return build._run_project(ctx, _builder, "nimble build", 0)
+    return bldr._run_project(ctx, _builder, "nimble build", 0)
 }
 
 // nim.test(b) — if test_file(...) was declared, compile-and-run each file in
 // an Aether loop with per-file pass/fail telemetry; otherwise `nimble test`.
 builder test(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     // No explicit files → preserve the `nimble test` default (back-compat).
     has_files = 0
@@ -107,7 +107,7 @@ builder test(ctx: ptr): int {
     }
     if has_files == 0 {
         println("${mod_dir}: running tests (nim)")
-        return build._run_project(ctx, _builder, "nimble test", 1)
+        return bldr._run_project(ctx, _builder, "nimble test", 1)
     }
 
     files, _ = map.get(_builder, "nim_test_files")
@@ -117,10 +117,10 @@ builder test(ctx: ptr): int {
         flags = _join_flags(fl)
     }
 
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
-    env_prefix = build._env_export_prefix(_builder)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
+    env_prefix = bldr._env_export_prefix(_builder)
 
     n = list.size(files)
     println("${mod_dir}: running tests (nim, ${n} file(s))")
@@ -132,7 +132,7 @@ builder test(ctx: ptr): int {
         f, _ = list.get(files, i)
         run = nim_c_run_cmd(f, flags)
         full = string.concat("cd \"", string.concat(source_dir, string.concat("\" && ", string.concat(env_prefix, run))))
-        rc = build._sh(full)
+        rc = bldr._sh(full)
         if rc == 0 {
             passed = passed + 1
             println("  PASS ${f}")
@@ -143,10 +143,10 @@ builder test(ctx: ptr): int {
         i = i + 1
     }
 
-    build._record_test_result(ctx, passed, failed)
+    bldr._record_test_result(ctx, passed, failed)
     if failed > 0 {
         println("${mod_dir}: tests FAILED (${passed}/${n} passed)")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return 1
     }
     println("${mod_dir}: tests PASSED (${n}/${n})")

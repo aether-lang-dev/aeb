@@ -8,10 +8,10 @@
 // version dep in their generated Cargo.toml. Cargo fetches it from
 // crates.io at build time.
 
-import build
+import bldr
 import rust
 
 main() {
-    b = build.start()
+    b = bldr.start()
     rust.crate_registry(b, "serde_json~1.0")
 }

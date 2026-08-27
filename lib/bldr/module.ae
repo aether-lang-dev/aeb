@@ -1,12 +1,12 @@
 // aether.build — Build system SDK core for polyglot monorepos
 //
 // Usage in .build.ae files:
-//   import build
+//   import bldr
 //   import java
 //
 //   main() {
-//       b = build.start()
-//       build.dep(b, "java/components/vowelbase")
+//       b = bldr.start()
+//       bldr.dep(b, "java/components/vowelbase")
 //       java.javac(b)
 //   }
 //
@@ -74,9 +74,9 @@ begin(s: ptr, module_dir: string) {
     _e1 = map.put(ctx, "root", root)
     _e2 = map.put(ctx, "module_dir", module_dir)
     // Back-reference to the session so a node can record its own
-    // outcome (build.fail) and query siblings (status_of) without the
+    // outcome (bldr.fail) and query siblings (status_of) without the
     // session being passed around explicitly. Absent in standalone
-    // `build.start()` mode — the status API no-ops / returns unknown
+    // `bldr.start()` mode — the status API no-ops / returns unknown
     // there, which is correct (no DAG, nothing to query).
     _es = map.put(ctx, "_session", s)
 
@@ -124,7 +124,7 @@ begin(s: ptr, module_dir: string) {
 done(s: ptr, module_dir: string): int {
     visited, _ = map.get(s, "visited")
     _e = map.put(visited, module_dir, "1")
-    // Return 0 so a node whose last statement is `build.done(b, …)` (a valid
+    // Return 0 so a node whose last statement is `bldr.done(b, …)` (a valid
     // tail shape) yields a real int, not a void-through-int garbage read now
     // that node entries are `: int` (asks/node-nonzero-return-not-propagated).
     return 0
@@ -170,7 +170,7 @@ _mark_failed(s: ptr, label: string, reason: string) {
 // fail(ctx, reason) — record THIS node as failed, store the reason for
 // a later reason_of() query, and surface it to the build log. Reads the
 // session back-ref begin() stashed in ctx; a no-op in standalone
-// `build.start()` mode (no session).
+// `bldr.start()` mode (no session).
 fail(ctx: ptr, reason: string) {
     if map.has(ctx, "_session") == 0 { return 0 }
     s, _ = map.get(ctx, "_session")
@@ -260,8 +260,8 @@ start() {
     source_dir = path.join(root, module_dir)
     _e4 = map.put(ctx, "source_dir", source_dir)
 
-    // Standalone mode (build.start run directly, not via the orchestrator's
-    // build.begin rewrite) is always a plain build → target/build/<dir>,
+    // Standalone mode (bldr.start run directly, not via the orchestrator's
+    // bldr.begin rewrite) is always a plain build → target/build/<dir>,
     // uniform with the orchestrated scheme. See docs/filename-is-the-route.md.
     target_base = path.join(path.join(root, "target"), "build")
     tgt_dir = path.join(target_base, module_dir)
@@ -298,11 +298,11 @@ start() {
 //
 // The session `s` is threaded in by transform-ae, which rewrites the user's
 // `build() {` to `build(s, "<label>") {` at link time — exactly as it rewrites
-// `build.start()` to `build.begin(s, "label")` for the old b-form. `s` reaches
+// `bldr.start()` to `bldr.begin(s, "label")` for the old b-form. `s` reaches
 // here only as the node fn's parameter (the ctx stack is empty at the node's top
 // level), so it must be an explicit arg, not injected.
 //
-// Duality: orchestrated (has a session) → build.begin(s, label) for the
+// Duality: orchestrated (has a session) → bldr.begin(s, label) for the
 // _session back-ref + label-typed target dir + visited-dedup. Standalone
 // (direct `aeb <file>`, no session) → start()'s env-based ctx (no _session; the
 // status API correctly no-ops). Both return the graph ctx the block threads.
@@ -368,7 +368,7 @@ dep(_ctx: ptr, path_str: string): int {
         deps, _ = map.get(ctx, "deps")
         _e2 = list.add(deps, path_str)
     }
-    // Explicit tail return: `: int` (so a node ending in build.dep(b, …) — a
+    // Explicit tail return: `: int` (so a node ending in bldr.dep(b, …) — a
     // valid tail shape — returns a real 0, not garbage) requires every path to
     // return; the early npm:/git: paths already do.
     return 0
@@ -667,8 +667,8 @@ prereq(_ctx: ptr, token: string) {
 //
 //   // .all-tests.ae
 //   main() {
-//       b = build.start()
-//       build.scan(b, "**/.tests.ae")        // every test target
+//       b = bldr.start()
+//       bldr.scan(b, "**/.tests.ae")        // every test target
 //   }
 //
 // Then `aeb .all-tests.ae --since main` runs only the test targets
@@ -722,7 +722,7 @@ scan(_ctx: ptr, pattern: string) {
     if gerr != "" {
         // Glob error — propagate as a build-time failure rather
         // than silently expanding to zero deps.
-        println("build.scan: glob failed for '${pattern}': ${gerr}")
+        println("bldr.scan: glob failed for '${pattern}': ${gerr}")
         return 1
     }
     n = dir_list_count(matches)
@@ -730,7 +730,7 @@ scan(_ctx: ptr, pattern: string) {
         // Typo protection: zero matches is almost never what the
         // user wanted. Loud failure beats silent green-light.
         dir_list_free(matches)
-        println("build.scan: no files matched '${pattern}' (cwd: $(pwd))")
+        println("bldr.scan: no files matched '${pattern}' (cwd: $(pwd))")
         return 1
     }
     // For each match, register as a dep. dep() classifies the path
@@ -756,18 +756,18 @@ scan(_ctx: ptr, pattern: string) {
     return 0
 }
 
-// Note: build.lib, build.cargo_dep, build.npm_dep have been removed.
+// Note: bldr.lib, bldr.cargo_dep, bldr.npm_dep have been removed.
 // Use the .ae-as-dep pattern instead:
 //
-//   build.dep(b, "libs/java/junit/.junit.jar.ae")      // was build.lib
-//   build.dep(b, "libs/rust/vendor/jni/.jni.crate.ae") // was build.cargo_dep
-//   build.dep(b, "libs/javascript/mocha/.mocha.npm.ae") // was build.npm_dep
+//   bldr.dep(b, "libs/java/junit/.junit.jar.ae")      // was bldr.lib
+//   bldr.dep(b, "libs/rust/vendor/jni/.jni.crate.ae") // was bldr.cargo_dep
+//   bldr.dep(b, "libs/javascript/mocha/.mocha.npm.ae") // was bldr.npm_dep
 //
 // Each .ae file registers its contribution via a language-SDK builder
 // (java.jar_vendored, rust.crate_vendored, ts.npm_vendored, etc.) and
 // writes an artifact that consumers read through the normal dep graph.
 
-// --- Internal helpers (used by language modules via build._helper()) ---
+// --- Internal helpers (used by language modules via bldr._helper()) ---
 
 // Platform detection. Language SDKs use this to pick OS-specific linker
 // flags, runtime env vars, compilers, and suffixes — see _host_os() below
@@ -887,7 +887,7 @@ _is_linux() {
 // Path-list separator for the host OS: ';' on Windows, ':' everywhere
 // else. JVM SDKs (java/kotlin/scala/groovy/clojure) build classpaths by
 // joining jar paths with this — hardcoding ':' breaks on a native
-// Windows JVM. Use build._path_sep() when assembling -cp / CLASSPATH.
+// Windows JVM. Use bldr._path_sep() when assembling -cp / CLASSPATH.
 //
 // NB: this is keyed on the HOST OS as a proxy for the TOOLCHAIN target —
 // correct whenever they match (native Windows aeb + Windows JDK → ';';
@@ -1758,7 +1758,7 @@ _strip_lang(dep_path: string) {
 // A dep names a build file (".../.build.ae") or a bare dir. Derive the
 // buildtype from a trailing ".<type>.ae" if present (build/tests/dist/...),
 // else default to "build" (you depend on a thing's BUILD output). Strip the
-// build-file basename to leave the dir. Mirrors build.begin's routing so the
+// build-file basename to leave the dir. Mirrors bldr.begin's routing so the
 // reader finds what the writer wrote. See docs/filename-is-the-route.md.
 _dep_target_dir(root: string, dep_module: string) {
     buildtype = "build"
@@ -1874,7 +1874,7 @@ _write_artifact(ctx: ptr, artifact: string, content: string) {
 //   > It's a simple sandwich: pre-build actions may be required to
 //   > massage the INPUTS […] post-build actions may be required to
 //   > massage the OUTPUTS: embed SBOM, fingerprint the binaries, bundle
-//   > multiple artifacts together. build.rs covers the inputs, but
+//   > multiple artifacts together. bldr.rs covers the inputs, but
 //   > there's nothing for the outputs :'(
 //
 // Same hole here. `lib/bash`'s post_command is per-TEST-SCRIPT and lives
@@ -1892,7 +1892,7 @@ _write_artifact(ctx: ptr, artifact: string, content: string) {
 //   post_build(b, "sha256sum {target_dir}/app.jar > {target_dir}/app.jar.sha256")
 //
 // Failure is NOT advisory: a non-zero step fails the node, via the same
-// build.fail() path a builder uses. A post-build step that embeds an SBOM
+// bldr.fail() path a builder uses. A post-build step that embeds an SBOM
 // or signs a binary is part of the artifact being correct; letting it fail
 // silently would be the "green build that proves nothing" shape this repo
 // keeps meeting (cf. the os.system / os.exec traps in
@@ -1970,7 +1970,7 @@ run_post_build(ctx: ptr) {
 //
 // The producer/consumer pair that lets a node read what a dep it
 // already dep()'d produced, WITHOUT either side hardcoding a path.
-// Symmetric with build.dep(): the same `path/.build.ae` label that
+// Symmetric with bldr.dep(): the same `path/.build.ae` label that
 // declares the edge also addresses the artifact.
 //
 //   publish_artifact(b, "shared_lib", "/abs/path/libfoo.so")
@@ -1978,7 +1978,7 @@ run_post_build(ctx: ptr) {
 //         value into this node's target/<buildtype>/<dir>/.
 //   dep_artifact(b, "core/.build.ae", "shared_lib")
 //       — consumer side: reads the value the named dep published, by
-//         the SAME label passed to build.dep(). Returns "" if the dep
+//         the SAME label passed to bldr.dep(). Returns "" if the dep
 //         published nothing under that name.
 //
 // The value is an opaque string (a path, a coordinate, a hash) — aeb
@@ -2016,12 +2016,12 @@ dep_artifact(_ctx: ptr, dep_module: string, artifact: string) {
 //                                 module's own source dir, so most
 //                                 leaves never set it).
 //   env("SERVIRTIUM_VCR_LIB", p)— inject K=V (repeatable). Values are
-//                                 usually build.dep_artifact(...) results.
+//                                 usually bldr.dep_artifact(...) results.
 //   step("mix deps.get")        — a shell step (repeatable; sequential,
 //                                 fail-fast). Omit to use the SDK's
 //                                 default runner command.
 //
-// A consumer writes:  import build (env)   elixir.test(b) { env("K", v) }
+// A consumer writes:  import bldr (env)   elixir.test(b) { env("K", v) }
 
 workdir(_ctx: ptr, d: string) {
     _e = map.put(_ctx, "proc_workdir", d)
@@ -2387,7 +2387,7 @@ _record_skip(ctx: ptr, reason: string) {
 // Returns (java_path, status): status is
 //   "ok"   -> use java_path (the verified JDK, or "java" when no floor was set)
 //   "fail" -> min_jdk unmet; the helper has NOT recorded anything, the caller
-//             does build.fail(...) + return non-zero (so the failure carries the
+//             does bldr.fail(...) + return non-zero (so the failure carries the
 //             builder's own message/telemetry shape)
 //   "skip" -> skip_below_jdk unmet; the helper HAS recorded the skip + printed
 //             the reason; the caller just returns 0
@@ -2405,7 +2405,7 @@ _int_key(bmap: ptr, key: string) {
 
 _resolve_run_jdk(ctx: ptr, mod_dir: string, min_v: string, skip_v: string, what: string) {
     // Reject a floor below the supported minimum (JDK 6) up front — a config
-    // error, not a floor to compare. Status "toolow"; caller build.fails.
+    // error, not a floor to compare. Status "toolow"; caller bldr.fails.
     if string.length(string.trim(min_v)) > 0 {
         if _jvm_floor_below_6(_normalize_jvm_version(min_v)) == 1 { return "", "toolow" }
     }
@@ -2553,7 +2553,7 @@ _jvm_floor_below_6(want: string) {
 // then the `java` on PATH. Shared by every JVM SDK whose RUN step needs a
 // specific JDK (the FFM bindings html-sanitizer tests are JDK-22+, so a suite
 // run on an older ambient `java` fails at run time) — a "" return is the signal
-// to build._record_skip / build.fail per the caller's require-vs-skip policy.
+// to bldr._record_skip / bldr.fail per the caller's require-vs-skip policy.
 // An empty `want` means "no requirement" → "" (caller uses its default `java`).
 //
 // Version extraction uses awk, not sed: a sed script with backslash escapes
@@ -3376,11 +3376,11 @@ _parse_aeocha_report(text: string) {
 }
 
 // _label_to_target_dir(root, module_dir) — invert the label →
-// target_dir mapping (mirrors the logic in build.begin's setup
+// target_dir mapping (mirrors the logic in bldr.begin's setup
 // of fs_dir + tgt_dir). Used by the orchestrator to find the
 // right .aeb_cache marker for each module after running.
 _label_to_target_dir(root: string, module_dir: string) {
-    // target/<buildtype>/<dir> — mirrors build.begin exactly (same _label_*
+    // target/<buildtype>/<dir> — mirrors bldr.begin exactly (same _label_*
     // helpers) so writer and finder agree (the addressing contract). Buildtype
     // is the label's LITERAL "<type>:" prefix (any type; build = none).
     target_base = path.join(path.join(root, "target"), _label_buildtype(module_dir))
@@ -3427,7 +3427,7 @@ _label_display(label: string) {
 // _status_is_failed(status) — 1 when a record's status means failure.
 // TWO vocabularies reach here and both are load-bearing: the in-process
 // orchestrator writes the session words ("passed"/"failed", from
-// build.status_of), while aeb-driver writes the JSON words
+// bldr.status_of), while aeb-driver writes the JSON words
 // ("pass"/"fail"/"skipped") it also feeds to the telemetry JSON. Neither
 // is wrong, so match both rather than picking a winner and silently
 // under-reporting failures in whichever path loses. (_telemetry_status

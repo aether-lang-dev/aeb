@@ -1,7 +1,7 @@
-import build
+import bldr
 import go
 
 main() {
-    b = build.start()
+    b = bldr.start()
     go.check(b)
 }

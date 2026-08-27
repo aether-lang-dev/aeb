@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for container_run_cmd() — one-shot `<engine> run` command builder
 
 import container

@@ -7,9 +7,9 @@
 // `[ -f phar ] || curl …`. config("…") adds --configuration. Env injection
 // (a shared `.so` path read by an FFI binding) rides the shared env(...).
 //
-//   import build
+//   import bldr
 //   import php
-//   import build (env)
+//   import bldr (env)
 //   import php (phpunit_phar, phpunit_phar_url, config)
 //   php.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
@@ -21,7 +21,7 @@
 // Setters: env(K,V) [lib/build], phpunit_phar("…"), phpunit_phar_url("…"),
 // config("…"). A binding that declares its own step("…") still gets the
 // generic _run_project path (back-compat).
-import build
+import bldr
 import std.string
 import std.os
 import std.io
@@ -90,20 +90,20 @@ phar_fetch_cmd(source_dir: string, url: string, phar: string) {
 // a phar/config is declared, fetching the phar once if absent. Pass/fail
 // telemetry. Honors explicit step()s for back-compat.
 builder test(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     // Back-compat: a binding that wrote step("…") keeps the generic path.
     if _builder != null {
         if map.has(_builder, "proc_steps") == 1 {
             println("${mod_dir}: running tests (php)")
-            return build._run_project(ctx, _builder, "phpunit", 1)
+            return bldr._run_project(ctx, _builder, "phpunit", 1)
         }
     }
 
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
-    env_prefix = build._env_export_prefix(_builder)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
+    env_prefix = bldr._env_export_prefix(_builder)
 
     // Resolve the runner: a phar (fetched if missing) or bare phpunit. Phar
     // mode is enabled by EITHER an explicit phpunit_phar(...) path OR a
@@ -124,10 +124,10 @@ builder test(ctx: ptr): int {
             phar_abs = path.join(source_dir, phar)
             if file.exists(phar_abs) == 0 {
                 println("${mod_dir}: fetching ${phar}")
-                fr = build._sh(phar_fetch_cmd(source_dir, url, phar))
+                fr = bldr._sh(phar_fetch_cmd(source_dir, url, phar))
                 if fr != 0 {
                     println("${mod_dir}: phar download FAILED")
-                    build.fail(ctx, "phar download FAILED")
+                    bldr.fail(ctx, "phar download FAILED")
                     return fr
                 }
             }
@@ -142,14 +142,14 @@ builder test(ctx: ptr): int {
 
     println("${mod_dir}: running tests (php)")
     cmd = phpunit_cmd(source_dir, runner, config_part(cfg))
-    rc = build._sh(string.concat(env_prefix, cmd))
+    rc = bldr._sh(string.concat(env_prefix, cmd))
     if rc != 0 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return rc
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0

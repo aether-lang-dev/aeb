@@ -23,13 +23,13 @@
 // output isn't produced — so the cost of declaring "wrong" outputs
 // is loud, not silent.
 
-import build
+import bldr
 import python
 import python (codegen_driver, codegen_input, codegen_input_dir,
                codegen_arg, codegen_output, codegen_cwd)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     python.codegen(b) {
         // Run torchgen from the pytorch root. The package layout puts
         // `torchgen/` as a sibling of `aten/`, so PYTHONPATH falls out

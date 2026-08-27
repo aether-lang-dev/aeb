@@ -6,11 +6,11 @@
 //
 // Build + install deliberately:
 //   aeb tools/lease/.install.ae   (deps this, then installs to ~/.local)
-import build
+import bldr
 import aether
 import aether (source, output)
 main() {
-    b = build.start()
+    b = bldr.start()
     aether.program(b) {
         source("../aeb-lease.ae")
         output("aeb-lease")

@@ -14,12 +14,12 @@
 //     collapse to one
 //   - empty scan + no dep = empty output
 //   - npm:/maven coordinate deps emit NO edge (they are runtime-resolved
-//     package deps, not file-DAG nodes — mirrors the runtime build.dep
+//     package deps, not file-DAG nodes — mirrors the runtime bldr.dep
 //     colon rule; a phantom `<coord>/.build.ae` broke the driver)
 //
-// Not covered (delegated to runtime build.scan):
+// Not covered (delegated to runtime bldr.scan):
 //   - zero-match → loud error (extract-deps is silent at extraction
-//     time; runtime build.scan reports the error)
+//     time; runtime bldr.scan reports the error)
 
 import std.string
 import std.io
@@ -31,7 +31,7 @@ import std.map
 import std.path
 import std.dir
 
-import build (_sh, _sh_capture)
+import bldr (_sh, _sh_capture)
 
 extern println(s: string)
 
@@ -97,15 +97,15 @@ _setup_fixture(root: string) {
     _sh("mkdir -p '${root}/lib/foo' '${root}/lib/bar' '${root}/apps/baz' '${root}/single'")
 
     // Aggregator using scan
-    all_tests = "import build\nmain() {\n    b = build.start()\n    build.scan(b, \"**/.tests.ae\")\n}\n"
+    all_tests = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.scan(b, \"**/.tests.ae\")\n}\n"
     fs.write_atomic("${root}/.all-tests.ae", all_tests, string.length(all_tests))
 
     // Aggregator with potential self-match
-    everything = "import build\nmain() {\n    b = build.start()\n    build.scan(b, \"**/.*.ae\")\n}\n"
+    everything = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.scan(b, \"**/.*.ae\")\n}\n"
     fs.write_atomic("${root}/.everything.ae", everything, string.length(everything))
 
     // Stub leaf files (content irrelevant — extract-deps reads, doesn't compile)
-    stub = "import build\nmain() { b = build.start(); return 0 }\n"
+    stub = "import bldr\nmain() { b = bldr.start(); return 0 }\n"
     fs.write_atomic("${root}/lib/foo/.tests.ae", stub, string.length(stub))
     fs.write_atomic("${root}/lib/bar/.tests.ae", stub, string.length(stub))
     fs.write_atomic("${root}/apps/baz/.tests.ae", stub, string.length(stub))
@@ -113,7 +113,7 @@ _setup_fixture(root: string) {
     fs.write_atomic("${root}/single/.tests.ae", stub, string.length(stub))
 
     // Mixed: dep + scan, expect dedup if scan matches one of the deps
-    mixed = "import build\nmain() {\n    b = build.start()\n    build.dep(b, \"lib/foo/.tests.ae\")\n    build.scan(b, \"**/.tests.ae\")\n}\n"
+    mixed = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.dep(b, \"lib/foo/.tests.ae\")\n    bldr.scan(b, \"**/.tests.ae\")\n}\n"
     fs.write_atomic("${root}/.mixed.ae", mixed, string.length(mixed))
 }
 
@@ -147,7 +147,7 @@ main() {
     _setup_fixture(root)
 
     // --- dep alone (regression: pass 1 unchanged) ---
-    dep_only = "import build\nmain() {\n    b = build.start()\n    build.dep(b, \"single/.build.ae\")\n}\n"
+    dep_only = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.dep(b, \"single/.build.ae\")\n}\n"
     fs.write_atomic("${root}/.dep-only.ae", dep_only, string.length(dep_only))
     out_dep = _run_extract_deps(root, ".dep-only.ae")
     _assert_eq("dep-only: pass 1 still works",
@@ -199,16 +199,16 @@ main() {
     // driver could not build (`make: No rule to make target
     // 'hiccup_hiccup_2.0.0-RC3_.build.ae'`). Coordinates are runtime-resolved
     // package deps (maven jars onto the classpath, npm via pnpm) — they
-    // mirror the runtime build.dep colon rule and must emit no edge. Only
+    // mirror the runtime bldr.dep colon rule and must emit no edge. Only
     // the real file-path dep survives.
-    coords = "import build\nmain() {\n    b = build.start()\n    build.dep(b, \"hiccup:hiccup:2.0.0-RC3\")\n    build.dep(b, \"org.springframework.boot:spring-boot-starter\")\n    build.dep(b, \"npm:left-pad:1.3.0\")\n    build.dep(b, \"single/.build.ae\")\n}\n"
+    coords = "import bldr\nmain() {\n    b = bldr.start()\n    bldr.dep(b, \"hiccup:hiccup:2.0.0-RC3\")\n    bldr.dep(b, \"org.springframework.boot:spring-boot-starter\")\n    bldr.dep(b, \"npm:left-pad:1.3.0\")\n    bldr.dep(b, \"single/.build.ae\")\n}\n"
     fs.write_atomic("${root}/.coords.ae", coords, string.length(coords))
     out_coords = _run_extract_deps(root, ".coords.ae")
     _assert_eq("coord deps (maven/npm) excluded; only file dep emitted",
         _normalise(out_coords), "single/.build.ae")
 
     // --- empty file: no deps, no scans ---
-    empty = "import build\nmain() { b = build.start(); return 0 }\n"
+    empty = "import bldr\nmain() { b = bldr.start(); return 0 }\n"
     fs.write_atomic("${root}/.empty.ae", empty, string.length(empty))
     out_empty = _run_extract_deps(root, ".empty.ae")
     _assert_eq("empty: no deps", out_empty, "")

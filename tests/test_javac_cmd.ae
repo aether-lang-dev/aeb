@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build (_sh, _sh_capture, _path_sep)
+import bldr (_sh, _sh_capture, _path_sep)
 // Tests for javac_cmd() — command string builder
 
 import java (javac_cmd, classpath_file, _read_classpath_files)

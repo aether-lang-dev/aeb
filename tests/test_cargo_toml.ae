@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for cargo_toml_content() — Cargo.toml generation from DSL
 
 import rust

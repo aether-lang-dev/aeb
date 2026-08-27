@@ -2,7 +2,7 @@
 // transitive dependency tree. The "Aether version" of analyze-mvn-deps:
 // it runs `mvn dependency:tree`, flattens to unique GAVs, maps each to its
 // jar in ~/.m2, vendors the jars, and emits a `.jar.ae` lib-deps module that
-// consumers `build.dep` — so the per-build path never invokes Maven.
+// consumers `bldr.dep` — so the per-build path never invokes Maven.
 //
 // Usage:
 //   mvn-to-aeb <mvn_project_dir> <repo_root> <module_rel> <name> [exclude_artifact]
@@ -107,11 +107,11 @@ main() {
     body = string.concat(body, "// resolves each pinned() from the cache, ~/.m2, or the declared repos\n")
     body = string.concat(body, "// (Central by default), verifying the sha256 fail-closed before use. Add\n")
     body = string.concat(body, "// repo(\"https://your-mirror/maven\") lines for an internal proxy.\n")
-    body = string.concat(body, "import build\n")
+    body = string.concat(body, "import bldr\n")
     body = string.concat(body, "import java\n")
     body = string.concat(body, "import java (central, repo, pinned)\n\n")
     body = string.concat(body, "aeb(cap) {\n")
-    body = string.concat(body, "    b = build.start()\n")
+    body = string.concat(body, "    b = bldr.start()\n")
     body = string.concat(body, "    java.mvn_repo(b) {\n")
     body = string.concat(body, "        central()\n")
     body = string.concat(body, lines)

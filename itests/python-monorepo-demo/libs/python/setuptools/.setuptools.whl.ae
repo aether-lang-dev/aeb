@@ -8,10 +8,10 @@
 // at the specified version bound (needed because newer setuptools drops
 // deprecated pkg_resources APIs used by some libraries).
 
-import build
+import bldr
 import python
 
 main() {
-    b = build.start()
+    b = bldr.start()
     python.wheel_registry(b, "setuptools~>=70,<81")
 }

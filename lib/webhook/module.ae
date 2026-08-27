@@ -9,12 +9,12 @@
 // Two placements, same builder:
 //
 //   // a dedicated end-of-pipeline ping — name the file anything
-//   import build
+//   import bldr
 //   import webhook (url, on, header)
 //   main() {
-//       b = build.start()
-//       build.dep(b, "app/.tests.ae")
-//       build.dep(b, "app/.dist.ae")
+//       b = bldr.start()
+//       bldr.dep(b, "app/.tests.ae")
+//       bldr.dep(b, "app/.dist.ae")
 //       webhook.fire(b) {
 //           url("https://hooks.example/deploy?sha={{commit}}&br={{branch}}")
 //           header("Authorization", "Bearer {{env:DEPLOY_TOKEN}}")
@@ -34,7 +34,7 @@
 // `import webhook` (the builder verb) and `import webhook (url, ...)`
 // (the setter names).
 
-import build
+import bldr
 import std.string
 import std.os
 import std.list
@@ -232,19 +232,19 @@ _resolve_env_tokens(template: string, ctx: ptr) {
 // multi-VCS extension). stderr is swallowed so a non-repo just
 // yields "".
 _git_branch() {
-    out, err = build._sh_capture("git rev-parse --abbrev-ref HEAD 2>/dev/null")
+    out, err = bldr._sh_capture("git rev-parse --abbrev-ref HEAD 2>/dev/null")
     if err != "" { return "" }
     return string.trim(out)
 }
 
 _git_commit() {
-    out, err = build._sh_capture("git rev-parse HEAD 2>/dev/null")
+    out, err = bldr._sh_capture("git rev-parse HEAD 2>/dev/null")
     if err != "" { return "" }
     return string.trim(out)
 }
 
 _repo_name() {
-    out, err = build._sh_capture("git rev-parse --show-toplevel 2>/dev/null")
+    out, err = bldr._sh_capture("git rev-parse --show-toplevel 2>/dev/null")
     top = ""
     if err == "" { top = string.trim(out) }
     n = string.length(top)
@@ -262,7 +262,7 @@ _repo_name() {
 // --- Builder entry point ---
 
 builder fire(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     if string.length(mod_dir) == 0 { mod_dir = "webhook" }
 
     url_tmpl = ""
@@ -277,12 +277,12 @@ builder fire(ctx: ptr): int {
     }
     if string.length(url_tmpl) == 0 {
         println("${mod_dir}: webhook.fire requires url(\"...\")")
-        build.fail(ctx, "webhook.fire requires url(\"...\")")
+        bldr.fail(ctx, "webhook.fire requires url(\"...\")")
         return 1
     }
 
     // Environment facts for the on() gates.
-    ci_system = build._detect_ci()
+    ci_system = bldr._detect_ci()
     is_ci = 1
     if string.equals(ci_system, "local") == 1 { is_ci = 0 }
     branch = _git_branch()

@@ -15,14 +15,14 @@
 // Upstream Bazel equivalent (java/src/org/openqa/selenium/grid/jmx/BUILD.bazel)
 // — identical to `io/`'s shape, just `name = "jmx"`.
 
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import java
 import java (release)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     load_bom_file(b, "../../../../../../selenium-deps.bom.ae")
     dep(b, "org.jspecify:jspecify:1.0.0")
     java.javac(b) {

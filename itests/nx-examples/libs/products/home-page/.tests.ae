@@ -1,9 +1,9 @@
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import jest
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "libs/products/home-page/.build.ae")
     load_third_party_deps(b, "../../../angular.deps.ae")
     jest.test(b)

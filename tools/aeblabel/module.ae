@@ -22,7 +22,7 @@
 //
 // The `:tag` suffix lets multiple .build*.ae / .tests*.ae /
 // .dist*.ae files coexist in one directory without colliding on
-// build.begin's visited-set dedup. Canonical (untagged) names keep
+// bldr.begin's visited-set dedup. Canonical (untagged) names keep
 // today's labels unchanged.
 
 import std.string
@@ -162,13 +162,13 @@ counts_line(files: ptr) {
     return out
 }
 
-// Derive the build.begin() label for a build file path:
+// Derive the bldr.begin() label for a build file path:
 //   <type>:<dir>   for any NON-"build" type  (test:foo, dist:foo, install:foo,
 //                  bidi-codegen:itests/selenium/py, quantum-signal:foo, …)
 //   <dir>          for the "build" type (the unprefixed default — keeps every
 //                  existing .build.ae label unchanged).
 // The type is the WHOLE literal segment (infer_type); no tag suffix. The reader
-// (_dep_target_dir) and the writer (build.begin) both strip a leading "<type>:"
+// (_dep_target_dir) and the writer (bldr.begin) both strip a leading "<type>:"
 // generically, so any name round-trips to target/<type>/<dir>/.
 file_to_label(file: string) {
     type = infer_type(file)

@@ -5,12 +5,12 @@
 // parses. With 1 of 3 specs failing, aeb records 2/3 FAIL, and the
 // telemetry JSON must carry tests: {total:3, passed:2, failed:1} with
 // status "fail".
-import build
+import bldr
 import aether
 import aether (source, output)
 
 aeb(cap) {
-    b = build.start()
+    b = bldr.start()
     aether.driver_test(b) {
         source("failtest.ae")
         output("failtest")

@@ -1,8 +1,8 @@
 // Tests for reading a module's `@link` native deps back from the generated C's
 // `// aether-link:` header — aeb's manual gcc path mirroring aether PR #1555.
-//   build._aether_link_line_libs(payload) — PURE token filter
-//   build._aether_link_libs(c_path)       — file read + filter
-//   build._contrib_lib_dir_flag(lib_dir)  — dev-layout contrib -L
+//   bldr._aether_link_line_libs(payload) — PURE token filter
+//   bldr._aether_link_libs(c_path)       — file read + filter
+//   bldr._contrib_lib_dir_flag(lib_dir)  — dev-layout contrib -L
 import std.string
 import std.io
 import std.os
@@ -11,7 +11,7 @@ import std.fs
 import std.dir
 import std.path
 
-import build (_sh, _sh_capture, _aether_link_line_libs, _aether_link_libs, _contrib_lib_dir_flag)
+import bldr (_sh, _sh_capture, _aether_link_line_libs, _aether_link_libs, _contrib_lib_dir_flag)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected { println("PASS: ${label}") }

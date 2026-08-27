@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for lib/c's pure helper functions: _include_flags,
 // _strip_ext, _cc_of, _opt_str. The compile/program builders shell
 // out to a real C compiler, so they are exercised by the c-hello
@@ -52,7 +52,7 @@ main() {
     _assert_eq("cc_of: explicit override", _cc_of(o4),
         "x86_64-w64-mingw32-gcc")
 
-    // No override → build._default_cc() for this host. We don't pin
+    // No override → bldr._default_cc() for this host. We don't pin
     // the exact value (it is OS-dependent), only that it is non-empty.
     o5 = map_new()
     def_cc = _cc_of(o5)

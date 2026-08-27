@@ -18,7 +18,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import aether (_cache_key_for_aether_link, _toolchain_version)
 
 _assert_eq(label: string, actual: string, expected: string) {

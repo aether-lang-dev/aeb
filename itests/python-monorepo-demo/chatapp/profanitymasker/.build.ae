@@ -1,10 +1,10 @@
-import build
+import bldr
 import python
 
 main() {
-    b = build.start()
-    build.dep(b, "libs/python/setuptools/.setuptools.whl.ae")
-    build.dep(b, "libs/python/pytest/.pytest.whl.ae")
+    b = bldr.start()
+    bldr.dep(b, "libs/python/setuptools/.setuptools.whl.ae")
+    bldr.dep(b, "libs/python/pytest/.pytest.whl.ae")
     python.install(b)
     python.lint(b)
     python.typecheck(b)

@@ -8,8 +8,8 @@
 //    `aeb(cap)` — both lower to the same context-receiving function (aeb
 //    already injects a build context; `cap` is just the nicer spelling for
 //    "the handle the trusted host passed in"). The build body uses
-//    `build.start()` regardless, so the param NAME the user chose is sugar.
-// 2. Replaces build.start() with build.begin(s, "label") + guard
+//    `bldr.start()` regardless, so the param NAME the user chose is sugar.
+// 2. Replaces bldr.start() with bldr.begin(s, "label") + guard
 // 3. Strips .ae filenames from dep() references (runtime needs dirs)
 // 4. Injects transitive SDK imports at the top
 
@@ -256,21 +256,20 @@ main() {
     sed_script = string.concat(sed_script, "s/^aeb([A-Za-z_][A-Za-z0-9_]*) {/")
     sed_script = string.concat(sed_script, func_name)
     sed_script = string.concat(sed_script, "(s: ptr): int {/\n")
-    sed_script = string.concat(sed_script, "s|b = build\\.start()|b = build.begin(s, \"")
+    // Legacy b-form (still transformed while nodes migrate): rewrite the user's
+    // `b = bldr.start()` to `b = bldr.begin(s, "label")` + the visited guard.
+    sed_script = string.concat(sed_script, "s|b = bldr\\.start()|b = bldr.begin(s, \"")
     sed_script = string.concat(sed_script, label)
     sed_script = string.concat(sed_script, "\")\\n    if b == 0 { return 0 }|\n")
     sed_script = string.concat(sed_script, "s|dep(b, \"\\([^\"]*\\)/\\.[^\"/]*\\.ae\")|dep(b, \"\\1\")|g\n")
-    // Shape A (b-free node grammar): the user writes `build() {` (or
-    // `build.build() {` if qualified). Thread the session `s` and the label in,
-    // exactly as the build.start()→build.begin rule does for the old form — `s`
-    // is reachable only as the node fn's parameter, never via injection. The
-    // wrapper (lib/build/module.ae `build(s, label)`) branches on `s` for the
+    // Shape A (b-free node grammar): the user writes `bldr.build() {`. Thread the
+    // session `s` and the label into the wrapper call, exactly as the
+    // bldr.start()→bldr.begin rule does for the legacy form — `s` is reachable
+    // only as the node fn's parameter, never via injection. The wrapper
+    // (lib/bldr/module.ae `build(s, label)`) branches on `s` for the
     // standalone-vs-orchestrated duality and returns the graph ctx the block
     // threads to every nested dep()/builder. See dsl_rework.md §4.5.
-    sed_script = string.concat(sed_script, "s|build() {|build(s, \"")
-    sed_script = string.concat(sed_script, label)
-    sed_script = string.concat(sed_script, "\") {|\n")
-    sed_script = string.concat(sed_script, "s|build.build() {|build.build(s, \"")
+    sed_script = string.concat(sed_script, "s|bldr\\.build() {|bldr.build(s, \"")
     sed_script = string.concat(sed_script, label)
     sed_script = string.concat(sed_script, "\") {|\n")
     // b-free dep-path normalization (Shape A): strip a trailing /.<name>.ae

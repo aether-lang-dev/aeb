@@ -1,6 +1,6 @@
 // Regression: a build node's non-zero return MUST redden the build's exit code
 // under the default in-process orchestrator — even when the node signals failure
-// by a bare `return 1` and never calls build.fail().
+// by a bare `return 1` and never calls bldr.fail().
 //
 // This is the falsely-green-presubmit bug (Selenium port REQUEST 4,
 // asks/node-nonzero-return-not-propagated-to-exit-code.md). Before the fix the
@@ -14,7 +14,7 @@
 // each, asserts the process exit code. Uses `aeb` from PATH (the just-installed
 // build). Self-skips cleanly if no aeb is on PATH. run.sh counts PASS:/FAIL:.
 
-import build
+import bldr
 import std.string
 import std.os
 import std.file
@@ -48,8 +48,8 @@ main() {
     tmp, _ = os.exec("mktemp -d")
     dir = string.trim(tmp)
 
-    // Node 1: bare `return 1`, no build.fail() — the bug case.
-    fail_body = "import build\naeb(cap) {\n    b = build.start()\n    return 1\n}\n"
+    // Node 1: bare `return 1`, no bldr.fail() — the bug case.
+    fail_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    return 1\n}\n"
     _w1 = io.write_file(path.join(dir, ".fail.ae"), fail_body)
     rc_fail = _run_aeb(dir, ".fail.ae")
     cond1 = 0
@@ -57,20 +57,20 @@ main() {
     _assert("bare `return 1` node reddens the build (exit non-zero)", cond1)
 
     // Node 2: `return 0` — must stay green.
-    ok_body = "import build\naeb(cap) {\n    b = build.start()\n    return 0\n}\n"
+    ok_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    return 0\n}\n"
     _w2 = io.write_file(path.join(dir, ".ok.ae"), ok_body)
     rc_ok = _run_aeb(dir, ".ok.ae")
     cond2 = 0
     if rc_ok == 0 { cond2 = 1 }
     _assert("`return 0` node stays green (exit 0)", cond2)
 
-    // Node 3: explicit build.fail() — the pre-existing channel must still redden.
-    ef_body = "import build\naeb(cap) {\n    b = build.start()\n    build.fail(b, \"gate rejected\")\n    return 1\n}\n"
+    // Node 3: explicit bldr.fail() — the pre-existing channel must still redden.
+    ef_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    bldr.fail(b, \"gate rejected\")\n    return 1\n}\n"
     _w3 = io.write_file(path.join(dir, ".efail.ae"), ef_body)
     rc_ef = _run_aeb(dir, ".efail.ae")
     cond3 = 0
     if rc_ef != 0 { cond3 = 1 }
-    _assert("explicit build.fail() node reddens the build (exit non-zero)", cond3)
+    _assert("explicit bldr.fail() node reddens the build (exit non-zero)", cond3)
 
     os.system("rm -rf '${dir}'")
     println("node exit code tests done")

@@ -2,7 +2,7 @@
 //
 // _cache_key_for_cargo(ctx, argfile_path, cargo_cmd_str, source_dir)
 // reads .rs sources + Cargo.toml/Cargo.lock via cache.hash_file and
-// dep artifacts via build._read_dep_artifact. Stages fixtures under a
+// dep artifacts via bldr._read_dep_artifact. Stages fixtures under a
 // tmpdir per case. Tolerates an absent cargo/rustc toolchain.
 import std.string
 import std.io
@@ -14,7 +14,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import rust (_cache_key_for_cargo)
 
 _assert_eq(label: string, actual: string, expected: string) {

@@ -172,7 +172,7 @@ _remote_has(hash: string) {
 // atomically — no shell, binary-safe (read_binary preserves embedded NULs),
 // and Windows-correct (the shell version's `mktemp '$parent/.aebrc.XXXXXX'`
 // and `cp`/`mv` all break under cmd.exe). lib/cache does NOT import build, so
-// it uses fs directly rather than the build._sh chokepoint — and this is the
+// it uses fs directly rather than the bldr._sh chokepoint — and this is the
 // better fix anyway (no subprocess at all for a file copy).
 _copy_atomic(src: string, dest: string) {
     parent = path.dirname(dest)

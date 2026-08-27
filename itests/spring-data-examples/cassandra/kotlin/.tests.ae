@@ -1,5 +1,5 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import kotlin
 import kotlin (source_layout, jvm_target)
@@ -7,7 +7,7 @@ import java
 import java (release, source_layout, enable_preview, test_timeout, parameters)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "cassandra/kotlin/.build.ae")
     dep(b, "cassandra/util/.build.ae")
     load_bom_file(b, "../../spring-boot.bom.ae")

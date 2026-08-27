@@ -6,12 +6,12 @@
 // Both headers are published (c_header_dirs artifact). The program
 // node depends on this and #includes them.
 
-import build
+import bldr
 import c
 import c (sources, emit)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     c.generated_header(b) {
         sources("src/gen.c")
         emit("", "gen_values.h")

@@ -21,7 +21,7 @@ import std.map
 import std.path
 import std.dir
 
-import build (_upper_ascii_word, _split_tabs, _synth_fixture_pre,
+import bldr (_upper_ascii_word, _split_tabs, _synth_fixture_pre,
               _synth_fixture_post)
 
 extern println(s: string)

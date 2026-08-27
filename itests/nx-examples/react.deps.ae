@@ -1,8 +1,8 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 
 main() {
-    b = build.deps()
+    b = bldr.deps()
     dep(b, "npm:typescript:5.9.2")
     dep(b, "npm:tslib:2.8.1")
     dep(b, "npm:rxjs:7.8.2")

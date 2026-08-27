@@ -1,5 +1,5 @@
 // java — Java SDK for aether.build
-import build
+import bldr
 import cache
 import maven
 import std.string
@@ -162,10 +162,10 @@ _collect_ldlibdeps(ctx: ptr) {
     m = 0
     while m < ndeps {
         dp, _ = list.get(deps, m)
-        dm = build._strip_lang(dp)
-        dep_ld = build._read_dep_artifact(ctx, dm, "ldlibdeps")
+        dm = bldr._strip_lang(dp)
+        dep_ld = bldr._read_dep_artifact(ctx, dm, "ldlibdeps")
         if string.length(dep_ld) > 0 {
-            ld_raw, _eld = build._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
+            ld_raw, _eld = bldr._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
             ld_dirs = string.trim(ld_raw)
             if string.length(ld_dirs) > 0 {
                 if string.length(ld_path) > 0 {
@@ -306,7 +306,7 @@ javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) 
 junit_cmd(classpath: string, class_names: string, ld_path: string, opts: ptr) {
     cmd = ""
     if string.length(ld_path) > 0 {
-        dyld_var = build._dyld_env_var()
+        dyld_var = bldr._dyld_env_var()
         cmd = "${dyld_var}=${ld_path} java"
         cmd = string.concat(cmd, " -Djava.library.path=${ld_path}")
     } else {
@@ -334,14 +334,14 @@ junit_cmd(classpath: string, class_names: string, ld_path: string, opts: ptr) {
 // Use this in a .jar.ae file so downstream consumers that dep on this
 // file pick up the jar in their classpath artifact.
 builder jar_vendored(ctx: ptr, jar_path: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
     // Resolve repo-root-relative jar paths to absolute so the classpath works
     // regardless of the consumer's cwd. The .jar.ae stays portable (relative).
     abs_jar = jar_path
     if string.equals(string.substring(jar_path, 0, 1), "/") == 0 {
-        abs_jar = path.join(build._get(ctx, "root"), jar_path)
+        abs_jar = path.join(bldr._get(ctx, "root"), jar_path)
     }
     _accumulate_classpath_jar(ctx, abs_jar)
     println("${mod_dir}: vendored jar ${jar_path}")
@@ -367,7 +367,7 @@ _accumulate_classpath_jar(ctx: ptr, abs_jar: string) {
         if k == 0 { content = jp } else { content = string.concat(string.concat(content, "\n"), jp) }
         k = k + 1
     }
-    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", content)
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", content)
 }
 
 // jar_pinned(b, "g:a:v", "<sha256>") — declare a Maven coordinate pinned to
@@ -379,13 +379,13 @@ _accumulate_classpath_jar(ctx: ptr, abs_jar: string) {
 // committed lockfile (coord + hash) and the repo holds no binaries. The hash
 // doubles as a supply-chain pin (cf. aeb --vet / --sbom-json).
 builder jar_pinned(ctx: ptr, coord: string, sha256: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
     jar = _resolve_pinned_jar(coord, sha256, "")
     if string.length(jar) == 0 {
         println("${mod_dir}: jar_pinned: ${coord} unresolved (sha256 mismatch, or not in ~/.m2 and fetch failed)")
-        build.fail(ctx, "jar_pinned: ${coord} unresolved")
+        bldr.fail(ctx, "jar_pinned: ${coord} unresolved")
         return 1
     }
     _accumulate_classpath_jar(ctx, jar)
@@ -427,9 +427,9 @@ pinned(_ctx: ptr, coord: string, sha: string) {
 }
 
 builder mvn_repo(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
     if _builder == null {
         println("${mod_dir}: mvn_repo: empty block — declare pinned(...) deps")
         return 0
@@ -465,7 +465,7 @@ builder mvn_repo(ctx: ptr): int {
             jar = _resolve_pinned_jar(coord, sha, repos_nl)
             if string.length(jar) == 0 {
                 println("${mod_dir}: mvn_repo: ${coord} unresolved (sha256 mismatch, or unreachable in all repos)")
-                build.fail(ctx, "mvn_repo: ${coord} unresolved")
+                bldr.fail(ctx, "mvn_repo: ${coord} unresolved")
                 return 1
             }
             _accumulate_classpath_jar(ctx, jar)
@@ -515,18 +515,18 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
     cache_dir = "${home}/.cache/aeb/jars"
     cached = "${cache_dir}/${sha256}.jar"
     if file.exists(cached) == 1 { return cached }
-    _mk = build._sh("mkdir -p '${cache_dir}'")
+    _mk = bldr._sh("mkdir -p '${cache_dir}'")
 
     relpath = _pinned_relpath(coord)
     if string.length(relpath) == 0 { return "" }
 
     tmp = "${cache_dir}/.tmp-${sha256}.jar"
-    _rm = build._sh("rm -f '${tmp}'")
+    _rm = bldr._sh("rm -f '${tmp}'")
 
     m2 = "${home}/.m2/repository/${relpath}"
     got = 0
     if file.exists(m2) == 1 {
-        _cp = build._sh("cp '${m2}' '${tmp}'")
+        _cp = bldr._sh("cp '${m2}' '${tmp}'")
         got = 1
     }
     if got == 0 {
@@ -542,7 +542,7 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
             base = string.array_get(rparts, ri)
             if string.length(base) > 0 {
                 url = "${base}/${relpath}"
-                rc = build._sh("curl -fsSL '${url}' -o '${tmp}' 2>/dev/null")
+                rc = bldr._sh("curl -fsSL '${url}' -o '${tmp}' 2>/dev/null")
                 if rc == 0 { got = 1  ri = nr }
             }
             ri = ri + 1
@@ -551,13 +551,13 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
     }
     if got == 0 { return "" }
 
-    actual_raw, _es = build._sh_capture("sha256sum '${tmp}' | cut -d' ' -f1")
+    actual_raw, _es = bldr._sh_capture("sha256sum '${tmp}' | cut -d' ' -f1")
     actual = string.trim(actual_raw)
     if string.equals(actual, sha256) == 0 {
-        _rm2 = build._sh("rm -f '${tmp}'")
+        _rm2 = bldr._sh("rm -f '${tmp}'")
         return ""
     }
-    _mv = build._sh("mv '${tmp}' '${cached}'")
+    _mv = bldr._sh("mv '${tmp}' '${cached}'")
     return cached
 }
 
@@ -573,21 +573,21 @@ jar_registry(ctx: ptr, coord: string) {
 // the jvm_classpath_deps_including_transitive artifact so downstream
 // consumers pick up these jars on their classpath.
 builder jar_registry_finalize(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
-    build._mkdirs(target_dir)
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
 
     cp = maven.resolve(ctx)
     if string.length(cp) == 0 {
         println("${mod_dir}: no maven deps resolved")
-        build.fail(ctx, "no maven deps resolved")
+        bldr.fail(ctx, "no maven deps resolved")
         return 1
     }
 
     // Convert colon-separated to newline-separated for the classpath artifact
-    cp_raw, _ecp = build._sh_capture("echo '${cp}' | tr ':' '\\n'")
+    cp_raw, _ecp = bldr._sh_capture("echo '${cp}' | tr ':' '\\n'")
     cp_nl = string.trim(cp_raw)
-    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_nl)
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_nl)
     println("${mod_dir}: fetched maven deps")
     return 0
 }
@@ -599,7 +599,7 @@ builder jar_registry_finalize(ctx: ptr): int {
 _jdk_version() {
     cached = os.getenv("_AEB_JAVAC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = build._sh_capture("javac -version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("javac -version 2>&1 | head -1")
     return string.trim(raw)
 }
 
@@ -620,18 +620,18 @@ _read_classpath_files(builder_map: ptr, source_dir: string) {
         rel, _ = list.get(cfs, i)
         p = rel
         // Absolute paths pass through; relative resolve against source_dir.
-        // build._is_abs_path is host-aware — on Windows an absolute path leads
+        // bldr._is_abs_path is host-aware — on Windows an absolute path leads
         // with a drive prefix ("C:/..."), not "/", so a bare leading-slash test
         // would mangle it into a non-existent path via path.join.
         if string.length(rel) > 0 {
-            if build._is_abs_path(rel) == 0 {
+            if bldr._is_abs_path(rel) == 0 {
                 p = path.join(source_dir, rel)
             }
         }
         if file.exists(p) == 1 {
             raw, _e = io.read_file(p)
             piece = string.trim(raw)
-            out = build._cp_append(out, piece)
+            out = bldr._cp_append(out, piece)
         }
         i = i + 1
     }
@@ -653,7 +653,7 @@ _discover_jvm_root() {
 // the JDKs under jvm_root, for the not-found diagnostic. Best-effort.
 _installed_jvm_majors(jvm_root: string) {
     if string.length(jvm_root) == 0 { return "" }
-    out, _e = build._sh_capture("ls -1 '${jvm_root}' 2>/dev/null")
+    out, _e = bldr._sh_capture("ls -1 '${jvm_root}' 2>/dev/null")
     majors = ""
     rest = string.trim(out)
     name = ""
@@ -666,7 +666,7 @@ _installed_jvm_majors(jvm_root: string) {
             name = string.substring(rest, 0, nl)
             rest = string.substring(rest, nl + 1, string.length(rest))
         }
-        m = build._jvm_dir_major(string.trim(name))
+        m = bldr._jvm_dir_major(string.trim(name))
         if string.length(m) > 0 {
             if string.length(majors) > 0 { majors = string.concat(majors, "\n") }
             majors = string.concat(majors, m)
@@ -677,14 +677,14 @@ _installed_jvm_majors(jvm_root: string) {
 
 // _resolve_jdk_home(want) — discover-select-or-fail. Returns the selected
 // JDK home (a directory containing bin/javac), or "" if none matches —
-// the caller hard-fails with build._toolchain_not_found_msg. Honours a
+// the caller hard-fails with bldr._toolchain_not_found_msg. Honours a
 // macOS Contents/Home nesting. An empty `want` means "no selection" → "".
 _resolve_jdk_home(want: string) {
     if string.length(want) == 0 { return "" }
     root = _discover_jvm_root()
     if string.length(root) == 0 { return "" }
-    listing_raw, _e = build._sh_capture("ls -1 '${root}' 2>/dev/null")
-    home = build._select_jvm_home(root, string.trim(listing_raw), want)
+    listing_raw, _e = bldr._sh_capture("ls -1 '${root}' 2>/dev/null")
+    home = bldr._select_jvm_home(root, string.trim(listing_raw), want)
     if string.length(home) == 0 { return "" }
     // macOS: the real home is <entry>/Contents/Home.
     mac_home = path.join(home, "Contents/Home")
@@ -704,7 +704,7 @@ _javac_bin_for(want: string, builder_map: ptr) {
     if string.length(home) == 0 {
         root = _discover_jvm_root()
         found = _installed_jvm_majors(root)
-        println(build._toolchain_not_found_msg("jdk", want, found))
+        println(bldr._toolchain_not_found_msg("jdk", want, found))
         return ""
     }
     if builder_map != null {
@@ -757,7 +757,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
         if map.has(builder_map, "_selected_jdk_home") == 1 {
             sel_home, _ = map.get(builder_map, "_selected_jdk_home")
             sel_javac = path.join(sel_home, "bin/javac")
-            jv_raw, _jverr = build._sh_capture("'${sel_javac}' -version 2>&1 | head -1")
+            jv_raw, _jverr = bldr._sh_capture("'${sel_javac}' -version 2>&1 | head -1")
             jdk_ver = string.concat(string.concat(sel_home, "|"), string.trim(jv_raw))
         }
     }
@@ -768,7 +768,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
     list.add(parts, string.concat("cmd:", javac_cmd_str))
 
     // Each .java source's path + content hash, in sorted order.
-    sources = build._read_argfile_lines(argfile_path)
+    sources = bldr._read_argfile_lines(argfile_path)
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
@@ -789,8 +789,8 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
     di = 0
     while di < dn {
         dp, _ = list.get(deps, di)
-        dm = build._strip_lang(dp)
-        dep_cp = build._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
+        dm = bldr._strip_lang(dp)
+        dep_cp = bldr._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp) > 0 {
             list.add(parts, string.concat("dep:", dm))
             list.add(parts, string.concat("dep-cp:", dep_cp))
@@ -803,32 +803,32 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
 }
 
 builder javac(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_name = build._get(ctx, "module")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_name = bldr._get(ctx, "module")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     classes_dir = path.join(target_dir, "classes")
-    build._mkdirs(classes_dir)
+    bldr._mkdirs(classes_dir)
     ts_dir = path.join(classes_dir, mod_name)
-    build._mkdirs(ts_dir)
+    bldr._mkdirs(ts_dir)
     ts_file = path.join(ts_dir, ".timestamp")
 
     println("${mod_dir}: compiling prod code")
 
     // Build classpath: dep modules + maven deps + pre-resolved file(s)
-    dep_cp = build._build_dep_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
     file_cp = _read_classpath_files(_builder, source_dir)
     classpath = classes_dir
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, maven_cp)
-    classpath = build._cp_append(classpath, file_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, maven_cp)
+    classpath = bldr._cp_append(classpath, file_cp)
 
     // Create generated sources dir if requested (for annotation processors like QueryDSL)
     if map.has(_builder, "generated_sources") == 1 {
         gen_dir, _ = map.get(_builder, "generated_sources")
-        build._mkdirs(gen_dir)
+        bldr._mkdirs(gen_dir)
     }
 
     // Write source file list to an argfile (avoids command-line length limits)
@@ -837,10 +837,10 @@ builder javac(ctx: ptr): int {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/main/java")
-            build._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
+            bldr._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
         }
     } else {
-        build._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
+        bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
     }
 
     af_raw, _eaf = io.read_file(argfile)
@@ -855,11 +855,11 @@ builder javac(ctx: ptr): int {
     // module's `requires` won't resolve. Auto-detect so build files needn't
     // opt in. no_module_info() opts out: drop module-info.java and compile
     // classpath-mode. (Modifies argfile before the cache key hashes it.)
-    mi_cnt_raw, _emi = build._sh_capture("grep -c 'module-info\\.java' '${argfile}' 2>/dev/null || echo 0")
+    mi_cnt_raw, _emi = bldr._sh_capture("grep -c 'module-info\\.java' '${argfile}' 2>/dev/null || echo 0")
     if string.equals(string.trim(mi_cnt_raw), "0") == 0 {
         if map.has(_builder, "no_module_info") == 1 {
             println("${mod_dir}: no_module_info — compiling module-info-less (classpath mode)")
-            build._sh("grep -v 'module-info\\.java' '${argfile}' > '${argfile}.tmp' && mv '${argfile}.tmp' '${argfile}'")
+            bldr._sh("grep -v 'module-info\\.java' '${argfile}' > '${argfile}.tmp' && mv '${argfile}.tmp' '${argfile}'")
         } else {
             println("${mod_dir}: module-info.java present — modular compile (deps on --module-path)")
             _emm = map.put(_builder, "modular", "1")
@@ -885,7 +885,7 @@ builder javac(ctx: ptr): int {
     }
     javac_bin = _javac_bin_for(want_jdk, _builder)
     if string.length(javac_bin) == 0 {
-        build.fail(ctx, "no matching JDK found")
+        bldr.fail(ctx, "no matching JDK found")
         return 1
     }
     _e = map.put(_builder, "_javac_bin", javac_bin)
@@ -907,25 +907,25 @@ builder javac(ctx: ptr): int {
         ck, kerr = _cache_key_for_javac(ctx, _builder, argfile, cmd)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, classes_dir)
-                    build._sh("rm -f '${tmp_tar}'")
+                    uerr = bldr._untar_into(tmp_tar, classes_dir)
+                    bldr._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: javac cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
                         // Untar failed — clean up and fall through.
-                        build._sh("rm -rf '${classes_dir}'")
-                        build._mkdirs(classes_dir)
-                        build._mkdirs(ts_dir)
+                        bldr._sh("rm -rf '${classes_dir}'")
+                        bldr._mkdirs(classes_dir)
+                        bldr._mkdirs(ts_dir)
                     }
                 } else {
-                    build._sh("rm -f '${tmp_tar}'")
+                    bldr._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -933,22 +933,22 @@ builder javac(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        exit_code = build._sh(cmd)
+        exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: javac failed")
-            build.fail(ctx, "javac failed")
+            bldr.fail(ctx, "javac failed")
             return exit_code
         }
         // Populate the cache with the freshly-compiled tree. Best-effort.
         if string.length(cache_key) > 0 {
-            tar_path, terr = build._tar_dir(classes_dir)
+            tar_path, terr = bldr._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                build._sh("rm -f '${tar_path}'")
+                bldr._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: javac cache write failed: ${perr}")
                 }
@@ -965,7 +965,7 @@ builder javac(ctx: ptr): int {
         _rlayout, _ = map.get(_builder, "source_layout")
         if string.equals(_rlayout, "maven idiomatic") == 1 {
             main_res = path.join(source_dir, "src/main/resources")
-            build._sh("[ -d '${main_res}' ] && cp -R '${main_res}/.' '${classes_dir}/' 2>/dev/null || true")
+            bldr._sh("[ -d '${main_res}' ] && cp -R '${main_res}/.' '${classes_dir}/' 2>/dev/null || true")
         }
     }
 
@@ -983,7 +983,7 @@ builder javac(ctx: ptr): int {
         tmp4 = string.concat(cp_out, "\n")
         cp_out = string.concat(tmp4, file_cp)
     }
-    build._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
 
     // Collect ldlibdeps and shared_library_deps from all deps
     deps, _ = map.get(ctx, "deps")
@@ -993,8 +993,8 @@ builder javac(ctx: ptr): int {
     k = 0
     while k < dep_count {
         dp2, _ = list.get(deps, k)
-        dm2 = build._strip_lang(dp2)
-        dep_ld = build._read_dep_artifact(ctx, dm2, "ldlibdeps")
+        dm2 = bldr._strip_lang(dp2)
+        dep_ld = bldr._read_dep_artifact(ctx, dm2, "ldlibdeps")
         if string.length(dep_ld) > 0 {
             if string.length(ld_out) > 0 {
                 ld_out = string.concat(string.concat(ld_out, "\n"), dep_ld)
@@ -1002,7 +1002,7 @@ builder javac(ctx: ptr): int {
                 ld_out = dep_ld
             }
         }
-        dep_sh = build._read_dep_artifact(ctx, dm2, "shared_library_deps_including_transitive")
+        dep_sh = bldr._read_dep_artifact(ctx, dm2, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
             if string.length(shared_out) > 0 {
                 shared_out = string.concat(string.concat(shared_out, "\n"), dep_sh)
@@ -1012,29 +1012,29 @@ builder javac(ctx: ptr): int {
         }
         k = k + 1
     }
-    build._write_artifact(ctx, "ldlibdeps", ld_out)
-    build._write_artifact(ctx, "shared_library_deps_including_transitive", shared_out)
+    bldr._write_artifact(ctx, "ldlibdeps", ld_out)
+    bldr._write_artifact(ctx, "shared_library_deps_including_transitive", shared_out)
     _ew = io.write_file(ts_file, "")
 
     return 0
 }
 
 builder javac_test(ctx: ptr): int {
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    mod_name = build._get(ctx, "module")
-    mod_dir = build._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_name = bldr._get(ctx, "module")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     test_classes = path.join(target_dir, "test-classes")
-    build._mkdirs(test_classes)
+    bldr._mkdirs(test_classes)
     ts_dir = path.join(test_classes, mod_name)
-    build._mkdirs(ts_dir)
+    bldr._mkdirs(ts_dir)
     ts_file = path.join(ts_dir, ".timestamp")
 
     println("${mod_dir}: compiling test code")
 
-    dep_cp = build._build_dep_classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
+    lib_cp = bldr._build_lib_classpath(ctx)
     maven_cp = maven.classpath(ctx)
     classpath = test_classes
     // The module's OWN prod classes (javac emits to target_dir/classes, shared
@@ -1046,11 +1046,11 @@ builder javac_test(ctx: ptr): int {
     // (asks/kotlinc-test-omits-own-prod-classes-from-classpath.md)
     prod_classes = path.join(target_dir, "classes")
     if dir.exists(prod_classes) == 1 {
-        classpath = build._cp_append(classpath, prod_classes)
+        classpath = bldr._cp_append(classpath, prod_classes)
     }
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, lib_cp)
-    classpath = build._cp_append(classpath, maven_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, lib_cp)
+    classpath = bldr._cp_append(classpath, maven_cp)
 
     // Write source file list to an argfile (avoids command-line length limits)
     argfile = path.join(target_dir, "javac_test_sources.txt")
@@ -1058,10 +1058,10 @@ builder javac_test(ctx: ptr): int {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/test/java")
-            build._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
+            bldr._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
         }
     } else {
-        build._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
+        bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
     }
 
     af_raw, _eaf = io.read_file(argfile)
@@ -1090,24 +1090,24 @@ builder javac_test(ctx: ptr): int {
         ck, kerr = _cache_key_for_javac(ctx, _builder, argfile, cmd)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = build._sh_capture("mktemp")
-            tmp_tar = build._to_native_path(string.trim(tmp_raw))
+            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
-                    uerr = build._untar_into(tmp_tar, test_classes)
-                    build._sh("rm -f '${tmp_tar}'")
+                    uerr = bldr._untar_into(tmp_tar, test_classes)
+                    bldr._sh("rm -f '${tmp_tar}'")
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: javac-test cache hit ${cache_key}")
-                        build._record_cache(ctx, "hit")
+                        bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        build._sh("rm -rf '${test_classes}'")
-                        build._mkdirs(test_classes)
-                        build._mkdirs(ts_dir)
+                        bldr._sh("rm -rf '${test_classes}'")
+                        bldr._mkdirs(test_classes)
+                        bldr._mkdirs(ts_dir)
                     }
                 } else {
-                    build._sh("rm -f '${tmp_tar}'")
+                    bldr._sh("rm -f '${tmp_tar}'")
                 }
             }
         }
@@ -1115,21 +1115,21 @@ builder javac_test(ctx: ptr): int {
 
     if exit_code == -1 {
         if cache.available() == 0 {
-            build._record_cache(ctx, "unavailable")
+            bldr._record_cache(ctx, "unavailable")
         } else {
-            build._record_cache(ctx, "miss")
+            bldr._record_cache(ctx, "miss")
         }
-        exit_code = build._sh(cmd)
+        exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: javac (test) failed")
-            build.fail(ctx, "javac (test) failed")
+            bldr.fail(ctx, "javac (test) failed")
             return exit_code
         }
         if string.length(cache_key) > 0 {
-            tar_path, terr = build._tar_dir(test_classes)
+            tar_path, terr = bldr._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                build._sh("rm -f '${tar_path}'")
+                bldr._sh("rm -f '${tar_path}'")
                 if string.length(perr) > 0 {
                     println("${mod_dir}: javac-test cache write failed: ${perr}")
                 }
@@ -1145,7 +1145,7 @@ builder javac_test(ctx: ptr): int {
         _trlayout, _ = map.get(_builder, "source_layout")
         if string.equals(_trlayout, "maven idiomatic") == 1 {
             test_res = path.join(source_dir, "src/test/resources")
-            build._sh("[ -d '${test_res}' ] && cp -R '${test_res}/.' '${test_classes}/' 2>/dev/null || true")
+            bldr._sh("[ -d '${test_res}' ] && cp -R '${test_res}/.' '${test_classes}/' 2>/dev/null || true")
         }
     }
 
@@ -1154,16 +1154,16 @@ builder javac_test(ctx: ptr): int {
 }
 
 builder junit(ctx: ptr): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     test_classes = path.join(target_dir, "test-classes")
 
-    dep_cp = build._build_dep_classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
+    lib_cp = bldr._build_lib_classpath(ctx)
     classpath = test_classes
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, lib_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, lib_cp)
 
     tc_pat = path.join(test_classes, "**/*Test.class")
     test_files, _egl1 = fs.glob(tc_pat)
@@ -1191,7 +1191,7 @@ builder junit(ctx: ptr): int {
         tf = dir_list_get(test_files, j)
         tflen = string.length(tf)
         class_path = string.substring(tf, prefix_len, tflen - 6)
-        raw, _er = build._sh_capture("echo ${class_path} | sed s,/,.,g")
+        raw, _er = bldr._sh_capture("echo ${class_path} | sed s,/,.,g")
         class_name = string.trim(raw)
         if j == 0 {
             class_names = class_name
@@ -1210,10 +1210,10 @@ builder junit(ctx: ptr): int {
     m = 0
     while m < ndeps {
         dp3, _ = list.get(deps, m)
-        dm3 = build._strip_lang(dp3)
-        dep_ld = build._read_dep_artifact(ctx, dm3, "ldlibdeps")
+        dm3 = bldr._strip_lang(dp3)
+        dep_ld = bldr._read_dep_artifact(ctx, dm3, "ldlibdeps")
         if string.length(dep_ld) > 0 {
-            ld_raw, _eld = build._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
+            ld_raw, _eld = bldr._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
             ld_dirs = string.trim(ld_raw)
             if string.length(ld_dirs) > 0 {
                 if string.length(ld_path) > 0 {
@@ -1232,16 +1232,16 @@ builder junit(ctx: ptr): int {
     // failure diagnosis post-build, also feeds the summary parser.
     // JUnit 4's JUnitCore prints "OK (N tests)" on success or
     // "Tests run: N,  Failures: F" on failure.
-    build._mkdirs(target_dir)
+    bldr._mkdirs(target_dir)
     out_path = path.join(target_dir, "test_output.log")
     full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = build._sh(full_cmd)
+    exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     p4, f4 = _parse_junit4_counts(out_text)
-    build._record_test_result(ctx, p4, f4)
+    bldr._record_test_result(ctx, p4, f4)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -1340,7 +1340,7 @@ junit5_cmd(classpath: string, test_classes_dir: string, ld_path: string, opts: p
 
     // Detect podman socket for TestContainers support
     if string.length(ld_path) > 0 {
-        dyld_var = build._dyld_env_var()
+        dyld_var = bldr._dyld_env_var()
         cmd = string.concat(cmd, " env ${dyld_var}=${ld_path} java")
         cmd = string.concat(cmd, " -Djava.library.path=${ld_path}")
     } else {
@@ -1374,18 +1374,18 @@ junit5_cmd(classpath: string, test_classes_dir: string, ld_path: string, opts: p
 }
 
 builder junit5(ctx: ptr) {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     test_classes = path.join(target_dir, "test-classes")
 
-    dep_cp = build._build_dep_classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
+    lib_cp = bldr._build_lib_classpath(ctx)
     maven_cp = maven.classpath(ctx)
     classpath = test_classes
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, lib_cp)
-    classpath = build._cp_append(classpath, maven_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, lib_cp)
+    classpath = bldr._cp_append(classpath, maven_cp)
 
     // Build LD_LIBRARY_PATH from deps' ldlibdeps
     deps, _ = map.get(ctx, "deps")
@@ -1394,10 +1394,10 @@ builder junit5(ctx: ptr) {
     m = 0
     while m < ndeps {
         dp3, _ = list.get(deps, m)
-        dm3 = build._strip_lang(dp3)
-        dep_ld = build._read_dep_artifact(ctx, dm3, "ldlibdeps")
+        dm3 = bldr._strip_lang(dp3)
+        dep_ld = bldr._read_dep_artifact(ctx, dm3, "ldlibdeps")
         if string.length(dep_ld) > 0 {
-            ld_raw, _eld = build._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
+            ld_raw, _eld = bldr._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
             ld_dirs = string.trim(ld_raw)
             if string.length(ld_dirs) > 0 {
                 if string.length(ld_path) > 0 {
@@ -1418,20 +1418,20 @@ builder junit5(ctx: ptr) {
     // durable post-build record. Capture the runner's REAL exit via an rc
     // file — a bare `cmd | tee` reports tee's exit (always 0), masking
     // failures. Honors env(K,V) via the export prefix.
-    build._mkdirs(target_dir)
-    source_dir = build._get(ctx, "source_dir")
+    bldr._mkdirs(target_dir)
+    source_dir = bldr._get(ctx, "source_dir")
     out_path = path.join(target_dir, "test_output.log")
     rc_file = path.join(target_dir, "test_exit.rc")
     inner = "cd \"${source_dir}\" && ( ${cmd} 2>&1; echo $? > \"${rc_file}\" ) | tee \"${out_path}\""
-    full_cmd = string.concat(build._env_export_prefix(_builder), inner)
-    _ig = build._sh(full_cmd)
+    full_cmd = string.concat(bldr._env_export_prefix(_builder), inner)
+    _ig = bldr._sh(full_cmd)
     rc_txt, _rcerr = io.read_file(rc_file)
     exit_code, _ec = string.to_int(string.trim(rc_txt))
     out_text, _orerr = fs.read(out_path)
     if exit_code == 124 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests TIMEOUT (killed after timeout)")
-        build.fail(ctx, "tests TIMEOUT")
+        bldr.fail(ctx, "tests TIMEOUT")
         return exit_code
     }
     // Parse the summary table. Lines look like:
@@ -1439,10 +1439,10 @@ builder junit5(ctx: ptr) {
     //   [         1 tests failed          ]
     passed_n = _parse_junit5_count(out_text, "tests successful")
     failed_n = _parse_junit5_count(out_text, "tests failed")
-    build._record_test_result(ctx, passed_n, failed_n)
+    bldr._record_test_result(ctx, passed_n, failed_n)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -1458,12 +1458,12 @@ builder junit5(ctx: ptr) {
 // run classpath, gates the JDK (min_jdk -> SKIP green, not fail on an old JDK),
 // and honours env()/jvm_args — the non-obvious parts worth not re-deriving.
 builder java_main(ctx: ptr, main_class: string): int {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     test_classes = path.join(target_dir, "test-classes")
-    dep_cp = build._build_dep_classpath(ctx)
-    lib_cp = build._build_lib_classpath(ctx)
+    dep_cp = bldr._build_dep_classpath(ctx)
+    lib_cp = bldr._build_lib_classpath(ctx)
     maven_cp = maven.classpath(ctx)
 
     classpath = test_classes
@@ -1473,23 +1473,23 @@ builder java_main(ctx: ptr, main_class: string): int {
     // (asks/jvm-run-builders-omit-own-prod-classes-from-run-classpath.md)
     prod_classes = path.join(target_dir, "classes")
     if dir.exists(prod_classes) == 1 {
-        classpath = build._cp_append(classpath, prod_classes)
+        classpath = bldr._cp_append(classpath, prod_classes)
     }
-    classpath = build._cp_append(classpath, dep_cp)
-    classpath = build._cp_append(classpath, lib_cp)
-    classpath = build._cp_append(classpath, maven_cp)
+    classpath = bldr._cp_append(classpath, dep_cp)
+    classpath = bldr._cp_append(classpath, lib_cp)
+    classpath = bldr._cp_append(classpath, maven_cp)
 
     // JDK gate: min_jdk("22") is a hard requirement (FAIL if unmet),
     // skip_below_jdk("22") is a portable-fleet floor (SKIP if unmet).
-    min_jdk_v = build._str_key(_builder, "java_min_jdk")
-    skip_jdk_v = build._str_key(_builder, "java_skip_below_jdk")
-    run_java_bin, jdk_status = build._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, main_class)
+    min_jdk_v = bldr._str_key(_builder, "java_min_jdk")
+    skip_jdk_v = bldr._str_key(_builder, "java_skip_below_jdk")
+    run_java_bin, jdk_status = bldr._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, main_class)
     if string.equals(jdk_status, "toolow") == 1 {
-        build.fail(ctx, "java_main: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
+        bldr.fail(ctx, "java_main: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
         return 1
     }
     if string.equals(jdk_status, "fail") == 1 {
-        build.fail(ctx, "java_main: no JDK ${min_jdk_v}+ to run ${main_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
+        bldr.fail(ctx, "java_main: no JDK ${min_jdk_v}+ to run ${main_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1
     }
     if string.equals(jdk_status, "skip") == 1 { return 0 }
@@ -1502,7 +1502,7 @@ builder java_main(ctx: ptr, main_class: string): int {
     ld_prefix = ""
     lib_path_arg = ""
     if string.length(ld_path) > 0 {
-        dyld_var = build._dyld_env_var()
+        dyld_var = bldr._dyld_env_var()
         ld_prefix = "env ${dyld_var}='${ld_path}' "
         lib_path_arg = " -Djava.library.path='${ld_path}'"
     }
@@ -1518,15 +1518,15 @@ builder java_main(ctx: ptr, main_class: string): int {
     run_cmd = string.concat(run_cmd, " -cp ${classpath} ${main_class}")
     // Honour env(K,V) on the run (e.g. HTMLSANITIZER_LIB a Panama/JNI binding
     // reads). Empty when no env() set.
-    run_cmd = string.concat(build._env_export_prefix(_builder), run_cmd)
-    exit_code = build._sh(run_cmd)
+    run_cmd = string.concat(bldr._env_export_prefix(_builder), run_cmd)
+    exit_code = bldr._sh(run_cmd)
     if exit_code != 0 {
-        build._record_test_result_exitcode(ctx, 0, 1)
+        bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: ${main_class} FAILED")
-        build.fail(ctx, "java_main FAILED")
+        bldr.fail(ctx, "java_main FAILED")
         return exit_code
     }
-    build._record_test_result_exitcode(ctx, 1, 0)
+    bldr._record_test_result_exitcode(ctx, 1, 0)
     println("${mod_dir}: ${main_class} PASSED")
     return 0
 }
@@ -1613,11 +1613,11 @@ _parse_junit5_count(output: string, marker: string) {
 // echo emitted embedded newlines that split the jar command into
 // separate shell lines (`sh: -C: not found`). Staging sidesteps both.
 shade(ctx: ptr, main_class: string, jar_name: string) {
-    target_dir = build._get(ctx, "target_dir")
-    mod_dir = build._get(ctx, "module_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     bin_dir = path.join(target_dir, "bin")
-    build._mkdirs(bin_dir)
+    bldr._mkdirs(bin_dir)
     jar_path = path.join(bin_dir, jar_name)
 
     // A .dist.ae node's own target_dir is target/dist/<mod> — the compiled
@@ -1635,8 +1635,8 @@ shade(ctx: ptr, main_class: string, jar_name: string) {
     di = 0
     while di < dep_count {
         dpx, _ = list.get(deps, di)
-        dmx = build._strip_lang(dpx)
-        dep_cp = build._read_dep_artifact(ctx, dmx, "jvm_classpath_deps_including_transitive")
+        dmx = bldr._strip_lang(dpx)
+        dep_cp = bldr._read_dep_artifact(ctx, dmx, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp) > 0 {
             if string.length(cp_content) > 0 {
                 cp_content = string.concat(string.concat(cp_content, "\n"), dep_cp)
@@ -1644,7 +1644,7 @@ shade(ctx: ptr, main_class: string, jar_name: string) {
                 cp_content = dep_cp
             }
         }
-        dep_ld = build._read_dep_artifact(ctx, dmx, "ldlibdeps")
+        dep_ld = bldr._read_dep_artifact(ctx, dmx, "ldlibdeps")
         if string.length(dep_ld) > 0 {
             if string.length(ld_content) > 0 {
                 ld_content = string.concat(string.concat(ld_content, "\n"), dep_ld)
@@ -1690,7 +1690,7 @@ shade(ctx: ptr, main_class: string, jar_name: string) {
     // Package.
     sh = string.concat(sh, "jar cfM '${jar_path}' -C \"$st\" .")
 
-    exit_code = build._sh(sh)
+    exit_code = bldr._sh(sh)
     if exit_code != 0 {
         println("${mod_dir}: jar packaging failed")
         return exit_code

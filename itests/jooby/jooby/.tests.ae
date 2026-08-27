@@ -1,11 +1,11 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, parameters)
 
 aeb(cap) {
-    b = build.start()
+    b = bldr.start()
     dep(b, "jooby/.build.ae")
     load_bom_file(b, "../jooby.bom.ae")
     dep(b, "org.junit.jupiter:junit-jupiter-engine")

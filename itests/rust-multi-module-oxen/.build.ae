@@ -1,4 +1,4 @@
-import build
+import bldr
 import rust
 import rust (workspace_member, workspace_edition, workspace_version,
              workspace_license_file, workspace_description,
@@ -7,7 +7,7 @@ import rust (workspace_member, workspace_edition, workspace_version,
              workspace_exclude, load_workspace_deps)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     rust.cargo_workspace(b) {
         workspace_version("0.46.11")
         workspace_edition("2024")

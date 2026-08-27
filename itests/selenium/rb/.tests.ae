@@ -5,7 +5,7 @@
 // rspec` — same shape as rake's `:spec` task in the upstream
 // Rakefile.
 //
-// `build.dep(b, ".build.ae")` chains the install step: bundler-managed
+// `bldr.dep(b, ".build.ae")` chains the install step: bundler-managed
 // gems must be installed before rspec/rubocop can run via
 // `bundle exec`.
 //
@@ -19,12 +19,12 @@
 // For SDK-grammar verification (does aeb construct the right
 // bundle-exec commands), see tests/test_ruby_cmd.ae.
 
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import ruby
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, ".build.ae")
     ruby.rspec(b)
     ruby.rubocop(b)

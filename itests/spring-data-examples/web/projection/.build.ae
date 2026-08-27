@@ -1,11 +1,11 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, enable_preview, parameters)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     load_bom_file(b, "../../spring-boot.bom.ae")
     dep(b, "org.springframework.boot:spring-boot-starter-web")
     dep(b, "org.springframework.boot:spring-boot-restclient")

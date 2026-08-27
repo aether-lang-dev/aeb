@@ -12,13 +12,13 @@
 // only one.) Opt-in like its parts — NOT wired into `make` (a network server,
 // a credential minter, and a secret generator are deliberate installs, not core
 // build machinery).
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 
 extern println(s: string)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     dep(b, "tools/agent/.install.ae")
     dep(b, "tools/lease/.install.ae")
     dep(b, "tools/keygen/.install.ae")

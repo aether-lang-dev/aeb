@@ -5,9 +5,9 @@
 // jest(...) to run via `npx jest` instead of `npm test`. Env injection
 // (a shared `.so` path read by an FFI binding) rides the shared env(...).
 //
-//   import build
+//   import bldr
 //   import javascript
-//   import build (env)
+//   import bldr (env)
 //   import javascript (npm_install, jest)
 //   javascript.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
@@ -18,7 +18,7 @@
 // Setters: env(K,V) [lib/build], npm_install("flags"), jest("flags"),
 // npm_test_flag("…"). A binding that declares its own step("…") still gets
 // the generic _run_project path (back-compat).
-import build
+import bldr
 import std.string
 import std.os
 import std.list
@@ -71,29 +71,29 @@ npm_test_cmd(source_dir: string) {
 
 // javascript.build(b) — `npm install`.
 builder build(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: installing (npm install)")
-    return build._run_project(ctx, _builder, "npm install", 0)
+    return bldr._run_project(ctx, _builder, "npm install", 0)
 }
 
 // javascript.test(b) — `npm test` by default; `npx jest` when jest(...) is
 // declared, optionally `npm install` first. Pass/fail telemetry. Honors
 // explicit step()s for back-compat.
 builder test(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
 
     // Back-compat: a binding that wrote step("…") keeps the generic path.
     if _builder != null {
         if map.has(_builder, "proc_steps") == 1 {
             println("${mod_dir}: running tests (npm test)")
-            return build._run_project(ctx, _builder, "npm test", 1)
+            return bldr._run_project(ctx, _builder, "npm test", 1)
         }
     }
 
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
-    env_prefix = build._env_export_prefix(_builder)
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
+    env_prefix = bldr._env_export_prefix(_builder)
 
     // Optional `npm install` first.
     if _builder != null {
@@ -101,10 +101,10 @@ builder test(ctx: ptr): int {
             iflags = ""
             if map.has(_builder, "npm_install_flags") == 1 { iflags, _ = map.get(_builder, "npm_install_flags") }
             println("${mod_dir}: installing deps (npm install)")
-            in_rc = build._sh(string.concat(env_prefix, npm_install_cmd(source_dir, iflags)))
+            in_rc = bldr._sh(string.concat(env_prefix, npm_install_cmd(source_dir, iflags)))
             if in_rc != 0 {
                 println("${mod_dir}: npm install FAILED")
-                build.fail(ctx, "npm install FAILED")
+                bldr.fail(ctx, "npm install FAILED")
                 return in_rc
             }
         }
@@ -121,14 +121,14 @@ builder test(ctx: ptr): int {
     }
 
     println("${mod_dir}: running tests (node)")
-    rc = build._sh(string.concat(env_prefix, test_command))
+    rc = bldr._sh(string.concat(env_prefix, test_command))
     if rc != 0 {
-        build._record_test_result(ctx, 0, 1)
+        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        build.fail(ctx, "tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
         return rc
     }
-    build._record_test_result(ctx, 1, 0)
+    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0

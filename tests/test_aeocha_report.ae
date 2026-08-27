@@ -1,4 +1,4 @@
-// Tests for build._parse_aeocha_report.
+// Tests for bldr._parse_aeocha_report.
 //
 // Pure parser — extracts (passed, failed, errored, failed_names,
 // has_report) from the structured report Aeocha writes through
@@ -14,7 +14,7 @@ import std.map
 import std.path
 import std.dir
 
-import build (_parse_aeocha_report)
+import bldr (_parse_aeocha_report)
 
 extern println(s: string)
 

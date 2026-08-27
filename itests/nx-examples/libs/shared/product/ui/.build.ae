@@ -1,10 +1,10 @@
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import ts
 import ts (skip_lib_check)
 
 main() {
-    b = build.start()
+    b = bldr.start()
     load_third_party_deps(b, "../../../../base.deps.ae")
     dep(b, "libs/shared/jsxify/.build.ae")
     ts.tsc(b) {

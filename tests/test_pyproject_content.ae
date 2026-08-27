@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for python.pyproject_toml_content() — pyproject.toml generation
 
 import python

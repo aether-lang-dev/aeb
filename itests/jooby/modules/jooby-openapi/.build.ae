@@ -1,13 +1,13 @@
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, no_module_info)
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "jooby/.build.ae")
-    build.dep(b, "modules/jooby-javadoc/.build.ae")
+    b = bldr.start()
+    bldr.dep(b, "jooby/.build.ae")
+    bldr.dep(b, "modules/jooby-javadoc/.build.ae")
     load_bom_file(b, "../../jooby.bom.ae")
     dep(b, "jakarta.ws.rs:jakarta.ws.rs-api:4.0.0")
     dep(b, "jakarta.validation:jakarta.validation-api:3.1.1")

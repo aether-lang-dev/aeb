@@ -1,4 +1,4 @@
-// Tests for build.post_build / _subst — the post-build ("output half of
+// Tests for bldr.post_build / _subst — the post-build ("output half of
 // the sandwich") hook. The pure part under test is the {target_dir} /
 // {module_dir} placeholder substitution: run_post_build itself shells
 // out, so its behaviour is covered end-to-end by a smoke build rather
@@ -8,7 +8,7 @@ import std.string
 
 extern println(s: string)
 
-import build (_subst)
+import bldr (_subst)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {

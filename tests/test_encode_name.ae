@@ -47,7 +47,7 @@ main() {
         encode_name("libs/cart/cart-page"),
         "libs_cart_cart_H_page")
 
-    _assert_eq("build.ae",
+    _assert_eq("bldr.ae",
         encode_name("common/.build.ae"),
         "common__D_build_D_ae")
 

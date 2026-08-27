@@ -23,7 +23,7 @@
 //
 // Exit: 0 = all targets cleared (build may proceed); non-zero = refused.
 // See docs/build-veto-and-sandbox.md.
-import build
+import bldr
 import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.string
 import std.os
@@ -88,9 +88,9 @@ main() {
 // _vet_target — emit the target's AST and run lib/veto's decide().
 _vet_target(aetherc: string, lf: string, tgt: string, lib_roots: ptr, rules: ptr) {
     cmd = emit_ast_cmd(aetherc, lf, tgt)
-    ast_json, _e = build._sh_capture(cmd)
+    ast_json, _e = bldr._sh_capture(cmd)
     // capture the exit code separately (os.exec gives stdout only).
-    rc = build._sh(string.concat(cmd, " >/dev/null 2>&1"))
+    rc = bldr._sh(string.concat(cmd, " >/dev/null 2>&1"))
     return decide(ast_json, rc, lib_roots, rules)
 }
 
@@ -132,17 +132,17 @@ _resolve_rules(aether_bin: string, aetherc: string, aeb_home: string, root: stri
 // writable; $AEB_HOME may be a read-only install tree).
 _run_policy(aether_bin: string, aeb_home: string, root: string, policy: string) {
     outdir = path.join(root, "target/_aeb")
-    build._sh("mkdir -p '${outdir}' 2>/dev/null")
+    bldr._sh("mkdir -p '${outdir}' 2>/dev/null")
     bin = path.join(outdir, ".veto-policy-compiled")
     lib = path.join(aeb_home, "lib")
     build_cmd = "'${aether_bin}' build '${policy}' --lib '${lib}' -o '${bin}' 2>&1"
-    brc = build._sh(build_cmd)
+    brc = bldr._sh(build_cmd)
     if brc != 0 {
         println("aeb --vet: policy did not compile: ${policy}")
         println("  (a typo'd setter is a compile error — self-vetting; fix the policy)")
         return null
     }
-    out, _e = build._sh_capture("'${bin}'")
+    out, _e = bldr._sh_capture("'${bin}'")
     return rules_from_lines(out)
 }
 

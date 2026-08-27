@@ -16,7 +16,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 import brew (brew_formula_render, _camelize, _basename, _strip_dotbuild)
 
 extern println(s: string)

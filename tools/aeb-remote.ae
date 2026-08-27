@@ -24,7 +24,7 @@
 // callers that want to name endpoint/ref/patch by hand; this is the
 // zero-ceremony flag form over the same wire + lease machinery.
 
-import build
+import bldr
 import std.os
 import std.string
 import std.io
@@ -41,7 +41,7 @@ extern aether_args_get(i: int) -> string
 // _capture(cmd) -> trimmed stdout of a shell command ("" on failure).
 // Through the build chokepoint so POSIX idioms work on Windows (cmd.exe).
 _capture(cmd: string) {
-    out, _e = build._sh_capture(cmd)
+    out, _e = bldr._sh_capture(cmd)
     return string.trim(out)
 }
 
@@ -138,7 +138,7 @@ main() {
     if string.length(patch_b64) > 0 { pdisp = "+patch" }
     println("aeb --use-remote-agents: ${guid} → ${ep} target=${target} base=${gref}@${ghash} ${pdisp}")
 
-    // Optional run_on=vm RAW command: a non-aeb project (build.sh/make/cmake,
+    // Optional run_on=vm RAW command: a non-aeb project (bldr.sh/make/cmake,
     // no .build.ae) sets AEB_VM_COMMAND to the build command; the agent runs it
     // on the VM in the tree root instead of `aeb <target>` (requires the agent
     // to be started with --allow-vm-command). "" → default aeb <target> path.

@@ -22,7 +22,7 @@
 // NOT yet: token auth, cache partitioning. See
 // docs/run-policy-class-and-cloud-leverage.md.
 
-import build
+import bldr
 import std.http
 import std.string
 import std.os
@@ -357,7 +357,7 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
         // This is a correctness property (repeatable builds), independent of
         // the security hardening in docs/agent-lifecycle.md.
         scrub_cmd = string.concat(string.concat("cd '", repo), "' && git reset --hard --quiet && git clean -ffdxq")
-        src = build._sh(scrub_cmd)
+        src = bldr._sh(scrub_cmd)
         if src != 0 { return "git worktree scrub failed (reset/clean)" }
 
         // ref is optional (fetch a specific ref before checkout); default
@@ -375,12 +375,12 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
             } else {
                 fetch_cmd = string.concat(fetch_cmd, "' && git fetch origin")
             }
-            frc = build._sh(fetch_cmd)
+            frc = bldr._sh(fetch_cmd)
             if frc != 0 { return "git fetch failed" }
         }
 
         co_cmd = string.concat(string.concat("cd '", repo), string.concat("' && git checkout --quiet '", string.concat(ghash, "'")))
-        crc = build._sh(co_cmd)
+        crc = bldr._sh(co_cmd)
         if crc != 0 { return "git checkout ${ghash} failed" }
     }
 
@@ -389,10 +389,10 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
         // a temp file, then git apply. printf the b64 then base64 -d.
         pf = string.concat("/tmp/aeb-agent-patch-", string.concat(guid, ".diff"))
         dec_cmd = string.concat(string.concat("printf '%s' '", patch_b64), string.concat("' | base64 -d > '", string.concat(pf, "'")))
-        drc = build._sh(dec_cmd)
+        drc = bldr._sh(dec_cmd)
         if drc != 0 { return "patch base64 decode failed" }
         ap_cmd = string.concat(string.concat("cd '", repo), string.concat("' && git apply '", string.concat(pf, "'")))
-        arc = build._sh(ap_cmd)
+        arc = bldr._sh(ap_cmd)
         // NB: the decoded patch file (pf) is deliberately NOT removed here — the
         // Tier-A veto's patch-scope rules scan it (the highest-signal target).
         // handle_dispatch removes it after the veto decision. On apply failure
@@ -419,13 +419,13 @@ _provision_slot(mode: string, tree: string, ac_repo: string, log_path: string) {
     if string.equals(mode, "autoclone") == 1 {
         if is_clone == 1 {
             // Reuse: point origin at ac_repo (idempotent) so fetch/checkout work.
-            so = build._sh(string.concat(string.concat("cd '", tree), string.concat("' && git remote set-url origin '", string.concat(ac_repo, string.concat("' >> '", string.concat(log_path, "' 2>&1"))))))
+            so = bldr._sh(string.concat(string.concat("cd '", tree), string.concat("' && git remote set-url origin '", string.concat(ac_repo, string.concat("' >> '", string.concat(log_path, "' 2>&1"))))))
             if so != 0 { return "autoclone: could not set origin on existing slot tree" }
             return ""
         }
         // Fresh clone of ac_repo into the slot tree. Parent must exist.
         _mp = fs.mkdir_p(path.dirname(tree))
-        cl = build._sh(string.concat("git clone '", string.concat(ac_repo, string.concat("' '", string.concat(tree, string.concat("' >> '", string.concat(log_path, "' 2>&1")))))))
+        cl = bldr._sh(string.concat("git clone '", string.concat(ac_repo, string.concat("' '", string.concat(tree, string.concat("' >> '", string.concat(log_path, "' 2>&1")))))))
         if cl != 0 { return "autoclone: git clone ${ac_repo} failed" }
         return ""
     }
@@ -539,8 +539,8 @@ _veto_ast(repo: string, target: string, image: string) {
     // target resolvable regardless of the agent's own cwd.
     emit = emit_ast_cmd(aetherc, _lib_flags(lib_roots), target)
     cmd = string.concat(string.concat("cd '", repo), string.concat("' && ", emit))
-    ast_json, _e = build._sh_capture(cmd)
-    rc = build._sh(string.concat(cmd, " >/dev/null 2>&1"))
+    ast_json, _e = bldr._sh_capture(cmd)
+    rc = bldr._sh(string.concat(cmd, " >/dev/null 2>&1"))
     return decide(ast_json, rc, lib_roots, rules)
 }
 
@@ -580,8 +580,8 @@ _veto_ast_in_container(repo: string, target: string, rules: ptr, image: string) 
         args = string.substring(emit, string.length(pfx), string.length(emit))
     }
     base = string.concat(engine, string.concat(" run --rm -v '", string.concat(mnt, string.concat("' -w /work --entrypoint aetherc '", string.concat(image, string.concat("' ", args))))))
-    ast_json, _e = build._sh_capture(base)
-    rc = build._sh(string.concat(base, " >/dev/null 2>&1"))
+    ast_json, _e = bldr._sh_capture(base)
+    rc = bldr._sh(string.concat(base, " >/dev/null 2>&1"))
     return decide(ast_json, rc, lib_roots, rules)
 }
 
@@ -610,10 +610,10 @@ _agent_veto_rules(aetherc: string) {
     // /tmp/...bin.exe-vs-/tmp/...bin mismatch (the run/cleanup must name the
     // actually-produced file).
     binbase = string.concat("/tmp/aeb-agent-veto-policy-", string.from_int(os_getpid_safe()))
-    bin = string.concat(binbase, build._exe_suffix())
-    brc = build._sh("'${ae}' build '${policy}' --lib '${lib}' -o '${binbase}' 2>/dev/null")
+    bin = string.concat(binbase, bldr._exe_suffix())
+    brc = bldr._sh("'${ae}' build '${policy}' --lib '${lib}' -o '${binbase}' 2>/dev/null")
     if brc != 0 { return null }
-    out, _e = build._sh_capture("'${bin}'")
+    out, _e = bldr._sh_capture("'${bin}'")
     _d = fs.delete(bin)
     return rules_from_lines(out)
 }
@@ -649,11 +649,11 @@ _first_line(text: string) {
 //     "tools built ae …" line `aeb --version` also prints; those can differ).
 // "" if the probe fails (binary absent). Run once at startup, cached in env.
 _probe_aeb_version() {
-    out, _e = build._sh_capture(string.concat(_agent_aeb(), " --version 2>/dev/null"))
+    out, _e = bldr._sh_capture(string.concat(_agent_aeb(), " --version 2>/dev/null"))
     return _first_line(out)
 }
 _probe_aether_version() {
-    out, _e = build._sh_capture(string.concat(_agent_aetherc(), " --version 2>/dev/null"))
+    out, _e = bldr._sh_capture(string.concat(_agent_aetherc(), " --version 2>/dev/null"))
     return _first_line(out)
 }
 
@@ -684,7 +684,7 @@ _agent_sdk_lib() {
     // --version echoes it). AEB_AGENT_AEB overrides for an unusual layout.
     aeb = os.getenv("AEB_AGENT_AEB")
     if string.length(aeb) == 0 { aeb = "aeb" }
-    out, _e = build._sh_capture(string.concat(aeb, " --version 2>/dev/null"))
+    out, _e = bldr._sh_capture(string.concat(aeb, " --version 2>/dev/null"))
     real = _parse_aeb_home(out)
     if string.length(real) > 0 {
         cand2 = path.join(real, "lib")
@@ -711,7 +711,7 @@ _agent_aether_std() {
     aetherc = _agent_aetherc()
     // If it's a bare name, resolve to an absolute path the same way aetherc
     // resolves its own argv0 (PATH lookup) so the prefix matches what it emits.
-    resolved, _e = build._sh_capture(string.concat("command -v ", string.concat(aetherc, " 2>/dev/null")))
+    resolved, _e = bldr._sh_capture(string.concat("command -v ", string.concat(aetherc, " 2>/dev/null")))
     resolved = string.trim(resolved)
     if string.length(resolved) == 0 { return "" }
     bindir = path.dirname(resolved)
@@ -792,7 +792,7 @@ _reap_wrap(inner: string) {
 //   - default: `aeb <target>` on the VM's own toolchain (the proven path).
 //   - RAW COMMAND (AEB_AGENT_VM_COMMAND, the dispatch's "command" field): run
 //     THAT command in the tree root instead — for projects that build with a
-//     hand-rolled build.sh / make / cmake and have no `.build.ae` (e.g.
+//     hand-rolled bldr.sh / make / cmake and have no `.build.ae` (e.g.
 //     aether-ui's Win32 bring-up on winbaz). aeb does NOT parse the command's
 //     output: exit 0 → pass, non-zero → fail; whatever the command leaves in
 //     the artifacts path comes back. The command runs through the same shell on
@@ -834,7 +834,7 @@ _vm_remote(vm: string, posix_cmd: string) {
 // through the VM shell), else 0.
 _vm_has_rsync(vm: string) {
     probe = _vm_remote(vm, "command -v rsync >/dev/null 2>&1 && echo yes || echo no")
-    out, _e = build._sh_capture(probe)
+    out, _e = bldr._sh_capture(probe)
     if string.index_of(out, "yes") >= 0 { return 1 }
     return 0
 }
@@ -844,18 +844,18 @@ _vm_has_rsync(vm: string) {
 // (clears vmdir first so it's a clean mirror, like --delete). Returns rc.
 _vm_push(vm: string, workdir: string, vmdir: string, use_rsync: int, log_path: string) {
     mk = _vm_remote(vm, string.concat("mkdir -p ", vmdir))
-    _ = build._sh(string.concat(mk, " >> '${log_path}' 2>&1"))
+    _ = bldr._sh(string.concat(mk, " >> '${log_path}' 2>&1"))
     if use_rsync == 1 {
         rp = string.concat("rsync -az --delete -e ssh '", string.concat(workdir, string.concat("/' '", string.concat(vm, string.concat(":", string.concat(vmdir, "/'"))))))
-        return build._sh(string.concat(rp, " >> '${log_path}' 2>&1"))
+        return bldr._sh(string.concat(rp, " >> '${log_path}' 2>&1"))
     }
     // tar fallback: clean the remote dir, then stream `tar c` from workdir into
     // `tar x` on the VM. -C workdir . = copy the tree's CONTENTS into vmdir.
     clean = _vm_remote(vm, string.concat("rm -rf ", string.concat(vmdir, string.concat("/* ", string.concat(vmdir, "/.[!.]* 2>/dev/null; true")))))
-    _c = build._sh(string.concat(clean, " >> '${log_path}' 2>&1"))
+    _c = bldr._sh(string.concat(clean, " >> '${log_path}' 2>&1"))
     rx = _vm_remote(vm, string.concat("tar xzf - -C ", vmdir))
     tp = string.concat("tar czf - -C '", string.concat(workdir, string.concat("' . | ", rx)))
-    return build._sh(string.concat(tp, " >> '${log_path}' 2>&1"))
+    return bldr._sh(string.concat(tp, " >> '${log_path}' 2>&1"))
 }
 
 // _vm_fetch_file(vm, remote, local, use_rsync, log_path) — bring a single file
@@ -863,11 +863,11 @@ _vm_push(vm: string, workdir: string, vmdir: string, use_rsync: int, log_path: s
 _vm_fetch_file(vm: string, remote: string, local: string, use_rsync: int, log_path: string) {
     if use_rsync == 1 {
         f = string.concat("rsync -az -e ssh '", string.concat(vm, string.concat(":", string.concat(remote, string.concat("' '", string.concat(local, "'"))))))
-        return build._sh(string.concat(f, " >> '${log_path}' 2>&1"))
+        return bldr._sh(string.concat(f, " >> '${log_path}' 2>&1"))
     }
     // tar/cat fallback: `ssh cat remote > local` (file may be absent → empty).
     f = string.concat(_vm_remote(vm, string.concat("cat ", string.concat(remote, " 2>/dev/null"))), string.concat(" > '", string.concat(local, "'")))
-    return build._sh(string.concat(f, " 2>> '${log_path}'"))
+    return bldr._sh(string.concat(f, " 2>> '${log_path}'"))
 }
 
 _run_on_vm(workdir: string, target: string, log_path: string, raw_cmd: string, keep_alive: int) {
@@ -898,7 +898,7 @@ _run_on_vm(workdir: string, target: string, log_path: string, raw_cmd: string, k
     vm_art = string.concat(vmdir, "/.aeb-vm-artifacts.json")
     runc = ""
     if string.length(raw_cmd) > 0 {
-        // Raw foreign build (build.sh / make / cmake …). cd into the tree, run
+        // Raw foreign build (bldr.sh / make / cmake …). cd into the tree, run
         // the command verbatim. Its exit code IS the verdict; aeb parses nothing.
         // Reap-by-default on the VM too (a backgrounded server leaked there is
         // just as wedging — it holds the slot for the whole dispatch and lingers
@@ -914,10 +914,10 @@ _run_on_vm(workdir: string, target: string, log_path: string, raw_cmd: string, k
         // AEB_ARTIFACTS_JSON at a VM-side path we fetch back in step 3.
         runc = _vm_remote(vm, string.concat("cd ", string.concat(vmdir, string.concat(" && AEB_ARTIFACTS_JSON=", string.concat(vm_art, string.concat(" aeb ", target))))))
     }
-    rc = build._sh(string.concat(runc, " >> '${log_path}' 2>&1"))
+    rc = bldr._sh(string.concat(runc, " >> '${log_path}' 2>&1"))
 
     // 3. Bring the artifacts JSON back (best-effort). For the aeb path this is
-    //    what the build wrote; for the raw path a build.sh MAY have written it
+    //    what the build wrote; for the raw path a bldr.sh MAY have written it
     //    (if not, the fetch yields an empty file → empty artifacts, fine).
     local_art = os.getenv("AEB_ARTIFACTS_JSON")
     if string.length(local_art) > 0 {
@@ -1092,7 +1092,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     }
 
     // --- Per-dispatch raw build command (run_on=host OR vm): a non-aeb project
-    //   (its build is build.sh / make / cmake, no .build.ae) names the command
+    //   (its build is bldr.sh / make / cmake, no .build.ae) names the command
     //   to run via the "command" field, instead of `aeb <target>`. run_on=host
     //   runs it in the workdir (agent NATIVE on the build box — e.g. a Mac mini
     //   doing AppKit builds, no ssh hop); run_on=vm runs it on the VM. Either
@@ -1244,18 +1244,18 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
             println("agent: run_on=podman — all-in-container build in ${ctr_image}")
             allc = string.concat(engine, string.concat(" run --rm -v '", string.concat(mnt, string.concat("' -w /work --entrypoint aeb '", string.concat(ctr_image, string.concat("' '", string.concat(target, "'")))))))
             allc = string.concat(allc, " > '${log_path}' 2>&1")
-            rc = build._sh(allc)
+            rc = bldr._sh(allc)
         } else {
             println("agent: run_on=podman — phase 1 compile-only in ${ctr_image}")
             // Phase 1: compile (orchestrator + all nodes) IN the container.
             p1 = string.concat(engine, string.concat(" run --rm -v '", string.concat(mnt, string.concat("' -w /work --entrypoint aeb '", string.concat(ctr_image, string.concat("' --compile-only '", string.concat(target, "'")))))))
             p1 = string.concat(p1, " > '${log_path}' 2>&1")
-            rc = build._sh(p1)
+            rc = bldr._sh(p1)
             if rc == 0 {
                 // Phase 2: run the host-native orchestrator (execute-only) on the host.
                 orch = string.concat(workdir, "/target/_ae_build_all")
                 p2 = string.concat("AEB_EXECUTE_ONLY=1 '", string.concat(orch, string.concat("' '", string.concat(workdir, "' >> '${log_path}' 2>&1"))))
-                rc = build._sh(p2)
+                rc = bldr._sh(p2)
             }
         }
     } else {
@@ -1268,7 +1268,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
             // run_on=host. Default verb is `aeb <target>`; but a raw command (the
             // dispatch's local "command" field, gated by --allow-vm-command) runs
             // verbatim in the workdir instead — for a non-aeb project
-            // (build.sh/make/cmake, no .build.ae) built by an agent running
+            // (bldr.sh/make/cmake, no .build.ae) built by an agent running
             // NATIVELY on the build box (e.g. a Mac mini doing AppKit builds).
             // Uses the LOCAL dispatch_command (thread-safe under concurrency).
             if string.length(dispatch_command) > 0 {
@@ -1279,13 +1279,13 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
                 // job-control around it. (See _reap_wrap + the keep_alive note.)
                 inner = "cd '${workdir}' && ${dispatch_command} > '${log_path}' 2>&1"
                 if keep_alive == 1 {
-                    rc = build._sh(inner)
+                    rc = bldr._sh(inner)
                 } else {
-                    rc = build._sh(_reap_wrap(inner))
+                    rc = bldr._sh(_reap_wrap(inner))
                 }
             } else {
                 cmd = "cd '${workdir}' && aeb '${target}' > '${log_path}' 2>&1"
-                rc = build._sh(cmd)
+                rc = bldr._sh(cmd)
             }
         }
     }
@@ -1317,7 +1317,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     if string.equals(req_mode, "autoclone") == 1 {
         if string.equals(os.getenv("AEB_AGENT_SCRUB_AFTER"), "1") == 1 {
             println("agent: scrub-after guid=${guid} — removing slot tree ${workdir}")
-            _scr = build._sh(string.concat("rm -rf '", string.concat(workdir, "' 2>/dev/null; true")))
+            _scr = bldr._sh(string.concat("rm -rf '", string.concat(workdir, "' 2>/dev/null; true")))
         }
     }
     // Release the build slot — the build is done (this is the success path; all
@@ -1335,7 +1335,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
 // is simplest + robust for an arbitrarily large log). Returns "" on failure.
 _tail_capture(path: string, n: int) {
     tmp = string.concat(path, ".tail")
-    _r = build._sh(string.concat(string.concat("tail -n ", string.from_int(n)), string.concat(string.concat(" '", path), string.concat("' > '", string.concat(tmp, "' 2>/dev/null")))))
+    _r = bldr._sh(string.concat(string.concat("tail -n ", string.from_int(n)), string.concat(string.concat(" '", path), string.concat("' > '", string.concat(tmp, "' 2>/dev/null")))))
     out = ""
     if file.exists(tmp) == 1 {
         out_raw, _e = io.read_file(tmp)
@@ -1490,7 +1490,7 @@ main() {
         // shell is cmd.exe). Empty = the VM's default ssh shell is POSIX.
         if string.equals(a, "--vm-shell") == 1 { i = i + 1; vm_shell = aether_args_get(i) }
         // --allow-vm-command: opt-in to honouring a dispatch's "command" field
-        // (run_on=vm raw build verb — build.sh/make/cmake instead of aeb
+        // (run_on=vm raw build verb — bldr.sh/make/cmake instead of aeb
         // <target>). Arbitrary command execution on the VM, so fail-closed:
         // without this flag a dispatch carrying a command is rejected.
         if string.equals(a, "--allow-vm-command") == 1 { allow_vm_command = 1 }
@@ -1695,7 +1695,7 @@ _usage() {
     println("  --vm-shell PFX  wrap VM commands as PFX \"<cmd>\" for a non-POSIX default ssh shell, e.g.")
     println("                  'C:\\msys64\\usr\\bin\\bash.exe -lc' on a Windows VM (winbaz)")
     println("  --allow-vm-command  honour a dispatch's \"command\" field on --run-on host OR vm (run")
-    println("                  build.sh/make instead of aeb <target>). Arbitrary command exec — off by default (fail-closed).")
+    println("                  bldr.sh/make instead of aeb <target>). Arbitrary command exec — off by default (fail-closed).")
     println("  -h, --help      this message")
     println("")
     println("Endpoints: GET /health (open), GET /ping (auth), POST /dispatch (auth)")

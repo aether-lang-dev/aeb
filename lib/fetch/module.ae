@@ -41,7 +41,7 @@
 // so a fetched blob downloaded by alice's build is restorable on
 // bob's machine without re-hitting the URL.
 
-import build
+import bldr
 import std.string
 import std.io
 import std.os
@@ -302,7 +302,7 @@ _format_is_zip(fmt: string) {
 // inputs; relative paths join source_dir. Pure.
 _resolve_path(source_dir: string, p: string) {
     if string.length(p) == 0 { return p }
-    if build._is_abs_path(p) == 1 { return p }
+    if bldr._is_abs_path(p) == 1 { return p }
     return path.join(source_dir, p)
 }
 
@@ -320,12 +320,12 @@ _resolve_path(source_dir: string, p: string) {
 //      on mismatch.
 //   4. Record a build artifact pointing at the resolved path so
 //      downstream `.build.ae` consumers can read it via
-//      `build.dep` + artifact lookup.
+//      `bldr.dep` + artifact lookup.
 builder file(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
 
     if _builder == null {
         println("${mod_dir}: fetch.file: empty builder block — declare url(...), sha256(...), output_to(...)")
@@ -349,35 +349,35 @@ builder file(ctx: ptr): int {
     out_rel, _   = map.get(_builder, "fetch_output_to")
     out_abs = _resolve_path(source_dir, out_rel)
     parent_dir = path.dirname(out_abs)
-    build._mkdirs(parent_dir)
+    bldr._mkdirs(parent_dir)
 
     if file.exists(out_abs) == 1 {
         verify_existing = sha256_verify_cmd(out_abs, sha_str)
-        rc_v = build._sh(verify_existing)
+        rc_v = bldr._sh(verify_existing)
         if rc_v == 0 {
             println("${mod_dir}: fetch.file up-to-date ${out_rel}")
-            build._write_artifact(ctx, "fetched_file", out_abs)
+            bldr._write_artifact(ctx, "fetched_file", out_abs)
             return 0
         }
         println("${mod_dir}: fetch.file: existing ${out_rel} sha256 mismatch — refetching")
     }
 
     println("${mod_dir}: fetching ${url_str}")
-    rc_dl = build._sh(fetch_curl_cmd(url_str, out_abs))
+    rc_dl = bldr._sh(fetch_curl_cmd(url_str, out_abs))
     if rc_dl != 0 {
         println("${mod_dir}: fetch.file: curl failed for ${url_str}")
         return rc_dl
     }
-    rc_v2 = build._sh(sha256_verify_cmd(out_abs, sha_str))
+    rc_v2 = bldr._sh(sha256_verify_cmd(out_abs, sha_str))
     if rc_v2 != 0 {
         println("${mod_dir}: fetch.file: sha256 verification FAILED for ${out_rel}")
         println("${mod_dir}: expected ${sha_str}; downloaded bytes hashed to something else")
         // Remove the bad file so the next run doesn't see a stale
         // bad blob and false-pass any subsequent staleness check.
-        build._sh("rm -f '${out_abs}'")
+        bldr._sh("rm -f '${out_abs}'")
         return 1
     }
-    build._write_artifact(ctx, "fetched_file", out_abs)
+    bldr._write_artifact(ctx, "fetched_file", out_abs)
     return 0
 }
 
@@ -392,10 +392,10 @@ builder file(ctx: ptr): int {
 // up-to-date (we don't re-hash every extracted file — that's a
 // follow-up if it ever bites).
 builder archive(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
 
     if _builder == null {
         println("${mod_dir}: fetch.archive: empty builder block")
@@ -433,7 +433,7 @@ builder archive(ctx: ptr): int {
     // Cache the downloaded archive under target/<mod>/_fetch/ so
     // re-runs don't re-curl. Filename derived from the URL tail.
     fetch_cache_dir = path.join(target_dir, "_fetch")
-    build._mkdirs(fetch_cache_dir)
+    bldr._mkdirs(fetch_cache_dir)
     archive_name = "archive.bin"
     last_slash = string.length(url_str)
     i = last_slash - 1
@@ -456,22 +456,22 @@ builder archive(ctx: ptr): int {
     // Skip re-download if cached archive matches sha256.
     have_archive = 0
     if file.exists(archive_path) == 1 {
-        rc_v = build._sh(sha256_verify_cmd(archive_path, sha_str))
+        rc_v = bldr._sh(sha256_verify_cmd(archive_path, sha_str))
         if rc_v == 0 {
             have_archive = 1
         }
     }
     if have_archive == 0 {
         println("${mod_dir}: fetching ${url_str}")
-        rc_dl = build._sh(fetch_curl_cmd(url_str, archive_path))
+        rc_dl = bldr._sh(fetch_curl_cmd(url_str, archive_path))
         if rc_dl != 0 {
             println("${mod_dir}: fetch.archive: curl failed for ${url_str}")
             return rc_dl
         }
-        rc_v2 = build._sh(sha256_verify_cmd(archive_path, sha_str))
+        rc_v2 = bldr._sh(sha256_verify_cmd(archive_path, sha_str))
         if rc_v2 != 0 {
             println("${mod_dir}: fetch.archive: sha256 verification FAILED for ${archive_name}")
-            build._sh("rm -f '${archive_path}'")
+            bldr._sh("rm -f '${archive_path}'")
             return 1
         }
     }
@@ -493,7 +493,7 @@ builder archive(ctx: ptr): int {
         }
     }
 
-    build._mkdirs(ex_abs)
+    bldr._mkdirs(ex_abs)
     extract_cmd = ""
     if is_zip == 1 {
         extract_cmd = zip_extract_cmd(archive_path, ex_abs)
@@ -501,12 +501,12 @@ builder archive(ctx: ptr): int {
         extract_cmd = tar_extract_cmd(archive_path, ex_abs, flags, strip)
     }
     println("${mod_dir}: extracting ${archive_name} → ${ex_rel}")
-    rc_ex = build._sh(extract_cmd)
+    rc_ex = bldr._sh(extract_cmd)
     if rc_ex != 0 {
         println("${mod_dir}: fetch.archive: extraction failed")
         return rc_ex
     }
-    build._write_artifact(ctx, "fetched_archive_dir", ex_abs)
+    bldr._write_artifact(ctx, "fetched_archive_dir", ex_abs)
     return 0
 }
 
@@ -529,14 +529,14 @@ builder archive(ctx: ptr): int {
 //   4. Record `fetched_git_dir` → the resolved tree path for downstream deps.
 //
 // To then BUILD a target inside the fetched tree, a consumer points an
-// ordinary target at `<into>/path/.name.ae` (or, once build.pkg_dep lands,
+// ordinary target at `<into>/path/.name.ae` (or, once bldr.pkg_dep lands,
 // declares the fetch + the target in one verb — see
 // asks/ae-add-implicating-an-aeb-target.md).
 builder git(ctx: ptr): int {
-    mod_dir = build._get(ctx, "module_dir")
-    source_dir = build._get(ctx, "source_dir")
-    target_dir = build._get(ctx, "target_dir")
-    build._mkdirs(target_dir)
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
 
     if _builder == null {
         println("${mod_dir}: fetch.git: empty builder block — declare repo(...), into(...), [ref(...), commit(...)]")
@@ -576,18 +576,18 @@ builder git(ctx: ptr): int {
     // Up-to-date check: an existing clone whose HEAD satisfies the pin.
     git_dir = path.join(into_abs, ".git")
     if file.exists(git_dir) == 1 {
-        head_raw, head_err = build._sh_capture(git_head_sha_cmd(into_abs))
+        head_raw, head_err = bldr._sh_capture(git_head_sha_cmd(into_abs))
         head = string.trim(head_raw)
         if string.length(head_err) == 0 {
             if _sha_matches(head, commit_str) == 1 {
                 println("${mod_dir}: fetch.git up-to-date ${into_rel} @ ${head}")
-                build._write_artifact(ctx, "fetched_git_dir", into_abs)
+                bldr._write_artifact(ctx, "fetched_git_dir", into_abs)
                 return 0
             }
             println("${mod_dir}: fetch.git: ${into_rel} HEAD ${head} != pin ${commit_str} — re-cloning")
         }
         // Stale or unreadable tree: remove so the clone below is fresh.
-        build._sh("rm -rf '${into_abs}'")
+        bldr._sh("rm -rf '${into_abs}'")
     } else {
         if file.exists(into_abs) == 1 {
             // `into` exists but isn't a git tree — refuse to clobber blindly.
@@ -596,38 +596,38 @@ builder git(ctx: ptr): int {
         }
     }
 
-    build._mkdirs(path.dirname(into_abs))
+    bldr._mkdirs(path.dirname(into_abs))
     println("${mod_dir}: cloning ${repo_url} (ref=${ref_str}) → ${into_rel}")
-    rc_cl = build._sh(git_clone_cmd(repo_url, ref_str, into_abs, depth))
+    rc_cl = bldr._sh(git_clone_cmd(repo_url, ref_str, into_abs, depth))
     if rc_cl != 0 {
         println("${mod_dir}: fetch.git: git clone failed for ${repo_url}")
-        build.fail(ctx, "fetch.git: git clone failed for ${repo_url}")
+        bldr.fail(ctx, "fetch.git: git clone failed for ${repo_url}")
         return rc_cl
     }
 
     // Pin enforcement: checkout the exact commit if HEAD doesn't match it.
     if string.length(commit_str) > 0 {
-        head_raw2, _he2 = build._sh_capture(git_head_sha_cmd(into_abs))
+        head_raw2, _he2 = bldr._sh_capture(git_head_sha_cmd(into_abs))
         head2 = string.trim(head_raw2)
         if _sha_matches(head2, commit_str) == 0 {
-            rc_co = build._sh(git_checkout_cmd(into_abs, commit_str))
+            rc_co = bldr._sh(git_checkout_cmd(into_abs, commit_str))
             if rc_co != 0 {
                 println("${mod_dir}: fetch.git: commit ${commit_str} not reachable in clone (shallow? bump depth() or drop the pin)")
-                build.fail(ctx, "fetch.git: commit ${commit_str} not reachable in clone of ${repo_url}")
+                bldr.fail(ctx, "fetch.git: commit ${commit_str} not reachable in clone of ${repo_url}")
                 return 1
             }
         }
         // Re-read and verify — the git analogue of sha256 verification.
-        head_raw3, _he3 = build._sh_capture(git_head_sha_cmd(into_abs))
+        head_raw3, _he3 = bldr._sh_capture(git_head_sha_cmd(into_abs))
         head3 = string.trim(head_raw3)
         if _sha_matches(head3, commit_str) == 0 {
             println("${mod_dir}: fetch.git: PIN MISMATCH — clone resolved to ${head3}, expected ${commit_str}")
-            build.fail(ctx, "fetch.git: PIN MISMATCH for ${repo_url} — got ${head3}, expected ${commit_str}")
+            bldr.fail(ctx, "fetch.git: PIN MISMATCH for ${repo_url} — got ${head3}, expected ${commit_str}")
             return 1
         }
         println("${mod_dir}: fetch.git ${into_rel} pinned @ ${head3}")
     }
 
-    build._write_artifact(ctx, "fetched_git_dir", into_abs)
+    bldr._write_artifact(ctx, "fetched_git_dir", into_abs)
     return 0
 }

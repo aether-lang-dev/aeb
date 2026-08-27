@@ -32,7 +32,7 @@
 //     library. Those gates are off via the shim header.
 //   - Wire CUDA / ROCm / XPU. Out of scope for the smallest-leaf demo.
 
-import build
+import bldr
 import c
 import c (sources, cc, cflag)
 import std.string
@@ -57,7 +57,7 @@ _cmake_macros_shim() {
 }
 
 main() {
-    b = build.start()
+    b = bldr.start()
 
     // Drop the shim header into target/_aeb_cfg/torch/headeronly/macros/
     // so the `-I` block below picks it up. Idempotent — writing the
@@ -135,7 +135,7 @@ main() {
         sources("UniqueVoidPtr.cpp")
         sources("WaitCounter.cpp")
         // env.cpp, signal_handler.cpp, tempfile.cpp — TODO: re-enable
-        // once we have a `build.dep("../../third_party/fmt/.build.ae")`
+        // once we have a `bldr.dep("../../third_party/fmt/.build.ae")`
         // (or equivalent) supplying <fmt/format.h>.
     }
 }

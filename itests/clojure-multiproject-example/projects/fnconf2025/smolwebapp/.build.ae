@@ -1,10 +1,10 @@
-import build
+import bldr
 import maven (load_bom_file)
-import build (dep)
+import bldr (dep)
 import clojure
 
 main() {
-    b = build.start()
+    b = bldr.start()
     load_bom_file(b, "../../../clojars.bom.ae")
     load_bom_file(b, "../../../clojure-dep-patches.bom.ae")
     dep(b, "org.clojure:clojure:1.12.0")

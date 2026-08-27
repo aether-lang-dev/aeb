@@ -8,7 +8,7 @@ import std.map
 import std.path
 import std.dir
 
-import build
+import bldr
 // Tests for pnpm.pnpm_spec_from_dep, pnpm.pnpm_add_cmd
 
 import pnpm
