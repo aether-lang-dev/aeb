@@ -652,6 +652,11 @@ builder test(): int {
     // them in the same `bash -c '...'` (PIDs need to survive across
     // `;` separators).
     bldr._drain_pending_fixtures(ctx, _builder)
+    // Shape A: the b-free sub-builders stage onto builder_context(),
+    // which inside this builder's block is _builder itself (a
+    // `builder`'s block pushes the per-call config map). Drain that
+    // side too. (asks/driver-test-sub-builders-stage-nothing-under-shape-a.md)
+    bldr._drain_pending_fixtures(_builder, _builder)
     fixture_seeds = null
     fixture_servers = null
     if _builder != null {

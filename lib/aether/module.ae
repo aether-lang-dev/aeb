@@ -3113,7 +3113,31 @@ builder driver_test(): int {
             _eclear = map.put(ctx, "_pending_binaries_under_test", list.new())
         }
     }
+    // Shape A: inside THIS builder's trailing block, builder_context()
+    // is this builder's own config map (a `builder`'s block pushes the
+    // per-call map, not the graph ctx — see bldr.build's comment). The
+    // b-free sub-builders therefore staged their records onto _builder,
+    // not ctx. Drain that side too, same record format.
+    // (asks/driver-test-sub-builders-stage-nothing-under-shape-a.md)
+    if map.has(_builder, "_pending_binaries_under_test") == 1 {
+        pending_buts2, _ = map.get(_builder, "_pending_binaries_under_test")
+        if list.size(pending_buts2) > 0 {
+            if map.has(_builder, "binaries_under_test") == 0 {
+                _ed2 = map.put(_builder, "binaries_under_test", list.new())
+            }
+            buts_acc2, _ = map.get(_builder, "binaries_under_test")
+            pn2 = list.size(pending_buts2)
+            i2 = 0
+            while i2 < pn2 {
+                r2, _ = list.get(pending_buts2, i2)
+                list.add(buts_acc2, r2)
+                i2 = i2 + 1
+            }
+            _eclear2 = map.put(_builder, "_pending_binaries_under_test", list.new())
+        }
+    }
     bldr._drain_pending_fixtures(ctx, _builder)
+    bldr._drain_pending_fixtures(_builder, _builder)
 
     // Validate binaries-under-test exist. Resolve relative paths
     // against the workspace root so users can write
