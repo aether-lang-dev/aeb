@@ -1,14 +1,16 @@
 # aeb DSL rework — drop the explicit `b` from builder call sites
 
-**Status:** PLAN (no code yet). **Why it matters:** the explicit build handle
-`b` threaded into every SDK builder — `rust.cargo_test_existing(b) { … }` — is
-aeb's most visible divergence from idiomatic Aether DSLs. Aether itself
+**Status:** PLAN — design PROVEN against `ae` (Shape A verified, §2.5/§5), no
+production code yet. Approved direction: a **fully b-free node body** via a
+`build() { … }` wrapper, landed as a coordinated flag-day. **Why it matters:**
+the explicit build handle `b` threaded into every SDK builder —
+`rust.cargo_test_existing(b) { … }` — plus every `dep(b, …)` and `build.start()`
+is aeb's most visible divergence from idiomatic Aether DSLs. Aether itself
 (std/, contrib/) and aether-ui write `button("OK") { … }` with **no** threaded
 object; the parent context is injected invisibly. aeb's boilerplate `b` is a
 paper-cut on every node in every downstream repo, and the pitch here is
 explicitly **"nicer than Bazel to read and write"** — so the ergonomics are not
-cosmetic, they're the product. This plan makes `b` optional and migrates
-toward its absence.
+cosmetic, they're the product. This plan removes `b` entirely from node bodies.
 
 ---
 
@@ -43,8 +45,11 @@ They are two different objects. That's why you can't just delete `b` — but you
 *can* stop making the caller type it, by having the builder pull graph identity
 from the injected context too.
 
-**`ctx` vs `_ctx` is the only thing gating injection.** No grammar change is
-required to remove `b`; it's an aeb SDK convention, reversible on the aeb side.
+**`ctx` vs `_ctx` is the only thing gating injection.** No *aether* change is
+required to remove `b` — it's an aeb SDK convention, reversible entirely on the
+aeb side (Shape A, §2.5, uses only existing language mechanisms). What it DOES
+require is a coordinated change to node *structure* (§4) — that's the real cost,
+not a language limitation.
 
 ---
 
@@ -78,140 +83,201 @@ that.** §3 avoids it.
 
 ---
 
-## 3. The design: make `b` OPTIONAL, not removed (no flag-day)
+## 2.5 The end-user grammar: two b-free shapes — one works, one doesn't (VERIFIED)
 
-The doc guarantees a `_ctx`-injected function *can still be called explicitly
-with a context value outside a trailing block*. That is the seam. Target end
-state — **both forms compile forever**:
+The target is a **fully b-free node body**, not just b-free builder calls. Two
+candidate shapes were tested against real `ae` (2026-08-27). Both COMPILE; only
+one actually threads the build graph.
 
-```aether
-rust.cargo_test_existing(b) { env(…) }   // OLD — keeps working, unchanged
-rust.cargo_test_existing()  { env(…) }   // NEW — b injected, no boilerplate
-```
-
-Mechanism per builder:
-
-1. Change `builder foo(ctx: ptr)` → `builder foo(_ctx: ptr)`.
-2. Inside, resolve the graph handle with a fallback:
-   `gctx = _ctx`  (injected inside a block; or the explicit arg when passed).
-   The single rule: **use the injected context if present, else the explicitly
-   passed one.** Confirm the exact `builder_context()` fallback idiom in the
-   spike (§5) — it may be that `_ctx` already resolves to the injected value
-   inside a block and to the passed value outside, in which case no body change
-   is needed beyond the rename.
-3. `dep` / `dep_artifact` / `publish_artifact`: give them injected-context
-   fallback too, so `build.dep("core/.build.ae")` (no `b`) works inside the
-   `aeb(cap)` body. **This is the harder half** — those are called in the node
-   body, *not* inside a builder trailing block, so there's no pushed context
-   unless `build.start()` itself pushes one. See §4 risk.
-
-Old code never breaks → **migrate downstream lazily, repo by repo, or never.**
-No synchronized cutover.
-
----
-
-## 4. The pivotal unknown + the real risk
-
-**Unknown (blocks the whole plan until answered):** can a `_ctx`-injected
-builder *also* be called explicitly with `b` **when a trailing block is
-present** — `foo(b) { … }` — without an arity error? The injected `_ctx` is
-normally hidden from arity; passing it explicitly *and* having a block may or
-may not be legal. If illegal, dual-mode needs an aether-side tweak first, and
-this becomes an aether ask, not a pure-aeb change. **Resolve via §5 spike before
-touching any SDK.**
-
-**Risk A — no-block builder calls.** Measured: aeb calls builders as `(b)` with
-**no trailing block** all over — `rust.cargo_project_existing(b)`,
-`python.install(b)`, `rust.check_workspace(b)`, `rust.test_workspace(b)`.
-Injection only fires *inside* a trailing block, so these have nowhere to inject
-from. They MUST keep working via the explicit-pass path (they already pass `b`).
-So: the explicit form is not merely legacy — it's **required** for block-less
-builder invocations and stays first-class forever. The win is only at the
-*has-a-block* call sites (~349 of them). That's fine, but the plan must not
-promise `b`-free everywhere.
-
-**Risk B — `dep`/`dep_artifact` in the node body.** These run in `aeb(cap)`'s
-top level, not in a builder block. For them to lose `b`, `build.start()` (or the
-`aeb(cap)` entry) would need to push itself onto the context stack so
-`builder_context()` returns it in the plain body. That's a deeper change (does
-the `aeb` entrypoint establish an ambient context?) and may not be worth it —
-`build.dep(b, …)` is arguably *fine* keeping `b`, since it reads as "this node
-depends on…". **Recommendation: scope v1 to BUILDERS ONLY.** Leave `dep`/
-`dep_artifact` explicit. That already kills the ugliest boilerplate
-(`mod.foo(b) {`) and dodges Risk B entirely.
-
-**Non-goal:** removing `b = build.start()` itself. The node still names its
-build; that line stays.
-
----
-
-## 5. Spike (do FIRST, ~30 min, throwaway, no aeb changes)
-
-Write a tiny `.ae` compiled against local `ae`:
+**Shape A — a `build() { … }` wrapper (WORKS):**
 
 ```aether
-import std.map
-builder foo(_ctx: ptr) {
-    // does _ctx bind to the injected ctx in a block, and to the passed arg outside?
-    println("ctx null? …")
-}
-set_x(_ctx: ptr, v: string) { map.put(_ctx, "x", v) }
-
-main() {
-    b = map.new()
-    foo(b) { set_x("1") }   // (Q1) explicit b + block — arity ok? _ctx = which?
-    foo()  { set_x("2") }   // (Q2) injected only
-    foo(b)                  // (Q3) explicit, no block — the Risk-A case
+aeb(cap) {
+    build() {
+        dep("core/.build.ae")
+        dep("java/.build.ae")
+        lib = dep_artifact("core/.build.ae", "shared_lib")
+        java.javac_test() { source_layout("maven idiomatic") release("22") }
+        java.junit5() {
+            jvm_args("--enable-native-access=ALL-UNNAMED")
+            env("SERVIRTIUM_VCR_LIB", lib)
+        }
+    }
 }
 ```
 
-Decision gate:
-- **Q1 compiles & `_ctx` sees the block config** → dual-mode works, plan is
-  pure-aeb, proceed to §6.
-- **Q1 errors** → file an aether ask for "explicit-pass a `_ctx` param when a
-  block is present"; plan blocks on that. Capture the exact error.
+**Shape B — bare body, no wrapper (DOES NOT WORK):**
+
+```aether
+aeb(cap) {
+    dep("core/.build.ae")                                 // _ctx is NULL here
+    lib = dep_artifact("core/.build.ae", "shared_lib")    // _ctx is NULL here
+    java.junit5() { … }
+}
+```
+
+**Why A works and B doesn't (measured, not assumed).** Aether's injected context
+is pushed by a **trailing block**. Shape A's `build() { … }` *is* that block: the
+wrapper pushes one context object, and every `dep()` / `dep_artifact()` /
+`java.junit5()` inside auto-receives it as `_ctx`. Probe result: in Shape A,
+`dep_artifact` **sees** what `dep` wrote into the shared ctx — the graph threads.
+Shape B has no enclosing block, so nothing is on the context stack → `_ctx`
+resolves to **NULL** for every top-level call → `dep()` and `dep_artifact()`
+cannot share a session, cannot build a graph. Shape B is not viable without a
+LANGUAGE change (making `aeb(cap)`'s own body establish an ambient context at
+function entry, which `ae` does not do today).
+
+**Verdict: Shape A is the target.** It is fully b-free, needs NO aether change,
+and is mechanically proven to thread the graph. `build() { … }` replaces
+`b = build.start()`; the whole node loses every `b`.
 
 ---
 
-## 6. Rollout (only after the spike says GREEN)
+## 3. The design: Shape A — an injected `build()` wrapper, whole-tree
 
-1. **Pilot one SDK** end-to-end in aeb: `rust` (smallest real surface — 6
-   builders, and servirtium-vcr + selenium exercise it). Rename `ctx`→`_ctx`,
-   add fallback, keep explicit path. Prove both forms in `tests/`.
-2. **aeb self-migration** as the reference: flip aeb's own ~60 nodes to the
-   `b`-free block form where a block exists; leave block-less `(b)` calls.
-   Full suite must stay 123/123.
-3. **Sweep the rest of aeb's 41 lib modules**, one commit per SDK family
-   (jvm group, native group, scripting group…), each with a test asserting
-   BOTH call forms compile.
-4. **Downstream: opt-in, unsynced.** Announce in each repo's asks channel that
-   the `b`-free block form is available; siblings drop `b` when they touch a
-   node. Old form never breaks, so there is no deadline and no coordinated
-   release. A codemod (`sed`-level: `\.(\w+)\(b\)\s*\{` → `.\1() {`) can do a
-   repo in one pass when a sibling wants it — offer it, don't impose it.
+Shape A dissolves the old "Risk B" (below): because `dep`/`dep_artifact` now sit
+INSIDE the `build() { }` trailing block, they get the injected context for free,
+exactly like the SDK builders. There is no ambient-context-at-entry problem to
+solve — the wrapper *is* the context scope.
 
-**Ordering rule:** never migrate a downstream repo before the aeb SDK it uses
-ships dual-mode — otherwise the `b`-free form won't compile there yet.
+The pieces:
+
+1. **Add a `build()` builder** (the wrapper). A trailing-block builder that
+   creates the session/root context and pushes it — i.e. what `build.start()`
+   builds today, but as a `_ctx`-pushing builder so its block body inherits it.
+2. **`dep` / `dep_artifact` / `publish_artifact` / `prereq` → `_ctx`-injected**
+   (drop the explicit `ctx:` param; read the injected context). They already
+   take a ctx first arg; this is the `ctx:`→`_ctx:` rename + it now resolves
+   from the block.
+3. **All 147 SDK builders → `_ctx`-injected** (`builder foo(ctx: ptr)` →
+   `builder foo(_ctx: ptr)`). NB: this is the SAME 147 signatures the `: int`
+   sweep (commit `97e189d`) just rewrote — see §3.5. The rename rides the same
+   lines.
+4. **Rewrite the ~435 downstream nodes** into Shape A (wrap the body in
+   `build() { … }`, delete every `b`).
+
+## 3.5 Coordination window with the `: int` sweep (act now)
+
+The node-return fix (`97e189d`) just declared all 147 builders `: int` —
+`builder foo(ctx: ptr)` → `builder foo(ctx: ptr): int`. The `b`-rework renames
+the SAME token on the SAME lines — `ctx:` → `_ctx:`. Doing the `b`-rework NOW,
+right after the sweep, means one coordinated pass over those signatures while
+the tests are green and the surface is fresh, instead of touching all 147 twice.
+This is the "exhaustive coordinated set of commits" moment.
 
 ---
 
-## 7. Open questions for Paul
+## 4. The real cost: this is a FLAG-DAY, not gradual (be honest about it)
 
-- **v1 scope:** builders-only (my recommendation, §4 Risk B), or also chase
-  `dep`/`dep_artifact` `b`-free (needs the ambient-context-in-body change)?
-- **Codemod vs hand-edit** for aeb's own 60 nodes — I lean codemod + eyeball.
-- Do we want a **deprecation** on the explicit-with-block form eventually, or
-  keep it permanently (it's *required* for block-less calls anyway, so a full
-  deprecation is impossible — the explicit path is load-bearing forever)?
+Earlier drafts of this plan hoped for a gradual, backward-compatible rollout
+(keep the old `b` form compiling, migrate repo-by-repo). **Shape A gives that
+up on purpose**, because it changes the node's STRUCTURE, not just a call
+argument:
+
+- Old node: `b = build.start(); dep(b, …); rust.foo(b) { … }`
+- New node: `build() { dep(…); rust.foo() { … } }`
+
+These are different shapes. Once `dep`/the builders become `_ctx`-injected and
+lose their explicit `ctx:` param, the OLD `dep(b, …)` call no longer type-checks
+(it passes an arg the function no longer declares). So:
+
+- **No dual-mode.** The moment aeb's lib flips, every downstream node must
+  already be Shape A, or it breaks.
+- **Therefore: coordinated.** aeb lib + all ~435 nodes across ~14 repos land
+  together (or each repo pins the pre-flip aeb until its own nodes are
+  converted). This is the flag-day the user explicitly asked for — "an
+  exhaustive coordinated set of commits."
+
+Two things that make the flag-day tractable:
+- The node rewrite is **mechanical** — `b = build.start()` + body → `build() {`
+  + body + `}`, then delete `\b(\w+\.)?\w+\((b)[,)]` → drop the `b`. A codemod
+  does a repo in one pass; every node is the same transform.
+- **Pinning buys time.** A downstream repo can stay on the pre-flip aeb release
+  (AEB_REF pin) until someone runs the codemod there; it doesn't have to land in
+  the same hour, just before it next bumps aeb.
+
+**Block-less builder calls (former Risk A) still need handling.** aeb calls some
+builders with `(b)` and NO trailing block — `python.install(b)`,
+`rust.check_workspace(b)`, `rust.cargo_project_existing(b)`. With no block there
+is no injected context. Options: (a) give them a one-line `build() { … }` block
+even when empty of setters, or (b) keep a session-passing statement form for
+these few. Enumerate them during the rust pilot (§6) and pick per case; there
+are only a handful.
+
+---
+
+## 5. Spike — DONE (2026-08-27). Shape A verified; Shape B refuted.
+
+The pivotal unknown ("what does the injected context resolve to in each shape")
+is answered empirically:
+
+```aether
+build_wrap(_ctx: ptr) { return map.new() }          // the wrapper pushes a ctx
+dep(_ctx: ptr, p: string): int { map.put(_ctx, p, "1"); return 0 }
+dep_artifact(_ctx: ptr, m: string, a: string): int {
+    if map.has(_ctx, m) == 1 { println("SAME ctx — graph threads") }  // Shape A: fires
+    return 0
+}
+aeb(cap) { build_wrap() { dep("core/.build.ae"); _l = dep_artifact("core/.build.ae","x") } }
+```
+
+Result: **Shape A** — `dep_artifact` sees `dep`'s write (shared ctx, graph
+threads). **Shape B** (same calls at the bare top level of `aeb(cap)`, no
+wrapper) — `_ctx` is NULL for both, no shared session. Conclusion in §2.5. No
+further spike needed; the design is proven.
+
+---
+
+## 6. Rollout (coordinated flag-day)
+
+1. **Pilot `rust` end-to-end in aeb.** Add the `build()` wrapper builder; flip
+   `rust`'s builders + `dep`/`dep_artifact` to `_ctx`-injected; enumerate the
+   block-less `(b)` calls and resolve them (§4). Convert ONE real servirtium-vcr
+   rust node to Shape A and build it green — the honest end-to-end proof (a real
+   node, real deps, real `.so` artifact, not a synthetic).
+2. **aeb self + full lib.** Flip all 41 lib modules' builders + the graph verbs,
+   one commit per SDK family. Convert aeb's own real nodes (the 8 `tools/*`
+   dist/install nodes; the itests are the regression surface). Full suite green.
+3. **Downstream coordinated.** For each of the ~14 repos: run the node codemod,
+   build green, commit. Repos not yet converted PIN the pre-flip aeb release so
+   they keep building until their turn. servirtium-vcr (114 nodes, most
+   polyglot) is the primary test-bed and goes first after aeb.
+
+**Ordering rule:** a repo either (a) is on Shape A against post-flip aeb, or
+(b) pins pre-flip aeb. Never a post-flip aeb against un-converted nodes.
+
+---
+
+## 7. Test-bed note
+
+aeb's own repo has ~no real nodes outside `itests/`/`tests/` (just 8
+`tools/*/.dist.ae`/`.install.ae`). The real polyglot node populations live in
+the siblings: **servirtium-vcr (114) is the primary test-bed** — largest, most
+language-diverse, already the proving ground for the rust `extra()`, 1b, and
+REQUEST 4 work. The rust-pilot end-to-end proof (§6.1) converts a real
+servirtium node.
+
+---
+
+## 8. Open questions for Paul
+
+- **Block-less `(b)` calls** (§4): empty `build() { }` block, or keep a
+  statement form for the handful? (Decide at the rust pilot.)
+- **Codemod vs hand-edit** for the ~435 nodes — codemod + per-repo eyeball.
+- **Pin-then-migrate order** across the 14 repos — which lead (servirtium-vcr
+  first is the natural choice).
 
 ---
 
 ## TL;DR
 
-Worth doing — it's a headline ergonomics win over Bazel, which is the point.
-It's a **gradual, backward-compatible** change (make `b` optional via `_ctx`
-injection with explicit fallback), **not** a flag-day — *if* the aether spike in
-§5 confirms explicit-pass-with-block is legal. Scope v1 to builders-with-blocks
-(the ~349 ugly call sites), leave `dep`/`dep_artifact` and block-less calls on
-the explicit path (they're load-bearing). Pilot `rust`, self-host in aeb, then
-let 14 downstream repos adopt at their own pace with an offered codemod.
+The target grammar is **Shape A** — a `build() { … }` wrapper that makes the
+node body **fully b-free** (every `b` gone, including `dep`/`dep_artifact`).
+Verified against `ae`: Shape A threads the build graph; the wrapper-less Shape B
+leaves `_ctx` NULL and can't. No aether change needed. The cost, stated
+honestly: this is a **coordinated flag-day**, not the gradual dual-mode earlier
+drafts hoped for — Shape A changes node STRUCTURE, so aeb's lib and the ~435
+nodes across ~14 repos move together (repos pin the pre-flip release until their
+turn). Do it NOW while the `: int` sweep has the same 147 signatures fresh
+(§3.5). Pilot `rust` on a real servirtium-vcr node; servirtium-vcr (114 nodes)
+is the primary test-bed.
