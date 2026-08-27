@@ -225,7 +225,9 @@ _target_of(builder_map: ptr) {
 
 // Download dependencies via `gleam deps download`. The install-
 // equivalent; runs in source_dir. Mirror of moonbit.install.
-builder deps(ctx: ptr): int {
+builder deps(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -247,7 +249,9 @@ builder deps(ctx: ptr): int {
 }
 
 // Type-check via `gleam check`. Mirror of moonbit.check / dart.analyze.
-builder check(ctx: ptr): int {
+builder check(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -271,7 +275,9 @@ builder check(ctx: ptr): int {
 // Run tests via `gleam test`. Mirror of moonbit.test: tee output to
 // target/<module>/test_output.log, parse gleeunit's summary line for
 // pass/fail counts, feed bldr._record_test_result.
-builder test(ctx: ptr): int {
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -410,7 +416,9 @@ _is_digit_gleam(c: string) {
 // so unlike dart.compile / moonbit.build there's no program_binary to
 // publish — the runnable surface is `gleam run`, which needs the
 // toolchain present. We record the build/ dir as the output artifact.
-builder build(ctx: ptr): int {
+builder build(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -465,7 +473,9 @@ builder build(ctx: ptr): int {
 // Cache integration is deferred — same rationale as the sibling SDKs.
 // Today: "run if any declared input is newer than the oldest declared
 // output."
-builder codegen(ctx: ptr): int {
+builder codegen(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -683,7 +693,9 @@ _codegen_resolve(cwd: string, p: string) {
 // gleam.test_existing(b) — run an existing Gleam project's tests as-is with
 // full step/env control (e.g. ERL_LIBS for a shared NIF, a PATH-prefixed
 // `gleam test`). Foundation-backed counterpart to the `test` builder.
-builder test_existing(ctx: ptr): int {
+builder test_existing(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (gleam test)")
     return bldr._run_project(ctx, _builder, "gleam test", 1)

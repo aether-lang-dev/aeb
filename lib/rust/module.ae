@@ -918,7 +918,9 @@ _cache_key_for_cargo(ctx: ptr, argfile_path: string, cargo_cmd_str: string, sour
 
 // --- cargo_workspace builder: generate root Cargo.toml for a workspace ---
 
-builder cargo_workspace(ctx: ptr): int {
+builder cargo_workspace(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -942,7 +944,9 @@ builder cargo_workspace(ctx: ptr): int {
 
 // Run `cargo check --workspace` on the whole workspace.
 // Use this in a workspace-root .tests.ae or .check.ae after all members generate.
-builder check_workspace(ctx: ptr): int {
+builder check_workspace(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -961,7 +965,9 @@ builder check_workspace(ctx: ptr): int {
 }
 
 // Run `cargo test --workspace` on the whole workspace.
-builder test_workspace(ctx: ptr): int {
+builder test_workspace(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -983,7 +989,9 @@ builder test_workspace(ctx: ptr): int {
 
 // --- cargo_crate builder: generate member Cargo.toml with workspace refs ---
 
-builder cargo_crate(ctx: ptr): int {
+builder cargo_crate(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -1007,7 +1015,9 @@ builder cargo_crate(ctx: ptr): int {
 // The arg is "name~path" (the ~ separator matches other rust DSL entries).
 // The artifact is a newline-separated list of "name~path" entries. Consumers
 // of cargo_project / cargo_crate merge these with their DSL-declared path_deps.
-builder crate_vendored(ctx: ptr, name_and_path: string): int {
+builder crate_vendored(name_and_path: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -1026,7 +1036,9 @@ builder crate_vendored(ctx: ptr, name_and_path: string): int {
 //
 // The actual fetch happens when cargo itself is invoked on the generated
 // Cargo.toml in the consumer.
-builder crate_registry(ctx: ptr, name_and_ver: string): int {
+builder crate_registry(name_and_ver: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -1037,7 +1049,9 @@ builder crate_registry(ctx: ptr, name_and_ver: string): int {
 
 // crate_registry_features — version dep with features.
 // Arg format: "name~version~feat1,feat2"
-builder crate_registry_features(ctx: ptr, name_ver_feats: string): int {
+builder crate_registry_features(name_ver_feats: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -1127,7 +1141,9 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
     return 0
 }
 
-builder cargo_project(ctx: ptr): int {
+builder cargo_project(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -1254,7 +1270,9 @@ builder cargo_project(ctx: ptr): int {
 //                        Library-shaped crates skip this.
 //   profile / features / jobs — same as cargo_project; passed
 //                        through to `cargo_build_cmd`.
-builder cargo_project_existing(ctx: ptr): int {
+builder cargo_project_existing(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -1363,7 +1381,9 @@ cargo_test_cmd(source_dir: string, target_dir: string, opts: ptr) {
 // `crate_name`) and `rust.test_workspace(b)` (whole-workspace via
 // `cargo test --workspace`). This is the single-crate-in-source_dir
 // shape that pairs naturally with `cargo_project_existing(b)`.
-builder cargo_test_existing(ctx: ptr): int {
+builder cargo_test_existing(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -1445,7 +1465,9 @@ _write_cargo_config(config_path: string) {
 
 // --- SDK functions ---
 
-builder cargo_build(ctx: ptr): int {
+builder cargo_build(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -1548,7 +1570,9 @@ builder cargo_build(ctx: ptr): int {
 
 // Compile-check a workspace crate via cargo check -p <name>.
 // Runs from the workspace root (where Cargo.toml [workspace] lives).
-builder check(ctx: ptr): int {
+builder check(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     root = bldr._get(ctx, "root")
@@ -1588,7 +1612,9 @@ builder check(ctx: ptr): int {
 }
 
 // Run tests for a workspace crate via cargo test -p <name>.
-builder test(ctx: ptr): int {
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     root = bldr._get(ctx, "root")
@@ -1631,7 +1657,9 @@ builder test(ctx: ptr): int {
 }
 
 // Build a workspace crate binary via cargo build -p <name> --release.
-builder build_crate(ctx: ptr): int {
+builder build_crate(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     root = bldr._get(ctx, "root")

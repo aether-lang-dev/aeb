@@ -40,10 +40,12 @@ main() {
     os.system("rm -rf ./target/m_container_lua")
 
     s = bldr.session(".")
-    b = bldr.begin(s, "m_container_lua")
-    out = container.run(b) {
-        image_ref("docker.io/nickblah/lua:5.4-alpine")
-        command("lua -e 'print(\"hello-from-container-lua\")'")
+    out = ""
+    bldr.build(s, "m_container_lua") {
+        out = container.run() {
+            image_ref("docker.io/nickblah/lua:5.4-alpine")
+            command("lua -e 'print(\"hello-from-container-lua\")'")
+        }
     }
 
     ok = 0

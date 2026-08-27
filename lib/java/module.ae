@@ -333,7 +333,9 @@ junit_cmd(classpath: string, class_names: string, ld_path: string, opts: ptr) {
 // jar_vendored — declare a vendored jar as a classpath contribution.
 // Use this in a .jar.ae file so downstream consumers that dep on this
 // file pick up the jar in their classpath artifact.
-builder jar_vendored(ctx: ptr, jar_path: string): int {
+builder jar_vendored(jar_path: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -378,7 +380,9 @@ _accumulate_classpath_jar(ctx: ptr, abs_jar: string) {
 // the-classpath-artifact contract as jar_vendored — so a .jar.ae becomes a
 // committed lockfile (coord + hash) and the repo holds no binaries. The hash
 // doubles as a supply-chain pin (cf. aeb --vet / --sbom-json).
-builder jar_pinned(ctx: ptr, coord: string, sha256: string): int {
+builder jar_pinned(coord: string, sha256: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -426,7 +430,9 @@ pinned(_ctx: ptr, coord: string, sha: string) {
     _a = list.add(pl, entry)
 }
 
-builder mvn_repo(ctx: ptr): int {
+builder mvn_repo(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -572,7 +578,9 @@ jar_registry(ctx: ptr, coord: string) {
 // jar_registry_finalize — resolve all previously-declared jar_registry coords and write
 // the jvm_classpath_deps_including_transitive artifact so downstream
 // consumers pick up these jars on their classpath.
-builder jar_registry_finalize(ctx: ptr): int {
+builder jar_registry_finalize(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -802,7 +810,9 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
     return digest, derr
 }
 
-builder javac(ctx: ptr): int {
+builder javac(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_name = bldr._get(ctx, "module")
@@ -1019,7 +1029,9 @@ builder javac(ctx: ptr): int {
     return 0
 }
 
-builder javac_test(ctx: ptr): int {
+builder javac_test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_name = bldr._get(ctx, "module")
@@ -1153,7 +1165,9 @@ builder javac_test(ctx: ptr): int {
     return 0
 }
 
-builder junit(ctx: ptr): int {
+builder junit(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
 
@@ -1457,7 +1471,9 @@ builder junit5(ctx: ptr) {
 // kotlin_test's shape in lib/java: it puts the module's own prod classes on the
 // run classpath, gates the JDK (min_jdk -> SKIP green, not fail on an old JDK),
 // and honours env()/jvm_args — the non-obvious parts worth not re-deriving.
-builder java_main(ctx: ptr, main_class: string): int {
+builder java_main(main_class: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
 

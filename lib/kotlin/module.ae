@@ -272,7 +272,9 @@ _cache_key_for_kotlinc(ctx: ptr, builder_map: ptr, argfile_path: string, kotlinc
 
 // --- SDK functions ---
 
-builder kotlinc(ctx: ptr): int {
+builder kotlinc(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_name = bldr._get(ctx, "module")
@@ -416,7 +418,9 @@ builder kotlinc(ctx: ptr): int {
     return 0
 }
 
-builder kotlinc_test(ctx: ptr): int {
+builder kotlinc_test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_name = bldr._get(ctx, "module")
@@ -566,7 +570,9 @@ builder kotlinc_test(ctx: ptr): int {
     return 0
 }
 
-builder kotlin_test(ctx: ptr, test_class: string): int {
+builder kotlin_test(test_class: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
 

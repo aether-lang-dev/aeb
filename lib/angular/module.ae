@@ -50,7 +50,9 @@ ng_build_cmd(ng_bin: string, app_name: string, configuration: string) {
 // --- SDK functions ---
 
 // Compile Angular TypeScript using ngc (Angular compiler).
-builder ngc(ctx: ptr): int {
+builder ngc(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -87,7 +89,9 @@ builder ngc(ctx: ptr): int {
 }
 
 // Build Angular app for production using ng CLI.
-builder ng_build(ctx: ptr): int {
+builder ng_build(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")

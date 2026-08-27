@@ -80,7 +80,9 @@ _pharo_image(source_dir: string) {
 // Works on a COPY: loading code mutates a Pharo image permanently, so running
 // against the developer's own image would bake this package (and any load
 // failure) into it.
-builder sunit(ctx: ptr): int {
+builder sunit(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -158,7 +160,9 @@ builder sunit(ctx: ptr): int {
 }
 
 // pharo.test(b) — project `./run-tests.sh` by default. Reports pass/fail.
-builder test(ctx: ptr): int {
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (pharo)")
     return bldr._run_project(ctx, _builder, "./run-tests.sh", 1)

@@ -460,7 +460,9 @@ container_run_cmd(img: string, opts: ptr) {
 
 // --- SDK functions ---
 
-builder image(ctx: ptr): int {
+builder image(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     root, _ = map.get(ctx, "root")
     target_dir, _ = map.get(ctx, "target_dir")
     mod_dir, _ = map.get(ctx, "module_dir")
@@ -567,7 +569,9 @@ builder image(ctx: ptr): int {
     return 0
 }
 
-builder lxc(ctx: ptr): int {
+builder lxc(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir, _ = map.get(ctx, "module_dir")
     mod_name, _ = map.get(ctx, "module")
 
@@ -613,7 +617,9 @@ builder lxc(ctx: ptr): int {
 // tail, so it stays out of the `: int` contract the node-return fix relies on
 // (asks/node-nonzero-return-not-propagated-to-exit-code.md). Typing it `: int`
 // coerces its string returns to int and segfaults consumers.
-builder run(ctx: ptr) {
+builder run() {
+    ctx = builder_context()
+    if ctx == 0 { return string.concat("", "") }
     mod_dir, _ = map.get(ctx, "module_dir")
     target_dir, _ = map.get(ctx, "target_dir")
 

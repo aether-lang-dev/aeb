@@ -202,7 +202,9 @@ _script_args_str(builder_map: ptr) {
 //
 // Distinct from `pnpm.resolve(ctx)` (above), which is the
 // aeb-declared dep flow for .npm.ae files.
-builder install(ctx: ptr): int {
+builder install(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     source_dir = bldr._get(ctx, "source_dir")
@@ -231,7 +233,9 @@ builder install(ctx: ptr): int {
 // source_dir's package.json. Repeatable `script_arg(...)` setters
 // append args after the script name (separated by `--` so they reach
 // the script, not pnpm itself).
-builder run(ctx: ptr, script: string): int {
+builder run(script: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     source_dir = bldr._get(ctx, "source_dir")

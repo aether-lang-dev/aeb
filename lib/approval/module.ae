@@ -518,7 +518,9 @@ jira_check_script(base_url_v: string, issue_v: string, token_env_v: string,
 
 // --- Builder entry point ---
 
-builder jira(ctx: ptr): int {
+builder jira(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -758,7 +760,9 @@ _generic_builder(ctx: ptr, bld: ptr, provider: string, fetch_cmd: string,
     return _write_and_run(ctx, provider, script, evidence_path)
 }
 
-builder attestation(ctx: ptr): int {
+builder attestation(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     bldr._mkdirs(target_dir)
     subj = _env_or_literal(_builder, "subject", "subject_env", "attestation")
@@ -779,7 +783,9 @@ builder attestation(ctx: ptr): int {
     return _run_attestation_check(ctx, _builder, "attestation", subj, evidence_path, verify_prefix)
 }
 
-builder http(ctx: ptr): int {
+builder http(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     fetch_url = _env_or_literal(_builder, "url", "url_env", "")
     if string.length(fetch_url) == 0 {
         println("approval.http requires url(\"...\")")
@@ -791,7 +797,9 @@ builder http(ctx: ptr): int {
     return _generic_builder(ctx, _builder, "http", fetch_cmd, "approvals", "id", "approved_at", "status", "approved")
 }
 
-builder command(ctx: ptr): int {
+builder command(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     cmd = _opt(_builder, "run", "")
     if string.length(cmd) == 0 {
         println("approval.command requires run(\"...\")")
@@ -802,7 +810,9 @@ builder command(ctx: ptr): int {
     return _generic_builder(ctx, _builder, "command", fetch_cmd, "approvals", "id", "approved_at", "status", "approved")
 }
 
-builder servicenow(ctx: ptr): int {
+builder servicenow(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     fetch_url = _opt(_builder, "url", "")
     if string.length(fetch_url) == 0 {
         base = _opt(_builder, "base_url", "")
@@ -820,7 +830,9 @@ builder servicenow(ctx: ptr): int {
     return _generic_builder(ctx, _builder, "servicenow", fetch_cmd, "result", "approver.display_value", "sys_updated_on", "state", "approved")
 }
 
-builder github(ctx: ptr): int {
+builder github(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     fetch_url = _opt(_builder, "url", "")
     if string.length(fetch_url) == 0 {
         base = _opt(_builder, "base_url", "https://api.github.com")
@@ -844,7 +856,9 @@ builder github(ctx: ptr): int {
     return _generic_builder(ctx, _builder, "github", fetch_cmd, "approvals", "user.login", "approved_at", "state", "approved")
 }
 
-builder gitlab(ctx: ptr): int {
+builder gitlab(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     fetch_url = _opt(_builder, "url", "")
     if string.length(fetch_url) == 0 {
         base = _opt(_builder, "base_url", "https://gitlab.com")
@@ -866,7 +880,9 @@ builder gitlab(ctx: ptr): int {
     return _generic_builder(ctx, _builder, "gitlab", fetch_cmd, "approvals", "user.username", "created_at", "status", "approved")
 }
 
-builder azure_devops(ctx: ptr): int {
+builder azure_devops(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     fetch_url = _opt(_builder, "url", "")
     if string.length(fetch_url) == 0 {
         println("approval.azure_devops requires url(\"...\") for the checks/approvals endpoint")

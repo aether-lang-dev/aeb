@@ -261,7 +261,9 @@ _repo_name() {
 
 // --- Builder entry point ---
 
-builder fire(ctx: ptr): int {
+builder fire(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
     if string.length(mod_dir) == 0 { mod_dir = "webhook" }
 

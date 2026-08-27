@@ -89,7 +89,9 @@ _join_flags(l: ptr) {
 
 // nim.build(b) — `nimble build` (override with test_file/nim_flag for the
 // explicit `nim c …` shape, same as test).
-builder build(ctx: ptr): int {
+builder build(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: compiling (nim)")
     return bldr._run_project(ctx, _builder, "nimble build", 0)
@@ -97,7 +99,9 @@ builder build(ctx: ptr): int {
 
 // nim.test(b) — if test_file(...) was declared, compile-and-run each file in
 // an Aether loop with per-file pass/fail telemetry; otherwise `nimble test`.
-builder test(ctx: ptr): int {
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
 
     // No explicit files → preserve the `nimble test` default (back-compat).

@@ -58,21 +58,23 @@ main() {
     // bash's _resolve_script_path uses it verbatim.
     _sh("printf 'touch ${marker}\\n' > '${scr}'")
 
-    // --- bash.run dispatches ---
+    // --- bash.run dispatches (Shape A: bldr.build(s,label){ bash.run(){…} }) ---
     _sh("rm -f '${marker}'")
     s1 = bldr.session(".")
-    b1 = bldr.begin(s1, "m_run")
-    bash.run(b1) {
-        script("${scr}")
+    bldr.build(s1, "m_run") {
+        bash.run() {
+            script("${scr}")
+        }
     }
     _assert("bash.run dispatched and ran its script", file.exists(marker))
 
     // --- bash.test dispatches ---
     _sh("rm -f '${marker}'")
     s2 = bldr.session(".")
-    b2 = bldr.begin(s2, "m_test")
-    bash.test(b2) {
-        script("${scr}")
+    bldr.build(s2, "m_test") {
+        bash.test() {
+            script("${scr}")
+        }
     }
     _assert("bash.test dispatched and ran its script", file.exists(marker))
 

@@ -228,7 +228,9 @@ _cache_key_for_go(ctx: ptr, argfile_path: string, go_build_cmd_str: string, sour
 
 // Compile-check Go packages without producing a binary.
 // Useful for library packages and large single-module repos.
-builder check(ctx: ptr): int {
+builder check(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -263,7 +265,9 @@ builder check(ctx: ptr): int {
     return 0
 }
 
-builder go_build(ctx: ptr): int {
+builder go_build(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -358,7 +362,9 @@ builder go_build(ctx: ptr): int {
     return 0
 }
 
-builder go_test(ctx: ptr): int {
+builder go_test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     deps, _ = map.get(ctx, "deps")

@@ -221,7 +221,9 @@ _rspec_args_str(builder_map: ptr) {
 // Idempotent at the bundler level: `bundle install` is a no-op when
 // Gemfile.lock matches the closure on disk. The `.timestamp` file
 // lets aeb's dep-edge handling see "install ran."
-builder install(ctx: ptr): int {
+builder install(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     root = bldr._get(ctx, "root")
@@ -246,7 +248,9 @@ builder install(ctx: ptr): int {
 }
 
 // Run rspec via bundler. Reads rspec_arg(...) entries.
-builder rspec(ctx: ptr): int {
+builder rspec(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     source_dir = bldr._get(ctx, "source_dir")
@@ -274,7 +278,9 @@ builder rspec(ctx: ptr): int {
 }
 
 // Run rubocop via bundler.
-builder rubocop(ctx: ptr): int {
+builder rubocop(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     source_dir = bldr._get(ctx, "source_dir")
@@ -311,7 +317,9 @@ builder rubocop(ctx: ptr): int {
 // the `package` name to match `python.package`'s convention.
 // LLM.md § "a builder must not share a name with a function in
 // its module" formalises this rule.
-builder package(ctx: ptr): int {
+builder package(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     source_dir = bldr._get(ctx, "source_dir")

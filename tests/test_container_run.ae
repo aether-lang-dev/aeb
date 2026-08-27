@@ -43,10 +43,12 @@ main() {
     // prints a marker on pid-1 stdout. container.run RETURNS that
     // capture, so bind it to a var and use it imperatively.
     s = bldr.session(".")
-    b = bldr.begin(s, "m_container_run")
-    out = container.run(b) {
-        image_ref("docker.io/library/ruby:alpine")
-        command("ruby -e 'puts \"hello-from-aeb-container\"'")
+    out = ""
+    bldr.build(s, "m_container_run") {
+        out = container.run() {
+            image_ref("docker.io/library/ruby:alpine")
+            command("ruby -e 'puts \"hello-from-aeb-container\"'")
+        }
     }
 
     ret_ok = 0

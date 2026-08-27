@@ -648,7 +648,9 @@ _str_opt(builder_map: ptr, key: string, dflt: string) {
     return dflt
 }
 
-builder check(ctx: ptr): int {
+builder check(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")

@@ -89,7 +89,9 @@ phar_fetch_cmd(source_dir: string, url: string, phar: string) {
 // php.test(b) — `phpunit` by default; `php <phar> --configuration <cfg>` when
 // a phar/config is declared, fetching the phar once if absent. Pass/fail
 // telemetry. Honors explicit step()s for back-compat.
-builder test(ctx: ptr): int {
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
 
     // Back-compat: a binding that wrote step("…") keeps the generic path.

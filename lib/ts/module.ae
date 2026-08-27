@@ -249,7 +249,9 @@ _cache_key_for_tsc(ctx: ptr, argfile_path: string, tsconfig_path: string, tsc_cm
 //
 // Coord format:
 //     libs:javascript/ffi-napi  — name in libs/javascript/npm_vendored/package-map
-builder npm_vendored(ctx: ptr, coord: string): int {
+builder npm_vendored(coord: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -264,7 +266,9 @@ builder npm_vendored(ctx: ptr, coord: string): int {
 //
 // Coord format:
 //     name~version  (e.g. "react~18.3.1")
-builder npm_registry(ctx: ptr, name_and_ver: string): int {
+builder npm_registry(name_and_ver: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -306,7 +310,9 @@ _merge_npm_registry_deps(ctx: ptr) {
     return 0
 }
 
-builder tsc_files(ctx: ptr): int {
+builder tsc_files(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     root = bldr._get(ctx, "root")
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
@@ -414,7 +420,9 @@ builder tsc_files(ctx: ptr): int {
     return 0
 }
 
-builder mocha(ctx: ptr, test_file: string): int {
+builder mocha(test_file: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     root = bldr._get(ctx, "root")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -501,7 +509,9 @@ skip_lib_check(_ctx: ptr) {
 // Compile TypeScript using a project's tsconfig.lib.json.
 // Uses tsc from .aeb/node_modules/.bin/tsc.
 // The tsconfig chain handles path aliases and module resolution.
-builder tsc(ctx: ptr): int {
+builder tsc(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")

@@ -324,7 +324,9 @@ _ensure_venv(root: string) {
 // Arg format: "name~version" (e.g. "requests~2.31.0")
 // Multiple calls append to the same artifact so one .whl.ae can bundle
 // several related coords.
-builder wheel_registry(ctx: ptr, name_and_ver: string): int {
+builder wheel_registry(name_and_ver: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -348,7 +350,9 @@ builder wheel_registry(ctx: ptr, name_and_ver: string): int {
 //
 // Arg format: local path to the .whl file (relative to project root)
 // Multiple calls append to the same artifact.
-builder wheel_vendored(ctx: ptr, wheel_path: string): int {
+builder wheel_vendored(wheel_path: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -367,7 +371,9 @@ builder wheel_vendored(ctx: ptr, wheel_path: string): int {
     return 0
 }
 
-builder install(ctx: ptr): int {
+builder install(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     root = bldr._get(ctx, "root")
@@ -456,7 +462,9 @@ builder install(ctx: ptr): int {
 }
 
 // Run pytest using the .aeb/venv/ python.
-builder pytest(ctx: ptr): int {
+builder pytest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -552,7 +560,9 @@ _is_digit_py(c: string) {
 }
 
 // Lint Python source with ruff.
-builder lint(ctx: ptr): int {
+builder lint(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -583,7 +593,9 @@ builder lint(ctx: ptr): int {
 }
 
 // Type-check Python source with mypy.
-builder typecheck(ctx: ptr): int {
+builder typecheck(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -616,7 +628,9 @@ builder typecheck(ctx: ptr): int {
 
 // Build a Python package (wheel + sdist).
 // Generates pyproject.toml from DSL setters, then runs python -m build.
-builder package(ctx: ptr): int {
+builder package(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -726,7 +740,9 @@ builder package(ctx: ptr): int {
 // Outputs land in `target/<module>/dist/` per the existing
 // `build_package_cmd` shape, so this builder is a drop-in for any
 // downstream that consumes the dist artifact.
-builder package_existing(ctx: ptr): int {
+builder package_existing(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -804,7 +820,9 @@ builder package_existing(ctx: ptr): int {
 // declared outputs are large multi-file sets; wiring lib/cache for
 // multi-file artifacts is a follow-up. Today's behaviour is "run if
 // any declared input is newer than the oldest declared output."
-builder codegen(ctx: ptr): int {
+builder codegen(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
@@ -1069,7 +1087,9 @@ _codegen_resolve(cwd: string, p: string) {
 // python.test(b) — run the project's pytest as-is (system python3, no
 // venv), the "drive an existing project" counterpart to the venv-based
 // `pytest` builder. Foundation-backed: honors env(K,V)/step/workdir.
-builder test(ctx: ptr): int {
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (pytest)")
     return bldr._run_project(ctx, _builder, "python3 -m pytest -q", 1)

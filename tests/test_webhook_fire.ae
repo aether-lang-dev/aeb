@@ -128,9 +128,10 @@ main() {
     // Drive the builder the way the orchestrator does. {{ci}} also
     // exercises real interpolation inside the builder.
     s = bldr.session(".")
-    b = bldr.begin(s, "m_webhook")
-    webhook.fire(b) {
-        url("http://127.0.0.1:${port}/hook?probe=aeb&ci={{ci}}")
+    bldr.build(s, "m_webhook") {
+        webhook.fire() {
+            url("http://127.0.0.1:${port}/hook?probe=aeb&ci={{ci}}")
+        }
     }
     os.system("sleep 1")
 

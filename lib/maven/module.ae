@@ -290,12 +290,16 @@ classpath(ctx: ptr) {
 // honors env(K,V) (e.g. JAVA_HOME, a shared .so), step(...) (e.g. install a
 // sibling module first), workdir(...). Named `install`, not `build`, so it
 // does not shadow the imported `build` module inside this file.
-builder test(ctx: ptr): int {
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (mvn test)")
     return bldr._run_project(ctx, _builder, "mvn -q test", 1)
 }
-builder install(ctx: ptr): int {
+builder install(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: building (mvn install)")
     return bldr._run_project(ctx, _builder, "mvn -q -DskipTests install", 0)

@@ -204,7 +204,9 @@ ready_after_ms(_ctx: ptr, n: int) {
 // `aether.driver_test` builder drains the pending list into its
 // own _builder.fixture_seeds list (consumed by
 // bldr._synth_fixture_pre/_post).
-builder fixture_seed(b: ptr, name: string): int {
+builder fixture_seed(name: string): int {
+    b = builder_context()
+    if b == 0 { return 0 }
     path_v = ""
     seed_bin_v = ""
     if _builder != null {
@@ -247,7 +249,9 @@ builder fixture_seed(b: ptr, name: string): int {
 //
 // Storage shape mirrors fixture_seed: packs the 5-tuple as a tab-
 // record into `b._pending_fixture_servers`.
-builder fixture_server(b: ptr, name: string): int {
+builder fixture_server(name: string): int {
+    b = builder_context()
+    if b == 0 { return 0 }
     bin_v = ""
     args_v = ""
     port_v = "0"
@@ -430,7 +434,9 @@ _resolve_script_path(source_dir: string, script_ref: string) {
 //     list.
 // `run` collides with neither a function nor a body local, so it
 // dispatches cleanly. See asks/ for the filed Aether bug.
-builder run(ctx: ptr): int {
+builder run(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     mod_dir = bldr._get(ctx, "module_dir")
 
@@ -591,7 +597,9 @@ _render_line(buf: string, lo: int, hi: int) {
 //
 // If no scripts are declared, auto-discovers `test_*.sh` in the
 // module source dir.
-builder test(ctx: ptr): int {
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
     source_dir = bldr._get(ctx, "source_dir")
     mod_dir = bldr._get(ctx, "module_dir")
 
