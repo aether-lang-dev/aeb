@@ -35,6 +35,27 @@ s{\bbldr\.(dep|dep_artifact|publish_artifact|prereq|scan|pkg_dep|_get|target_dir
 s{\b(($SDK)\.[a-z_][a-z0-9_]*)\(b\)}{$1()}g;
 s{\b(($SDK)\.[a-z_][a-z0-9_]*)\(b,\s*}{$1(}g;
 
+# 3b. BARE (unqualified) calls to ctx-taking verbs/functions/builders that a
+#     `import mod (name)` selective import makes callable without the module
+#     prefix (dep, prereq, load_bom_file, shade, crate_registry, …). Restricted
+#     to a known allowlist so a genuine local `helper(b)` (b = data) is not hit.
+#     These are the graph verbs + readers + the ctx-taking module fns/builders
+#     that nodes call bare. Keep in sync with what nodes selectively import.
+BEGIN {
+  our $BARE = join '|', qw(
+    dep dep_artifact publish_artifact prereq scan pkg_dep
+    _get target_dir source_dir root program_binary_of
+    load_bom_file load_third_party_deps shade codegen_driver
+    crate_registry crate_vendored crate_registry_features
+    wheel_registry wheel_vendored nuget_registry nuget_vendored
+    jar_registry jar_vendored npm_vendored nuget_registry
+    binary_under_test fixture_seed fixture_server
+  );
+}
+our $BARE;
+s{(^|[^.\w])($BARE)\(b\)}{$1$2()}g;
+s{(^|[^.\w])($BARE)\(b,\s*}{$1$2(}g;
+
 # 4. wrap the entrypoint body in bldr.build() { … }. Handles BOTH entrypoint
 #    spellings: the modern `aeb(cap) {` and the legacy `main() {`. Only fires
 #    when `b = bldr.start()` is the FIRST statement. Skip-guard nodes (a `return`

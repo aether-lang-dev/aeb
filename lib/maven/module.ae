@@ -32,7 +32,9 @@ import std.zlib
 // The file is valid Aether code but parsed as text (greppable contract).
 // Path is relative to the module's source directory.
 
-load_bom_file(ctx: ptr, rel_path: string) {
+load_bom_file(_ctx: ptr, rel_path: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     source_dir = bldr._get(ctx, "source_dir")
     full_path = path.join(source_dir, rel_path)
     if file.exists(full_path) == 0 {

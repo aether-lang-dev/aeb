@@ -1630,7 +1630,9 @@ _parse_junit5_count(output: string, marker: string) {
 // works on directories (you can't -C into a .jar), and the per-entry
 // echo emitted embedded newlines that split the jar command into
 // separate shell lines (`sh: -C: not found`). Staging sidesteps both.
-shade(ctx: ptr, main_class: string, jar_name: string) {
+shade(_ctx: ptr, main_class: string, jar_name: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
 
