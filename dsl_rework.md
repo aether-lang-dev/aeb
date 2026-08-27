@@ -1,10 +1,16 @@
 # aeb DSL rework — drop the explicit `b` from builder call sites
 
-**Status:** IN PROGRESS — design PROVEN against `ae` (Shape A verified §2.5/§5;
-dual-mode verified §4). Approved direction (Paul, 2026-08-27): a **fully b-free
-node body** via a `build() { … }` wrapper, landed as a **gradual/dual-mode flip
-+ full node sweep** — incremental and non-breaking at every step, converging so
-that only Shape A remains. NOT a flag-day (dual-mode makes old+new coexist). **Why it matters:**
+**Status:** IN PROGRESS — aeb ENGINE DONE + green (suite 124/124); rust pilot on
+a REAL servirtium-vcr node BUILT + TESTED green on the catchyos box. Approved
+direction (Paul, 2026-08-27): a **fully b-free node body** via a `bldr.build()
+{ … }` wrapper. NOTE — chosen as a **flag-day, no back-compat** (Paul: "we don't
+need back compat; hacker-me would sed then handle the compile errata"). The
+module is renamed `build`→`bldr` (because `builder` is a reserved keyword, so
+`bldr.build()` is the grammar; the earlier "dual-mode/gradual" framing in §4 was
+superseded by this decision). Remaining: the node sweep (aeb itests/tools + the
+~435 downstream nodes) — a proven perl codemod does the bulk; exactly ONE node
+across all repos (servirtium svn_checkout, a pre-`build()` skip-guard) needs a
+hand-pass. **Why it matters:**
 the explicit build handle `b` threaded into every SDK builder —
 `rust.cargo_test_existing(b) { … }` — plus every `dep(b, …)` and `build.start()`
 is aeb's most visible divergence from idiomatic Aether DSLs. Aether itself
