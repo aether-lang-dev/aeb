@@ -6,13 +6,14 @@ import java (release, source_layout)
 
 // jooby-hikari tests. log4jdbc is a test-only JDBC spy driver.
 aeb(cap) {
-    b = bldr.start()
-    bldr.dep(b, "modules/jooby-hikari/.build.ae")
-    load_bom_file(b, "../../jooby.bom.ae")
-    dep(b, "com.zaxxer:HikariCP:7.1.0")
-    dep(b, "org.junit.jupiter:junit-jupiter-engine")
-    dep(b, "org.junit.platform:junit-platform-console")
-    dep(b, "com.googlecode.log4jdbc:log4jdbc:1.2")
-    java.javac_test(b) { release("21")  source_layout("maven idiomatic") }
-    java.junit5(b) {}
+    bldr.build() {
+        dep("modules/jooby-hikari/.build.ae")
+        load_bom_file("../../jooby.bom.ae")
+        dep("com.zaxxer:HikariCP:7.1.0")
+        dep("org.junit.jupiter:junit-jupiter-engine")
+        dep("org.junit.platform:junit-platform-console")
+        dep("com.googlecode.log4jdbc:log4jdbc:1.2")
+        java.javac_test() { release("21")  source_layout("maven idiomatic") }
+        java.junit5() {}
+    }
 }

@@ -4,13 +4,14 @@ import ts
 import ts (skip_lib_check, tsconfig)
 
 main() {
-    b = bldr.start()
-    load_third_party_deps(b, "../../react.deps.ae")
-    dep(b, "libs/cart/cart-page/.build.ae")
-    dep(b, "libs/shared/header/.build.ae")
-    dep(b, "libs/shared/styles/.build.ae")
-    ts.tsc(b) {
-        tsconfig("tsconfig.app.json")
-        skip_lib_check()
+    bldr.build() {
+        load_third_party_deps("../../react.deps.ae")
+        dep("libs/cart/cart-page/.build.ae")
+        dep("libs/shared/header/.build.ae")
+        dep("libs/shared/styles/.build.ae")
+        ts.tsc() {
+            tsconfig("tsconfig.app.json")
+            skip_lib_check()
+        }
     }
 }

@@ -5,25 +5,26 @@ import java
 import java (release, source_layout, enable_preview, test_timeout, parameters)
 
 main() {
-    b = bldr.start()
-    dep(b, "jpa/vector-search/.build.ae")
-    load_bom_file(b, "../../spring-boot.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-test")
-    dep(b, "org.springframework.boot:spring-boot-data-jpa-test")
-    dep(b, "org.junit.platform:junit-platform-console")
-    dep(b, "org.springframework.boot:spring-boot-testcontainers")
-    dep(b, "org.testcontainers:testcontainers-postgresql")
-    dep(b, "org.testcontainers:testcontainers-junit-jupiter")
-    dep(b, "org.apache.commons:commons-lang3")
-    dep(b, "commons-io:commons-io:2.18.0")
-    java.javac_test(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
-    }
-    java.junit5(b) {
-        test_timeout("120")
-        enable_preview()
+    bldr.build() {
+        dep("jpa/vector-search/.build.ae")
+        load_bom_file("../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-test")
+        dep("org.springframework.boot:spring-boot-data-jpa-test")
+        dep("org.junit.platform:junit-platform-console")
+        dep("org.springframework.boot:spring-boot-testcontainers")
+        dep("org.testcontainers:testcontainers-postgresql")
+        dep("org.testcontainers:testcontainers-junit-jupiter")
+        dep("org.apache.commons:commons-lang3")
+        dep("commons-io:commons-io:2.18.0")
+        java.javac_test() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+        }
+        java.junit5() {
+            test_timeout("120")
+            enable_preview()
+        }
     }
 }

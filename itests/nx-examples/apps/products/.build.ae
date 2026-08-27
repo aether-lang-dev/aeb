@@ -4,14 +4,15 @@ import angular
 import angular (skip_lib_check, tsconfig)
 
 main() {
-    b = bldr.start()
-    load_third_party_deps(b, "../../angular.deps.ae")
-    dep(b, "libs/products/home-page/.build.ae")
-    dep(b, "libs/products/product-detail-page/.build.ae")
-    dep(b, "libs/shared/header/.build.ae")
-    dep(b, "libs/shared/styles/.build.ae")
-    angular.ngc(b) {
-        tsconfig("tsconfig.app.json")
-        skip_lib_check()
+    bldr.build() {
+        load_third_party_deps("../../angular.deps.ae")
+        dep("libs/products/home-page/.build.ae")
+        dep("libs/products/product-detail-page/.build.ae")
+        dep("libs/shared/header/.build.ae")
+        dep("libs/shared/styles/.build.ae")
+        angular.ngc() {
+            tsconfig("tsconfig.app.json")
+            skip_lib_check()
+        }
     }
 }

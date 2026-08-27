@@ -9,11 +9,12 @@ import c
 import c (sources, cflag, output_file)
 
 main() {
-    b = bldr.start()
-    c.program(b) {
-        sources("src/*.c")
-        cflag("-O2")
-        cflag("-Wall")
-        output_file("c-hello")
+    bldr.build() {
+        c.program() {
+            sources("src/*.c")
+            cflag("-O2")
+            cflag("-Wall")
+            output_file("c-hello")
+        }
     }
 }

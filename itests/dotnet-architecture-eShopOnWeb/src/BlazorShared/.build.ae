@@ -3,11 +3,12 @@ import dotnet
 import dotnet (root_namespace, assembly_name, nuget)
 
 main() {
-    b = bldr.start()
-    dotnet.build_project(b) {
-        root_namespace("BlazorShared")
-        assembly_name("BlazorShared")
-        nuget("BlazorInputFile")
-        nuget("FluentValidation")
+    bldr.build() {
+        dotnet.build_project() {
+            root_namespace("BlazorShared")
+            assembly_name("BlazorShared")
+            nuget("BlazorInputFile")
+            nuget("FluentValidation")
+        }
     }
 }

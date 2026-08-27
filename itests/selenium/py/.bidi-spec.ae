@@ -7,7 +7,7 @@
 //     bazel_dep(name = "webdriver_bidi_all_cddl", ...)
 //     # ... resolving to https://w3c.github.io/webdriver-bidi/all.cddl
 //
-// The aeb equivalent is `fetch.file(b)` with `url(...)` + `sha256(...)`
+// The aeb equivalent is `fetch.file()` with `url(...)` + `sha256(...)`
 // + `output_to(...)`. The file lands at `specs/all.cddl` in this
 // directory; the sibling `.codegen.ae` (a future addition) would
 // `codegen_input("specs/all.cddl")` and feed it to
@@ -25,10 +25,11 @@ import fetch
 import fetch (url, sha256, output_to)
 
 main() {
-    b = bldr.start()
-    fetch.file(b) {
-        url("https://raw.githubusercontent.com/w3c/webref/5301ec52f85f9156ae696f24523d722193fc0817/ed/cddl/webdriver-bidi-all.cddl")
-        sha256("58baffeda459e2fee2d9b58a896eb4394e87e861ada5cb761a169d32e122138f")
-        output_to("specs/all.cddl")
+    bldr.build() {
+        fetch.file() {
+            url("https://raw.githubusercontent.com/w3c/webref/5301ec52f85f9156ae696f24523d722193fc0817/ed/cddl/webdriver-bidi-all.cddl")
+            sha256("58baffeda459e2fee2d9b58a896eb4394e87e861ada5cb761a169d32e122138f")
+            output_to("specs/all.cddl")
+        }
     }
 }

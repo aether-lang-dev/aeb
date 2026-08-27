@@ -5,17 +5,18 @@ import java
 import java (release, source_layout, enable_preview, parameters)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../spring-boot.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-data-mongodb")
-    dep(b, "com.fasterxml.jackson.core:jackson-databind")
-    dep(b, "com.fasterxml.jackson.core:jackson-annotations")
-    dep(b, "com.fasterxml.jackson.core:jackson-core")
-    dep(b, "org.projectlombok:lombok")
-    java.javac(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
+    bldr.build() {
+        load_bom_file("../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-data-mongodb")
+        dep("com.fasterxml.jackson.core:jackson-databind")
+        dep("com.fasterxml.jackson.core:jackson-annotations")
+        dep("com.fasterxml.jackson.core:jackson-core")
+        dep("org.projectlombok:lombok")
+        java.javac() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+        }
     }
 }

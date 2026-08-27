@@ -8,12 +8,12 @@
 //
 // Two steps:
 //
-//   1. `pnpm.install(b)` at the workspace root (this dir's grandparent
+//   1. `pnpm.install()` at the workspace root (this dir's grandparent
 //      — the file at `selenium/.build.ae` is the install target, see
-//      that file). This file's `bldr.dep(b, "../../.build.ae")`
+//      that file). This file's `dep("../../.build.ae")`
 //      edge means the workspace install runs first.
 //
-//   2. `pnpm.run(b, "lint")` runs the `lint` script from this
+//   2. `pnpm.run("lint")` runs the `lint` script from this
 //      package.json (eslint over the JS sources). Mirrors what an
 //      `npm run lint` would do.
 //
@@ -26,7 +26,8 @@ import bldr (dep)
 import pnpm
 
 main() {
-    b = bldr.start()
-    dep(b, "../../.build.ae")
-    pnpm.run(b, "lint")
+    bldr.build() {
+        dep("../../.build.ae")
+        pnpm.run("lint")
+    }
 }

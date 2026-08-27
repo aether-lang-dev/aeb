@@ -12,6 +12,7 @@ import bldr
 import rust
 
 main() {
-    b = bldr.start()
-    rust.crate_registry(b, "serde_json~1.0")
+    bldr.build() {
+        rust.crate_registry("serde_json~1.0")
+    }
 }

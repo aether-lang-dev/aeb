@@ -3,9 +3,10 @@ import rust
 import rust (crate_name)
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "crates/server/.build.ae")
-    rust.test(b) {
-        crate_name("oxen-server")
+    bldr.build() {
+        dep("crates/server/.build.ae")
+        rust.test() {
+            crate_name("oxen-server")
+        }
     }
 }

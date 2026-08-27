@@ -10,8 +10,9 @@ import c
 import c (aether_source)
 
 main() {
-    b = bldr.start()
-    c.aether_objects(b) {
-        aether_source("add.ae")
+    bldr.build() {
+        c.aether_objects() {
+            aether_source("add.ae")
+        }
     }
 }

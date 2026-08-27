@@ -3,9 +3,10 @@ import rust
 import rust (crate_name)
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "crates/lib/.build.ae")
-    rust.test(b) {
-        crate_name("liboxen")
+    bldr.build() {
+        dep("crates/lib/.build.ae")
+        rust.test() {
+            crate_name("liboxen")
+        }
     }
 }

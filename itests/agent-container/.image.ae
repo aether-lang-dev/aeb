@@ -33,69 +33,70 @@ import container
 import container (from, arg, run_step, expose, entrypoint, workdir, tag)
 
 main() {
-    b = bldr.start()
-    container.image(b) {
-        from("debian:trixie-slim")
-        arg("AEB_REF", "main")
-        arg("AETHER_REF", "main")
-        arg("AEB_TEST_REF", "main")
-
-        // 1. build deps (default-jdk is for the BUILD SUBJECT's javac).
-        run_step(<<SH
-apt-get update && apt-get install -y --no-install-recommends \
-    git curl tar gcc make bc pkg-config \
-    zlib1g-dev libssl-dev ca-certificates default-jdk \
-    && rm -rf /var/lib/apt/lists/*
-SH
-)
-
-        // 2. Aether toolchain, source-built, installed to /usr/local.
-        run_step(<<SH
-git clone --depth 1 --branch "$AETHER_REF" \
-    https://github.com/aether-lang-org/aether.git /tmp/aether \
-    && make -C /tmp/aether -j"$(nproc)" \
-    && make -C /tmp/aether install \
-    && rm -rf /tmp/aether \
-    && ae --version
-SH
-)
-
-        // 3. aeb itself, installed to /usr/local so `aeb` is on PATH.
-        run_step(<<SH
-git clone --depth 1 --branch "$AEB_REF" \
-    https://github.com/aether-lang-org/aeb.git /opt/aeb \
-    && make -C /opt/aeb install PREFIX=/usr/local \
-    && aeb --version
-SH
-)
-
-        // 4. build the aeb-agent WITH aeb (dogfood), symlink onto PATH.
-        workdir("/opt/aeb")
-        run_step(<<SH
-aeb tools/agent/.install.ae \
-    && ln -sf /root/.local/bin/aeb-agent /usr/local/bin/aeb-agent \
-    && test -x /root/.local/bin/aeb-agent
-SH
-)
-
-        // 5. the BUILD SUBJECT — clone aeb-test into /work (the agent's
-        //    --workdir AND --repo). NOT --depth 1: the agent checks out
-        //    arbitrary dispatched hashes a shallow clone can't reach.
-        run_step(<<SH
-git clone --branch "$AEB_TEST_REF" \
-    https://github.com/paul-hammant/aeb-test.git /work \
-    && test -f /work/.build.ae \
-    && mkdir -p /etc/aeb
-SH
-)
-
-        expose("9440")
-
-        // Bind 0.0.0.0 (reachable off-box), fail-closed via --tokens.
-        // --repo /work = where prepare fetches/checks-out/patches;
-        // --workdir /work = where `aeb <target>` runs.
-        entrypoint("[\"aeb-agent\", \"--host\", \"0.0.0.0\", \"--port\", \"9440\", \"--accept\", \"preint/*\", \"--workdir\", \"/work\", \"--repo\", \"/work\", \"--tokens\", \"/etc/aeb/agent.tokens\"]")
-
-        tag("aeb-agent")
+    bldr.build() {
+        container.image() {
+            from("debian:trixie-slim")
+            arg("AEB_REF", "main")
+            arg("AETHER_REF", "main")
+            arg("AEB_TEST_REF", "main")
+    
+            // 1. build deps (default-jdk is for the BUILD SUBJECT's javac).
+            run_step(<<SH
+    apt-get update && apt-get install -y --no-install-recommends \
+        git curl tar gcc make bc pkg-config \
+        zlib1g-dev libssl-dev ca-certificates default-jdk \
+        && rm -rf /var/lib/apt/lists/*
+    SH
+    )
+    
+            // 2. Aether toolchain, source-built, installed to /usr/local.
+            run_step(<<SH
+    git clone --depth 1 --branch "$AETHER_REF" \
+        https://github.com/aether-lang-org/aether.git /tmp/aether \
+        && make -C /tmp/aether -j"$(nproc)" \
+        && make -C /tmp/aether install \
+        && rm -rf /tmp/aether \
+        && ae --version
+    SH
+    )
+    
+            // 3. aeb itself, installed to /usr/local so `aeb` is on PATH.
+            run_step(<<SH
+    git clone --depth 1 --branch "$AEB_REF" \
+        https://github.com/aether-lang-org/aeb.git /opt/aeb \
+        && make -C /opt/aeb install PREFIX=/usr/local \
+        && aeb --version
+    SH
+    )
+    
+            // 4. build the aeb-agent WITH aeb (dogfood), symlink onto PATH.
+            workdir("/opt/aeb")
+            run_step(<<SH
+    aeb tools/agent/.install.ae \
+        && ln -sf /root/.local/bin/aeb-agent /usr/local/bin/aeb-agent \
+        && test -x /root/.local/bin/aeb-agent
+    SH
+    )
+    
+            // 5. the BUILD SUBJECT — clone aeb-test into /work (the agent's
+            //    --workdir AND --repo). NOT --depth 1: the agent checks out
+            //    arbitrary dispatched hashes a shallow clone can't reach.
+            run_step(<<SH
+    git clone --branch "$AEB_TEST_REF" \
+        https://github.com/paul-hammant/aeb-test.git /work \
+        && test -f /work/.build.ae \
+        && mkdir -p /etc/aeb
+    SH
+    )
+    
+            expose("9440")
+    
+            // Bind 0.0.0.0 (reachable off-box), fail-closed via --tokens.
+            // --repo /work = where prepare fetches/checks-out/patches;
+            // --workdir /work = where `aeb <target>` runs.
+            entrypoint("[\"aeb-agent\", \"--host\", \"0.0.0.0\", \"--port\", \"9440\", \"--accept\", \"preint/*\", \"--workdir\", \"/work\", \"--repo\", \"/work\", \"--tokens\", \"/etc/aeb/agent.tokens\"]")
+    
+            tag("aeb-agent")
+        }
     }
 }

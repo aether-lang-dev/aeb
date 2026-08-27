@@ -7,22 +7,23 @@ import rust (workspace_member, workspace_edition, workspace_version,
              workspace_exclude, load_workspace_deps)
 
 main() {
-    b = bldr.start()
-    rust.cargo_workspace(b) {
-        workspace_version("0.46.11")
-        workspace_edition("2024")
-        workspace_license_file("LICENSE")
-        workspace_description("Oxen is a fast, unstructured data version control, to help version large machine learning datasets written in Rust.")
-        workspace_homepage("https://oxen.ai")
-        workspace_repository("https://github.com/Oxen-AI/Oxen")
-        workspace_readme("README.md")
-        workspace_rust_version("1.94")
-        workspace_keywords("machine-learning,AI,version-control")
-        workspace_categories("command-line-utilities,science,multimedia,database,computer-vision")
-        workspace_exclude("crates/data,experiments/*")
-        workspace_member("crates/lib")
-        workspace_member("crates/cli")
-        workspace_member("crates/server")
-        load_workspace_deps("workspace.deps.ae")
+    bldr.build() {
+        rust.cargo_workspace() {
+            workspace_version("0.46.11")
+            workspace_edition("2024")
+            workspace_license_file("LICENSE")
+            workspace_description("Oxen is a fast, unstructured data version control, to help version large machine learning datasets written in Rust.")
+            workspace_homepage("https://oxen.ai")
+            workspace_repository("https://github.com/Oxen-AI/Oxen")
+            workspace_readme("README.md")
+            workspace_rust_version("1.94")
+            workspace_keywords("machine-learning,AI,version-control")
+            workspace_categories("command-line-utilities,science,multimedia,database,computer-vision")
+            workspace_exclude("crates/data,experiments/*")
+            workspace_member("crates/lib")
+            workspace_member("crates/cli")
+            workspace_member("crates/server")
+            load_workspace_deps("workspace.deps.ae")
+        }
     }
 }

@@ -4,7 +4,7 @@
 // (Selenium.snk) + assembly-info templating + multi-targeting
 // (netstandard2.0). aeb's `dotnet.build_project` would regenerate
 // the .csproj from setters and lose all of that, so the right
-// builder is `dotnet.build_project_existing(b)` — runs
+// builder is `dotnet.build_project_existing()` — runs
 // `dotnet build` against the upstream .csproj unchanged.
 //
 // Selenium uses paket for NuGet pinning (`paket.dependencies`,
@@ -19,6 +19,7 @@ import bldr
 import dotnet
 
 main() {
-    b = bldr.start()
-    dotnet.build_project_existing(b)
+    bldr.build() {
+        dotnet.build_project_existing()
+    }
 }

@@ -5,21 +5,22 @@ import java
 import java (release, source_layout, enable_preview, test_timeout, parameters)
 
 main() {
-    b = bldr.start()
-    dep(b, "redis/reactive/.build.ae")
-    load_bom_file(b, "../../spring-boot.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-test")
-    dep(b, "org.springframework.boot:spring-boot-data-redis-test")
-    dep(b, "org.junit.platform:junit-platform-console")
-    dep(b, "io.projectreactor:reactor-test")
-    java.javac_test(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
-    }
-    java.junit5(b) {
-        test_timeout("30")
-        enable_preview()
+    bldr.build() {
+        dep("redis/reactive/.build.ae")
+        load_bom_file("../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-test")
+        dep("org.springframework.boot:spring-boot-data-redis-test")
+        dep("org.junit.platform:junit-platform-console")
+        dep("io.projectreactor:reactor-test")
+        java.javac_test() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+        }
+        java.junit5() {
+            test_timeout("30")
+            enable_preview()
+        }
     }
 }

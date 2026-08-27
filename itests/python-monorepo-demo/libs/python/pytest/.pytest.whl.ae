@@ -11,6 +11,7 @@ import bldr
 import python
 
 main() {
-    b = bldr.start()
-    python.wheel_registry(b, "pytest~")
+    bldr.build() {
+        python.wheel_registry("pytest~")
+    }
 }

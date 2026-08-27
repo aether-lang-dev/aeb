@@ -3,19 +3,20 @@ import dotnet
 import dotnet (root_namespace, nullable, implicit_usings, test_project, nuget)
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "src/ApplicationCore/.build.ae")
-    bldr.dep(b, "src/Web/.build.ae")
-    dotnet.build_project(b) {
-        root_namespace("Microsoft.eShopWeb.UnitTests")
-        nullable()
-        implicit_usings()
-        test_project()
-        nuget("Microsoft.NET.Test.Sdk")
-        nuget("NSubstitute")
-        nuget("NSubstitute.Analyzers.CSharp")
-        nuget("xunit")
-        nuget("xunit.runner.visualstudio")
-        nuget("xunit.runner.console")
+    bldr.build() {
+        dep("src/ApplicationCore/.build.ae")
+        dep("src/Web/.build.ae")
+        dotnet.build_project() {
+            root_namespace("Microsoft.eShopWeb.UnitTests")
+            nullable()
+            implicit_usings()
+            test_project()
+            nuget("Microsoft.NET.Test.Sdk")
+            nuget("NSubstitute")
+            nuget("NSubstitute.Analyzers.CSharp")
+            nuget("xunit")
+            nuget("xunit.runner.visualstudio")
+            nuget("xunit.runner.console")
+        }
     }
 }

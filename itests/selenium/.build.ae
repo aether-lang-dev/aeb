@@ -16,8 +16,9 @@ import pnpm
 import pnpm (frozen_lockfile)
 
 main() {
-    b = bldr.start()
-    pnpm.install(b) {
-        frozen_lockfile()
+    bldr.build() {
+        pnpm.install() {
+            frozen_lockfile()
+        }
     }
 }

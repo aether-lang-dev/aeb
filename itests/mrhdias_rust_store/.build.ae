@@ -3,36 +3,37 @@ import rust
 import rust (crate_name, edition, crate_dep, crate_dep_features)
 
 main() {
-    b = bldr.start()
-    rust.cargo_project(b) {
-        crate_name("store")
-        edition("2021")
-
-        crate_dep("anyhow", "1.0.86")
-        crate_dep("decimal", "2.1.0")
-        crate_dep("num-traits", "0.2.19")
-        crate_dep("regex", "1.10.5")
-        crate_dep("rust-ini", "0.21.0")
-        crate_dep("rust_decimal", "1.35.0")
-        crate_dep("slug", "0.1.5")
-        crate_dep("time", "0.3.36")
-        crate_dep("tower", "0.4.13")
-        crate_dep("tower-sessions", "0.12.2")
-        crate_dep("typed-headers", "0.2.0")
-        crate_dep("url", "2.5.1")
-        crate_dep("serde_json", "1.0.117")
-
-        crate_dep_features("axum", "0.7.5", "form,multipart")
-        crate_dep_features("chrono", "0.4.38", "serde")
-        crate_dep_features("clap", "4.5.16", "derive")
-        crate_dep_features("lettre", "0.11.7", "tokio1-native-tls")
-        crate_dep_features("serde", "1.0.203", "derive")
-        crate_dep_features("sqlx", "0.7.4", "postgres,runtime-tokio,json,rust_decimal,chrono")
-        crate_dep_features("strum", "0.26", "derive")
-        crate_dep_features("tera", "1.20.0", "builtins")
-        crate_dep_features("tokio", "1.38.0", "rt-multi-thread")
-        crate_dep_features("tower-http", "0.5.2", "tower,fs,normalize-path")
-        crate_dep_features("tower-sessions-sqlx-store", "0.12.0", "postgres")
-        crate_dep_features("uuid", "1.9.1", "v4")
+    bldr.build() {
+        rust.cargo_project() {
+            crate_name("store")
+            edition("2021")
+    
+            crate_dep("anyhow", "1.0.86")
+            crate_dep("decimal", "2.1.0")
+            crate_dep("num-traits", "0.2.19")
+            crate_dep("regex", "1.10.5")
+            crate_dep("rust-ini", "0.21.0")
+            crate_dep("rust_decimal", "1.35.0")
+            crate_dep("slug", "0.1.5")
+            crate_dep("time", "0.3.36")
+            crate_dep("tower", "0.4.13")
+            crate_dep("tower-sessions", "0.12.2")
+            crate_dep("typed-headers", "0.2.0")
+            crate_dep("url", "2.5.1")
+            crate_dep("serde_json", "1.0.117")
+    
+            crate_dep_features("axum", "0.7.5", "form,multipart")
+            crate_dep_features("chrono", "0.4.38", "serde")
+            crate_dep_features("clap", "4.5.16", "derive")
+            crate_dep_features("lettre", "0.11.7", "tokio1-native-tls")
+            crate_dep_features("serde", "1.0.203", "derive")
+            crate_dep_features("sqlx", "0.7.4", "postgres,runtime-tokio,json,rust_decimal,chrono")
+            crate_dep_features("strum", "0.26", "derive")
+            crate_dep_features("tera", "1.20.0", "builtins")
+            crate_dep_features("tokio", "1.38.0", "rt-multi-thread")
+            crate_dep_features("tower-http", "0.5.2", "tower,fs,normalize-path")
+            crate_dep_features("tower-sessions-sqlx-store", "0.12.0", "postgres")
+            crate_dep_features("uuid", "1.9.1", "v4")
+        }
     }
 }

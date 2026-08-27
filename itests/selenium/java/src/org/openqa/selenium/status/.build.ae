@@ -21,10 +21,10 @@
 //
 // The aeb translation:
 //
-//   - `srcs = glob(["*.java"])` → `java.javac(b)` with no
+//   - `srcs = glob(["*.java"])` → `java.javac()` with no
 //     `source_layout` set; lib/java's default mode picks up *.java
 //     in source_dir (Bazel-flat package layout).
-//   - `artifact("org.jspecify:jspecify")` → `dep(b, "org.jspecify:jspecify:1.0.0")`;
+//   - `artifact("org.jspecify:jspecify")` → `dep("org.jspecify:jspecify:1.0.0")`;
 //     lib/build routes the colon-bearing coord into maven_deps,
 //     lib/maven resolves against ~/.m2 (version comes from
 //     `java/maven_install.json`'s pinned closure).
@@ -40,9 +40,10 @@ import java
 import java (release)
 
 main() {
-    b = bldr.start()
-    dep(b, "org.jspecify:jspecify:1.0.0")
-    java.javac(b) {
-        release("17")
+    bldr.build() {
+        dep("org.jspecify:jspecify:1.0.0")
+        java.javac() {
+            release("17")
+        }
     }
 }

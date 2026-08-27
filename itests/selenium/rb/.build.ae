@@ -13,15 +13,15 @@
 //
 // aeb shape:
 //
-//   1. copy.file(b)     — stage LICENSE and NOTICE from the repo
+//   1. copy.file()     — stage LICENSE and NOTICE from the repo
 //                         root into rb/. The .gemspec references
 //                         them as required files; without staging,
 //                         `gem build` fails with
 //                         "[LICENSE, NOTICE] are not files".
-//   2. ruby.install(b)  — bundle install from the upstream Gemfile.
+//   2. ruby.install()  — bundle install from the upstream Gemfile.
 //                         Honours `Gemfile.lock`; project-local gem
 //                         closure lands under `.aeb/bundle/`.
-//   3. ruby.package(b)  — gem build against selenium-webdriver.gemspec.
+//   3. ruby.package()  — gem build against selenium-webdriver.gemspec.
 //                         Output: target/<mod>/dist/selenium-webdriver-<ver>.gem.
 //                         (Builder is `package`, not `gem`, because
 //                         `gem` is the Gemfile-line setter; LLM.md
@@ -49,17 +49,18 @@ import ruby
 import ruby (gemspec)
 
 main() {
-    b = bldr.start()
-    copy.file(b) {
-        from("../LICENSE")
-        to("LICENSE")
-    }
-    copy.file(b) {
-        from("../NOTICE")
-        to("NOTICE")
-    }
-    ruby.install(b)
-    ruby.package(b) {
-        gemspec("selenium-webdriver.gemspec")
+    bldr.build() {
+        copy.file() {
+            from("../LICENSE")
+            to("LICENSE")
+        }
+        copy.file() {
+            from("../NOTICE")
+            to("NOTICE")
+        }
+        ruby.install()
+        ruby.package() {
+            gemspec("selenium-webdriver.gemspec")
+        }
     }
 }

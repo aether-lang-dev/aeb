@@ -5,7 +5,8 @@ import bash
 import bldr (dep)
 
 main() {
-    b = bldr.start()
-    dep(b, "app/.build.ae")
-    bash.test(b)
+    bldr.build() {
+        dep("app/.build.ae")
+        bash.test()
+    }
 }

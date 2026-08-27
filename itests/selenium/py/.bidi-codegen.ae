@@ -32,45 +32,46 @@ import python
 import python (codegen_script, codegen_input, codegen_arg, codegen_output)
 
 main() {
-    b = bldr.start()
-
-    // The fetch step is upstream — run .bidi-spec.ae first so
-    // specs/all.cddl exists before this codegen reads it. Aeb's
-    // file-to-file edges handle the ordering.
-    dep(b, ".bidi-spec.ae")
-
-    python.codegen(b) {
-        // Script form: `python py/generate_bidi.py ...` (the script
-        // isn't packaged as a module).
-        codegen_script("generate_bidi.py")
-
-        // Inputs the script reads. The fetched CDDL is the canonical
-        // spec; the manifest is selenium-side Python code that
-        // refines the generator's output for the BiDi module set.
-        codegen_input("specs/all.cddl")
-        codegen_input("private/bidi_enhancements_manifest.py")
-
-        // Positional args: cddl_file, output_dir, [spec_version].
-        // Output goes into the upstream-tree location the
-        // generator writes to so a Python build picks the generated
-        // modules up from their canonical paths.
-        codegen_arg("specs/all.cddl")
-        codegen_arg("selenium/webdriver/common/bidi")
-        codegen_arg("1.0")
-        codegen_arg("--enhancements-manifest")
-        codegen_arg("private/bidi_enhancements_manifest.py")
-
-        // Representative output declarations. The generator emits
-        // one Python module per top-level CDDL section (browser,
-        // browsing_context, script, network, …). The exact list
-        // depends on the CDDL content; declaring a subset here
-        // means python.codegen verifies these specific files
-        // exist after the run, catching silent partial-generation
-        // bugs.
-        codegen_output("selenium/webdriver/common/bidi/browser.py")
-        codegen_output("selenium/webdriver/common/bidi/browsing_context.py")
-        codegen_output("selenium/webdriver/common/bidi/script.py")
-        codegen_output("selenium/webdriver/common/bidi/network.py")
-        codegen_output("selenium/webdriver/common/bidi/session.py")
+    bldr.build() {
+    
+        // The fetch step is upstream — run .bidi-spec.ae first so
+        // specs/all.cddl exists before this codegen reads it. Aeb's
+        // file-to-file edges handle the ordering.
+        dep(".bidi-spec.ae")
+    
+        python.codegen() {
+            // Script form: `python py/generate_bidi.py ...` (the script
+            // isn't packaged as a module).
+            codegen_script("generate_bidi.py")
+    
+            // Inputs the script reads. The fetched CDDL is the canonical
+            // spec; the manifest is selenium-side Python code that
+            // refines the generator's output for the BiDi module set.
+            codegen_input("specs/all.cddl")
+            codegen_input("private/bidi_enhancements_manifest.py")
+    
+            // Positional args: cddl_file, output_dir, [spec_version].
+            // Output goes into the upstream-tree location the
+            // generator writes to so a Python build picks the generated
+            // modules up from their canonical paths.
+            codegen_arg("specs/all.cddl")
+            codegen_arg("selenium/webdriver/common/bidi")
+            codegen_arg("1.0")
+            codegen_arg("--enhancements-manifest")
+            codegen_arg("private/bidi_enhancements_manifest.py")
+    
+            // Representative output declarations. The generator emits
+            // one Python module per top-level CDDL section (browser,
+            // browsing_context, script, network, …). The exact list
+            // depends on the CDDL content; declaring a subset here
+            // means python.codegen verifies these specific files
+            // exist after the run, catching silent partial-generation
+            // bugs.
+            codegen_output("selenium/webdriver/common/bidi/browser.py")
+            codegen_output("selenium/webdriver/common/bidi/browsing_context.py")
+            codegen_output("selenium/webdriver/common/bidi/script.py")
+            codegen_output("selenium/webdriver/common/bidi/network.py")
+            codegen_output("selenium/webdriver/common/bidi/session.py")
+        }
     }
 }

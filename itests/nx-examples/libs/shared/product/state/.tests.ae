@@ -3,8 +3,9 @@ import bldr (dep, load_third_party_deps)
 import jest
 
 main() {
-    b = bldr.start()
-    dep(b, "libs/shared/product/state/.build.ae")
-    load_third_party_deps(b, "../../../../angular.deps.ae")
-    jest.test(b)
+    bldr.build() {
+        dep("libs/shared/product/state/.build.ae")
+        load_third_party_deps("../../../../angular.deps.ae")
+        jest.test()
+    }
 }

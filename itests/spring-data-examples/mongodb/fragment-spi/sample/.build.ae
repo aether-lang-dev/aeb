@@ -5,15 +5,16 @@ import java
 import java (release, source_layout, enable_preview, parameters)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../../spring-boot.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-data-mongodb")
-    dep(b, "org.projectlombok:lombok")
-    dep(b, "mongodb/fragment-spi/atlas-api/.build.ae")
-    java.javac(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
+    bldr.build() {
+        load_bom_file("../../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-data-mongodb")
+        dep("org.projectlombok:lombok")
+        dep("mongodb/fragment-spi/atlas-api/.build.ae")
+        java.javac() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+        }
     }
 }

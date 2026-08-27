@@ -5,18 +5,19 @@ import java
 import java (release, source_layout, enable_preview, parameters)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../spring-boot.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-data-jpa")
-    dep(b, "org.springframework.boot:spring-boot-starter-web")
-    dep(b, "org.springframework.boot:spring-boot-starter-thymeleaf")
-    dep(b, "org.springframework.boot:spring-boot-starter-security")
-    dep(b, "org.hsqldb:hsqldb")
-    dep(b, "org.projectlombok:lombok")
-    java.javac(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
+    bldr.build() {
+        load_bom_file("../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-data-jpa")
+        dep("org.springframework.boot:spring-boot-starter-web")
+        dep("org.springframework.boot:spring-boot-starter-thymeleaf")
+        dep("org.springframework.boot:spring-boot-starter-security")
+        dep("org.hsqldb:hsqldb")
+        dep("org.projectlombok:lombok")
+        java.javac() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+        }
     }
 }

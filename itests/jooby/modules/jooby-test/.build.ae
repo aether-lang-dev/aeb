@@ -5,11 +5,12 @@ import java
 import java (release, source_layout, no_module_info)
 
 aeb(cap) {
-    b = bldr.start()
-    bldr.dep(b, "jooby/.build.ae")
-    bldr.dep(b, "modules/jooby-kotlin/.build.ae")
-    load_bom_file(b, "../../jooby.bom.ae")
-    dep(b, "org.junit.jupiter:junit-jupiter-api")
-    dep(b, "org.junit.jupiter:junit-jupiter-engine")
-    java.javac(b) { release("21")  source_layout("maven idiomatic")  no_module_info() }
+    bldr.build() {
+        dep("jooby/.build.ae")
+        dep("modules/jooby-kotlin/.build.ae")
+        load_bom_file("../../jooby.bom.ae")
+        dep("org.junit.jupiter:junit-jupiter-api")
+        dep("org.junit.jupiter:junit-jupiter-engine")
+        java.javac() { release("21")  source_layout("maven idiomatic")  no_module_info() }
+    }
 }

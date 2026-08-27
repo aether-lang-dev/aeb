@@ -3,15 +3,16 @@ import dotnet
 import dotnet (root_namespace, nullable, nuget)
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "src/ApplicationCore/.build.ae")
-    dotnet.build_project(b) {
-        root_namespace("Microsoft.eShopWeb.Infrastructure")
-        nullable()
-        nuget("Ardalis.Specification.EntityFrameworkCore")
-        nuget("Microsoft.AspNetCore.Identity.EntityFrameworkCore")
-        nuget("Microsoft.EntityFrameworkCore.InMemory")
-        nuget("Microsoft.EntityFrameworkCore.SqlServer")
-        nuget("System.IdentityModel.Tokens.Jwt")
+    bldr.build() {
+        dep("src/ApplicationCore/.build.ae")
+        dotnet.build_project() {
+            root_namespace("Microsoft.eShopWeb.Infrastructure")
+            nullable()
+            nuget("Ardalis.Specification.EntityFrameworkCore")
+            nuget("Microsoft.AspNetCore.Identity.EntityFrameworkCore")
+            nuget("Microsoft.EntityFrameworkCore.InMemory")
+            nuget("Microsoft.EntityFrameworkCore.SqlServer")
+            nuget("System.IdentityModel.Tokens.Jwt")
+        }
     }
 }

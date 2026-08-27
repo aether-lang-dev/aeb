@@ -4,10 +4,11 @@ import ts
 import ts (skip_lib_check)
 
 main() {
-    b = bldr.start()
-    load_third_party_deps(b, "../../../../base.deps.ae")
-    dep(b, "libs/shared/jsxify/.build.ae")
-    ts.tsc(b) {
-        skip_lib_check()
+    bldr.build() {
+        load_third_party_deps("../../../../base.deps.ae")
+        dep("libs/shared/jsxify/.build.ae")
+        ts.tsc() {
+            skip_lib_check()
+        }
     }
 }

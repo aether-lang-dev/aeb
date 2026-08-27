@@ -4,11 +4,12 @@ import angular
 import angular (skip_lib_check)
 
 main() {
-    b = bldr.start()
-    load_third_party_deps(b, "../../../../angular.deps.ae")
-    dep(b, "libs/shared/product/data/.build.ae")
-    dep(b, "libs/shared/product/state/.build.ae")
-    angular.ngc(b) {
-        skip_lib_check()
+    bldr.build() {
+        load_third_party_deps("../../../../angular.deps.ae")
+        dep("libs/shared/product/data/.build.ae")
+        dep("libs/shared/product/state/.build.ae")
+        angular.ngc() {
+            skip_lib_check()
+        }
     }
 }

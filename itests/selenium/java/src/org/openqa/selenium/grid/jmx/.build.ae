@@ -22,10 +22,11 @@ import java
 import java (release)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../../../../../selenium-deps.bom.ae")
-    dep(b, "org.jspecify:jspecify:1.0.0")
-    java.javac(b) {
-        release("17")
+    bldr.build() {
+        load_bom_file("../../../../../../selenium-deps.bom.ae")
+        dep("org.jspecify:jspecify:1.0.0")
+        java.javac() {
+            release("17")
+        }
     }
 }

@@ -3,8 +3,9 @@ import bldr (dep, load_third_party_deps)
 import webpack
 
 main() {
-    b = bldr.start()
-    dep(b, "apps/cart/.build.ae")
-    load_third_party_deps(b, "../../react.deps.ae")
-    webpack.bundle(b)
+    bldr.build() {
+        dep("apps/cart/.build.ae")
+        load_third_party_deps("../../react.deps.ae")
+        webpack.bundle()
+    }
 }

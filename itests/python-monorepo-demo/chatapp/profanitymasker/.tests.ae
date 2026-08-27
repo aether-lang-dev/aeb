@@ -2,7 +2,8 @@ import bldr
 import python
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "chatapp/profanitymasker/.build.ae")
-    python.pytest(b)
+    bldr.build() {
+        dep("chatapp/profanitymasker/.build.ae")
+        python.pytest()
+    }
 }

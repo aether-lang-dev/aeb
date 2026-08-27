@@ -3,10 +3,11 @@ import rust
 import rust (crate_name, edition)
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "libs/serde_json/.serde_json.crate.ae")
-    rust.cargo_project(b) {
-        crate_name("rust-registry-crate-demo")
-        edition("2021")
+    bldr.build() {
+        dep("libs/serde_json/.serde_json.crate.ae")
+        rust.cargo_project() {
+            crate_name("rust-registry-crate-demo")
+            edition("2021")
+        }
     }
 }

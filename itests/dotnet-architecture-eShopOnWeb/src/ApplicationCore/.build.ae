@@ -3,15 +3,16 @@ import dotnet
 import dotnet (root_namespace, nullable, nuget)
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "src/BlazorShared/.build.ae")
-    dotnet.build_project(b) {
-        root_namespace("Microsoft.eShopWeb.ApplicationCore")
-        nullable()
-        nuget("Ardalis.GuardClauses")
-        nuget("Ardalis.Result")
-        nuget("Ardalis.Specification")
-        nuget("System.Security.Claims")
-        nuget("System.Text.Json")
+    bldr.build() {
+        dep("src/BlazorShared/.build.ae")
+        dotnet.build_project() {
+            root_namespace("Microsoft.eShopWeb.ApplicationCore")
+            nullable()
+            nuget("Ardalis.GuardClauses")
+            nuget("Ardalis.Result")
+            nuget("Ardalis.Specification")
+            nuget("System.Security.Claims")
+            nuget("System.Text.Json")
+        }
     }
 }

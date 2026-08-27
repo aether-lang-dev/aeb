@@ -12,10 +12,11 @@ import c
 import c (sources, output_file)
 
 main() {
-    b = bldr.start()
-    dep(b, "codegen/.build.ae")
-    c.program(b) {
-        sources("src/main.c")
-        output_file("c-aether-spike-b")
+    bldr.build() {
+        dep("codegen/.build.ae")
+        c.program() {
+            sources("src/main.c")
+            output_file("c-aether-spike-b")
+        }
     }
 }

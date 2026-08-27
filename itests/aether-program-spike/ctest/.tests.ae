@@ -9,9 +9,10 @@ import bldr (dep)
 import c (run)
 
 main() {
-    b = bldr.start()
-    dep(b, "app/.build.ae")
-    c.tests(b) {
-        run("app/.build.ae", "script.js")
+    bldr.build() {
+        dep("app/.build.ae")
+        c.tests() {
+            run("app/.build.ae", "script.js")
+        }
     }
 }

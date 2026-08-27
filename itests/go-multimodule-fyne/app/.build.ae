@@ -2,6 +2,7 @@ import bldr
 import go
 
 main() {
-    b = bldr.start()
-    go.check(b)
+    bldr.build() {
+        go.check()
+    }
 }

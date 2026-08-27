@@ -18,14 +18,14 @@
 //
 // aeb translation:
 //
-//   - `srcs = glob(["*.java"])` → `java.javac(b)` default mode
+//   - `srcs = glob(["*.java"])` → `java.javac()` default mode
 //     picks up `*.java` in source_dir.
 //   - `artifact("org.jspecify:jspecify")` — the Bazel form is
 //     unversioned because rules_jvm_external looks the version up
 //     in `maven_install.json`. The aeb form loads the shared
 //     `../../../../selenium-deps.bom.ae` (which pins jspecify to
 //     1.0.0) and declares the coord unversioned via
-//     `dep(b, "org.jspecify:jspecify")` — the BOM supplies the
+//     `dep("org.jspecify:jspecify")` — the BOM supplies the
 //     pinned version to aeb-resolve.jar.
 //
 // This pattern is the load-bearing one for scaling Java conversion:
@@ -46,10 +46,11 @@ import java
 import java (release)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../../../../selenium-deps.bom.ae")
-    dep(b, "org.jspecify:jspecify:1.0.0")
-    java.javac(b) {
-        release("17")
+    bldr.build() {
+        load_bom_file("../../../../../selenium-deps.bom.ae")
+        dep("org.jspecify:jspecify:1.0.0")
+        java.javac() {
+            release("17")
+        }
     }
 }

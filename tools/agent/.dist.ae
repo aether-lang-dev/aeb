@@ -13,9 +13,10 @@ import bldr
 import aether
 import aether (source, output)
 main() {
-    b = bldr.start()
-    aether.program(b) {
-        source("../aeb-agent.ae")
-        output("aeb-agent")
+    bldr.build() {
+        aether.program() {
+            source("../aeb-agent.ae")
+            output("aeb-agent")
+        }
     }
 }

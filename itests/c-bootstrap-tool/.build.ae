@@ -11,10 +11,11 @@ import c
 import c (sources, output_file)
 
 main() {
-    b = bldr.start()
-    dep(b, "gen/.build.ae")
-    c.program(b) {
-        sources("src/main.c")
-        output_file("c-bootstrap-tool")
+    bldr.build() {
+        dep("gen/.build.ae")
+        c.program() {
+            sources("src/main.c")
+            output_file("c-bootstrap-tool")
+        }
     }
 }

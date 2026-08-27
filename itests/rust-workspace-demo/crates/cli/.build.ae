@@ -3,13 +3,14 @@ import rust
 import rust (crate_name, edition, ws_dep, path_dep)
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "crates/greeter/.build.ae")
-    rust.cargo_crate(b) {
-        crate_name("greet-cli")
-        edition("2021")
-        ws_dep("serde_json")
-        ws_dep("clap")
-        path_dep("greeter", "../greeter")
+    bldr.build() {
+        dep("crates/greeter/.build.ae")
+        rust.cargo_crate() {
+            crate_name("greet-cli")
+            edition("2021")
+            ws_dep("serde_json")
+            ws_dep("clap")
+            path_dep("greeter", "../greeter")
+        }
     }
 }

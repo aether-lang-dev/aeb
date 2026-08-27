@@ -2,11 +2,12 @@ import bldr
 import rust
 
 main() {
-    b = bldr.start()
-    // Depend on all member .build.ae files so they generate their Cargo.toml first
-    bldr.dep(b, "crates/lib/.build.ae")
-    bldr.dep(b, "crates/cli/.build.ae")
-    bldr.dep(b, "crates/server/.build.ae")
-    // Then run cargo check across the whole workspace
-    rust.check_workspace(b)
+    bldr.build() {
+        // Depend on all member .build.ae files so they generate their Cargo.toml first
+        dep("crates/lib/.build.ae")
+        dep("crates/cli/.build.ae")
+        dep("crates/server/.build.ae")
+        // Then run cargo check across the whole workspace
+        rust.check_workspace()
+    }
 }

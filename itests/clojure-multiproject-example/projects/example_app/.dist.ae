@@ -4,7 +4,7 @@
 // AOT-compiles to a real entry-point class. The upstream deps.edn has
 // no uberjar alias (this demo repo runs from source via clj), but the
 // natural packaging step for a gen-class app is a `lein uberjar`-style
-// standalone jar. aeb's no-leiningen analogue is `clojure.uberjar(b)`.
+// standalone jar. aeb's no-leiningen analogue is `clojure.uberjar()`.
 //
 // Chain: bldr.dep on .build.ae compiles + writes the maven_classpath
 // artifact (clojure.jar + any deps) into the shared target_dir;
@@ -21,12 +21,13 @@ import clojure
 import clojure (main_ns)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../clojars.bom.ae")
-    load_bom_file(b, "../../clojure-dep-patches.bom.ae")
-    dep(b, "org.clojure:clojure:1.12.0")
-    dep(b, ".build.ae")
-    clojure.uberjar(b) {
-        main_ns("com.example.core")
+    bldr.build() {
+        load_bom_file("../../clojars.bom.ae")
+        load_bom_file("../../clojure-dep-patches.bom.ae")
+        dep("org.clojure:clojure:1.12.0")
+        dep(".build.ae")
+        clojure.uberjar() {
+            main_ns("com.example.core")
+        }
     }
 }

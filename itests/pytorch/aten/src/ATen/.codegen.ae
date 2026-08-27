@@ -29,58 +29,59 @@ import python (codegen_driver, codegen_input, codegen_input_dir,
                codegen_arg, codegen_output, codegen_cwd)
 
 main() {
-    b = bldr.start()
-    python.codegen(b) {
-        // Run torchgen from the pytorch root. The package layout puts
-        // `torchgen/` as a sibling of `aten/`, so PYTHONPATH falls out
-        // of cwd.
-        codegen_cwd("../../..")
-        codegen_driver("torchgen.gen")
-
-        // Two YAML inputs are the canonical "what ops exist"
-        // specification. tags.yaml carries the operator-tag taxonomy
-        // (composite, structured, view, …).
-        codegen_input("aten/src/ATen/native/native_functions.yaml")
-        codegen_input("aten/src/ATen/native/tags.yaml")
-
-        // Codegen tool source — every .py file under torchgen/ affects
-        // output. Declared as an input dir; aeb hashes recursively at
-        // staleness-check time (mtime-driven for the MVP).
-        codegen_input_dir("torchgen")
-
-        // Template tree — Functions.cpp, Functions.h, Operators.cpp,
-        // NativeFunctions.h, RegisterDispatchKey.cpp, etc. Each is a
-        // Jinja-style template the codegen substitutes into.
-        codegen_input_dir("aten/src/ATen/templates")
-
-        // CLI args. Match `cmake/Codegen.cmake`'s GEN_COMMAND. The
-        // install_dir is below aeb's target/ tree so the artifact
-        // lives alongside the build outputs and gets cleaned by aeb
-        // conventions.
-        codegen_arg("--source-path")
-        codegen_arg("aten/src/ATen")
-        codegen_arg("--install_dir")
-        codegen_arg("target/codegen/aten/src/ATen")
-        codegen_arg("--headeronly-install-dir")
-        codegen_arg("target/codegen/torch/headeronly/core")
-
-        // Representative output declarations. The full output set is
-        // dictated by the YAML; this subset is the minimum we'd want
-        // a future ATen `.build.ae` to consume. Expand as downstream
-        // compilation actually links against the rest.
-        codegen_output("target/codegen/aten/src/ATen/Functions.cpp")
-        codegen_output("target/codegen/aten/src/ATen/Functions.h")
-        codegen_output("target/codegen/aten/src/ATen/NativeFunctions.h")
-        // torchgen shards Operators across N files when the YAML is
-        // big enough — we get Operators_0.cpp … Operators_4.cpp plus
-        // OperatorsEverything.cpp in the current upstream. Pick a
-        // representative shard for the contract; the rest are real
-        // outputs but only the declared ones are verified.
-        codegen_output("target/codegen/aten/src/ATen/Operators_0.cpp")
-        codegen_output("target/codegen/aten/src/ATen/OperatorsEverything.cpp")
-        codegen_output("target/codegen/aten/src/ATen/Operators.h")
-        codegen_output("target/codegen/aten/src/ATen/RegisterSchema.cpp")
-        codegen_output("target/codegen/aten/src/ATen/MethodOperators.h")
-        codegen_output("target/codegen/aten/src/ATen/RegistrationDeclarations.h")
+    bldr.build() {
+        python.codegen() {
+            // Run torchgen from the pytorch root. The package layout puts
+            // `torchgen/` as a sibling of `aten/`, so PYTHONPATH falls out
+            // of cwd.
+            codegen_cwd("../../..")
+            codegen_driver("torchgen.gen")
+    
+            // Two YAML inputs are the canonical "what ops exist"
+            // specification. tags.yaml carries the operator-tag taxonomy
+            // (composite, structured, view, …).
+            codegen_input("aten/src/ATen/native/native_functions.yaml")
+            codegen_input("aten/src/ATen/native/tags.yaml")
+    
+            // Codegen tool source — every .py file under torchgen/ affects
+            // output. Declared as an input dir; aeb hashes recursively at
+            // staleness-check time (mtime-driven for the MVP).
+            codegen_input_dir("torchgen")
+    
+            // Template tree — Functions.cpp, Functions.h, Operators.cpp,
+            // NativeFunctions.h, RegisterDispatchKey.cpp, etc. Each is a
+            // Jinja-style template the codegen substitutes into.
+            codegen_input_dir("aten/src/ATen/templates")
+    
+            // CLI args. Match `cmake/Codegen.cmake`'s GEN_COMMAND. The
+            // install_dir is below aeb's target/ tree so the artifact
+            // lives alongside the build outputs and gets cleaned by aeb
+            // conventions.
+            codegen_arg("--source-path")
+            codegen_arg("aten/src/ATen")
+            codegen_arg("--install_dir")
+            codegen_arg("target/codegen/aten/src/ATen")
+            codegen_arg("--headeronly-install-dir")
+            codegen_arg("target/codegen/torch/headeronly/core")
+    
+            // Representative output declarations. The full output set is
+            // dictated by the YAML; this subset is the minimum we'd want
+            // a future ATen `.build.ae` to consume. Expand as downstream
+            // compilation actually links against the rest.
+            codegen_output("target/codegen/aten/src/ATen/Functions.cpp")
+            codegen_output("target/codegen/aten/src/ATen/Functions.h")
+            codegen_output("target/codegen/aten/src/ATen/NativeFunctions.h")
+            // torchgen shards Operators across N files when the YAML is
+            // big enough — we get Operators_0.cpp … Operators_4.cpp plus
+            // OperatorsEverything.cpp in the current upstream. Pick a
+            // representative shard for the contract; the rest are real
+            // outputs but only the declared ones are verified.
+            codegen_output("target/codegen/aten/src/ATen/Operators_0.cpp")
+            codegen_output("target/codegen/aten/src/ATen/OperatorsEverything.cpp")
+            codegen_output("target/codegen/aten/src/ATen/Operators.h")
+            codegen_output("target/codegen/aten/src/ATen/RegisterSchema.cpp")
+            codegen_output("target/codegen/aten/src/ATen/MethodOperators.h")
+            codegen_output("target/codegen/aten/src/ATen/RegistrationDeclarations.h")
+        }
     }
 }

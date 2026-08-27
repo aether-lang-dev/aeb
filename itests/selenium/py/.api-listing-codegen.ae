@@ -8,7 +8,7 @@
 // The script takes no CLI args. Upstream Selenium runs it via
 // `bazel run //py:generate_api_module_listing` (a Bazel-shaped
 // py_binary with default-runfiles). The aeb shape is a
-// `python.codegen(b)` block declaring the input directory tree and
+// `python.codegen()` block declaring the input directory tree and
 // the single output file.
 //
 // **Why this leaf exists and was deferred until now:** the AEB
@@ -34,18 +34,19 @@ import python
 import python (codegen_script, codegen_input_dir, codegen_output)
 
 main() {
-    b = bldr.start()
-
-    python.codegen(b) {
-        codegen_script("generate_api_module_listing.py")
-
-        // Recursive walk of selenium/ feeds the staleness check.
-        // Every .py file under here participates in the mtime
-        // comparison via `_dir_newest_mtime`.
-        codegen_input_dir("selenium")
-
-        // The single declared output. python.codegen fails the
-        // build if this file doesn't exist after the script runs.
-        codegen_output("docs/source/api.rst")
+    bldr.build() {
+    
+        python.codegen() {
+            codegen_script("generate_api_module_listing.py")
+    
+            // Recursive walk of selenium/ feeds the staleness check.
+            // Every .py file under here participates in the mtime
+            // comparison via `_dir_newest_mtime`.
+            codegen_input_dir("selenium")
+    
+            // The single declared output. python.codegen fails the
+            // build if this file doesn't exist after the script runs.
+            codegen_output("docs/source/api.rst")
+        }
     }
 }

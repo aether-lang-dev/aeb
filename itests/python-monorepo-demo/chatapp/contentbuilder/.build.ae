@@ -2,9 +2,10 @@ import bldr
 import python
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "chatapp/profanitymasker/.build.ae")
-    python.install(b)
-    python.lint(b)
-    python.typecheck(b)
+    bldr.build() {
+        dep("chatapp/profanitymasker/.build.ae")
+        python.install()
+        python.lint()
+        python.typecheck()
+    }
 }

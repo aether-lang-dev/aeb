@@ -6,7 +6,7 @@
 // `cargo`-shaped build via `rules_rust`.
 //
 // The aeb conversion uses the upstream Cargo.toml unchanged —
-// `rust.cargo_project_existing(b)` runs `cargo build --release`
+// `rust.cargo_project_existing()` runs `cargo build --release`
 // from this dir without regenerating Cargo.toml. The
 // `binary_name("selenium-manager")` setter is the artifact-write
 // hint; downstream consumers (e.g., the Python wheel that vendors
@@ -15,7 +15,7 @@
 // for the path.
 //
 // **Not converted in this pass:** the Bazel-side `rust_test` rules
-// in `tests/BUILD.bazel`. `rust.cargo_test(b)` or equivalent would
+// in `tests/BUILD.bazel`. `rust.cargo_test()` or equivalent would
 // run `cargo test`; not present in lib/rust today. The shape gap
 // is small enough that adding it is mechanical (new builder, pure
 // `cargo_test_cmd` helper, parallel `_existing` variant).
@@ -30,8 +30,9 @@ import rust
 import rust (binary_name)
 
 main() {
-    b = bldr.start()
-    rust.cargo_project_existing(b) {
-        binary_name("selenium-manager")
+    bldr.build() {
+        rust.cargo_project_existing() {
+            binary_name("selenium-manager")
+        }
     }
 }

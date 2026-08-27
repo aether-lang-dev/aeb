@@ -2,7 +2,8 @@ import bldr
 import python
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "chatapp/contentbuilder/.build.ae")
-    python.pytest(b)
+    bldr.build() {
+        dep("chatapp/contentbuilder/.build.ae")
+        python.pytest()
+    }
 }

@@ -3,8 +3,9 @@ import go
 import go (pkg)
 
 main() {
-    b = bldr.start()
-    go.go_test(b) {
-        pkg("./container/...")
+    bldr.build() {
+        go.go_test() {
+            pkg("./container/...")
+        }
     }
 }

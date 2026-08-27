@@ -5,19 +5,20 @@ import java
 import java (release, source_layout, enable_preview, generated_sources)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../spring-boot.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-data-jpa")
-    dep(b, "org.hsqldb:hsqldb")
-    dep(b, "org.projectlombok:lombok")
-    dep(b, "com.querydsl:querydsl-jpa")
-    dep(b, "com.querydsl:querydsl-apt")
-    dep(b, "jakarta.persistence:jakarta.persistence-api")
-    java.javac(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
-        generated_sources("target/jpa/aot-optimization/generated-sources")
+    bldr.build() {
+        load_bom_file("../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-data-jpa")
+        dep("org.hsqldb:hsqldb")
+        dep("org.projectlombok:lombok")
+        dep("com.querydsl:querydsl-jpa")
+        dep("com.querydsl:querydsl-apt")
+        dep("jakarta.persistence:jakarta.persistence-api")
+        java.javac() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+            generated_sources("target/jpa/aot-optimization/generated-sources")
+        }
     }
 }

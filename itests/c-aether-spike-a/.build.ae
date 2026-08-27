@@ -10,10 +10,11 @@ import c
 import c (sources, aether_source, output_file)
 
 main() {
-    b = bldr.start()
-    c.program(b) {
-        sources("src/main.c")
-        aether_source("src/add.ae")
-        output_file("c-aether-spike-a")
+    bldr.build() {
+        c.program() {
+            sources("src/main.c")
+            aether_source("src/add.ae")
+            output_file("c-aether-spike-a")
+        }
     }
 }

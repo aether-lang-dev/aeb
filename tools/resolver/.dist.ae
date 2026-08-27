@@ -26,25 +26,26 @@ import std.os
 extern println(s: string)
 
 main() {
-    b = bldr.start()
-
-    // Stage 0 (bootstrap): mvn resolves the resolver's OWN deps and dumps
-    // the classpath next to the source. Inline build step — aeb shelling
-    // the tool that already parses pom.xml, same as `ae build` for
-    // aether.toml. The file is then fed to javac via classpath_file().
-    src_dir = bldr.source_dir(b)
-    cp_file = string.concat(src_dir, "/.deps.classpath")
-    mvn_cmd = string.concat(string.concat("cd '", src_dir), "' && mvn -q dependency:build-classpath -Dmdep.outputFile=.deps.classpath")
-    rc = os.system(mvn_cmd)
-    if rc != 0 {
-        println("resolver: mvn dependency:build-classpath failed (need mvn + resolver deps in ~/.m2)")
-        bldr.fail(b, "resolver: mvn build-classpath failed")
-        return 1
+    bldr.build() {
+    
+        // Stage 0 (bootstrap): mvn resolves the resolver's OWN deps and dumps
+        // the classpath next to the source. Inline build step — aeb shelling
+        // the tool that already parses pom.xml, same as `ae build` for
+        // aether.toml. The file is then fed to javac via classpath_file().
+        src_dir = source_dir()
+        cp_file = string.concat(src_dir, "/.deps.classpath")
+        mvn_cmd = string.concat(string.concat("cd '", src_dir), "' && mvn -q dependency:build-classpath -Dmdep.outputFile=.deps.classpath")
+        rc = os.system(mvn_cmd)
+        if rc != 0 {
+            println("resolver: mvn dependency:build-classpath failed (need mvn + resolver deps in ~/.m2)")
+            fail("resolver: mvn build-classpath failed")
+            return 1
+        }
+    
+        java.javac() {
+            source_layout("maven idiomatic")
+            classpath_file(".deps.classpath")
+        }
+        java.shade("aeb.maven.MavenResolver", "aeb-resolve.jar")
     }
-
-    java.javac(b) {
-        source_layout("maven idiomatic")
-        classpath_file(".deps.classpath")
-    }
-    java.shade(b, "aeb.maven.MavenResolver", "aeb-resolve.jar")
 }

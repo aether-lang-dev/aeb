@@ -5,17 +5,18 @@ import java
 import java (release, source_layout, enable_preview, parameters)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../spring-boot.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-data-rest")
-    dep(b, "org.springframework.boot:spring-boot-starter-data-jpa")
-    dep(b, "com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
-    dep(b, "com.h2database:h2")
-    dep(b, "org.projectlombok:lombok")
-    java.javac(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
+    bldr.build() {
+        load_bom_file("../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-data-rest")
+        dep("org.springframework.boot:spring-boot-starter-data-jpa")
+        dep("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+        dep("com.h2database:h2")
+        dep("org.projectlombok:lombok")
+        java.javac() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+        }
     }
 }

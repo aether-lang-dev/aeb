@@ -6,7 +6,7 @@
 // Aeb sees torchgen two ways:
 //
 //   1. As a *runtime tool* invoked from `aten/src/ATen/.codegen.ae`
-//      via `python.codegen_driver(b, "torchgen.gen")`. The codegen
+//      via `python.codegen_driver("torchgen.gen")`. The codegen
 //      run lives in pytorch's source tree (the package is at
 //      `pytorch/torchgen/`), so PYTHONPATH falls out of the
 //      `codegen_cwd("../../..")` setting in the consumer.
@@ -27,15 +27,14 @@ import bldr
 import python
 
 main() {
-    b = bldr.start()
-    bldr.begin(b, "torchgen:wheel")
-
-    // pip-installable name + version-pin tilde shorthand consumed by
-    // `python.install`. The version follows pytorch's source tree
-    // (torchgen/__init__.py carries `__version__ =` when it ships
-    // separately on PyPI). For the in-tree codegen run this is a
-    // self-reference; for downstream venvs it's the install line.
-    python.wheel_registry(b, "torchgen~")
-
-    bldr.done(b, "torchgen:wheel")
+    bldr.build() {
+    
+        // pip-installable name + version-pin tilde shorthand consumed by
+        // `python.install`. The version follows pytorch's source tree
+        // (torchgen/__init__.py carries `__version__ =` when it ships
+        // separately on PyPI). For the in-tree codegen run this is a
+        // self-reference; for downstream venvs it's the install line.
+        python.wheel_registry("torchgen~")
+    
+    }
 }

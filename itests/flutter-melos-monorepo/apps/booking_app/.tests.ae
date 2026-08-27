@@ -3,7 +3,8 @@ import dart
 import dart (dart_bin)
 
 aeb(cap) {
-    b = bldr.start()
-    bldr.dep(b, "apps/booking_app/.build.ae")
-    dart.test(b) { dart_bin("flutter") }
+    bldr.build() {
+        dep("apps/booking_app/.build.ae")
+        dart.test() { dart_bin("flutter") }
+    }
 }

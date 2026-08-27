@@ -12,6 +12,7 @@ import bldr
 import python
 
 main() {
-    b = bldr.start()
-    python.wheel_registry(b, "setuptools~>=70,<81")
+    bldr.build() {
+        python.wheel_registry("setuptools~>=70,<81")
+    }
 }

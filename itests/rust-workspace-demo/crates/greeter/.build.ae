@@ -3,11 +3,12 @@ import rust
 import rust (crate_name, edition, ws_dep)
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, ".build.ae")
-    rust.cargo_crate(b) {
-        crate_name("greeter")
-        edition("2021")
-        ws_dep("serde")
+    bldr.build() {
+        dep(".build.ae")
+        rust.cargo_crate() {
+            crate_name("greeter")
+            edition("2021")
+            ws_dep("serde")
+        }
     }
 }

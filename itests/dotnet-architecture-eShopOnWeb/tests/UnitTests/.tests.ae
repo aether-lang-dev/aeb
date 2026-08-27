@@ -2,7 +2,8 @@ import bldr
 import dotnet
 
 main() {
-    b = bldr.start()
-    bldr.dep(b, "tests/UnitTests/.build.ae")
-    dotnet.test(b)
+    bldr.build() {
+        dep("tests/UnitTests/.build.ae")
+        dotnet.test()
+    }
 }

@@ -6,23 +6,24 @@ import java (release, source_layout, parameters)
 import kotlin
 
 aeb(cap) {
-    b = bldr.start()
-    bldr.dep(b, "modules/jooby-test/.build.ae")
-    bldr.dep(b, "modules/jooby-netty/.build.ae")
-    load_bom_file(b, "../../jooby.bom.ae")
-    dep(b, "org.junit.jupiter:junit-jupiter-engine")
-    dep(b, "org.junit.platform:junit-platform-console")
-    dep(b, "org.mockito:mockito-core:5.23.0")
-    dep(b, "com.squareup.okhttp3:okhttp-jvm:5.4.0")
-    dep(b, "org.ow2.asm:asm:9.10.1")
-    dep(b, "org.ow2.asm:asm-util:9.10.1")
-    dep(b, "commons-io:commons-io:2.22.0")
-    dep(b, "ch.qos.logback:logback-classic:1.5.37")
-    dep(b, "io.reactivex.rxjava3:rxjava:3.1.12")
-    dep(b, "org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
-    dep(b, "org.jetbrains.kotlin:kotlin-reflect:2.4.0")
-    dep(b, "org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    java.javac_test(b) { release("21")  source_layout("maven idiomatic")  parameters() }
-    kotlin.kotlinc_test(b) { source_layout("maven idiomatic") }
-    java.junit5(b) {}
+    bldr.build() {
+        dep("modules/jooby-test/.build.ae")
+        dep("modules/jooby-netty/.build.ae")
+        load_bom_file("../../jooby.bom.ae")
+        dep("org.junit.jupiter:junit-jupiter-engine")
+        dep("org.junit.platform:junit-platform-console")
+        dep("org.mockito:mockito-core:5.23.0")
+        dep("com.squareup.okhttp3:okhttp-jvm:5.4.0")
+        dep("org.ow2.asm:asm:9.10.1")
+        dep("org.ow2.asm:asm-util:9.10.1")
+        dep("commons-io:commons-io:2.22.0")
+        dep("ch.qos.logback:logback-classic:1.5.37")
+        dep("io.reactivex.rxjava3:rxjava:3.1.12")
+        dep("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+        dep("org.jetbrains.kotlin:kotlin-reflect:2.4.0")
+        dep("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+        java.javac_test() { release("21")  source_layout("maven idiomatic")  parameters() }
+        kotlin.kotlinc_test() { source_layout("maven idiomatic") }
+        java.junit5() {}
+    }
 }

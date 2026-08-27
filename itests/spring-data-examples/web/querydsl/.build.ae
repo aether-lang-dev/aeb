@@ -5,20 +5,21 @@ import java
 import java (release, source_layout, enable_preview, generated_sources)
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../spring-boot.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-web")
-    dep(b, "org.springframework.boot:spring-boot-starter-data-mongodb")
-    dep(b, "com.querydsl:querydsl-mongodb:5.1.0")
-    dep(b, "com.querydsl:querydsl-apt")
-    dep(b, "org.projectlombok:lombok")
-    dep(b, "org.springframework.batch:spring-batch-core")
-    dep(b, "org.thymeleaf:thymeleaf")
-    java.javac(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
-        generated_sources("target/web/querydsl/generated-sources")
+    bldr.build() {
+        load_bom_file("../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-web")
+        dep("org.springframework.boot:spring-boot-starter-data-mongodb")
+        dep("com.querydsl:querydsl-mongodb:5.1.0")
+        dep("com.querydsl:querydsl-apt")
+        dep("org.projectlombok:lombok")
+        dep("org.springframework.batch:spring-batch-core")
+        dep("org.thymeleaf:thymeleaf")
+        java.javac() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+            generated_sources("target/web/querydsl/generated-sources")
+        }
     }
 }

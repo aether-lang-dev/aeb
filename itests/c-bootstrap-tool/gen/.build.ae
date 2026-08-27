@@ -11,10 +11,11 @@ import c
 import c (sources, emit)
 
 main() {
-    b = bldr.start()
-    c.generated_header(b) {
-        sources("src/gen.c")
-        emit("", "gen_values.h")
-        emit("-names", "gen_names.h")
+    bldr.build() {
+        c.generated_header() {
+            sources("src/gen.c")
+            emit("", "gen_values.h")
+            emit("-names", "gen_names.h")
+        }
     }
 }

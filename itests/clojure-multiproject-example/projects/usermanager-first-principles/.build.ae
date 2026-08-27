@@ -4,16 +4,17 @@ import bldr (dep)
 import clojure
 
 main() {
-    b = bldr.start()
-    load_bom_file(b, "../../clojars.bom.ae")
-    load_bom_file(b, "../../clojure-dep-patches.bom.ae")
-    bldr.dep(b, "parts/.build.ae")
-    dep(b, "org.clojure:clojure:1.11.3")
-    dep(b, "ring:ring-jetty-adapter:1.12.1")
-    dep(b, "ring:ring:1.12.1")
-    dep(b, "ring:ring-defaults:0.5.0")
-    dep(b, "com.github.seancorfield:next.jdbc:1.3.939")
-    dep(b, "org.xerial:sqlite-jdbc:3.46.1.0")
-    dep(b, "hiccup:hiccup:2.0.0-RC3")
-    clojure.compile(b)
+    bldr.build() {
+        load_bom_file("../../clojars.bom.ae")
+        load_bom_file("../../clojure-dep-patches.bom.ae")
+        dep("parts/.build.ae")
+        dep("org.clojure:clojure:1.11.3")
+        dep("ring:ring-jetty-adapter:1.12.1")
+        dep("ring:ring:1.12.1")
+        dep("ring:ring-defaults:0.5.0")
+        dep("com.github.seancorfield:next.jdbc:1.3.939")
+        dep("org.xerial:sqlite-jdbc:3.46.1.0")
+        dep("hiccup:hiccup:2.0.0-RC3")
+        clojure.compile()
+    }
 }

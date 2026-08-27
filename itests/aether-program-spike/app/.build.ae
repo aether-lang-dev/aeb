@@ -13,11 +13,12 @@ import aether
 import aether (source, output, extra_source, include_dir)
 
 main() {
-    b = bldr.start()
-    aether.program(b) {
-        source("app.ae")
-        extra_source("cbits.c")
-        include_dir("../inc")
-        output("app")
+    bldr.build() {
+        aether.program() {
+            source("app.ae")
+            extra_source("cbits.c")
+            include_dir("../inc")
+            output("app")
+        }
     }
 }
