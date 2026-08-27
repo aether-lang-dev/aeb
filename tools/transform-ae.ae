@@ -260,6 +260,23 @@ main() {
     sed_script = string.concat(sed_script, label)
     sed_script = string.concat(sed_script, "\")\\n    if b == 0 { return 0 }|\n")
     sed_script = string.concat(sed_script, "s|dep(b, \"\\([^\"]*\\)/\\.[^\"/]*\\.ae\")|dep(b, \"\\1\")|g\n")
+    // Shape A (b-free node grammar): the user writes `build() {` (or
+    // `build.build() {` if qualified). Thread the session `s` and the label in,
+    // exactly as the build.start()→build.begin rule does for the old form — `s`
+    // is reachable only as the node fn's parameter, never via injection. The
+    // wrapper (lib/build/module.ae `build(s, label)`) branches on `s` for the
+    // standalone-vs-orchestrated duality and returns the graph ctx the block
+    // threads to every nested dep()/builder. See dsl_rework.md §4.5.
+    sed_script = string.concat(sed_script, "s|build() {|build(s, \"")
+    sed_script = string.concat(sed_script, label)
+    sed_script = string.concat(sed_script, "\") {|\n")
+    sed_script = string.concat(sed_script, "s|build.build() {|build.build(s, \"")
+    sed_script = string.concat(sed_script, label)
+    sed_script = string.concat(sed_script, "\") {|\n")
+    // b-free dep-path normalization (Shape A): strip a trailing /.<name>.ae
+    // filename from a bare dep("…") the same way the b-form rule does for
+    // dep(b, "…"). Without this the runtime dep-dir contract breaks for Shape A.
+    sed_script = string.concat(sed_script, "s|dep(\"\\([^\"]*\\)/\\.[^\"/]*\\.ae\")|dep(\"\\1\")|g\n")
 
     sed_file = string.concat(out, ".sed")
     werr = io.write_file(sed_file, sed_script)

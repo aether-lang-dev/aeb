@@ -279,6 +279,46 @@ start() {
     return ctx
 }
 
+// --- The `build()` wrapper — the b-free node grammar (Shape A) ---
+//
+// The end-user writes a node body as:
+//     aeb(cap) {
+//         build() {
+//             dep("core/.build.ae")
+//             lib = dep_artifact("core/.build.ae", "shared_lib")
+//             rust.cargo_test_existing() { env("K", lib) }
+//         }
+//     }
+// with NO explicit `b` anywhere. `build()` is a REGULAR trailing-block function
+// (NOT a `builder`): the compiler pushes its RETURN VALUE (the graph ctx) onto
+// the builder-context stack for the block, so every nested `dep()` /
+// `dep_artifact()` / `rust.foo()` whose first param is `_ctx: ptr` auto-receives
+// it. (A `builder` would push the per-call config map instead — the wrong
+// object.) See dsl_rework.md and docs closures-and-builder-dsl.md.
+//
+// The session `s` is threaded in by transform-ae, which rewrites the user's
+// `build() {` to `build(s, "<label>") {` at link time — exactly as it rewrites
+// `build.start()` to `build.begin(s, "label")` for the old b-form. `s` reaches
+// here only as the node fn's parameter (the ctx stack is empty at the node's top
+// level), so it must be an explicit arg, not injected.
+//
+// Duality: orchestrated (has a session) → build.begin(s, label) for the
+// _session back-ref + label-typed target dir + visited-dedup. Standalone
+// (direct `aeb <file>`, no session) → start()'s env-based ctx (no _session; the
+// status API correctly no-ops). Both return the graph ctx the block threads.
+build(s: ptr, label: string) {
+    if s == 0 {
+        // Standalone: no session handle → env-var ctx (target/build/<dir>).
+        return start()
+    }
+    // Orchestrated: begin() links _session, derives target/<type>/<dir>, and
+    // returns the _null_ sentinel when this label was already visited (dedup).
+    // Returning that sentinel here pushes null for the block; the graph verbs
+    // guard `_ctx == null` and no-op, so a re-visited node's block is inert —
+    // the same short-circuit transform-ae injected as `if b == 0 { return 0 }`.
+    return begin(s, label)
+}
+
 // --- Dependency declarations (one per line, greppable) ---
 //
 // Module deps:   dep(b, "java/components/vowelbase")
@@ -289,7 +329,13 @@ start() {
 // Maven coordinates contain colons; module paths use slashes.
 // npm deps start with "npm:".
 
-dep(ctx: ptr, path_str: string): int {
+dep(_ctx: ptr, path_str: string): int {
+    // _ctx is injected from the enclosing `build() { }` block (Shape A) or passed
+    // explicitly as `b` (old form) — both fill it. When a node was already
+    // visited, the wrapper pushes 0 (begin's dedup sentinel); guard it so a
+    // re-visited node's block is inert, matching the old `if b == 0 { return 0 }`.
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     // Check for npm: prefix first
     npm_prefix = string.index_of(path_str, "npm:")
     if npm_prefix == 0 {
@@ -334,7 +380,9 @@ dep(ctx: ptr, path_str: string): int {
 // "=sha" pin appended, or pass the sha in repo@ref via @sha) as arg 2. Folds the
 // two args into the single coordinate `_git_dep` parses, then registers the
 // resolved local path as a dep. See asks/ae-add-implicating-an-aeb-target.md.
-pkg_dep(ctx: ptr, repo_ref: string, target: string) {
+pkg_dep(_ctx: ptr, repo_ref: string, target: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     coord = string.concat("git:", string.concat(repo_ref, string.concat("#", target)))
     resolved = _git_dep(ctx, coord)
     if string.length(resolved) > 0 {
@@ -602,7 +650,9 @@ _dirname_of(p: string) {
 // A missing prerequisite is a clean, attributable `unmet-prereqs` verdict at
 // preflight, NEVER a silent provision. The repo declares WHAT; the operator
 // owns HOW and WHETHER (lib/provision's recipe map).
-prereq(ctx: ptr, token: string) {
+prereq(_ctx: ptr, token: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     prereqs, _ = map.get(ctx, "prereqs")
     _e = list.add(prereqs, token)
 }
@@ -647,7 +697,9 @@ prereq(ctx: ptr, token: string) {
 //   - A scan() call WILL include the file containing it if the
 //     pattern matches its own path. The BFS dedup handles this
 //     gracefully (a self-loop becomes a no-op visit).
-scan(ctx: ptr, pattern: string) {
+scan(_ctx: ptr, pattern: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     // Auto-prepend "./" so fs.glob's recursive ** marker fires
     // correctly. Patterns the user wrote with a leading absolute
     // path or "./" already are passed through unchanged.
@@ -1934,13 +1986,17 @@ run_post_build(ctx: ptr) {
 // generated headers, resolved classpaths: anything one node makes and
 // another consumes. program_binary_of() is the runnable-binary
 // specialisation of dep_artifact() with legacy-key fallback.
-publish_artifact(ctx: ptr, artifact: string, value: string) {
+publish_artifact(_ctx: ptr, artifact: string, value: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     td = _get(ctx, "target_dir")
     _mkdirs(td)
     _write_artifact(ctx, artifact, value)
 }
 
-dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
+dep_artifact(_ctx: ptr, dep_module: string, artifact: string) {
+    if _ctx == 0 { return string.concat("", "") }
+    ctx = _ctx
     return string.trim(_read_dep_artifact(ctx, dep_module, artifact))
 }
 
