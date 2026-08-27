@@ -1,8 +1,10 @@
 # aeb DSL rework — drop the explicit `b` from builder call sites
 
-**Status:** PLAN — design PROVEN against `ae` (Shape A verified, §2.5/§5), no
-production code yet. Approved direction: a **fully b-free node body** via a
-`build() { … }` wrapper, landed as a coordinated flag-day. **Why it matters:**
+**Status:** IN PROGRESS — design PROVEN against `ae` (Shape A verified §2.5/§5;
+dual-mode verified §4). Approved direction (Paul, 2026-08-27): a **fully b-free
+node body** via a `build() { … }` wrapper, landed as a **gradual/dual-mode flip
++ full node sweep** — incremental and non-breaking at every step, converging so
+that only Shape A remains. NOT a flag-day (dual-mode makes old+new coexist). **Why it matters:**
 the explicit build handle `b` threaded into every SDK builder —
 `rust.cargo_test_existing(b) { … }` — plus every `dep(b, …)` and `build.start()`
 is aeb's most visible divergence from idiomatic Aether DSLs. Aether itself
@@ -167,42 +169,76 @@ This is the "exhaustive coordinated set of commits" moment.
 
 ---
 
-## 4. The real cost: this is a FLAG-DAY, not gradual (be honest about it)
+## 4. Rollout shape: GRADUAL flip (dual-mode lib) + FULL node sweep (VERIFIED 2026-08-27)
 
-Earlier drafts of this plan hoped for a gradual, backward-compatible rollout
-(keep the old `b` form compiling, migrate repo-by-repo). **Shape A gives that
-up on purpose**, because it changes the node's STRUCTURE, not just a call
-argument:
+Earlier drafts feared a flag-day (flip lib → all old `dep(b,…)` break at once).
+**That fear was wrong — measured false against `ae`.** A `_ctx`-injected function
+accepts BOTH call forms:
 
-- Old node: `b = build.start(); dep(b, …); rust.foo(b) { … }`
-- New node: `build() { dep(…); rust.foo() { … } }`
+```aether
+dep(_ctx: ptr, p: string): int { … }     // after the flip
+dep("x")           // inside a build(){} block → _ctx injected      ✓
+dep(b, "x")        // explicit b passed → _ctx = b                  ✓  (old form)
+dep(b, "x")        // top-level, NO enclosing block, explicit b     ✓  (current node form)
+```
 
-These are different shapes. Once `dep`/the builders become `_ctx`-injected and
-lose their explicit `ctx:` param, the OLD `dep(b, …)` call no longer type-checks
-(it passes an arg the function no longer declares). So:
+All three compile and thread the graph (verified: the explicit `b` fills `_ctx`;
+the injected form fills it from the pushed block ctx; the block-less top-level
+`dep(b,…)` still works because `b` is passed explicitly). So the flip is
+**backward-compatible**: old nodes keep building untouched, new Shape-A nodes
+work, they coexist indefinitely.
 
-- **No dual-mode.** The moment aeb's lib flips, every downstream node must
-  already be Shape A, or it breaks.
-- **Therefore: coordinated.** aeb lib + all ~435 nodes across ~14 repos land
-  together (or each repo pins the pre-flip aeb until its own nodes are
-  converted). This is the flag-day the user explicitly asked for — "an
-  exhaustive coordinated set of commits."
+**Chosen approach (Paul, 2026-08-27): gradual flip + complete the job.**
+- **Gradual/dual-mode is the safety rail** — flip aeb's lib so BOTH forms
+  compile. Nothing ever breaks mid-flight; no pinning, no synchronized cutover.
+  A repo that lags still builds against the flipped aeb.
+- **But complete the sweep** — still rewrite every one of the ~435 nodes to
+  Shape A, so the end-state has **only Shape A left**, no lingering `b`. The
+  dual-mode lib means a half-swept repo is never broken, just mixed, en route.
 
-Two things that make the flag-day tractable:
-- The node rewrite is **mechanical** — `b = build.start()` + body → `build() {`
-  + body + `}`, then delete `\b(\w+\.)?\w+\((b)[,)]` → drop the `b`. A codemod
-  does a repo in one pass; every node is the same transform.
-- **Pinning buys time.** A downstream repo can stay on the pre-flip aeb release
-  (AEB_REF pin) until someone runs the codemod there; it doesn't have to land in
-  the same hour, just before it next bumps aeb.
+So: incremental and non-breaking at every step, converging on a uniformly
+b-free tree. The `dsl_rework` "flag-day" framing is retired.
 
-**Block-less builder calls (former Risk A) still need handling.** aeb calls some
+**Block-less builder calls (former Risk A) — non-issue now.** aeb calls some
 builders with `(b)` and NO trailing block — `python.install(b)`,
-`rust.check_workspace(b)`, `rust.cargo_project_existing(b)`. With no block there
-is no injected context. Options: (a) give them a one-line `build() { … }` block
-even when empty of setters, or (b) keep a session-passing statement form for
-these few. Enumerate them during the rust pilot (§6) and pick per case; there
-are only a handful.
+`rust.check_workspace(b)`. Because explicit-`b` still fills `_ctx` (proven
+above), these keep working as-is after the flip. When swept to Shape A they
+become `build() { python.install() }` etc. (inside the wrapper block). No
+special handling needed; the dual-mode lib covers them at every stage.
+
+## 4.5 Integration map (from the transform/orchestrator/begin scout, 2026-08-27)
+
+The authoritative mechanics the implementation must honor:
+
+- **The `build()` wrapper is a REGULAR trailing-block function, NOT a `builder`.**
+  A regular fn pushes its RETURN VALUE onto the ctx stack (what nested `_ctx`
+  verbs read); a `builder` would push the config map instead — wrong object.
+  Signature: `build(s: ptr, label: string) { … }` returning the graph ctx.
+- **The wrapper calls `build.begin(s, label)` internally** (lib/build/module.ae:65)
+  — reusing its visited-dedup, the `_session` back-ref (`:81`, what
+  `build.fail`/`status_of`/`any_failed` need), and the label-typed `target_dir`
+  (`:86-109`). It must reproduce `begin`'s `_null_`/already-visited short-circuit
+  (today injected as `if b == 0 { return 0 }` by transform-ae).
+- **`s` reaches the wrapper only as the node fn parameter, never via injection**
+  (the stack is empty at the node's top level — this is why Shape B fails). So
+  the wrapper takes `s` explicitly and transform-ae must thread it in:
+  `build() {` (user writes) → `build(s, "<label>") {` (transform emits), exactly
+  parallel to today's `build.start()` → `build.begin(s,"label")`.
+- **Standalone vs orchestrated duality** (the trip hazard): `build.begin` (has
+  `s`, `_session`, `target/<type>/<dir>`) vs `build.start` (env-based, no
+  `_session`, `target/build/<dir>`). The wrapper must branch on whether `s` is
+  present so a direct `aeb <file>` run still works (status API no-ops without a
+  session, which is correct).
+- **transform-ae's three rewrites** (tools/transform-ae.ae:253-262): keep the
+  `aeb(…)`/`main()` → `<fname>(s: ptr): int` rename; REPLACE the
+  `build.start()`→`build.begin` rule with `build() {` → `build(s,"<label>") {`;
+  ADD a b-free dep-path-normalization rule (`dep("…/.x.ae")` → `dep("…")`) since
+  the current one is anchored on `dep(b, "`.
+- **Graph verbs to flip `ctx:`→`_ctx:`** (lib/build/module.ae): `dep` (:292,
+  ~1034 call sites — the hot one), `dep_artifact` (:1943), `publish_artifact`
+  (:1937), `prereq` (:605), `scan` (:650), `pkg_dep` (:337). Plus the 147 SDK
+  builders and the `_get`-based readers (`target_dir`/`source_dir`/`root`/…).
+  Setters (`env`/`step`/`extra`/…) are ALREADY `_ctx` — untouched.
 
 ---
 
@@ -274,10 +310,10 @@ servirtium node.
 The target grammar is **Shape A** — a `build() { … }` wrapper that makes the
 node body **fully b-free** (every `b` gone, including `dep`/`dep_artifact`).
 Verified against `ae`: Shape A threads the build graph; the wrapper-less Shape B
-leaves `_ctx` NULL and can't. No aether change needed. The cost, stated
-honestly: this is a **coordinated flag-day**, not the gradual dual-mode earlier
-drafts hoped for — Shape A changes node STRUCTURE, so aeb's lib and the ~435
-nodes across ~14 repos move together (repos pin the pre-flip release until their
-turn). Do it NOW while the `: int` sweep has the same 147 signatures fresh
-(§3.5). Pilot `rust` on a real servirtium-vcr node; servirtium-vcr (114 nodes)
-is the primary test-bed.
+leaves `_ctx` NULL and can't. No aether change needed. **Rollout is gradual, not
+a flag-day** — a `_ctx`-injected verb accepts BOTH `dep("x")` (injected) and
+`dep(b,"x")` (explicit), verified §4, so flipping aeb's lib breaks nothing; old
+and new nodes coexist. Approved plan: flip the lib dual-mode (safety rail), then
+sweep every node to Shape A so only Shape A remains — incremental, non-breaking,
+complete. Pilot `rust` on a real servirtium-vcr node; servirtium-vcr (114 nodes)
+is the primary test-bed. aeb itself has ~no real nodes outside itests/tests.
