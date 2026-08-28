@@ -24,4 +24,14 @@
 # now pins ubuntu-22.04 (glibc 2.35) and 0.452.0 measures at GLIBC_2.34.
 # That affects WHICH RELEASE TO FETCH when the pin is not satisfied, not
 # what the floor is — so it belongs in the fetch logic, not here.
-0.541.0
+#
+# Raised 0.541.0 -> 0.593.0 (2026-08-28) with the DSL rework release. The
+# rework's core mechanism — the bldr.build() wrapper + all 147 builders
+# reading builder_context(), plus the ctx→_ctx injection across the graph
+# verbs — is what the whole b-free grammar rests on, and it was authored and
+# validated end-to-end against ae 0.587-0.593 on Linux + the cachyos box.
+# We deliberately keep NO back-compat for the pre-bldr (build.*) grammar, so
+# the floor moves up with FETCH rather than staying a sparse historical
+# minimum: an aeb built from this tree only makes sense on the Aether the
+# rework was built against.
+0.593.0

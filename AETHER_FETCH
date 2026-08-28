@@ -57,4 +57,11 @@
 # floor. The PIN floor stays 0.541.0 — nothing here calls a primitive
 # newer Aether added, so raising the floor would force a needless re-fetch
 # on everyone between 0.541 and 0.560 (per the floor policy above).
-0.560.0
+#
+# Raised 0.560.0 -> 0.593.0 (2026-08-28) for the DSL rework release. The whole
+# b-free (bldr.build()) rework was built + validated against ae 0.587-0.593.
+# This time AETHER_PIN moves in lockstep to 0.593.0 too (not the usual
+# floor-stays-put): the rework has NO back-compat with the pre-bldr grammar,
+# so the floor IS the fetch here. 0.593.0 is published with all platform
+# assets and is the version the cachyos box compiled the whole sweep with.
+0.593.0
