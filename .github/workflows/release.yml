@@ -311,11 +311,79 @@ jobs:
       # code in the release path, no allowlist entry needed if the org
       # enables "select non-aether-lang-dev actions", and no pin to keep
       # fresh. The remaining `actions/checkout` is GitHub-owned.
+      # OPTIONAL EXTRA ASSETS: per-platform prebuilt aeb bundles.
+      #
+      # The source tarball above stays the PRIMARY, canonical bootstrap path
+      # (compile-on-target, one asset, no version skew). These bundles are a
+      # CONVENIENCE additional path: a `curl | unzip` of a ready-to-run aeb for
+      # a given OS/arch — the 5 install tools cross-compiled for that target
+      # (aeb-main/aeb-link/aeb-graph/affected-targets/gcheckout via zig-cc, all
+      # from THIS Linux runner), over the same clean source tree. The other
+      # tools stay .ae source and lazy-build on-target via the user's own `ae`
+      # (aeb always needs `ae` at build time — the bundle just skips the
+      # aeb-self-compile install step). Proven from one Linux box; see the
+      # cross-matrix notes in the DSL-rework session / dsl_rework.md.
+      #
+      # Targets: the 6 that build green today. musl (x86_64/aarch64-linux-musl)
+      # and freebsd are gated on aether asks (expose-linux-musl-cross-targets,
+      # freebsd base sysroot) — add their rows here once those land.
+      - name: Build per-platform bundles
+        id: bundles
+        env:
+          FETCH_VER: ${{ steps.stage.outputs.fetchver }}
+        run: |
+          set -euo pipefail
+          # The fetched ae (0.593+; carries the win-arm64/freebsd cross fixes)
+          # is already at /tmp/aeth/bin/ae from the Verify step on this runner.
+          AE=/tmp/aeth/bin/ae
+          test -x "$AE" || { echo "no fetched ae for cross-builds; skipping bundles"; exit 0; }
+
+          SRC="aeb-bootstrap"          # the clean staged tree from the Stage step
+          test -d "$SRC" || { echo "staged source tree missing"; exit 1; }
+
+          mkdir -p bundles
+          # triple -> asset-name-suffix
+          for row in \
+            "x86_64-linux:linux-amd64" \
+            "aarch64-linux:linux-arm64" \
+            "x86_64-windows:windows-amd64" \
+            "aarch64-windows:windows-arm64" \
+            "x86_64-macos:macos-amd64" \
+            "aarch64-macos:macos-arm64" \
+          ; do
+            triple="${row%%:*}"; suffix="${row##*:}"
+            B="bundles/aeb-$suffix"
+            rm -rf "$B"; mkdir -p "$B/share/aeb" "$B/bin"
+            # clean source tree (bash wrappers + lib/ + tools/ .ae source)
+            cp -R "$SRC"/. "$B/share/aeb/"
+            cp -f "$SRC/aeb" "$B/bin/aeb"; chmod +x "$B/bin/aeb" "$B/share/aeb/aeb"
+            # overwrite the 5 install tools with target-native binaries
+            fail=0
+            for t in aeb-main aeb-link aeb-graph affected-targets gcheckout; do
+              extra=""; [ "$t" = aeb-main ] && extra="--lib $SRC/lib"
+              if ! "$AE" build --target="$triple" "$SRC/tools/$t.ae" \
+                     -o "$B/share/aeb/tools/$t" --lib "$SRC/tools" $extra >/tmp/b_$t.log 2>&1; then
+                echo "  $suffix: $t cross-build FAILED"; sed -n '1,5p' /tmp/b_$t.log; fail=1
+              fi
+            done
+            if [ "$fail" = 0 ]; then
+              ( cd bundles && zip -qr "aeb-$suffix.zip" "aeb-$suffix" )
+              echo "  ✅ aeb-$suffix.zip ($(du -h bundles/aeb-$suffix.zip | cut -f1))"
+            else
+              echo "  ⚠️  aeb-$suffix skipped (a tool failed to cross-build)"
+            fi
+          done
+          # Space-joined list of built zips for the Publish step.
+          zips=$(ls bundles/*.zip 2>/dev/null | tr '\n' ' ')
+          echo "zips=$zips" >> "$GITHUB_OUTPUT"
+          echo "built: $zips"
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.tag }}
           SHA256: ${{ steps.stage.outputs.sha256 }}
+          BUNDLE_ZIPS: ${{ steps.bundles.outputs.zips }}
           # EVERY variable the notes heredoc interpolates must be listed
           # here. The step runs under `set -u`, so one missing name aborts
           # it before `gh` is ever invoked — which shows up as a Publish
@@ -460,12 +528,17 @@ jobs:
 
           # --clobber so a re-cut of the same tag replaces assets rather
           # than failing half-published.
+          # The source tarball + its sha are the primary assets; the
+          # per-platform bundles ($BUNDLE_ZIPS, may be empty) are appended as
+          # the optional convenience path. Unquoted on purpose — a
+          # space-separated list of paths, each an existing file from the
+          # bundles step (empty = source-only, unchanged behaviour).
           gh release create "$TAG" \
             --title "aeb $TAG" \
             --notes-file /tmp/notes.md \
             --repo "$GITHUB_REPOSITORY" \
-            "$ASSET" "$ASSET.sha256" \
-          || gh release upload "$TAG" "$ASSET" "$ASSET.sha256" \
+            "$ASSET" "$ASSET.sha256" $BUNDLE_ZIPS \
+          || gh release upload "$TAG" "$ASSET" "$ASSET.sha256" $BUNDLE_ZIPS \
                --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Summary
