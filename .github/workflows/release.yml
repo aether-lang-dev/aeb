@@ -252,10 +252,13 @@ jobs:
           printf '#!/usr/bin/env bash\necho BOOTSTRAPPED\n' > "$WORK/proj/app/t.sh"
           chmod +x "$WORK/proj/app/t.sh"
           cat > "$WORK/proj/app/.tests.ae" <<'EOF'
-          import build (start)
-          import bash (test, script)
-          aeb(cap) { b = build.start()
-              bash.test(b) { script("t.sh") } }
+          import bldr
+          import bash
+          aeb(cap) {
+              bldr.build() {
+                  bash.test() { script("t.sh") }
+              }
+          }
           EOF
 
           cd "$WORK/proj"
@@ -378,7 +381,7 @@ jobs:
 
           > **But building *Aether* programs does need your own \`ae\`.**
           > aeb's private copy compiles aeb's own machinery only. A target
-          > using \`aether.program(b)\` shells out to the \`ae\` on your
+          > using \`aether.program()\` shells out to the \`ae\` on your
           > \`PATH\`, and fails with \`sh: ae: not found\` if there isn't
           > one. Targets in other languages (\`bash.test\`, \`java\`,
           > \`rust\`, …) have no such requirement. Two Aethers, on purpose —
