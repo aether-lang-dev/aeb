@@ -329,17 +329,38 @@ jobs:
       # freebsd base sysroot) — add their rows here once those land.
       - name: Build per-platform bundles
         id: bundles
+        # NEVER fail the release: bundles are the OPTIONAL extra path. Any
+        # problem here (no zig, a target regressing) must leave the source
+        # tarball to publish alone, not abort the run. So the step is
+        # continue-on-error AND its body traps failures into an empty zip list.
+        continue-on-error: true
         env:
           FETCH_VER: ${{ steps.stage.outputs.fetchver }}
         run: |
-          set -euo pipefail
-          # The fetched ae (0.593+; carries the win-arm64/freebsd cross fixes)
-          # is already at /tmp/aeth/bin/ae from the Verify step on this runner.
+          set -uo pipefail   # NOT -e: a failed cross-build is handled, not fatal
+          emit_empty() { echo "zips=" >> "$GITHUB_OUTPUT"; echo "no bundles: $1"; exit 0; }
+
+          # The fetched ae (from AETHER_FETCH; carries the cross fixes) is at
+          # /tmp/aeth/bin/ae from the Verify step on this runner.
           AE=/tmp/aeth/bin/ae
-          test -x "$AE" || { echo "no fetched ae for cross-builds; skipping bundles"; exit 0; }
+          test -x "$AE" || emit_empty "no fetched ae"
 
           SRC="aeb-bootstrap"          # the clean staged tree from the Stage step
-          test -d "$SRC" || { echo "staged source tree missing"; exit 1; }
+          test -d "$SRC" || emit_empty "staged source tree missing"
+
+          # aether's cross backend shells out to zig (0.16.0); the release
+          # tarball does NOT bundle it, so install the pinned zig here. On
+          # failure, publish source-only rather than aborting.
+          ZIG_VER=0.16.0
+          ZIG_DIR="/tmp/zig-x86_64-linux-$ZIG_VER"
+          if [ ! -x "$ZIG_DIR/zig" ]; then
+            curl -fsSL "https://ziglang.org/download/$ZIG_VER/zig-x86_64-linux-$ZIG_VER.tar.xz" \
+              -o /tmp/zig.tar.xz \
+              && tar -xJf /tmp/zig.tar.xz -C /tmp \
+              || emit_empty "zig $ZIG_VER download failed"
+          fi
+          export PATH="$ZIG_DIR:$PATH"
+          zig version || emit_empty "zig not runnable"
 
           mkdir -p bundles
           # triple -> asset-name-suffix
