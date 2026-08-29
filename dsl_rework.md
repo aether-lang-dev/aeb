@@ -382,3 +382,26 @@ Engine bugs fixed along the way (all orthogonal wins): the bldr rename, builders
 reading builder_context(), the node-local-helper static-linkage collision
 (55f80a6), and the falsely-green node-return fix (earlier). The b is gone; nodes
 read as `bldr.build() { dep(…); rust.foo() { … } }`.
+
+---
+
+## CROSS-BUILD BUNDLES SHIPPED (2026-08-29, v0.285)
+
+The from-one-Linux-box cross matrix is live in aeb's release CI. v0.285 attaches
+8 prebuilt bundles alongside the source tarball, all cross-compiled from a single
+Linux runner via zig-cc (pinned aether 0.599.0 + zig 0.16.0):
+
+  linux amd64/arm64 (glibc)   linux amd64/arm64 (musl, static, no glibc floor)
+  windows amd64/arm64          macos amd64/arm64 (libSystem-only, EULA-clean)
+
+The libc-ABI class needs no Mac and no Apple SDK; the macOS binaries link only
+libSystem. What still needs a Mac: framework GUI apps (Cocoa/Metal/UIKit) and
+iOS (Xcode). FreeBSD is pending only its 477MB base sysroot in the fetched
+toolchain — not an ABI wall.
+
+Unblocked by four aether asks filed + satisfied this session: win-arm64 lzf
+(0.596), freebsd sysroot path (0.596), linux-musl targets (0.598), and
+libaether.h-in-the-release-tarball (0.599 — the one that let a FETCHED release
+cross-compile aeb's own runtime-linking tools). aeb delegates all
+cross-compilation to `ae build --target=`, so every gap was aether's; aeb's
+side (the target() setter, the bundle CI, the fail-safe) was ready and waiting.
