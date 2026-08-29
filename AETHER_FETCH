@@ -73,4 +73,13 @@
 # include/aether/libaether.h, and --target=x86_64-linux-musl produces a
 # statically-linked binary. This unblocks the release.yml bundle matrix
 # (6 core + 2 musl = 8). PIN moves in lockstep per the no-back-compat policy.
-0.599.0
+#
+# Raised 0.599.0 -> 0.602.0 (2026-08-29) to add the FreeBSD bundle (9th target).
+# 0.602.0 publishes a lean ~22MB FreeBSD cross sysroot as a release asset
+# (aether-<v>-freebsd-x86_64-sysroot.tar.xz) — the release.yml bundle step
+# fetches it (keyed to THIS FETCH version) and sets AETHER_SYSROOT for the
+# x86_64-freebsd row. Verified against the real 0.602.0 assets: the sysroot
+# cross-links both hello.ae and aeb-main.ae to 'ELF ... for FreeBSD 15.0' from
+# Linux. FreeBSD is amd64-only. (0.600/0.601 skipped for the pin: 0.600 was pure
+# HTTP perf; 0.601's sysroot shipped but we're on the 0.602 re-cut.)
+0.602.0

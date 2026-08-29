@@ -324,12 +324,13 @@ jobs:
       # aeb-self-compile install step). Proven from one Linux box; see the
       # cross-matrix notes in the DSL-rework session / dsl_rework.md.
       #
-      # Targets: 8 — linux gnu+musl x amd64/arm64, windows x amd64/arm64, macos
-      # x amd64/arm64 (mac links libSystem-only, EULA-clean; musl is static, no
-      # glibc floor). Needs aether >= 0.599.0: the first release that ships
-      # libaether.h in the tarball (so a fetched release can cross-compile the
-      # runtime-linking tools) AND exposes the -linux-musl targets. freebsd is
-      # still gated (its 477MB base sysroot isn't in the fetched toolchain).
+      # Targets: 9 — linux gnu+musl x amd64/arm64, windows x amd64/arm64, macos
+      # x amd64/arm64, freebsd amd64 (mac links libSystem-only, EULA-clean; musl
+      # is static, no glibc floor). Needs aether >= 0.602.0: ships libaether.h in
+      # the tarball (fetched releases can cross-compile the runtime-linking
+      # tools), exposes the -linux-musl targets, and publishes a lean FreeBSD
+      # cross sysroot as a release asset (fetched below for the freebsd row).
+      # FreeBSD is amd64-only (no aarch64-freebsd base published).
       - name: Build per-platform bundles
         id: bundles
         # NEVER fail the release: bundles are the OPTIONAL extra path. Any
@@ -366,7 +367,27 @@ jobs:
           zig version || emit_empty "zig not runnable"
 
           mkdir -p bundles
-          # triple -> asset-name-suffix
+
+          # FreeBSD needs a cross sysroot (aether >= 0.601 ships a lean ~22MB
+          # one as a release asset; zig supplies CRT+libc, this carries the
+          # libs the FreeBSD link line names + headers). linux/win/mac/musl need
+          # nothing extra. Fetch it once here; the freebsd row exports
+          # AETHER_SYSROOT to it. Best-effort: if the fetch fails, FBSD_SYSROOT
+          # stays empty and the freebsd row's builds fail → that row skips
+          # (fail-safe), the other 8 bundles still ship. Do NOT restructure the
+          # extracted tree — it preserves BSD lib/ + usr/lib/ layout + the
+          # ../../lib/<name>.so.N symlinks the linker resolves through.
+          FBSD_SYSROOT=""
+          FBSD_URL="https://github.com/aether-lang-dev/aether/releases/download/v$FETCH_VER/aether-$FETCH_VER-freebsd-x86_64-sysroot.tar.xz"
+          if curl -fsSL "$FBSD_URL" -o /tmp/fbsd-sysroot.tar.xz 2>/dev/null; then
+            mkdir -p /tmp/fbsd-sr && tar -xJf /tmp/fbsd-sysroot.tar.xz -C /tmp/fbsd-sr 2>/dev/null \
+              && FBSD_SYSROOT="$(ls -d /tmp/fbsd-sr/fbsd-sysroot 2>/dev/null || echo /tmp/fbsd-sr)" \
+              && echo "freebsd sysroot ready: $FBSD_SYSROOT"
+          else
+            echo "freebsd sysroot fetch failed ($FBSD_URL) — freebsd bundle will skip"
+          fi
+
+          # triple -> asset-name-suffix. FreeBSD is amd64-only (no aarch64 base).
           for row in \
             "x86_64-linux:linux-amd64" \
             "aarch64-linux:linux-arm64" \
@@ -376,8 +397,17 @@ jobs:
             "aarch64-windows:windows-arm64" \
             "x86_64-macos:macos-amd64" \
             "aarch64-macos:macos-arm64" \
+            "x86_64-freebsd:freebsd-amd64" \
           ; do
             triple="${row%%:*}"; suffix="${row##*:}"
+            # FreeBSD cross-link needs the sysroot; export it for this row only.
+            # If the sysroot fetch failed above, AETHER_SYSROOT is empty and the
+            # freebsd builds fail → the row skips via the same fail path.
+            if [ "$triple" = "x86_64-freebsd" ]; then
+              export AETHER_SYSROOT="$FBSD_SYSROOT"
+            else
+              unset AETHER_SYSROOT
+            fi
             B="bundles/aeb-$suffix"
             rm -rf "$B"; mkdir -p "$B/share/aeb" "$B/bin"
             # clean source tree (bash wrappers + lib/ + tools/ .ae source)

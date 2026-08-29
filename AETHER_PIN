@@ -38,4 +38,8 @@
 # Raised 0.593.0 -> 0.599.0 (2026-08-29) in lockstep with AETHER_FETCH for the
 # per-platform bundle release: 0.599.0 is the first published aether that ships
 # libaether.h in the release tarball + exposes the linux-musl cross targets.
-0.599.0
+#
+# Raised 0.599.0 -> 0.602.0 (2026-08-29) in lockstep for the FreeBSD bundle:
+# 0.602.0 publishes the lean FreeBSD cross sysroot as a release asset the
+# release.yml bundle step fetches (keyed to FETCH). See AETHER_FETCH for detail.
+0.602.0
