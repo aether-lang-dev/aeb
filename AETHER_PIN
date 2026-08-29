@@ -34,4 +34,8 @@
 # the floor moves up with FETCH rather than staying a sparse historical
 # minimum: an aeb built from this tree only makes sense on the Aether the
 # rework was built against.
-0.593.0
+#
+# Raised 0.593.0 -> 0.599.0 (2026-08-29) in lockstep with AETHER_FETCH for the
+# per-platform bundle release: 0.599.0 is the first published aether that ships
+# libaether.h in the release tarball + exposes the linux-musl cross targets.
+0.599.0

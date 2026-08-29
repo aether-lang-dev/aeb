@@ -324,9 +324,12 @@ jobs:
       # aeb-self-compile install step). Proven from one Linux box; see the
       # cross-matrix notes in the DSL-rework session / dsl_rework.md.
       #
-      # Targets: the 6 that build green today. musl (x86_64/aarch64-linux-musl)
-      # and freebsd are gated on aether asks (expose-linux-musl-cross-targets,
-      # freebsd base sysroot) — add their rows here once those land.
+      # Targets: 8 — linux gnu+musl x amd64/arm64, windows x amd64/arm64, macos
+      # x amd64/arm64 (mac links libSystem-only, EULA-clean; musl is static, no
+      # glibc floor). Needs aether >= 0.599.0: the first release that ships
+      # libaether.h in the tarball (so a fetched release can cross-compile the
+      # runtime-linking tools) AND exposes the -linux-musl targets. freebsd is
+      # still gated (its 477MB base sysroot isn't in the fetched toolchain).
       - name: Build per-platform bundles
         id: bundles
         # NEVER fail the release: bundles are the OPTIONAL extra path. Any
@@ -367,6 +370,8 @@ jobs:
           for row in \
             "x86_64-linux:linux-amd64" \
             "aarch64-linux:linux-arm64" \
+            "x86_64-linux-musl:linux-amd64-musl" \
+            "aarch64-linux-musl:linux-arm64-musl" \
             "x86_64-windows:windows-amd64" \
             "aarch64-windows:windows-arm64" \
             "x86_64-macos:macos-amd64" \

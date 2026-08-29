@@ -64,4 +64,13 @@
 # floor-stays-put): the rework has NO back-compat with the pre-bldr grammar,
 # so the floor IS the fetch here. 0.593.0 is published with all platform
 # assets and is the version the cachyos box compiled the whole sweep with.
-0.593.0
+#
+# Raised 0.593.0 -> 0.599.0 (2026-08-29) for the per-platform bundle release.
+# 0.599.0 is the first published aether that BOTH ships libaether.h in the
+# release tarball (so a fetched release can cross-compile runtime-linking
+# programs — aeb's own tools) AND exposes the *-linux-musl cross targets.
+# Verified against the real 0.599.0 tarball: libaether.h present at
+# include/aether/libaether.h, and --target=x86_64-linux-musl produces a
+# statically-linked binary. This unblocks the release.yml bundle matrix
+# (6 core + 2 musl = 8). PIN moves in lockstep per the no-back-compat policy.
+0.599.0
