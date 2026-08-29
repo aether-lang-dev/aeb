@@ -16,9 +16,13 @@ name: release
 #                          asset gets one — the source tarball AND each
 #                          per-platform bundle below.
 #
-# ALSO shipped (secondary, convenience — the source tarball above stays
-# PRIMARY): per-platform bundles whose 5 aeb install tools are already
-# cross-compiled for the target, for CI nodes without a C toolchain. Nine
+# ALSO shipped: per-platform bundles whose 5 aeb install tools are already
+# cross-compiled for the target, for CI nodes without a C toolchain. The
+# source tarball above is still the build-anywhere universal path (and the
+# only one that covers a platform with no bundle), but the release notes now
+# LEAD with the bundle — it's the path most consumers want (no compiler,
+# verifiable, install.sh). Neither is dropped; the notes just stop burying
+# the compiler-free option below the whole source story. Nine
 # targets — linux amd64/arm64 (gnu + static musl), macos amd64/arm64,
 # windows amd64/arm64, freebsd amd64 — each as BOTH aeb-<os>-<arch>.zip and
 # .tar.gz (so a minimal image with only `tar` needs no `unzip`), each with
@@ -499,15 +503,58 @@ jobs:
           cat > /tmp/notes.md <<EOF
           ## Download this
 
-          **[\`aeb-bootstrap.tar.gz\`](../../releases/download/$TAG/$ASSET)**
-          ($SIZE) — plus \`$ASSET.sha256\` to verify it.
+          Two ways to get aeb. Pick by what's on your box:
 
-          Ignore GitHub's auto-attached *Source code* assets below. Those
-          are the **whole repository** — including \`itests/\` (hundreds of
-          MB of fetched upstream projects) and the 7.3 MB Maven resolver —
-          and carry **no published checksum**.
+          - **No C compiler / a CI node** → grab your **platform bundle**
+            below. The aeb tools come **already compiled** for your target;
+            nothing to build.
+          - **Have a C toolchain, or want the build-anywhere source** →
+            **[\`aeb-bootstrap.tar.gz\`](../../releases/download/$TAG/$ASSET)**,
+            the self-building source payload (see *Build from source* below).
 
-          ## What's inside
+          Both paths are checksummed and installed the same way in the end
+          (\`bin/aeb\` on your \`PATH\`, runtime under \`share/aeb/\`).
+
+          ### Platform bundle (prebuilt, compiler-free)
+
+          A per-platform bundle whose 5 aeb tools are already cross-compiled
+          for that target (\`bin/aeb\` stays a script). Nine targets — linux
+          amd64/arm64 (gnu + \`-musl\` static, floor-free "any Linux"), macos
+          amd64/arm64, windows amd64/arm64, freebsd-amd64 — each as **both**
+          \`.zip\` **and** \`.tar.gz\` (so a minimal image with only \`tar\`
+          needs no \`unzip\`), and **each with its own \`.sha256\`**.
+
+          \`\`\`bash
+          BASE=https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG
+          A=aeb-linux-amd64.tar.gz              # pick your {os}-{arch}
+          curl -fsSL -O \$BASE/\$A -O \$BASE/\$A.sha256
+          sha256sum -c \$A.sha256               # fail-closed
+          tar xzf \$A                           # -> ./aeb-linux-amd64/
+          ./aeb-linux-amd64/install.sh          # no compiler; PREFIX=~/.local
+          # or run in place: ./aeb-linux-amd64/bin/aeb --version
+          \`\`\`
+
+          The bundled \`install.sh\` runs \`make -C share/aeb install\`
+          (compiler-free — the tools are prebuilt) and stamps the install so
+          \`bin/aeb\` stops warning it is an un-installed tree. No \`ae\`
+          required to install (building *Aether* programs later still needs
+          your own \`ae\` on \`PATH\` — see the two-Aethers note below).
+
+          > Ignore GitHub's auto-attached *Source code* assets at the very
+          > bottom. Those are the **whole repository** — including
+          > \`itests/\` (hundreds of MB of fetched upstream projects) and the
+          > 7.3 MB Maven resolver — and carry **no published checksum**.
+
+          ---
+
+          ## Build from source
+
+          If your platform isn't in the bundle list, or you'd rather build
+          from source, use **\`aeb-bootstrap.tar.gz\`** ($SIZE) — plus
+          \`$ASSET.sha256\` to verify it. This is the universal path: one
+          tarball, every platform, nothing compiled ahead of time.
+
+          ### What's inside
 
           **Source only. There are no executables in this tarball** — not
           for Linux, not for any platform. Nothing here is compiled ahead of
@@ -522,14 +569,12 @@ jobs:
           | \`Makefile\`, \`LICENSE\`, \`README.md\`, \`docs/\` | the usual |
           | **prebuilt binaries** | **$N_EXE** |
 
-          $SIZE compressed, ~$UNPACKED unpacked.
+          $SIZE compressed, ~$UNPACKED unpacked. One tarball works on every
+          platform because there is nothing platform-specific in it — the
+          same reason the platform bundles above are the *only* place
+          per-target binaries live.
 
-          Deliberately **not** shipped: per-platform tool binaries. They
-          rebuild from these sources in seconds, and every extra artifact is
-          another version-skew surface. One tarball works on every platform
-          because there is nothing platform-specific in it.
-
-          ## What you need on the box
+          ### What you need on the box
 
           - **a C compiler and \`make\`** — aeb compiles through C
           - **\`curl\`** and network access on first run
@@ -545,7 +590,7 @@ jobs:
           > \`rust\`, …) have no such requirement. Two Aethers, on purpose —
           > see \`docs/aeb-host-vm-or-container-setup.md\`.
 
-          ## Download and verify
+          ### Download and verify
 
           \`\`\`bash
           TAG=$TAG
@@ -560,7 +605,7 @@ jobs:
           The published \`.sha256\` is a standard \`sha256sum\` file, so
           \`-c\` checks it directly — no need to paste the hash by hand.
 
-          ## Then what — two ways to use it
+          ### Then what — two ways to use it
 
           You now have a directory of **sources**. Pick one:
 
@@ -602,41 +647,16 @@ jobs:
           the rest stay unbuilt until something invokes them). Later runs
           are silent and immediate.
 
-          ## Prebuilt platform bundles (compiler-free path)
-
-          The source tarball above is the **primary** path. For CI nodes
-          without a C toolchain, this release also attaches a per-platform
-          bundle whose 5 aeb tools are **already compiled** for that target
-          (\`bin/aeb\` stays a script):
-
-          \`aeb-{os}-{arch}\` for linux (amd64/arm64, gnu + \`-musl\`
-          static), macos (amd64/arm64), windows (amd64/arm64) and
-          freebsd-amd64 — each as **both** \`.zip\` **and** \`.tar.gz\`
-          (drop the \`unzip\` dependency on minimal images), and **each with
-          its own \`.sha256\`** so the fetch is verifiable.
-
-          \`\`\`bash
-          BASE=https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG
-          A=aeb-linux-amd64.tar.gz              # pick your {os}-{arch}
-          curl -fsSL -O \$BASE/\$A -O \$BASE/\$A.sha256
-          sha256sum -c \$A.sha256               # fail-closed
-          tar xzf \$A                           # -> ./aeb-linux-amd64/
-          ./aeb-linux-amd64/install.sh          # no compiler; PREFIX=~/.local
-          # or run in place: ./aeb-linux-amd64/bin/aeb --version
-          \`\`\`
-
-          The bundled \`install.sh\` runs \`make -C share/aeb install\`
-          (compiler-free — the tools are prebuilt) and stamps the install so
-          \`bin/aeb\` stops warning it is an un-installed tree.
-
           ## Verified in CI
 
-          Not merely uploaded. Before publishing, this exact tarball was
+          Not merely uploaded. Before publishing, the source tarball was
           unpacked on a clean runner, fetched the Aether it pins, probed
           that toolchain by **compiling** (not \`--version\` — a banner can
           succeed on an \`aetherc\` that is glibc-broken), and rebuilt aeb
           to a **green build**. The source-only claim above is asserted in
-          CI too, not just written here.
+          CI too, not just written here. The platform bundles are
+          cross-compiled in the same run and skipped fail-safe if a target
+          can't build — so a published bundle is one that actually linked.
 
           | asset | sha256 |
           |---|---|
