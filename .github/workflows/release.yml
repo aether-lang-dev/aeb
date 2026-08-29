@@ -12,15 +12,21 @@ name: release
 #                          27 tools, ~28s, build green).
 #   <asset>.sha256         so a node can VERIFY before it runs. Without
 #                          this, `curl | tar` is trust-me; with it, it is
-#                          verify-then-run, fail-closed.
+#                          verify-then-run, fail-closed. EVERY published
+#                          asset gets one — the source tarball AND each
+#                          per-platform bundle below.
 #
-# NOT shipped, on purpose: 27 per-platform tool binaries. They rebuild in
-# seconds from the source payload, and every extra asset is another
-# version-skew surface. The bootstrap chain is the product, not the bag of
-# binaries. (`aeb-cli-<os>-<arch>` will be added once aeb-cli can do the
-# pinned-Aether fetch itself — that logic is bash-only today, so a lone
-# aeb-cli binary cannot yet bootstrap. See
-# asks/release-and-node-bootstrap-plan.md gap 2.)
+# ALSO shipped (secondary, convenience — the source tarball above stays
+# PRIMARY): per-platform bundles whose 5 aeb install tools are already
+# cross-compiled for the target, for CI nodes without a C toolchain. Nine
+# targets — linux amd64/arm64 (gnu + static musl), macos amd64/arm64,
+# windows amd64/arm64, freebsd amd64 — each as BOTH aeb-<os>-<arch>.zip and
+# .tar.gz (so a minimal image with only `tar` needs no `unzip`), each with
+# its own .sha256, and each carrying an install.sh (compiler-free
+# `make install`). All cross-built from ONE Linux runner via ae's zig
+# backend + (freebsd) the aether cross-sysroot release asset. The row is
+# fail-safe: a target that fails to cross-build is skipped, and the source
+# tarball + the other bundles still publish. Needs aether >= 0.602.0.
 #
 # Discipline copied from aeo's docs/releasing-aeo.md +
 # docs/operations/agent-host-setup.md: one tag -> one immutable asset set
@@ -423,16 +429,44 @@ jobs:
               fi
             done
             if [ "$fail" = 0 ]; then
+              # Drop a tiny installer so the compiler-free path is self-
+              # documenting (ask 3): the extracted tree runs from bin/aeb but
+              # warns it is "un-installed"; the stamped install is
+              # `make -C share/aeb install PREFIX=…`.
+              # Heredoc body is indented to the run-block scalar level (10
+              # spaces): YAML strips that common indent before the shell sees
+              # it, so the written file is flush-left. A column-1 body would
+              # terminate the block scalar early and corrupt the workflow.
+              cat > "$B/install.sh" <<'INSTALL'
+          #!/bin/sh
+          # Install this prebuilt aeb bundle. No compiler needed — the tools
+          # under share/aeb/tools are already target-native binaries; bin/aeb
+          # is a script. Usage: ./install.sh [PREFIX]   (default: ~/.local)
+          set -eu
+          here="$(cd "$(dirname "$0")" && pwd)"
+          PREFIX="${1:-$HOME/.local}"
+          make -C "$here/share/aeb" install PREFIX="$PREFIX"
+          echo "aeb installed to $PREFIX/bin/aeb"
+          INSTALL
+              chmod +x "$B/install.sh"
+              # Both archive forms (ask 2): .zip AND .tar.gz, so a minimal CI
+              # image with only `tar` (no `unzip`) can consume the fast path.
               ( cd bundles && zip -qr "aeb-$suffix.zip" "aeb-$suffix" )
-              echo "  ✅ aeb-$suffix.zip ($(du -h bundles/aeb-$suffix.zip | cut -f1))"
+              ( cd bundles && tar -czf "aeb-$suffix.tar.gz" "aeb-$suffix" )
+              # A companion .sha256 for EVERY platform asset (ask 1): the
+              # compiler-free fetch path must be verifiable, same as bootstrap.
+              ( cd bundles && sha256sum "aeb-$suffix.zip"    > "aeb-$suffix.zip.sha256" )
+              ( cd bundles && sha256sum "aeb-$suffix.tar.gz" > "aeb-$suffix.tar.gz.sha256" )
+              echo "  ✅ aeb-$suffix.{zip,tar.gz} (+ .sha256 each) ($(du -h bundles/aeb-$suffix.zip | cut -f1) / $(du -h bundles/aeb-$suffix.tar.gz | cut -f1))"
             else
               echo "  ⚠️  aeb-$suffix skipped (a tool failed to cross-build)"
             fi
           done
-          # Space-joined list of built zips for the Publish step.
-          zips=$(ls bundles/*.zip 2>/dev/null | tr '\n' ' ')
-          echo "zips=$zips" >> "$GITHUB_OUTPUT"
-          echo "built: $zips"
+          # Space-joined list of ALL built platform assets (archives + their
+          # .sha256 companions) for the Publish step.
+          assets=$(ls bundles/aeb-*.zip bundles/aeb-*.tar.gz bundles/aeb-*.sha256 2>/dev/null | tr '\n' ' ')
+          echo "zips=$assets" >> "$GITHUB_OUTPUT"
+          echo "built: $assets"
 
       - name: Publish
         env:
@@ -567,6 +601,33 @@ jobs:
           pinned Aether and compiles the aeb tools it needs (only those —
           the rest stay unbuilt until something invokes them). Later runs
           are silent and immediate.
+
+          ## Prebuilt platform bundles (compiler-free path)
+
+          The source tarball above is the **primary** path. For CI nodes
+          without a C toolchain, this release also attaches a per-platform
+          bundle whose 5 aeb tools are **already compiled** for that target
+          (\`bin/aeb\` stays a script):
+
+          \`aeb-{os}-{arch}\` for linux (amd64/arm64, gnu + \`-musl\`
+          static), macos (amd64/arm64), windows (amd64/arm64) and
+          freebsd-amd64 — each as **both** \`.zip\` **and** \`.tar.gz\`
+          (drop the \`unzip\` dependency on minimal images), and **each with
+          its own \`.sha256\`** so the fetch is verifiable.
+
+          \`\`\`bash
+          BASE=https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG
+          A=aeb-linux-amd64.tar.gz              # pick your {os}-{arch}
+          curl -fsSL -O \$BASE/\$A -O \$BASE/\$A.sha256
+          sha256sum -c \$A.sha256               # fail-closed
+          tar xzf \$A                           # -> ./aeb-linux-amd64/
+          ./aeb-linux-amd64/install.sh          # no compiler; PREFIX=~/.local
+          # or run in place: ./aeb-linux-amd64/bin/aeb --version
+          \`\`\`
+
+          The bundled \`install.sh\` runs \`make -C share/aeb install\`
+          (compiler-free — the tools are prebuilt) and stamps the install so
+          \`bin/aeb\` stops warning it is an un-installed tree.
 
           ## Verified in CI
 
