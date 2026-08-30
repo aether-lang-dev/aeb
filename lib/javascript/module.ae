@@ -186,3 +186,100 @@ builder pack(): int {
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
+
+// --- javascript.consumer_example: prove the npm tarball installs + runs ---
+
+consumer_script(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "consumer_script", path)
+}
+consumer_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "consumer_args") == 0 { _e1 = map.put(_ctx, "consumer_args", list.new()) }
+    l, _ = map.get(_ctx, "consumer_args")
+    _e2 = list.add(l, arg)
+}
+asset_glob(_ctx: ptr, glob: string) {
+    _e = map.put(_ctx, "asset_glob", glob)
+}
+
+// javascript.consumer_example() — make a CLEAN consumer project (a bare
+// package.json), `npm install <tarball>` (unpacks our package + its runtime
+// deps into node_modules, with the bundled .so), assert the asset, then run the
+// consumer with the dev env var unset. Reads the "tarball_dir" artifact.
+builder consumer_example(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    deps, _ = map.get(ctx, "deps")
+    tarball_dir = ""
+    nd = list.size(deps)
+    di = 0
+    while di < nd {
+        dp, _ = list.get(deps, di)
+        dm = bldr._strip_lang(dp)
+        td = bldr._read_dep_artifact(ctx, dm, "tarball_dir")
+        if string.length(td) > 0 { tarball_dir = td }
+        di = di + 1
+    }
+    if string.length(tarball_dir) == 0 {
+        bldr.fail(ctx, "javascript.consumer_example: no tarball_dir artifact on the dep")
+        return 1
+    }
+
+    script = ""
+    asset = ""
+    if _builder != null {
+        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get(_builder, "consumer_script") }
+        if map.has(_builder, "asset_glob") == 1 { asset, _ = map.get(_builder, "asset_glob") }
+    }
+    if string.length(script) == 0 {
+        bldr.fail(ctx, "javascript.consumer_example: consumer_script(\"...\") is required")
+        return 1
+    }
+
+    consumer = path.join(target_dir, "consumer")
+    script_abs = path.join(source_dir, script)
+    script_base = bldr._basename(script)
+    bldr._sh("rm -rf '${consumer}' && mkdir -p '${consumer}' && cp '${script_abs}' '${consumer}/' && printf '{\"name\":\"consumer\",\"private\":true,\"version\":\"0.0.0\"}' > '${consumer}/package.json'")
+    ni = bldr._sh("cd '${consumer}' && npm install --silent --no-audit --no-fund '${tarball_dir}'/*.tgz")
+    if ni != 0 {
+        println("${mod_dir}: npm install of the tarball failed")
+        bldr.fail(ctx, "npm install failed")
+        return 1
+    }
+    if string.length(asset) > 0 {
+        if bldr._sh("ls '${consumer}'/${asset} >/dev/null 2>&1") != 0 {
+            println("${mod_dir}: installed package is missing ${asset}")
+            bldr.fail(ctx, "bundled asset missing after install")
+            return 1
+        }
+    }
+
+    base = "cd '${consumer}' && env -u SELENIUM_CORE_LIB node '${script_base}'"
+    args = null
+    if _builder != null {
+        if map.has(_builder, "consumer_args") == 1 { args, _ = map.get(_builder, "consumer_args") }
+    }
+    if args == null {
+        if bldr._sh(base) != 0 { bldr.fail(ctx, "consumer run failed"); return 1 }
+    } else {
+        na = list.size(args)
+        ai = 0
+        while ai < na {
+            a, _ = list.get(args, ai)
+            println("${mod_dir}: consumer run (${a})")
+            if bldr._sh("${base} ${a}") != 0 {
+                println("${mod_dir}: consumer run (${a}) failed")
+                bldr.fail(ctx, "consumer run (${a}) failed")
+                return 1
+            }
+            ai = ai + 1
+        }
+    }
+    println("${mod_dir}: PASS — installed npm package loaded its bundled .so from clean")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
