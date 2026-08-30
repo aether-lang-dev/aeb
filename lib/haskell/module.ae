@@ -12,23 +12,110 @@
 //   haskell.test(b) { env("LD_LIBRARY_PATH", nat) }
 //
 // Setters (all from lib/build): env(K,V), step("…"), workdir("dir").
+// Plus (this module): link_dir("<abs dir>") and target("test:live").
 import bldr
 import std.string
+import std.list
+import std.map
+import std.path
+import std.io
 
-// haskell.build(b) — `cabal build`.
+// link_dir("<abs dir>") — a directory carrying a C library the cabal package
+// links via `extra-libraries` (e.g. an aeb-built engine .so). Appended as
+// `--extra-lib-dirs=<dir> --ghc-options=-optl-Wl,-rpath,<dir>` so the link
+// resolves at build time and the binary self-locates the .so at run time.
+// cabal 9.10 rejects a bare relative extra-lib-dirs and won't expand
+// ${pkgroot}, so pass ABSOLUTE dirs here. Repeatable.
+link_dir(_ctx: ptr, dir: string) {
+    if map.has(_ctx, "hs_link_dirs") == 0 { _e1 = map.put(_ctx, "hs_link_dirs", list.new()) }
+    l, _ = map.get(_ctx, "hs_link_dirs")
+    _e2 = list.add(l, dir)
+}
+
+// target("test:live") — the cabal target for build/test (e.g. a named
+// test-suite). Unset → all. Scalar.
+target(_ctx: ptr, t: string) {
+    _e = map.put(_ctx, "hs_target", t)
+}
+
+// _hs_lib_flags(builder) — " --extra-lib-dirs=<d> --ghc-options=-optl-Wl,
+// -rpath,<d>" per link_dir(), or "". Pure.
+_hs_lib_flags(bmap: ptr) {
+    out = ""
+    if bmap != null {
+        if map.has(bmap, "hs_link_dirs") == 1 {
+            l, _ = map.get(bmap, "hs_link_dirs")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                d, _ = list.get(l, i)
+                out = string.concat(out, " --extra-lib-dirs='${d}' --ghc-options=-optl-Wl,-rpath,'${d}'")
+                i = i + 1
+            }
+        }
+    }
+    return out
+}
+
+// _hs_target_suffix(builder) — " <target>" or "". Pure.
+_hs_target_suffix(bmap: ptr) {
+    if bmap != null {
+        if map.has(bmap, "hs_target") == 1 {
+            t, _ = map.get(bmap, "hs_target")
+            if string.length(t) > 0 { return " ${t}" }
+        }
+    }
+    return ""
+}
+
+// haskell.build(b) — `cabal build [<target>]` + link_dir flags.
 builder build(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
+    flags = _hs_lib_flags(_builder)
+    tgt = _hs_target_suffix(_builder)
+    if string.length(flags) == 0 {
+        println("${mod_dir}: compiling (cabal build)")
+        return bldr._run_project(ctx, _builder, string.concat("cabal build", tgt), 0)
+    }
+    source_dir = bldr._get(ctx, "source_dir")
     println("${mod_dir}: compiling (cabal build)")
-    return bldr._run_project(ctx, _builder, "cabal build", 0)
+    cmd = "cd '${source_dir}' && cabal build${tgt}${flags}"
+    cmd = string.concat(bldr._env_export_prefix(_builder), cmd)
+    rc = bldr._sh(cmd)
+    if rc != 0 { bldr.fail(ctx, "cabal build failed"); return rc }
+    return 0
 }
 
-// haskell.test(b) — `cabal test`. Reports pass/fail telemetry.
+// haskell.test(b) — `cabal test [<target>]` + link_dir flags + env. Pass/fail
+// telemetry. When link_dir() is declared, assemble the command directly (the
+// engine-link flags can't ride the generic _run_project path).
 builder test(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
+    flags = _hs_lib_flags(_builder)
+    tgt = _hs_target_suffix(_builder)
+    if string.length(flags) == 0 {
+        println("${mod_dir}: running tests (cabal test)")
+        return bldr._run_project(ctx, _builder, string.concat("cabal test", tgt), 1)
+    }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (cabal test)")
-    return bldr._run_project(ctx, _builder, "cabal test", 1)
+    cmd = "cd '${source_dir}' && cabal test${tgt}${flags}"
+    cmd = string.concat(bldr._env_export_prefix(_builder), cmd)
+    rc = bldr._sh(cmd)
+    if rc != 0 {
+        bldr._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
+        return rc
+    }
+    bldr._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }
