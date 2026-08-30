@@ -179,3 +179,29 @@ All builders now call the extracted pure helpers (same bytes as before). The
 other consumer_example langs (python/ruby/js/java/go/dart/nim/zig/lua) derive
 from the rust generic; extracting/​testing each is the same mechanical pass if
 wanted, but the generic helper + its test now cover the assembly logic.
+
+---
+
+## UPDATE (2026-08-30, later): #2 SUPERSEDED — resolver now runs on bld, no mvn at all
+
+The stub/fetch/shade path above was a dead end (java.shade can't fat-jar a
+classpath_file classpath; the resolver .dist.ae was also broken by JDK-24
+drift). Replaced wholesale: aeb-resolve is now an ~8 KB thin shim
+(tools/resolver/BldResolve.java) over Geert Bevin's bld (com.uwyn.rife2:bld) —
+one self-contained 2 MB jar with its own lean Maven resolver, ZERO runtime
+deps, no logging framework. Commits c32a5be (cutover) + 7fdea75 (flatten).
+lib/maven + aeb-sbom invoke it unchanged (thin jar's Class-Path manifest finds
+bld alongside). Verified: junit → 8 jars (compiles a real @Test),
+spring-boot-starter → 20 managed jars, --bom parent/property inheritance,
+sbom mode. Build needs only JDK + curl. Old MavenResolver.java, pom.xml, and
+the 38 stubs are retired. Further pure-Aether resolver tracked in
+docs/TODO-aether-maven-resolver.md.
+
+A follow-up attempt to rewrite the resolver's .dist.ae in aeb's own java DSL
+(jar_pinned + javac + a new thin_jar verb, instead of shell string.concat) was
+parked: it needs a small java-SDK fix (javac reading a node's OWN accumulated
+jar_pinned jars) + no_module_info for bld's automatic-module, and the thin_jar
+attempt tripped a NAME COLLISION (its `jar_name` param shadowed the existing
+java.jar_name() setter → interpolated the function pointer, not the string) —
+a self-inflicted naming bug, NOT an Aether compiler bug. The working imperative
+.dist.ae stays for now.
