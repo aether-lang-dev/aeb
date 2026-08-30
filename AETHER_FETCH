@@ -82,4 +82,10 @@
 # cross-links both hello.ae and aeb-main.ae to 'ELF ... for FreeBSD 15.0' from
 # Linux. FreeBSD is amd64-only. (0.600/0.601 skipped for the pin: 0.600 was pure
 # HTTP perf; 0.601's sysroot shipped but we're on the 0.602 re-cut.)
-0.602.0
+#
+# Raised 0.602.0 -> 0.609.0 (2026-08-30) for the v0.289 release. 0.609.0 is the
+# newest published aether (all 6 platform assets; GLIBC_2.34, Debian-12 safe).
+# Verified: aeb's full suite is 133/133 against the real 0.609.0 tarball, and the
+# bld-backed resolver + 9-target cross bundles build clean. PIN moves in lockstep
+# (no-back-compat DSL policy).
+0.609.0

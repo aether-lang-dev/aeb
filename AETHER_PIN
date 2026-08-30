@@ -42,4 +42,10 @@
 # Raised 0.599.0 -> 0.602.0 (2026-08-29) in lockstep for the FreeBSD bundle:
 # 0.602.0 publishes the lean FreeBSD cross sysroot as a release asset the
 # release.yml bundle step fetches (keyed to FETCH). See AETHER_FETCH for detail.
-0.602.0
+#
+# Raised 0.602.0 -> 0.609.0 (2026-08-30) in lockstep with AETHER_FETCH ahead of
+# the v0.289 release. aeb's full suite (133/133) builds + passes against the real
+# 0.609.0 linux tarball; glibc floor is GLIBC_2.34 (Debian-12 safe). Bundles the
+# accumulated 0.603-0.609 fixes; nothing here calls a new primitive, but the
+# no-back-compat DSL policy keeps PIN moving with FETCH.
+0.609.0
