@@ -1557,14 +1557,18 @@ csrc_default_output(src_name: string) {
 
 // Build the aetherc command for codegen-mode (--emit=lib) compilation
 // of an .ae source. `caps` is a comma-separated capability list
-// (e.g. "net,fs"); empty → no --with= flag is emitted. Pure: no I/O,
-// just string assembly. Tested in tests/test_aetherc_emit_lib_cmd.ae.
-aetherc_emit_lib_cmd(aetherc: string, ae_path: string, c_path: string, caps: string) {
+// (e.g. "net,fs"); empty → no --with= flag is emitted. `lib_flags` is a
+// pre-assembled repeated-flag fragment (" --lib a --lib b", from
+// _node_lib_flags); empty → none. Without it, a regen'd module that
+// imports project modules from a node's lib() dir fails E0301 because
+// aetherc searches only cwd + --lib. Pure: no I/O, just string assembly.
+// Tested in tests/test_aether_cmd.ae.
+aetherc_emit_lib_cmd(aetherc: string, ae_path: string, c_path: string, caps: string, lib_flags: string) {
     with_flag = ""
     if string.length(caps) > 0 {
         with_flag = " --with=${caps}"
     }
-    return "${aetherc} --emit=lib${with_flag} ${ae_path} ${c_path}"
+    return "${aetherc} --emit=lib${with_flag}${lib_flags} ${ae_path} ${c_path}"
 }
 
 // Build the gcc link command for the manual aether.program path.
@@ -1726,6 +1730,39 @@ _detect_caps_from_content(content: string) {
     if string.index_of(content, "import std.net")  >= 0 { has_net = 1 }
     if string.index_of(content, "import std.fs")   >= 0 { has_fs  = 1 }
     if string.index_of(content, "import std.os")   >= 0 { has_os  = 1 }
+    out = ""
+    if has_net == 1 { out = "net" }
+    if has_fs == 1 {
+        if string.length(out) > 0 { out = string.concat(out, ",") }
+        out = string.concat(out, "fs")
+    }
+    if has_os == 1 {
+        if string.length(out) > 0 { out = string.concat(out, ",") }
+        out = string.concat(out, "os")
+    }
+    return out
+}
+
+// _union_caps(a, b) — merge two comma-separated capability lists into one
+// with no duplicates, order net,fs,os (matching _detect_caps_from_content).
+// Used to floor a regen'd module's auto-detected caps with the node's
+// declared entry caps: `--emit=lib` cap-gates over the TRANSITIVE import
+// closure (aetherc follows imports), so a module that itself imports only
+// std.file but imports a sibling using std.os still needs --with=os. The
+// node already declared the closure's caps on the entry; apply them as a
+// floor so the regen doesn't fail the gate. Pure. Tested in test_aether_cmd.ae.
+_union_caps(a: string, b: string) {
+    both = a
+    if string.length(b) > 0 {
+        if string.length(both) > 0 { both = string.concat(both, ",") }
+        both = string.concat(both, b)
+    }
+    has_net = 0
+    has_fs = 0
+    has_os = 0
+    if string.index_of(both, "net") >= 0 { has_net = 1 }
+    if string.index_of(both, "fs")  >= 0 { has_fs  = 1 }
+    if string.index_of(both, "os")  >= 0 { has_os  = 1 }
     out = ""
     if has_net == 1 { out = "net" }
     if has_fs == 1 {
@@ -1954,6 +1991,20 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
     }
     extras, _ = map.get(builder_map, "extra_source")
 
+    // The node's lib() module-search dirs, so a regen'd module's OWN
+    // imports (project modules under those dirs) resolve — the entry
+    // compile already gets these; the closure regen must too.
+    node_lib_flags = _node_lib_flags(builder_map, source_dir)
+
+    // The node's declared caps (caps("net,os,fs")), floored into each
+    // auto-detected regen so a module that transitively imports a sibling
+    // needing a cap it doesn't itself import still passes aetherc's
+    // --emit=lib gate (which follows the whole import closure).
+    node_caps = ""
+    if map.has(builder_map, "csrc_caps") == 1 {
+        node_caps, _ = map.get(builder_map, "csrc_caps")
+    }
+
     i = 0
     while i < n {
         rel, _ = list.get(regens, i)
@@ -2012,12 +2063,14 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
 
         if needs_regen == 1 {
             // Capability resolution: explicit regen_with(...) caps win.
-            // Otherwise scan the .ae for `import std.<X>` and infer.
+            // Otherwise scan the .ae for `import std.<X>` and infer, then
+            // floor with the node's declared caps (the module's transitive
+            // closure may need caps it doesn't import directly).
             caps = explicit_caps
             if string.length(caps) == 0 {
-                caps = _detect_caps(ae_abs)
+                caps = _union_caps(_detect_caps(ae_abs), node_caps)
             }
-            cmd = aetherc_emit_lib_cmd(aetherc, ae_abs, c_abs, caps)
+            cmd = aetherc_emit_lib_cmd(aetherc, ae_abs, c_abs, caps, node_lib_flags)
             rc = bldr._sh(cmd)
             if rc != 0 {
                 println("${mod_dir}: aetherc --emit=lib failed for ${rel}")

@@ -34,32 +34,32 @@ main() {
     fw = spec.init()
 
     spec.describe(fw, "aetherc_emit_lib_cmd") {
-        // no caps
+        // no caps, no lib dirs
         spec.it("no caps") callback {
             spec.assert_str_eq(
-                aetherc_emit_lib_cmd("/usr/bin/aetherc", "lib.ae", "lib_generated.c", ""),
+                aetherc_emit_lib_cmd("/usr/bin/aetherc", "lib.ae", "lib_generated.c", "", ""),
                 "/usr/bin/aetherc --emit=lib lib.ae lib_generated.c", "no caps")
         }
         // single cap
         spec.it("--with=net") callback {
             spec.assert_str_eq(
-                aetherc_emit_lib_cmd("aetherc", "auth.ae", "auth_generated.c", "net"),
+                aetherc_emit_lib_cmd("aetherc", "auth.ae", "auth_generated.c", "net", ""),
                 "aetherc --emit=lib --with=net auth.ae auth_generated.c", "net")
         }
         spec.it("--with=fs") callback {
             spec.assert_str_eq(
-                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "fs"),
+                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "fs", ""),
                 "aetherc --emit=lib --with=fs x.ae x.c", "fs")
         }
         // multi-cap
         spec.it("--with=net,fs") callback {
             spec.assert_str_eq(
-                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "net,fs"),
+                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "net,fs", ""),
                 "aetherc --emit=lib --with=net,fs x.ae x.c", "net,fs")
         }
         spec.it("all three caps") callback {
             spec.assert_str_eq(
-                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "net,fs,os"),
+                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "net,fs,os", ""),
                 "aetherc --emit=lib --with=net,fs,os x.ae x.c", "net,fs,os")
         }
         // absolute paths
@@ -67,9 +67,24 @@ main() {
             spec.assert_str_eq(
                 aetherc_emit_lib_cmd("/home/u/.local/bin/aetherc",
                                      "/repo/ae/svnserver/auth.ae",
-                                     "/repo/ae/svnserver/auth_generated.c", "net"),
+                                     "/repo/ae/svnserver/auth_generated.c", "net", ""),
                 "/home/u/.local/bin/aetherc --emit=lib --with=net /repo/ae/svnserver/auth.ae /repo/ae/svnserver/auth_generated.c",
                 "absolute")
+        }
+        // lib dirs — a regen'd module's imports resolve via --lib (the bug fix):
+        // lib_flags sits right after --with= and before the source path.
+        spec.it("caps + lib dirs") callback {
+            spec.assert_str_eq(
+                aetherc_emit_lib_cmd("aetherc", "webdriver.ae", "webdriver_generated.c",
+                                     "net,os,fs", " --lib ../selenium_core --lib ../selenium_core/drivermgr"),
+                "aetherc --emit=lib --with=net,os,fs --lib ../selenium_core --lib ../selenium_core/drivermgr webdriver.ae webdriver_generated.c",
+                "caps+lib")
+        }
+        // lib dirs without caps — no --with=, lib_flags still placed correctly.
+        spec.it("lib dirs, no caps") callback {
+            spec.assert_str_eq(
+                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "", " --lib ."),
+                "aetherc --emit=lib --lib . x.ae x.c", "lib-nocaps")
         }
     }
 
