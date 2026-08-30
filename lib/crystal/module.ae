@@ -36,6 +36,13 @@ _crystal_of(bmap: ptr) {
     return "crystal"
 }
 
+// crystal_spec_cmd(source_dir, crystal, spec) — `cd '<dir>' && <crystal> spec
+// '<spec>'`. The pure command the test() builder runs (env prefix rides
+// separately via _env_export_prefix). Pure; tested in tests/test_crystal_cmd.ae.
+crystal_spec_cmd(source_dir: string, crystal: string, spec: string) {
+    return "cd '${source_dir}' && ${crystal} spec '${spec}'"
+}
+
 // crystal.test() — run `crystal spec <path>`. Loud-skips when crystal is absent.
 // env() honored (e.g. CRYSTAL_LIBRARY_PATH so `@[Link]` finds the .so).
 builder test(): int {
@@ -61,7 +68,7 @@ builder test(): int {
     }
 
     println("${mod_dir}: running tests (crystal spec)")
-    run = "cd '${source_dir}' && ${crystal} spec '${spec}'"
+    run = crystal_spec_cmd(source_dir, crystal, spec)
     run = string.concat(bldr._env_export_prefix(_builder), run)
     rc = bldr._sh(run)
     if rc != 0 {

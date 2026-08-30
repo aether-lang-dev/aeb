@@ -1,0 +1,50 @@
+// Tests for lib/crystal's pure surface: the `crystal spec` command builder,
+// the crystal-bin resolver, and the spec_path/crystal_bin setters.
+import std.spec
+import std.map
+import crystal (crystal_spec_cmd, _crystal_of, spec_path, crystal_bin)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "crystal_spec_cmd") {
+        spec.it("default spec dir") callback {
+            spec.assert_str_eq(crystal_spec_cmd("/proj", "crystal", "spec"),
+                "cd '/proj' && crystal spec 'spec'", "default")
+        }
+        spec.it("explicit spec path + resolved bin") callback {
+            spec.assert_str_eq(crystal_spec_cmd("/proj", "/opt/crystal/bin/crystal", "spec/unit"),
+                "cd '/proj' && /opt/crystal/bin/crystal spec 'spec/unit'", "explicit")
+        }
+    }
+
+    spec.describe(fw, "_crystal_of") {
+        spec.it("null / unset → bare crystal") callback {
+            spec.assert_str_eq(_crystal_of(null), "crystal", "null")
+            spec.assert_str_eq(_crystal_of(map_new()), "crystal", "unset")
+        }
+        spec.it("crystal_bin() override wins") callback {
+            m = map_new()
+            crystal_bin(m, "/usr/local/bin/crystal")
+            spec.assert_str_eq(_crystal_of(m), "/usr/local/bin/crystal", "override")
+        }
+    }
+
+    spec.describe(fw, "setters") {
+        spec.it("spec_path stores under crystal_spec") callback {
+            m = map_new()
+            spec_path(m, "spec/integration")
+            v, _ = map.get(m, "crystal_spec")
+            spec.assert_str_eq(v, "spec/integration", "spec_path")
+        }
+        spec.it("crystal_bin stores under crystal_bin, last-call-wins") callback {
+            m = map_new()
+            crystal_bin(m, "a")
+            crystal_bin(m, "b")
+            v, _ = map.get(m, "crystal_bin")
+            spec.assert_str_eq(v, "b", "last-wins")
+        }
+    }
+
+    spec.run_summary(fw)
+}
