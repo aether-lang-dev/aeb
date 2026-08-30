@@ -1,0 +1,31 @@
+// Tests for bldr.install_launcher's setters (from_dist / with_path). The
+// builder itself (copy binary + write wrapper) is impure/e2e; here we cover
+// the pure setter surface — the config the block fills, read back.
+import std.spec
+import std.map
+import bldr (from_dist, with_path)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "install_launcher setters") {
+        spec.it("from_dist stores the dist module (scalar, last-wins)") callback {
+            m = map_new()
+            from_dist(m, "tools/agent")
+            v, _ = map.get(m, "il_from_dist")
+            spec.assert_str_eq(v, "tools/agent", "stored")
+            from_dist(m, "tools/lease")
+            v2, _ = map.get(m, "il_from_dist")
+            spec.assert_str_eq(v2, "tools/lease", "last-wins")
+        }
+        spec.it("with_path sets the flag; absent by default") callback {
+            m0 = map_new()
+            spec.assert_false(map.has(m0, "il_with_path"), "off by default")
+            m = map_new()
+            with_path(m)
+            spec.assert_true(map.has(m, "il_with_path"), "on after with_path()")
+        }
+    }
+
+    spec.run_summary(fw)
+}
