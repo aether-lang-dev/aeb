@@ -1,76 +1,87 @@
-// Build aeb-resolve.jar — aeb's Maven coordinate resolver — WITH aeb's
-// own Java SDK (java.javac + java.shade), dogfooding the JVM toolchain on
-// a real multi-dep Java program. Replaces the unscripted `mvn package`
-// that produced tools/aeb-resolve.jar.
+// Build aeb-resolve.jar — aeb's Maven coordinate resolver.
 //
-// BOOTSTRAP NOTE: the resolver's own Maven deps cannot be resolved by
-// aeb's normal path, because that path shells out to aeb-resolve.jar —
-// the very artifact being built (chicken-and-egg). So we get the
-// classpath from `mvn dependency:build-classpath` (Maven resolving its
-// own tool's deps, which is fair — Maven is the bootstrap for the Maven
-// resolver, like a C compiler needs a C compiler) and feed it to
-// java.javac via classpath_file(...), which bypasses aeb-resolve.jar.
-// aeb does the compile + shade; mvn only resolves. Requires the resolver
-// deps in ~/.m2 (mvn populates them) and a JDK on PATH.
+// aeb-resolve is now a THIN shim (aeb.maven.BldResolve) over Geert Bevin's
+// bld (com.uwyn.rife2:bld) — a single self-contained ~2 MB jar whose
+// rife.bld.dependencies.* resolver does transitive Maven-coordinate
+// resolution (POM walk, parent chains, dependencyManagement/BOM, property
+// interpolation, download from Central) with ZERO runtime dependencies and
+// NO logging framework. This REPLACES the old Eclipse-Aether MavenResolver
+// (24-jar closure) + its mvn/shade/stub build. See
+// docs/TODO-aether-maven-resolver.md for the journey.
 //
-// SEVERING THE mvn-AT-COMPILE DEPENDENCY (in progress): the mvn classpath
-// serves TWO roles here — (1) COMPILE: satisfy javac's symbol resolution,
-// (2) SHADE: fat-jar the real Maven-Resolver impl into the output. Role (1)
-// is now removable: tools/resolver/stubs/ holds hand-written empty-body
-// stubs (the "headers") for the exact org.eclipse.aether.* / org.apache.
-// maven.* compile surface MavenResolver.java references — `javac -sourcepath
-// stubs stubs/**/*.java src/.../MavenResolver.java` compiles clean with NO
-// mvn and NO jars (verified: exit 0, -Xlint:all clean, 41 .class). Role (2)
-// still needs the real impl (empty stubs would NoClassDefFound at runtime),
-// so shade still resolves via mvn for now. Rewiring javac onto the stubs
-// only removes mvn from the build ONCE shade is also mvn-free (fetch the
-// impl jars from Maven Central by coordinate+sha) — so that lands together,
-// not half-way. The stubs are committed now as the proven compile-sever;
-// the shade-sourcing + javac-rewire is the follow-up. See the selaenium
-// handoff (#2) and docs discussion of a Maven-install-free resolver.
+// The build needs only a JDK + curl — no Maven, no shade, no ~/.m2:
+//   1. curl the pinned bld jar (sha256-verified) into tools/  (cached: skip
+//      if present + valid).
+//   2. javac BldResolve.java against it.
+//   3. jar a THIN aeb-resolve.jar containing only the shim class + a manifest
+//      with Main-Class: aeb.maven.BldResolve and Class-Path: bld-<v>.jar, so
+//      `java -jar $AEB_HOME/tools/aeb-resolve.jar ...` finds bld sitting
+//      alongside it — lib/maven and tools/aeb-sbom invoke it unchanged.
 //
-// SHADE + STUBS DON'T COLLIDE — the mechanism: compile MavenResolver.java
-// against stubs/ → the out dir gets MavenResolver.class PLUS stub .class
-// files (org/eclipse/…, org/apache/… — same FQNs as the real impl). Before
-// shading, DELETE the stub classes from the out dir (keep only
-// aeb/maven/*.class): e.g. `find <out> \( -path '*/org/eclipse/*' -o -path
-// '*/org/apache/*' \) -delete`. Then shade fat-jars our class + the REAL
-// impl jars, so the real Artifact.class etc. land with no stub shadowing.
-// The stubs are pure compile scaffolding, swept before packaging.
+//   aeb tools/resolver/.dist.ae   # → target/dist/tools/resolver/bin/aeb-resolve.jar
+//                                 #   + tools/bld-<v>.jar (both go to $AEB_HOME/tools/)
 //
-//   aeb tools/resolver/.dist.ae   # → target/tools/resolver/bin/aeb-resolve.jar
-//
-// NOT wired into make (make builds the Aether parts of aeb; this Java
-// component is built by aeb). Output is the shaded fat jar; copy it to
-// $AEB_HOME/tools/aeb-resolve.jar (a .install.ae could automate that).
+// NOT wired into make (make builds the Aether parts of aeb; this Java shim is
+// built by aeb). aeb-resolve.jar AND bld-<v>.jar are gitignored artifacts; a
+// fresh install builds the thin jar and fetches bld here.
 import bldr
-import java
-import java (source_layout, classpath_file, shade)
 import std.os
+import std.string
 
 extern println(s: string)
 
+// Pinned bld release. Bump both together (and re-verify the sha) to move it.
+BLD_VER() { return "2.3.0" }
+BLD_SHA() { return "762d7809f62ab93528bcfc9558c103b22f5f080c948b68649b155639e957858f" }
+
 main() {
-    bldr.build() {
-    
-        // Stage 0 (bootstrap): mvn resolves the resolver's OWN deps and dumps
-        // the classpath next to the source. Inline build step — aeb shelling
-        // the tool that already parses pom.xml, same as `ae build` for
-        // aether.toml. The file is then fed to javac via classpath_file().
-        src_dir = source_dir()
-        cp_file = string.concat(src_dir, "/.deps.classpath")
-        mvn_cmd = string.concat(string.concat("cd '", src_dir), "' && mvn -q dependency:build-classpath -Dmdep.outputFile=.deps.classpath")
-        rc = os.system(mvn_cmd)
-        if rc != 0 {
-            println("resolver: mvn dependency:build-classpath failed (need mvn + resolver deps in ~/.m2)")
-            fail("resolver: mvn build-classpath failed")
-            return 1
-        }
-    
-        java.javac() {
-            source_layout("maven idiomatic")
-            classpath_file(".deps.classpath")
-        }
-        java.shade("aeb.maven.MavenResolver", "aeb-resolve.jar")
+  bldr.build() {
+    src_dir = source_dir()
+    ver = BLD_VER()
+    sha = BLD_SHA()
+    // bld jar lives in tools/ (next to aeb-resolve.jar) so the Class-Path
+    // manifest resolves it at runtime. src_dir is <repo>/tools/resolver, so
+    // tools/ is one up.
+    tools_dir = string.concat(src_dir, "/..")
+    bld_jar = "${tools_dir}/bld-${ver}.jar"
+    bld_url = "https://repo1.maven.org/maven2/com/uwyn/rife2/bld/${ver}/bld-${ver}.jar"
+
+    // 1. Fetch + sha256-verify bld (skip if already present and valid).
+    //    A single shell step: verify-or-download-or-fail-closed.
+    fetch = "j='${bld_jar}'; "
+    fetch = string.concat(fetch, "if [ -f \"$j\" ] && [ \"$(sha256sum \"$j\" | cut -d' ' -f1)\" = '${sha}' ]; then :; else ")
+    fetch = string.concat(fetch, "echo 'resolver: fetching bld ${ver}' >&2; ")
+    fetch = string.concat(fetch, "curl -fsSL '${bld_url}' -o \"$j.tmp\" || { echo 'resolver: bld download failed' >&2; exit 1; }; ")
+    fetch = string.concat(fetch, "got=\"$(sha256sum \"$j.tmp\" | cut -d' ' -f1)\"; ")
+    fetch = string.concat(fetch, "if [ \"$got\" != '${sha}' ]; then echo \"resolver: bld sha256 MISMATCH (got $got)\" >&2; rm -f \"$j.tmp\"; exit 1; fi; ")
+    fetch = string.concat(fetch, "mv -f \"$j.tmp\" \"$j\"; fi")
+    rc = os.system(fetch)
+    if rc != 0 {
+        println("resolver: bld fetch/verify failed (need curl + network to Maven Central)")
+        fail("resolver: bld fetch/verify failed")
+        return 1
     }
+
+    // 2. Compile the shim against bld. 3. Jar a thin aeb-resolve.jar with the
+    //    Main-Class + Class-Path manifest. Output goes where the old build
+    //    put it: target/dist/tools/resolver/bin/aeb-resolve.jar.
+    out_bin = "${src_dir}/../../target/dist/tools/resolver/bin"
+    build = "set -e; "
+    build = string.concat(build, "stage=\"$(mktemp -d)\"; ")
+    build = string.concat(build, "javac -cp '${bld_jar}' -d \"$stage\" '${src_dir}/src/main/java/aeb/maven/BldResolve.java'; ")
+    build = string.concat(build, "printf 'Main-Class: aeb.maven.BldResolve\\nClass-Path: bld-${ver}.jar\\n' > \"$stage/MANIFEST.MF\"; ")
+    build = string.concat(build, "mkdir -p '${out_bin}'; ")
+    build = string.concat(build, "jar cfm '${out_bin}/aeb-resolve.jar' \"$stage/MANIFEST.MF\" -C \"$stage\" aeb; ")
+    build = string.concat(build, "rm -rf \"$stage\"")
+    rc2 = os.system(build)
+    if rc2 != 0 {
+        println("resolver: shim compile/jar failed (need a JDK)")
+        fail("resolver: shim compile/jar failed")
+        return 1
+    }
+
+    println("resolver: built aeb-resolve.jar (bld ${ver} shim) — no mvn, no shade")
+    println("  install: copy ${out_bin}/aeb-resolve.jar AND ${bld_jar} to $AEB_HOME/tools/")
+    return 0
+  }
 }

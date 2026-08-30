@@ -52,3 +52,4 @@ tools/aeb-sandbox
 tools/libaether_sandbox.so
 tools/aeb-sbom
 tools/aeb-trace
+tools/bld-*.jar
