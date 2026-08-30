@@ -1,0 +1,77 @@
+// crystal — Crystal SDK for aeb.
+//
+// Crystal binds a C shared library directly via `@[Link]` + `lib`/`fun` blocks
+// (no glue). This SDK's test() runs `crystal spec` with env() honored;
+// CRYSTAL_LIBRARY_PATH points the linker at a dir holding the .so (`-lname`
+// resolves there). Loud-skips (green) when crystal is absent.
+//
+//   import bldr
+//   import crystal
+//   crystal.test() {
+//       env("CRYSTAL_LIBRARY_PATH", native_dir)
+//   }
+import bldr
+import std.string
+import std.map
+import std.path
+import std.io
+
+// spec_path("spec") — the spec dir/file to run (default "spec"). Scalar.
+spec_path(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "crystal_spec", path)
+}
+
+// crystal_bin("/path/to/crystal") — override the interpreter (default `crystal`).
+crystal_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "crystal_bin", bin)
+}
+
+_crystal_of(bmap: ptr) {
+    if bmap != null {
+        if map.has(bmap, "crystal_bin") == 1 {
+            b, _ = map.get(bmap, "crystal_bin")
+            if string.length(b) > 0 { return b }
+        }
+    }
+    return "crystal"
+}
+
+// crystal.test() — run `crystal spec <path>`. Loud-skips when crystal is absent.
+// env() honored (e.g. CRYSTAL_LIBRARY_PATH so `@[Link]` finds the .so).
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    crystal = _crystal_of(_builder)
+
+    if bldr._sh("command -v ${crystal} >/dev/null 2>&1") != 0 {
+        reason = "crystal not on PATH (install Crystal)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        bldr._record_skip(ctx, reason)
+        return 0
+    }
+
+    spec = "spec"
+    if _builder != null {
+        if map.has(_builder, "crystal_spec") == 1 { spec, _ = map.get(_builder, "crystal_spec") }
+    }
+
+    println("${mod_dir}: running tests (crystal spec)")
+    run = "cd '${source_dir}' && ${crystal} spec '${spec}'"
+    run = string.concat(bldr._env_export_prefix(_builder), run)
+    rc = bldr._sh(run)
+    if rc != 0 {
+        bldr._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
+        return rc
+    }
+    bldr._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
