@@ -297,11 +297,6 @@ run_in(_ctx: ptr, dir: string) {
 consumer_run_cmd(_ctx: ptr, cmd: string) {
     _e = map.put(_ctx, "run_cmd", cmd)
 }
-// mode_env("SEL_MODE") — pass each run_arg as an env var (VAR=arg) instead of
-// an argv suffix. Scalar.
-mode_env(_ctx: ptr, v: string) {
-    _e = map.put(_ctx, "mode_env", v)
-}
 // pre_cmd("nim c -r ... consumer.nim") — a build step run once in run_in before
 // the per-arg runs (for compile-then-run languages). Scalar; optional.
 pre_cmd(_ctx: ptr, cmd: string) {
@@ -421,16 +416,6 @@ builder consumer_example(): int {
             }
         }
     }
-    // mode_env: when set, each run_arg is passed as `<VAR>=<arg>` (an env var)
-    // instead of an argv suffix (for consumers that select a mode from the env).
-    has_mode_env = 0
-    mode_env = ""
-    if _builder != null {
-        if map.has(_builder, "mode_env") == 1 {
-            mode_env, _ = map.get(_builder, "mode_env")
-            has_mode_env = 1
-        }
-    }
     args = null
     if _builder != null {
         if map.has(_builder, "run_args") == 1 { args, _ = map.get(_builder, "run_args") }
@@ -444,12 +429,7 @@ builder consumer_example(): int {
         while ai < na {
             a, _ = list.get(args, ai)
             println("${mod_dir}: consumer run (${a})")
-            one = ""
-            if has_mode_env == 1 {
-                one = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${mode_env}=${a} ${run_command}"
-            } else {
-                one = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command} ${a}"
-            }
+            one = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command} ${a}"
             if bldr._sh(one) != 0 {
                 println("${mod_dir}: consumer run (${a}) failed")
                 bldr.fail(ctx, "consumer run (${a}) failed")
