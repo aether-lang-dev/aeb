@@ -13,6 +13,22 @@
 // aeb does the compile + shade; mvn only resolves. Requires the resolver
 // deps in ~/.m2 (mvn populates them) and a JDK on PATH.
 //
+// SEVERING THE mvn-AT-COMPILE DEPENDENCY (in progress): the mvn classpath
+// serves TWO roles here — (1) COMPILE: satisfy javac's symbol resolution,
+// (2) SHADE: fat-jar the real Maven-Resolver impl into the output. Role (1)
+// is now removable: tools/resolver/stubs/ holds hand-written empty-body
+// stubs (the "headers") for the exact org.eclipse.aether.* / org.apache.
+// maven.* compile surface MavenResolver.java references — `javac -sourcepath
+// stubs stubs/**/*.java src/.../MavenResolver.java` compiles clean with NO
+// mvn and NO jars (verified: exit 0, -Xlint:all clean, 41 .class). Role (2)
+// still needs the real impl (empty stubs would NoClassDefFound at runtime),
+// so shade still resolves via mvn for now. Rewiring javac onto the stubs
+// only removes mvn from the build ONCE shade is also mvn-free (fetch the
+// impl jars from Maven Central by coordinate+sha) — so that lands together,
+// not half-way. The stubs are committed now as the proven compile-sever;
+// the shade-sourcing + javac-rewire is the follow-up. See the selaenium
+// handoff (#2) and docs discussion of a Maven-install-free resolver.
+//
 //   aeb tools/resolver/.dist.ae   # → target/tools/resolver/bin/aeb-resolve.jar
 //
 // NOT wired into make (make builds the Aether parts of aeb; this Java
