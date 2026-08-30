@@ -137,3 +137,52 @@ builder test(): int {
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
+
+// javascript.pack() — `npm pack` the package into a tarball and publish the
+// tarball dir on the "tarball_dir" artifact edge (for a consumer-install proof).
+// npm_install() first (offline if cached) when declared. The engine .so, if the
+// package bundles one, must already be staged in the package tree (via a
+// copy.file in the node) — npm pack ships whatever `files`/.npmignore includes.
+builder pack(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+    env_prefix = bldr._env_export_prefix(_builder)
+
+    // optional npm install first (same as test()).
+    if _builder != null {
+        if map.has(_builder, "npm_install_on") == 1 {
+            iflags = ""
+            if map.has(_builder, "npm_install_flags") == 1 { iflags, _ = map.get(_builder, "npm_install_flags") }
+            println("${mod_dir}: installing deps (npm install)")
+            in_rc = bldr._sh(string.concat(env_prefix, npm_install_cmd(source_dir, iflags)))
+            if in_rc != 0 {
+                println("${mod_dir}: npm install FAILED")
+                bldr.fail(ctx, "npm install FAILED")
+                return in_rc
+            }
+        }
+    }
+
+    dest = path.join(target_dir, "pkgout")
+    bldr._sh("rm -rf '${dest}' && mkdir -p '${dest}'")
+    println("${mod_dir}: packaging (npm pack)")
+    cmd = "cd '${source_dir}' && npm pack --silent --pack-destination '${dest}'"
+    rc = bldr._sh(string.concat(env_prefix, cmd))
+    if rc != 0 {
+        println("${mod_dir}: npm pack FAILED")
+        bldr.fail(ctx, "npm pack FAILED")
+        return rc
+    }
+    if bldr._sh("ls '${dest}'/*.tgz >/dev/null 2>&1") != 0 {
+        bldr.fail(ctx, "npm pack: no tarball produced")
+        return 1
+    }
+    println("${mod_dir}: packed → ${dest}")
+    bldr._write_artifact(ctx, "tarball_dir", dest)
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
