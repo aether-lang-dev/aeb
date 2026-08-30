@@ -160,13 +160,17 @@ _cache_key_for_resolve(ctx: ptr) {
         ri = ri + 1
     }
 
-    maven_deps, _ = map.get(ctx, "maven_deps")
-    dep_count = list.size(maven_deps)
-    di = 0
-    while di < dep_count {
-        d_coord, _ = list.get(maven_deps, di)
-        _ed = list.add(parts, string.concat("dep:", d_coord))
-        di = di + 1
+    // Same null-guard as resolve(): absent key → null list → list.size
+    // segfault. Skip the dep loop cleanly when no maven deps were declared.
+    if map.has(ctx, "maven_deps") == 1 {
+        maven_deps, _ = map.get(ctx, "maven_deps")
+        dep_count = list.size(maven_deps)
+        di = 0
+        while di < dep_count {
+            d_coord, _ = list.get(maven_deps, di)
+            _ed = list.add(parts, string.concat("dep:", d_coord))
+            di = di + 1
+        }
     }
 
     return cache.hash_inputs(parts)
@@ -179,6 +183,16 @@ resolve(ctx: ptr) {
         return v
     }
 
+    // A node that declares no maven_dep()/load_bom_file() never created the
+    // "maven_deps" key. Guard BEFORE reading it: map.get yields null and
+    // list.size(null) segfaults (exit 139) — the dep_count==0 guard below
+    // is too late because it sits after the deref. Every JVM builder that
+    // reaches maven (java_main, kotlinc, kotlinc_test) hit this on any node
+    // with no maven deps.
+    if map.has(ctx, "maven_deps") == 0 {
+        _e0 = map.put(ctx, "_maven_resolved", "")
+        return ""
+    }
     maven_deps, _ = map.get(ctx, "maven_deps")
     dep_count = list.size(maven_deps)
     if dep_count == 0 {

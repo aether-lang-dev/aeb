@@ -11,7 +11,7 @@ import std.dir
 import bldr
 // Tests for maven.mvn_resolve_cmd()
 
-import maven (mvn_resolve_cmd)
+import maven (mvn_resolve_cmd, resolve)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -85,6 +85,16 @@ main() {
     _assert_eq("full combo",
         mvn_resolve_cmd("/r.jar", bom_files7, boms7, repos7, deps7),
         "java -jar /r.jar --output classpath --bom-file /proj/.deps.bom.ae --bom org.spring:spring-bom:6.0 --repo https://repo1.example.com --repo https://repo2.example.com org.foo:foo:1.0 org.bar:bar:2.0")
+
+    // Regression: resolve() on a context that declares NO maven deps must
+    // return "" cleanly, not deref a null "maven_deps" list. Before the
+    // map.has guard, list.size(null) was reached before the dep_count==0
+    // check, segfaulting (exit 139) every JVM builder — java_main, kotlinc,
+    // kotlinc_test — on any node without maven_dep()/load_bom_file().
+    // See asks/java-main-segfaults-when-node-has-no-maven-deps.md.
+    empty_ctx = map_new()
+    _assert_eq("resolve() with no maven_deps key returns empty (no segfault)",
+        resolve(empty_ctx), "")
 
     println("maven cmd tests done")
 }
