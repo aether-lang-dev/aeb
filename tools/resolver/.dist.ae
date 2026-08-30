@@ -1,87 +1,48 @@
 // Build aeb-resolve.jar — aeb's Maven coordinate resolver.
 //
-// aeb-resolve is now a THIN shim (aeb.maven.BldResolve) over Geert Bevin's
-// bld (com.uwyn.rife2:bld) — a single self-contained ~2 MB jar whose
-// rife.bld.dependencies.* resolver does transitive Maven-coordinate
-// resolution (POM walk, parent chains, dependencyManagement/BOM, property
-// interpolation, download from Central) with ZERO runtime dependencies and
-// NO logging framework. This REPLACES the old Eclipse-Aether MavenResolver
-// (24-jar closure) + its mvn/shade/stub build. See
-// docs/TODO-aether-maven-resolver.md for the journey.
+// aeb-resolve is a THIN shim (aeb.maven.BldResolve) over Geert Bevin's bld
+// (com.uwyn.rife2:bld) — a single self-contained ~2 MB jar whose
+// rife.bld.dependencies.* resolver does transitive Maven-coordinate resolution
+// (POM walk, parent chains, dependencyManagement/BOM, property interpolation,
+// download from Central) with ZERO runtime dependencies and NO logging
+// framework. This REPLACES the old Eclipse-Aether MavenResolver (24-jar
+// closure) + its mvn/shade/stub build. See docs/TODO-aether-maven-resolver.md.
 //
-// The build needs only a JDK + curl — no Maven, no shade, no ~/.m2:
-//   1. curl the pinned bld jar (sha256-verified) into tools/  (cached: skip
-//      if present + valid).
-//   2. javac BldResolve.java against it.
-//   3. jar a THIN aeb-resolve.jar containing only the shim class + a manifest
-//      with Main-Class: aeb.maven.BldResolve and Class-Path: bld-<v>.jar, so
-//      `java -jar $AEB_HOME/tools/aeb-resolve.jar ...` finds bld sitting
-//      alongside it — lib/maven and tools/aeb-sbom invoke it unchanged.
+// Written in aeb's own java DSL — no mvn, no shade, no hand-rolled shell:
+//   jar_pinned   fetches bld by coordinate+sha256 (cache/~/.m2/Central,
+//                fail-closed) onto the compile classpath.
+//   javac        compiles the flat BldResolve.java against it. no_module_info
+//                forces class-path mode (bld ships a module-info; without this
+//                javac puts it on --module-path as an automatic module and the
+//                unnamed-module shim can't read it).
+//   thin_jar     packages a small launcher jar: Main-Class runs the shim, and
+//                Class-Path names bld, which thin_jar co-locates next to the
+//                output jar — so `java -jar aeb-resolve.jar ...` finds bld at
+//                runtime. lib/maven + aeb-sbom invoke the jar unchanged.
 //
 //   aeb tools/resolver/.dist.ae   # → target/dist/tools/resolver/bin/aeb-resolve.jar
-//                                 #   + tools/bld-<v>.jar (both go to $AEB_HOME/tools/)
+//                                 #   (+ bld-<v>.jar co-located in bin/)
 //
 // NOT wired into make (make builds the Aether parts of aeb; this Java shim is
 // built by aeb). aeb-resolve.jar AND bld-<v>.jar are gitignored artifacts; a
-// fresh install builds the thin jar and fetches bld here.
+// fresh install builds the thin jar and fetches bld here. Build needs only a
+// JDK + curl.
 import bldr
-import std.os
-import std.string
-
-extern println(s: string)
-
-// Pinned bld release. Bump both together (and re-verify the sha) to move it.
-BLD_VER() { return "2.3.0" }
-BLD_SHA() { return "762d7809f62ab93528bcfc9558c103b22f5f080c948b68649b155639e957858f" }
+import java
+import java (jar_pinned, javac, no_module_info, thin_jar, main_class, class_path)
 
 main() {
-  bldr.build() {
-    src_dir = source_dir()
-    ver = BLD_VER()
-    sha = BLD_SHA()
-    // bld jar lives in tools/ (next to aeb-resolve.jar) so the Class-Path
-    // manifest resolves it at runtime. src_dir is <repo>/tools/resolver, so
-    // tools/ is one up.
-    tools_dir = string.concat(src_dir, "/..")
-    bld_jar = "${tools_dir}/bld-${ver}.jar"
-    bld_url = "https://repo1.maven.org/maven2/com/uwyn/rife2/bld/${ver}/bld-${ver}.jar"
+    bldr.build() {
+        java.jar_pinned("com.uwyn.rife2:bld:2.3.0",
+                        "762d7809f62ab93528bcfc9558c103b22f5f080c948b68649b155639e957858f")
 
-    // 1. Fetch + sha256-verify bld (skip if already present and valid).
-    //    A single shell step: verify-or-download-or-fail-closed.
-    fetch = "j='${bld_jar}'; "
-    fetch = string.concat(fetch, "if [ -f \"$j\" ] && [ \"$(sha256sum \"$j\" | cut -d' ' -f1)\" = '${sha}' ]; then :; else ")
-    fetch = string.concat(fetch, "echo 'resolver: fetching bld ${ver}' >&2; ")
-    fetch = string.concat(fetch, "curl -fsSL '${bld_url}' -o \"$j.tmp\" || { echo 'resolver: bld download failed' >&2; exit 1; }; ")
-    fetch = string.concat(fetch, "got=\"$(sha256sum \"$j.tmp\" | cut -d' ' -f1)\"; ")
-    fetch = string.concat(fetch, "if [ \"$got\" != '${sha}' ]; then echo \"resolver: bld sha256 MISMATCH (got $got)\" >&2; rm -f \"$j.tmp\"; exit 1; fi; ")
-    fetch = string.concat(fetch, "mv -f \"$j.tmp\" \"$j\"; fi")
-    rc = os.system(fetch)
-    if rc != 0 {
-        println("resolver: bld fetch/verify failed (need curl + network to Maven Central)")
-        fail("resolver: bld fetch/verify failed")
-        return 1
+        java.javac() {
+            no_module_info()
+        }
+
+        java.thin_jar("aeb-resolve.jar") {
+            main_class("aeb.maven.BldResolve")
+            class_path("bld-2.3.0.jar")
+        }
     }
-
-    // 2. Compile the shim against bld. 3. Jar a thin aeb-resolve.jar with the
-    //    Main-Class + Class-Path manifest. Output goes where the old build
-    //    put it: target/dist/tools/resolver/bin/aeb-resolve.jar.
-    out_bin = "${src_dir}/../../target/dist/tools/resolver/bin"
-    build = "set -e; "
-    build = string.concat(build, "stage=\"$(mktemp -d)\"; ")
-    build = string.concat(build, "javac -cp '${bld_jar}' -d \"$stage\" '${src_dir}/BldResolve.java'; ")
-    build = string.concat(build, "printf 'Main-Class: aeb.maven.BldResolve\\nClass-Path: bld-${ver}.jar\\n' > \"$stage/MANIFEST.MF\"; ")
-    build = string.concat(build, "mkdir -p '${out_bin}'; ")
-    build = string.concat(build, "jar cfm '${out_bin}/aeb-resolve.jar' \"$stage/MANIFEST.MF\" -C \"$stage\" aeb; ")
-    build = string.concat(build, "rm -rf \"$stage\"")
-    rc2 = os.system(build)
-    if rc2 != 0 {
-        println("resolver: shim compile/jar failed (need a JDK)")
-        fail("resolver: shim compile/jar failed")
-        return 1
-    }
-
-    println("resolver: built aeb-resolve.jar (bld ${ver} shim) — no mvn, no shade")
-    println("  install: copy ${out_bin}/aeb-resolve.jar AND ${bld_jar} to $AEB_HOME/tools/")
-    return 0
-  }
 }

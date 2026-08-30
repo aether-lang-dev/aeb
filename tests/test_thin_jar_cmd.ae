@@ -1,0 +1,36 @@
+// Tests for lib/java's thin_jar setters (main_class / class_path). The
+// builder itself (jar packaging) is impure/e2e; here we cover the pure setter
+// surface — the config the block fills, read back from the map.
+import std.spec
+import std.map
+import std.list
+import java (main_class, class_path)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "thin_jar setters") {
+        spec.it("main_class stores under thin_main_class (scalar, last-wins)") callback {
+            m = map_new()
+            main_class(m, "aeb.maven.BldResolve")
+            v, _ = map.get(m, "thin_main_class")
+            spec.assert_str_eq(v, "aeb.maven.BldResolve", "stored")
+            main_class(m, "other.Main")
+            v2, _ = map.get(m, "thin_main_class")
+            spec.assert_str_eq(v2, "other.Main", "last-wins")
+        }
+        spec.it("class_path accumulates a list, order preserved") callback {
+            m = map_new()
+            class_path(m, "bld-2.3.0.jar")
+            class_path(m, "extra.jar")
+            l, _ = map.get(m, "thin_class_path")
+            spec.assert_eq(list.size(l), 2, "two entries")
+            first, _ = list.get(l, 0)
+            spec.assert_str_eq(first, "bld-2.3.0.jar", "first preserved")
+            second, _ = list.get(l, 1)
+            spec.assert_str_eq(second, "extra.jar", "second preserved")
+        }
+    }
+
+    spec.run_summary(fw)
+}

@@ -930,14 +930,26 @@ builder javac(): int {
 
     println("${mod_dir}: compiling prod code")
 
-    // Build classpath: dep modules + maven deps + pre-resolved file(s)
+    // Build classpath: dep modules + maven deps + pre-resolved file(s) + this
+    // node's OWN accumulated jars. _build_dep_classpath reads DEP edges'
+    // classpath artifacts; a jar_pinned()/jar_vendored() call in THIS block
+    // writes this node's own jvm_classpath_deps_including_transitive, which
+    // deps-only assembly misses — so fold it in too (a .dist.ae that pins a
+    // library then javac's against it in one node, e.g. the bld resolver).
     dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
     file_cp = _read_classpath_files(_builder, source_dir)
+    own_cp = ""
+    own_body, own_err = fs.read(path.join(target_dir, "jvm_classpath_deps_including_transitive"))
+    if string.length(own_err) == 0 {
+        oc, _oe = bldr._sh_capture("printf '%s' '${own_body}' | tr '\n' ':' | sed 's/:$//'")
+        own_cp = string.trim(oc)
+    }
     classpath = classes_dir
     classpath = bldr._cp_append(classpath, dep_cp)
     classpath = bldr._cp_append(classpath, maven_cp)
     classpath = bldr._cp_append(classpath, file_cp)
+    classpath = bldr._cp_append(classpath, own_cp)
 
     // Create generated sources dir if requested (for annotation processors like QueryDSL)
     if map.has(_builder, "generated_sources") == 1 {
@@ -1906,6 +1918,119 @@ shade(_ctx: ptr, main_class: string, jar_name: string) {
 
     println("${mod_dir}: built ${jar_path}")
     println("  run: java -Djava.library.path=. -jar ${jar_path}")
+    return 0
+}
+
+// --- java.thin_jar: a THIN launcher jar (not a fat/shaded jar) ---
+//
+// Package this node's compiled classes into a small jar whose manifest names a
+// Main-Class and a Class-Path of SIBLING jars (by the names class_path() gave).
+// The jars this node accumulated via jar_pinned()/jar_vendored() are COPIED
+// next to the output jar under those names, so `java -jar <thin.jar>` finds
+// them at runtime without a fat-jar. The alternative to shade() when depending
+// on a large prebuilt jar (e.g. bld for aeb-resolve) rather than fat-jarring
+// its contents. Use in a .dist.ae:
+//
+//   java.jar_pinned("com.uwyn.rife2:bld:2.3.0", "<sha256>")   // fetch onto cp
+//   java.javac() { no_module_info() }                         // compile against it
+//   java.thin_jar("aeb-resolve.jar") {
+//       main_class("aeb.maven.BldResolve")
+//       class_path("bld-2.3.0.jar")   // sibling jar name(s) in the manifest
+//   }
+//
+// NOTE the param is out_name, NOT jar_name — a `jar_name(_ctx, name)` setter
+// exists, and a param shadowing it makes ${jar_name} resolve to the function
+// (a code pointer) instead of the string.
+
+// main_class("pkg.Cls") — the Main-Class for thin_jar's manifest.
+main_class(_ctx: ptr, cls: string) {
+    _e = map.put(_ctx, "thin_main_class", cls)
+}
+// class_path("name.jar") — a sibling jar to name in thin_jar's manifest
+// Class-Path (repeatable). thin_jar copies the accumulated jar to this name
+// beside the output jar. Order matters: the first class_path() maps to the
+// first accumulated jar, etc.
+class_path(_ctx: ptr, name: string) {
+    if map.has(_ctx, "thin_class_path") == 0 { _e1 = map.put(_ctx, "thin_class_path", list.new()) }
+    l, _ = map.get(_ctx, "thin_class_path")
+    _e2 = list.add(l, name)
+}
+
+builder thin_jar(out_name: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    main_cls = ""
+    if _builder != null {
+        if map.has(_builder, "thin_main_class") == 1 { main_cls, _ = map.get(_builder, "thin_main_class") }
+    }
+    if string.length(main_cls) == 0 {
+        bldr.fail(ctx, "java.thin_jar: main_class(\"...\") is required")
+        return 1
+    }
+
+    bin_dir = path.join(target_dir, "bin")
+    bldr._mkdirs(bin_dir)
+    jar_path = path.join(bin_dir, out_name)
+    classes_dir = path.join(target_dir, "classes")
+
+    // The jars this node accumulated live in the ctx "_vendored_jars" list
+    // (jar_pinned/jar_vendored append there). Read that IN-MEMORY list, not the
+    // jvm_classpath_deps_including_transitive artifact FILE — javac overwrites
+    // that file with its own classpath after jar_pinned wrote it, so the file
+    // would only have javac's classes dir. Copy the i-th accumulated jar to the
+    // i-th class_path() name beside the output jar (call order matches).
+    vjars = null
+    if map.has(ctx, "_vendored_jars") == 1 { vjars, _ = map.get(ctx, "_vendored_jars") }
+
+    cp_names = ""
+    if _builder != null {
+        if map.has(_builder, "thin_class_path") == 1 {
+            names, _ = map.get(_builder, "thin_class_path")
+            n = list.size(names)
+            i = 0
+            while i < n {
+                want, _ = list.get(names, i)
+                if vjars != null {
+                    if i < list.size(vjars) {
+                        srcp, _ = list.get(vjars, i)
+                        if string.length(srcp) > 0 {
+                            bldr._sh("cp -f '${srcp}' '${bin_dir}/${want}'")
+                        }
+                    }
+                }
+                if string.length(cp_names) > 0 { cp_names = string.concat(cp_names, " ") }
+                cp_names = string.concat(cp_names, want)
+                i = i + 1
+            }
+        }
+    }
+
+    println("${mod_dir}: packaging ${out_name} (thin, Main-Class ${main_cls})")
+
+    stage = path.join(target_dir, "_thinjar")
+    sh = "set -e; st='${stage}'; rm -rf \"$st\"; mkdir -p \"$st\"; "
+    sh = string.concat(sh, "[ -d '${classes_dir}' ] && cp -a '${classes_dir}/.' \"$st\"/; ")
+    sh = string.concat(sh, "mkdir -p \"$st/META-INF\"; printf 'Manifest-Version: 1.0")
+    sh = string.concat(sh, "\\n")
+    sh = string.concat(sh, "Main-Class: ${main_cls}")
+    sh = string.concat(sh, "\\n")
+    if string.length(cp_names) > 0 {
+        sh = string.concat(sh, "Class-Path: ${cp_names}")
+        sh = string.concat(sh, "\\n")
+    }
+    sh = string.concat(sh, "' > \"$st/META-INF/MANIFEST.MF\"; ")
+    sh = string.concat(sh, "jar cfM '${jar_path}' -C \"$st\" .")
+
+    rc = bldr._sh(sh)
+    if rc != 0 {
+        println("${mod_dir}: thin jar packaging failed")
+        bldr.fail(ctx, "thin_jar packaging failed")
+        return rc
+    }
+    println("${mod_dir}: built ${jar_path} (+ Class-Path: ${cp_names})")
     return 0
 }
 
