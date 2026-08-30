@@ -1,0 +1,57 @@
+// Tests for lib/haskell's pure surface. haskell had no test file; these
+// cover the two pure helpers behind the link_dir()/target() setters added
+// so a cabal package can link against a C lib (the selenium engine .so):
+//   _hs_lib_flags   — per link_dir(): --extra-lib-dirs + -rpath ghc-option
+//   _hs_target_suffix — target(): " <t>" or ""
+import haskell (link_dir, target, _hs_lib_flags, _hs_target_suffix)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+main() {
+    // --- _hs_lib_flags: null / no link_dir() → empty.
+    _eq("_hs_lib_flags null bmap → empty", _hs_lib_flags(null), "")
+    b0 = map.new()
+    _eq("_hs_lib_flags no link_dir → empty", _hs_lib_flags(b0), "")
+
+    // --- _hs_lib_flags: one link_dir → --extra-lib-dirs + rpath ghc-option.
+    b1 = map.new()
+    link_dir(b1, "/proj/target/build/engine/lib")
+    _eq("_hs_lib_flags one dir",
+        _hs_lib_flags(b1),
+        " --extra-lib-dirs='/proj/target/build/engine/lib' --ghc-options=-optl-Wl,-rpath,'/proj/target/build/engine/lib'")
+
+    // --- _hs_lib_flags: link_dir accumulates; flags emitted per dir in order.
+    b2 = map.new()
+    link_dir(b2, "/a")
+    link_dir(b2, "/b")
+    _eq("_hs_lib_flags two dirs, order preserved",
+        _hs_lib_flags(b2),
+        " --extra-lib-dirs='/a' --ghc-options=-optl-Wl,-rpath,'/a' --extra-lib-dirs='/b' --ghc-options=-optl-Wl,-rpath,'/b'")
+
+    // --- _hs_target_suffix: unset → empty; set → " <t>".
+    _eq("_hs_target_suffix null bmap → empty", _hs_target_suffix(null), "")
+    bt0 = map.new()
+    _eq("_hs_target_suffix unset → empty", _hs_target_suffix(bt0), "")
+    bt = map.new()
+    target(bt, "test:live")
+    _eq("_hs_target_suffix set → ' <target>'", _hs_target_suffix(bt), " test:live")
+
+    // --- setter storage sanity: link_dir list + target scalar keys.
+    _assert("link_dir stored under hs_link_dirs", map.has(b1, "hs_link_dirs"))
+    _assert("target stored under hs_target", map.has(bt, "hs_target"))
+
+    println("haskell command-string tests done")
+}

@@ -13,9 +13,9 @@
 //      `ruby_version` on a fresh map, read back the keys.
 
 import ruby (bundle_install_cmd, bundle_exec_cmd, rspec_cmd,
-             rubocop_cmd, gem_build_cmd,
+             rubocop_cmd, gem_build_cmd, minitest_cmd,
              gem, rspec_arg, rubocop_config, gemspec, gemfile,
-             bundle_path, ruby_version)
+             bundle_path, ruby_version, minitest_file)
 import std.string
 import std.list
 import std.map
@@ -137,6 +137,22 @@ main() {
             bundle_exec_cmd("bundle", "/proj/rb", "rake spec[selenium-webdriver]"),
             "cd '/proj/rb' && 'bundle' exec rake spec[selenium-webdriver]"))
 
+    // --- minitest_cmd: explicit -r reqs. Runs under `bundle exec ruby`
+    // when a Gemfile is present, else plain `ruby`, with lib/spec/test on
+    // the load path and each file loaded via -r (minitest's at_exit runs
+    // all defined tests once). Pure.
+    _assert("minitest_cmd explicit reqs",
+        string.equals(
+            minitest_cmd("bundle", "/proj/rb", " -rfoo_test -rbar_test"),
+            "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec ruby -Ilib -Ispec -Itest  -rfoo_test -rbar_test -e ''; else ruby -Ilib -Ispec -Itest  -rfoo_test -rbar_test -e ''; fi"))
+
+    // --- minitest_cmd: empty reqs → shell glob builds the -r list from the
+    // conventional *_test.rb / test_*.rb under spec/ + test/.
+    _assert("minitest_cmd empty reqs globs conventional locations",
+        string.equals(
+            minitest_cmd("bundle", "/proj/rb", ""),
+            "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec ruby -Ilib -Ispec -Itest $(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done) -e ''; else ruby -Ilib -Ispec -Itest $(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done) -e ''; fi"))
+
     // === Setter accumulation tests =====================================
 
     // --- gem: list accumulator, order preserved.
@@ -159,6 +175,17 @@ main() {
         _list_size_at(bm2, "ruby_rspec_args") == 2)
     _assert("rspec_arg and gem don't cross-contaminate",
         _list_size_at(bm2, "ruby_gems") == 1)
+
+    // --- minitest_file: list accumulator on its own key, order preserved.
+    bmf = map.new()
+    minitest_file(bmf, "test/alpha_test.rb")
+    minitest_file(bmf, "test/beta_test.rb")
+    _assert("minitest_file accumulates 2 entries",
+        _list_size_at(bmf, "ruby_minitest_files") == 2)
+    _assert("minitest_file order: first preserved",
+        string.equals(_list_get_at(bmf, "ruby_minitest_files", 0), "test/alpha_test.rb"))
+    _assert("minitest_file separate from rspec/gem keys",
+        _list_size_at(bmf, "ruby_gems") == 0)
 
     // --- Scalar setters (gemspec, gemfile, bundle_path,
     // rubocop_config, ruby_version) — each writes a single string

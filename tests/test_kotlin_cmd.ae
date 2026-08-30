@@ -1,0 +1,69 @@
+// Tests for lib/kotlin's pure surface: the kotlinc invocation string
+// (kotlinc_cmd, opts-driven flags) and the jvm_args() setter added so a
+// kotlin_test run can pass JVM args (nothing could set it before).
+//
+// Note: jvm_args is a RUNTIME arg consumed by kotlin_test, NOT a compile
+// flag — kotlinc_cmd does not read it. The two are tested separately, on
+// purpose.
+import kotlin (kotlinc_cmd, jvm_args, jvm_target, api_version,
+               language_version, compiler_plugin)
+import std.string
+import std.list
+import std.map
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
+}
+
+_assert(label: string, cond: int) {
+    if cond == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}") }
+}
+
+main() {
+    // --- kotlinc_cmd: bare (null opts) → just -d + -cp + files.
+    _eq("kotlinc_cmd bare, null opts",
+        kotlinc_cmd("/opt/kotlinc/bin/kotlinc", "/t/classes", "/cp/a.jar:/cp/b.jar", "Foo.kt Bar.kt", null),
+        "/opt/kotlinc/bin/kotlinc -d /t/classes -cp /cp/a.jar:/cp/b.jar Foo.kt Bar.kt")
+
+    // --- kotlinc_cmd: opts drive the flags, in the module's fixed order
+    // (jvm_target, api_version, language_version, then the rest).
+    o = map.new()
+    jvm_target(o, "21")
+    api_version(o, "2.0")
+    language_version(o, "2.0")
+    _eq("kotlinc_cmd with jvm_target + api/language version",
+        kotlinc_cmd("kotlinc", "/t", "cp", "F.kt", o),
+        "kotlinc -d /t -jvm-target 21 -api-version 2.0 -language-version 2.0 -cp cp F.kt")
+
+    // --- compiler_plugin → -Xplugin=<path> (accumulates comma-joined in the
+    // setter; kotlinc_cmd emits it verbatim).
+    o2 = map.new()
+    compiler_plugin(o2, "/plugins/allopen.jar")
+    _eq("kotlinc_cmd with compiler_plugin",
+        kotlinc_cmd("kotlinc", "/t", "cp", "F.kt", o2),
+        "kotlinc -d /t -Xplugin=/plugins/allopen.jar -cp cp F.kt")
+
+    // --- compiler_plugin: setter accumulates comma-joined, order preserved.
+    cp = map.new()
+    compiler_plugin(cp, "/p/a.jar")
+    compiler_plugin(cp, "/p/b.jar")
+    cpv, _ = map.get(cp, "compiler_plugin")
+    _eq("compiler_plugin accumulates comma-joined", cpv, "/p/a.jar,/p/b.jar")
+
+    // --- jvm_args(arg): space-accumulating setter (a RUNTIME JVM arg for
+    // kotlin_test; not a kotlinc flag). Stored under "jvm_args".
+    ja = map.new()
+    jvm_args(ja, "--enable-native-access=ALL-UNNAMED")
+    jav, _ = map.get(ja, "jvm_args")
+    _eq("jvm_args first arg stored", jav, "--enable-native-access=ALL-UNNAMED")
+    jvm_args(ja, "-Xmx512m")
+    jav2, _ = map.get(ja, "jvm_args")
+    _eq("jvm_args second arg space-appended",
+        jav2, "--enable-native-access=ALL-UNNAMED -Xmx512m")
+
+    println("kotlin command-string tests done")
+}
