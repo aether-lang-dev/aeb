@@ -1,0 +1,86 @@
+// julia — Julia SDK for aeb.
+//
+// Julia's built-in `ccall` loads a C shared library and calls its flat C ABI
+// directly (no glue), so a Julia binding to a native lib needs only the .so on
+// the load path (or an absolute path via env). This SDK's test() runs a Julia
+// test script (Test stdlib) with env() honored; loud-skips (green) when julia
+// is absent.
+//
+//   import bldr
+//   import julia
+//   import julia (script)
+//   julia.test() {
+//       env("SELENIUM_CORE_LIB", lib)
+//       script("test/ffi_test.jl")
+//   }
+import bldr
+import std.string
+import std.map
+import std.path
+import std.io
+
+// script("test/foo.jl") — the Julia test script to run (relative to source_dir).
+// Scalar; required.
+script(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "julia_script", path)
+}
+
+// julia_bin("/path/to/julia") — override the interpreter (default `julia`).
+julia_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "julia_bin", bin)
+}
+
+_julia_of(bmap: ptr) {
+    if bmap != null {
+        if map.has(bmap, "julia_bin") == 1 {
+            b, _ = map.get(bmap, "julia_bin")
+            if string.length(b) > 0 { return b }
+        }
+    }
+    return "julia"
+}
+
+// julia.test() — run the declared Julia script (Test stdlib). Loud-skips when
+// julia is absent. env() honored (e.g. SELENIUM_CORE_LIB for a ccall binding).
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    julia = _julia_of(_builder)
+
+    // toolchain gate: no julia -> SKIP (green).
+    if bldr._sh("command -v ${julia} >/dev/null 2>&1") != 0 {
+        reason = "julia not on PATH (install Julia)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        bldr._record_skip(ctx, reason)
+        return 0
+    }
+
+    scr = ""
+    if _builder != null {
+        if map.has(_builder, "julia_script") == 1 { scr, _ = map.get(_builder, "julia_script") }
+    }
+    if string.length(scr) == 0 {
+        bldr.fail(ctx, "julia.test: script(\"...\") is required")
+        return 1
+    }
+
+    println("${mod_dir}: running tests (julia)")
+    run = "cd '${source_dir}' && ${julia} --color=no '${scr}'"
+    run = string.concat(bldr._env_export_prefix(_builder), run)
+    rc = bldr._sh(run)
+    if rc != 0 {
+        bldr._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
+        return rc
+    }
+    bldr._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
