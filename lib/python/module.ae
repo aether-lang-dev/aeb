@@ -764,11 +764,18 @@ builder package_existing(): int {
             pyproject_abs = path.join(source_dir, pyproject_rel)
         }
     }
-    if file.exists(pyproject_abs) == 0 {
-        println("${mod_dir}: python.package_existing: pyproject.toml not found at ${pyproject_abs}")
-        println("${mod_dir}: did you mean python.package(b) (which generates one) or set pyproject_path(\"...\")?")
-        bldr.fail(ctx, "pyproject.toml not found at ${pyproject_abs}")
-        return 1
+    // Accept a hand-written setup.py too (a pyproject-less package): `python -m
+    // build` drives either. Require at least one build file at build_dir.
+    setup_py_abs = path.join(source_dir, "setup.py")
+    has_pyproject = file.exists(pyproject_abs)
+    has_setup_py = file.exists(setup_py_abs)
+    if has_pyproject == 0 {
+        if has_setup_py == 0 {
+            println("${mod_dir}: python.package_existing: no pyproject.toml (${pyproject_abs}) or setup.py")
+            println("${mod_dir}: did you mean python.package(b) (which generates one) or set pyproject_path(\"...\")?")
+            bldr.fail(ctx, "no build file (pyproject.toml / setup.py) found")
+            return 1
+        }
     }
 
     venv = _ensure_venv(root)
@@ -795,6 +802,9 @@ builder package_existing(): int {
         return exit_code
     }
     println("${mod_dir}: packaging done → ${dist_dir}")
+    // Publish the dist dir (holds the built wheel) so a consumer-install proof
+    // (.example) can read it back via dep_artifact(..., "wheel_dir").
+    bldr._write_artifact(ctx, "wheel_dir", dist_dir)
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
