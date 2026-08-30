@@ -38,7 +38,7 @@ caps(_ctx: ptr, cap_csv: string) {
 // go_source(file) — the user's .go for an aether.tinygo_lib node.
 // TinyGo compiles it to a c-shared .so (the `output`); the Aether
 // program that deps this lib tinygo.load()s that .so at runtime.
-// See docs/host-tinygo-sidecar.md.
+// See docs/design/host-tinygo-sidecar.md.
 go_source(_ctx: ptr, file_name: string) {
     _e = map.put(_ctx, "go_source", file_name)
 }
@@ -1438,7 +1438,7 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     // See asks/aether-program-per-node-lib-search-path.md.
     lib_flags = string.concat(lib_flags, _node_lib_flags(builder_map, source_dir))
 
-    // COMPILE-DELEGATION (docs/two-aeb-duality.md): when AEB_COMPILE_CONTAINER
+    // COMPILE-DELEGATION (docs/design/two-aeb-duality.md): when AEB_COMPILE_CONTAINER
     // names a toolchain image, this compile step runs IN that container
     // (host-aeb has no toolchain) rather than locally. Paths are rewritten
     // from root/… to /work/… (root is bind-mounted at /work). Unset → today's
@@ -1946,15 +1946,27 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
         si = si + 1
     }
 
+    // The node's declared caps, floored into each discovered module's
+    // auto-detected caps: aetherc's --emit=lib gate follows the WHOLE import
+    // closure, so a module importing a sibling that needs a cap it doesn't
+    // import directly (e.g. webdriver.ae -> driver.ae's std.os) must still be
+    // regen'd with that cap. Detecting only the file's own `import std.X`
+    // under-declares; the node already named the closure's caps.
+    node_caps = ""
+    if map.has(builder_map, "csrc_caps") == 1 {
+        node_caps, _ = map.get(builder_map, "csrc_caps")
+    }
+
     // Append previously-unknown sibling modules to the regen list.
-    // Caps auto-detected from each file's own `import std.X` lines.
+    // Caps auto-detected from each file's own `import std.X` lines, then
+    // floored with the node's declared caps (see above).
     nd = list.size(discovered)
     di = 0
     while di < nd {
         f2, _ = list.get(discovered, di)
         cf2 = _canonical_path(f2)
         if map.has(known, cf2) == 0 {
-            caps = _detect_caps(f2)
+            caps = _union_caps(_detect_caps(f2), node_caps)
             list.add(regens, f2)
             list.add(regen_caps, caps)
             _kma = map.put(known, cf2, "1")
@@ -2676,7 +2688,7 @@ _default_source_name(ctx: ptr) {
 // aether.tinygo_lib(b) — compile a user's .go to a c-shared .so for
 // contrib.host.tinygo.
 //
-// The sidecar shape (docs/host-tinygo-sidecar.md): unlike the six interpreter
+// The sidecar shape (docs/design/host-tinygo-sidecar.md): unlike the six interpreter
 // bridges (python/ruby/…), contrib.host.tinygo has no system lib — the user's
 // Go is compiled to a .so that an Aether program tinygo.load()s by path at
 // runtime. So this builder produces a .so as its declared output; a downstream
@@ -2807,7 +2819,7 @@ builder program(): int {
     // Compile phase — skipped under --execute-only (the binary was already
     // built in the container pass; the host pass only executes). The
     // artifact-writes below still run in both passes so dependents can
-    // locate the binary regardless. (two-aeb duality, docs/two-aeb-duality.md)
+    // locate the binary regardless. (two-aeb duality, docs/design/two-aeb-duality.md)
     if bldr._compile_enabled() == 1 {
         println("${mod_dir}: compiling Aether program")
         rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
@@ -3000,6 +3012,24 @@ builder shared_lib(): int {
     return 0
 }
 
+// _test_bin_stem(src_name) — a safe binary/.c stem from a program_test source
+// name: basename, drop a trailing ".ae", prefix "test_". So "probe.ae" ->
+// "test_probe", "../bidi_slice.ae" -> "test_bidi_slice". Lets multiple
+// program_test() builders in one node have distinct outputs. Pure; tested in
+// tests/test_aether_cmd.ae.
+_test_bin_stem(src_name: string) {
+    base = path.basename(src_name)
+    n = string.length(base)
+    if n > 3 {
+        tail = string.substring(base, n - 3, n)
+        if string.equals(tail, ".ae") == 1 {
+            base = string.substring(base, 0, n - 3)
+        }
+    }
+    if string.length(base) == 0 { base = "program" }
+    return string.concat("test_", base)
+}
+
 builder program_test(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -3017,13 +3047,18 @@ builder program_test(): int {
         }
     }
     src_path = path.join(source_dir, src_name)
-    bin_path = path.join(bin_dir, string.concat("test_program", bldr._exe_suffix()))
-    c_path = path.join(target_dir, "test_program.c")
+    // Name the binary + generated .c after the source stem so MULTIPLE
+    // program_test() builders in one node don't clobber a shared
+    // "test_program" output (only the last would have survived, silently
+    // dropping the others). Single-test nodes still get a stable, unique name.
+    test_stem = _test_bin_stem(src_name)
+    bin_path = path.join(bin_dir, string.concat(test_stem, bldr._exe_suffix()))
+    c_path = path.join(target_dir, string.concat(test_stem, ".c"))
 
     // COMPILE phase — skipped under --execute-only (built in the container
     // pass already). EXECUTE phase below — skipped under --compile-only.
     // Two-aeb duality: compile in container, execute on host
-    // (docs/two-aeb-duality.md).
+    // (docs/design/two-aeb-duality.md).
     if bldr._compile_enabled() == 1 {
         println("${mod_dir}: compiling Aether test")
         rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)

@@ -4,7 +4,7 @@
 import std.spec
 import std.string
 
-import aether (aetherc_emit_lib_cmd, aether_link_cmd)
+import aether (aetherc_emit_lib_cmd, aether_link_cmd, _test_bin_stem)
 
 _link_opts(c_path: string, bin_path: string, lib_dir: string, inc_flags: string,
            extras_str: string, extra_link: string, rpath_link: string,
@@ -85,6 +85,23 @@ main() {
             spec.assert_str_eq(
                 aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "", " --lib ."),
                 "aetherc --emit=lib --lib . x.ae x.c", "lib-nocaps")
+        }
+    }
+
+    // Distinct per-source test binary names, so >1 program_test() per node
+    // don't clobber a shared "test_program" output.
+    spec.describe(fw, "_test_bin_stem") {
+        spec.it("simple .ae") callback {
+            spec.assert_str_eq(_test_bin_stem("probe.ae"), "test_probe", "probe")
+        }
+        spec.it("relative path .ae") callback {
+            spec.assert_str_eq(_test_bin_stem("../bidi_slice.ae"), "test_bidi_slice", "relpath")
+        }
+        spec.it("nested path .ae") callback {
+            spec.assert_str_eq(_test_bin_stem("test/live_test.ae"), "test_live_test", "nested")
+        }
+        spec.it("no .ae extension") callback {
+            spec.assert_str_eq(_test_bin_stem("runner"), "test_runner", "noext")
         }
     }
 
