@@ -93,6 +93,20 @@ rspec_arg(_ctx: ptr, arg: string) {
     _e2 = list.add(args, arg)
 }
 
+// minitest_file("spec/ffi_test.rb") — a minitest test file to run under
+// `ruby.minitest()`. Repeatable. Each file `require`s minitest/autorun, so the
+// builder just runs them with -Ilib -Ispec on the load path. When none is set,
+// minitest() runs every *_test.rb / test_*.rb under the default test/ + spec/
+// dirs (see _minitest_files_str). Minitest is one of Ruby's two standard test
+// frameworks; this is its builder alongside rspec().
+minitest_file(_ctx: ptr, path: string) {
+    if map.has(_ctx, "ruby_minitest_files") == 0 {
+        _e1 = map.put(_ctx, "ruby_minitest_files", list.new())
+    }
+    files, _ = map.get(_ctx, "ruby_minitest_files")
+    _e2 = list.add(files, path)
+}
+
 // rubocop_config(".rubocop.yml") — explicit rubocop config path.
 // Default: rubocop searches upward from source_dir for a
 // `.rubocop.yml` (its standard behaviour).
@@ -142,6 +156,26 @@ rspec_cmd(bundle_bin: string, source_dir: string, args: string) {
     return "cd '${source_dir}' && '${bundle_bin}' exec rspec ${args}"
 }
 
+// minitest_cmd — run minitest files with lib/ + spec/ + test/ on the load path
+// (`-Ilib -Ispec -Itest`). Multiple test files can't be passed positionally
+// (ruby runs only the first; the rest become ARGV), so each is loaded with a
+// `-r<basename>` require against the load path — every file requires
+// minitest/autorun, and minitest's at_exit runs all the defined tests once.
+// `reqs` is a pre-joined `-r...` string (from _minitest_files_str); when empty,
+// a shell glob builds the -r list from *_test.rb / test_*.rb under spec/ + test/.
+// Runs under `bundle exec` ONLY when a Gemfile is present (minitest is often
+// stdlib-only, no Bundler); otherwise plain `ruby`. Pure.
+minitest_cmd(bundle_bin: string, source_dir: string, reqs: string) {
+    load = "-Ilib -Ispec -Itest"
+    body = reqs
+    if string.length(reqs) == 0 {
+        // Glob the conventional locations and turn each into `-r<basename>`.
+        body = "$(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done)"
+    }
+    runner = "if [ -f Gemfile ]; then '${bundle_bin}' exec ruby ${load} ${body} -e ''; else ruby ${load} ${body} -e ''; fi"
+    return "cd '${source_dir}' && ${runner}"
+}
+
 // rubocop_cmd — bundle exec rubocop, optionally with --config flag.
 // Empty config_path → no --config (rubocop searches the tree). Pure.
 rubocop_cmd(bundle_bin: string, source_dir: string, config_path: string) {
@@ -186,14 +220,37 @@ _resolve_bundle_path(builder_map: ptr, root: string) {
     return path.join(root, ".aeb/bundle")
 }
 
-// Resolve the bundle binary. Today this just returns "bundle" so
-// it's picked up from PATH; future work could probe a per-project
-// Ruby toolchain pin (chruby / asdf style).
+// Resolve the bundle binary to an absolute path. PATH first (the
+// common case: rbenv/rvm/chruby shims, a distro `bundle`), then ask
+// Ruby where the bundler gem's `bundle` executable lives. Modern
+// RubyGems (bundler ships as a gem, e.g. Ruby 3.4 + bundler 4) puts
+// `bundle` in the user gem bindir, which is frequently NOT on the
+// non-interactive PATH aeb's `_sh` runs under — so a bare "bundle"
+// hits `command not found`. `gem contents bundler` names the actual
+// exe file regardless of PATH; `Gem.bin_path` is the RubyGems API for
+// the same and is the reliable fallback. Bare "bundle" is the last
+// resort so behaviour never regresses when Ruby can't be probed.
 _resolve_bundle_bin() {
+    p, _e = bldr._sh_capture("command -v bundle 2>/dev/null")
+    tp = string.trim(p)
+    if tp != "" {
+        return tp
+    }
+    // Ask RubyGems for the bundler gem's `bundle` executable path.
+    q, _qe = bldr._sh_capture("ruby -e 'begin; print Gem.bin_path(\"bundler\",\"bundle\"); rescue Exception; end' 2>/dev/null")
+    tq = string.trim(q)
+    if tq != "" {
+        return tq
+    }
     return "bundle"
 }
 
 _resolve_gem_bin() {
+    p, _e = bldr._sh_capture("command -v gem 2>/dev/null")
+    tp = string.trim(p)
+    if tp != "" {
+        return tp
+    }
     return "gem"
 }
 
@@ -210,6 +267,31 @@ _rspec_args_str(builder_map: ptr) {
         a, _ = list.get(args, i)
         if i > 0 { out = string.concat(out, " ") }
         out = string.concat(out, a)
+        i = i + 1
+    }
+    return out
+}
+
+// Turn the accumulated minitest_file list into a `-r<basename>` require string
+// (files load via the -Ispec/-Itest load path, so the dir + .rb are stripped:
+// "spec/ffi_test.rb" -> "-rffi_test"). Empty list -> "" (minitest_cmd globs).
+_minitest_files_str(builder_map: ptr) {
+    if builder_map == null { return "" }
+    if map.has(builder_map, "ruby_minitest_files") == 0 { return "" }
+    files, _ = map.get(builder_map, "ruby_minitest_files")
+    n = list.size(files)
+    if n == 0 { return "" }
+    out = ""
+    i = 0
+    while i < n {
+        f, _ = list.get(files, i)
+        // basename without .rb
+        base = bldr._basename(f)
+        if string.ends_with(base, ".rb") == 1 {
+            base = string.substring(base, 0, string.length(base) - 3)
+        }
+        if i > 0 { out = string.concat(out, " ") }
+        out = string.concat(out, string.concat("-r", base))
         i = i + 1
     }
     return out
@@ -266,6 +348,39 @@ builder rspec(): int {
         // rspec exits non-zero on test failure; record one logical
         // failure. A future iteration could parse rspec's
         // `--format=json` output for per-example pass/fail counts.
+        bldr._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
+        return rc
+    }
+    bldr._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// Run minitest test files via bundler. The sibling of rspec() for projects that
+// use Minitest (Ruby's other standard test framework). Each file requires
+// minitest/autorun and self-runs; the builder loads them with -Ilib -Ispec
+// -Itest. Files come from minitest_file(); with none set, it globs *_test.rb /
+// test_*.rb under spec/ and test/. Honours env(K,V) via _env_export_prefix
+// (e.g. a native library path a Fiddle binding dlopens). Ruby exits non-zero if
+// any test fails or errors, which the builder propagates as a node failure.
+builder minitest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+
+    bldr._mkdirs(target_dir)
+    println("${mod_dir}: running tests (minitest)")
+
+    bundle = _resolve_bundle_bin()
+    files_str = _minitest_files_str(_builder)
+    cmd = string.concat(bldr._env_export_prefix(_builder), minitest_cmd(bundle, source_dir, files_str))
+    rc = bldr._sh(cmd)
+    if rc != 0 {
         bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
         bldr.fail(ctx, "tests FAILED")
