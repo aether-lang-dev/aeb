@@ -1700,3 +1700,116 @@ builder build_crate(): int {
     _e = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
+
+// --- rust.consumer_example: prove the crate drives the engine from clean ---
+
+// stage("src/lib.rs", "pkg/src/lib.rs") — copy one file (src relative to the
+// module source_dir, dest relative to the staging root under target_dir) into
+// the clean staging tree. Repeatable; this is the package+consumer manifest as
+// declarative data. Value is "src<TAB>dest".
+stage(_ctx: ptr, src: string, dest: string) {
+    if map.has(_ctx, "stage_pairs") == 0 { _e1 = map.put(_ctx, "stage_pairs", list.new()) }
+    l, _ = map.get(_ctx, "stage_pairs")
+    _e2 = list.add(l, string.concat(src, string.concat("\t", dest)))
+}
+// run_in("consumer") — the staging-relative dir to run cargo from. Scalar.
+run_in(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "run_in", dir)
+}
+// run_arg("ffi") — an argv for `cargo run --offline -- <arg>`. Repeatable.
+run_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "run_args") == 0 { _e1 = map.put(_ctx, "run_args", list.new()) }
+    l, _ = map.get(_ctx, "run_args")
+    _e2 = list.add(l, arg)
+}
+// assert_file("pkg/native/libselenium_core.so") — a staging-relative path that
+// MUST exist after staging (the bundled asset). Repeatable.
+assert_file(_ctx: ptr, path: string) {
+    if map.has(_ctx, "assert_files") == 0 { _e1 = map.put(_ctx, "assert_files", list.new()) }
+    l, _ = map.get(_ctx, "assert_files")
+    _e2 = list.add(l, path)
+}
+
+// rust.consumer_example() — stage a clean bundled crate + a consumer crate (via
+// stage() pairs), assert the bundled asset, then `cargo run --offline -- <arg>`
+// in run_in with SELENIUM_CORE_LIB unset — so the consumer drives the engine via
+// ONLY the crate's own bundled .so (no in-tree sibling). Deps the .package.ae.
+builder consumer_example(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    stageroot = path.join(target_dir, "stage")
+    bldr._sh("rm -rf '${stageroot}' && mkdir -p '${stageroot}'")
+
+    // stage the declared file pairs.
+    if _builder != null {
+        if map.has(_builder, "stage_pairs") == 1 {
+            l, _ = map.get(_builder, "stage_pairs")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                pair, _ = list.get(l, i)
+                tab = string.index_of(pair, "\t")
+                src = string.substring(pair, 0, tab)
+                dest = string.substring(pair, tab + 1, string.length(pair))
+                src_abs = path.join(source_dir, src)
+                dest_abs = path.join(stageroot, dest)
+                dest_parent = path.dirname(dest_abs)
+                bldr._sh("mkdir -p '${dest_parent}' && cp -r '${src_abs}' '${dest_abs}'")
+                i = i + 1
+            }
+        }
+    }
+
+    // assert bundled files.
+    if _builder != null {
+        if map.has(_builder, "assert_files") == 1 {
+            l, _ = map.get(_builder, "assert_files")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                af, _ = list.get(l, i)
+                if bldr._sh("ls '${stageroot}/${af}' >/dev/null 2>&1") != 0 {
+                    println("${mod_dir}: staged package missing ${af}")
+                    bldr.fail(ctx, "bundled asset missing after staging")
+                    return 1
+                }
+                i = i + 1
+            }
+        }
+    }
+
+    run_dir = "consumer"
+    if _builder != null {
+        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get(_builder, "run_in") }
+    }
+    run_abs = path.join(stageroot, run_dir)
+    base = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB cargo run --offline --"
+    args = null
+    if _builder != null {
+        if map.has(_builder, "run_args") == 1 { args, _ = map.get(_builder, "run_args") }
+    }
+    if args == null {
+        if bldr._sh(base) != 0 { bldr.fail(ctx, "consumer run failed"); return 1 }
+    } else {
+        na = list.size(args)
+        ai = 0
+        while ai < na {
+            a, _ = list.get(args, ai)
+            println("${mod_dir}: consumer run (${a})")
+            if bldr._sh("${base} ${a}") != 0 {
+                println("${mod_dir}: consumer run (${a}) failed")
+                bldr.fail(ctx, "consumer run (${a}) failed")
+                return 1
+            }
+            ai = ai + 1
+        }
+    }
+    println("${mod_dir}: PASS — consumer drove the engine via the crate's bundled .so from clean")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
