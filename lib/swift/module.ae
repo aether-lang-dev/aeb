@@ -125,6 +125,15 @@ builder build_pkg(): int {
 
     bldr._mkdirs(target_dir)
 
+    // toolchain gate: no swift -> SKIP (green), don't hard-fail on an
+    // under-provisioned box (a Swift toolchain is uncommon off macOS).
+    if bldr._sh("command -v swift >/dev/null 2>&1") != 0 {
+        reason = "swift not on PATH (install the Swift toolchain)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        bldr._record_skip(ctx, reason)
+        return 0
+    }
+
     swift = _swift_of(_builder)
     println("${mod_dir}: building (swift build)")
     cmd = build_cmd(swift, source_dir, _config_flag(_release_of(_builder)))
@@ -150,6 +159,15 @@ builder test(): int {
     mod_dir = bldr._get(ctx, "module_dir")
 
     bldr._mkdirs(target_dir)
+
+    // toolchain gate: no swift -> SKIP (green), matching build_pkg.
+    if bldr._sh("command -v swift >/dev/null 2>&1") != 0 {
+        reason = "swift not on PATH (install the Swift toolchain)"
+        println("${mod_dir}: SKIPPED — ${reason}")
+        bldr._record_skip(ctx, reason)
+        return 0
+    }
+
     println("${mod_dir}: running tests (swift test)")
 
     swift = _swift_of(_builder)
