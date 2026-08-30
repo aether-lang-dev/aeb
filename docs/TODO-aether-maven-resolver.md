@@ -1,5 +1,11 @@
 # TODO: a pure-Aether Maven coordinate resolver (retire aeb-resolve.jar)
 
+> STATUS UPDATE (2026-08-30): the mvn-install COUPLING is already gone — aeb-resolve
+> is now a thin shim over bld (commit c32a5be), JDK+curl build, no mvn/shade/stubs.
+> What remains below is the FURTHER step of a fully pure-Aether resolver (no JVM at
+> all); bld is the reference implementation to study for it.
+
+
 Parked idea (2026-08-30). We keep building scaffolding around a foreign 3.7 MB
 Java dependency (Eclipse Aether / Maven Resolver, via aeb-resolve.jar) that does
 something conceptually simple. Doing it in Aether would sever the Java/mvn
