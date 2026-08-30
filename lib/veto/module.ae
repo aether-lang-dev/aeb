@@ -1,6 +1,6 @@
 // veto — supply-chain build-veto SDK for aether.build
 //
-// The 2b layer of docs/build-veto-and-sandbox.md, end to end: run
+// The 2b layer of docs/design/build-veto-and-sandbox.md, end to end: run
 // `aetherc --emit=ast` on an untrusted .ae, walk the emitted JSON AST,
 // and veto on operator deny-rules (extern / exec / net / import) — with
 // the resolved callee symbol, so aliasing/concat can't dodge it.
@@ -18,7 +18,7 @@
 //
 // The built-in default policy (deny extern, deny exec) is `default_rules()`.
 // An operator authors richer policy in an OUT-OF-TREE policy `.ae` (NOT a
-// dot-prefixed in-tree target — see docs/build-veto-and-sandbox.md) via the
+// dot-prefixed in-tree target — see docs/design/build-veto-and-sandbox.md) via the
 // closure-DSL below (`veto.policy`/`deny`/`banned`/`allow_exec`/…), which
 // lowers onto the same "<kind>\t<arg>" rule list `decide()` consumes.
 import bldr

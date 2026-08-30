@@ -1,5 +1,5 @@
 // aeb-driver — per-node runner for nodes-as-subprocesses
-// (docs/nodes-as-subprocesses.md).
+// (docs/design/nodes-as-subprocesses.md).
 //
 // Runs each build node as its own invocation of the linked orchestrator
 // binary (`out_bin <root> <label>`, slice A's selector), redirecting that

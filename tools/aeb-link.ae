@@ -804,7 +804,7 @@ main() {
     // pre-d6340b4 hardcoded spellings silently dropped `.tests.ae` (plural)
     // nodes from the count, and any non-canonical type (.install.ae,
     // .essais.ae, .構築.ae) was invisible. The summary now speaks the
-    // repo's own filename vocabulary, per docs/filename-is-the-route.md.
+    // repo's own filename vocabulary, per docs/design/filename-is-the-route.md.
     //
     // UNBUFFERED (io.stdout_write, not println): this is a PLAN echo — it
     // announces what is about to be built. But aeb-link's stdout is a pipe,
@@ -1089,7 +1089,7 @@ main() {
 
     // --noexe (AEB_NOEXE=1): stop here. The orchestrator binary (out_bin) is
     // linked and on disk, but we do NOT run it — so no build work executes.
-    // This is Cut 1 of the two-aeb duality (docs/two-aeb-duality.md): compile
+    // This is Cut 1 of the two-aeb duality (docs/design/two-aeb-duality.md): compile
     // the .ae build scripts into the native orchestrator IN the container,
     // then a host-side launcher (aeb-ctr) RUNS out_bin on the host. Aether is
     // compiled, so "build the build scripts" and "run the build" are two
@@ -1100,7 +1100,7 @@ main() {
     }
 
     // --- Run: per-node driver (default) or all-in-one orchestrator ---
-    // Per-node (nodes-as-subprocesses, docs/nodes-as-subprocesses.md) is
+    // Per-node (nodes-as-subprocesses, docs/design/nodes-as-subprocesses.md) is
     // the DEFAULT: each node runs as its own `out_bin <root> <label>` via
     // aeb-driver, redirecting per-node tool output into target/.aeb/logs/
     // (compartmentalized stdout). Opt back to the all-in-one in-process

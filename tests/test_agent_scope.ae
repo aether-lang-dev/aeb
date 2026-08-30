@@ -1,7 +1,7 @@
 // Unit tests for the remote-aeb agent scope-decision + wire helpers.
 // All pure (I/O-free) — no networking, no agent process.
 //
-// Design: docs/run-policy-class-and-cloud-leverage.md
+// Design: docs/design/run-policy-class-and-cloud-leverage.md
 
 import std.spec
 import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
@@ -207,7 +207,7 @@ main() {
         }
     }
 
-    spec.describe(fw, "Tier-A veto: pure rule helpers (docs/build-veto-and-sandbox.md)") {
+    spec.describe(fw, "Tier-A veto: pure rule helpers (docs/design/build-veto-and-sandbox.md)") {
         spec.it("_veto_rule_field: tab-split field extraction") callback {
             row = "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id"
             spec.assert_str_eq(_veto_rule_field(row, 0), "aws-akid", "veto field id")

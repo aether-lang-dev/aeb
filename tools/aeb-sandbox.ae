@@ -26,7 +26,7 @@
 //   - non-Linux (spawn_sandboxed is Linux-only) unless AEB_SANDBOX_LEGACY.
 //
 // Exit: the contained build's exit code (or non-zero on a setup refusal).
-// See docs/build-veto-and-sandbox.md and docs/capability-entrypoint.md.
+// See docs/design/build-veto-and-sandbox.md and docs/design/capability-entrypoint.md.
 import sandbox (default_profile, parse, pair_count, _cat, _pat, is_grant_all)
 import std.string
 import std.os

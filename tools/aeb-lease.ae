@@ -12,7 +12,7 @@
 // Why a separate tool: the agent must not be able to self-issue (the trust
 // model's hard rule). Minting is a distinct capability the lessor runs; the
 // agent binary has no mint path at all. See lib/agent _lease_mint and
-// docs/run-policy-class-and-cloud-leverage.md §trust model.
+// docs/design/run-policy-class-and-cloud-leverage.md §trust model.
 
 import std.os
 import std.string

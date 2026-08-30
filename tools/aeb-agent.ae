@@ -20,7 +20,7 @@
 //
 // Decision core (pure): agent._decision(scope, purpose, active).
 // NOT yet: token auth, cache partitioning. See
-// docs/run-policy-class-and-cloud-leverage.md.
+// docs/design/run-policy-class-and-cloud-leverage.md.
 
 import bldr
 import std.http
@@ -355,7 +355,7 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
         //   reset --hard      → discard tracked-file modifications
         //   clean -ffdx       → remove untracked + ignored (build outputs)
         // This is a correctness property (repeatable builds), independent of
-        // the security hardening in docs/agent-lifecycle.md.
+        // the security hardening in docs/design/agent-lifecycle.md.
         scrub_cmd = string.concat(string.concat("cd '", repo), "' && git reset --hard --quiet && git clean -ffdxq")
         src = bldr._sh(scrub_cmd)
         if src != 0 { return "git worktree scrub failed (reset/clean)" }
@@ -406,7 +406,7 @@ _prepare_tree(guid: string, repo: string, gref: string, ghash: string, patch_b64
 
 // _provision_slot(mode, tree, ac_repo, log_path) — make the per-slot tree ready
 // BEFORE _prepare_tree, per the requested mode. Returns "" on success or an
-// error string (=> prep-failed). See docs/agent-provisioning-modes.md.
+// error string (=> prep-failed). See docs/design/agent-provisioning-modes.md.
 //   patch / advance — the tree must already be a git working copy (the operator
 //     pre-cloned it). If <tree> is missing, FAIL: the agent never clones in
 //     these modes. (advance then fetches in _prepare_tree; patch does not.)
@@ -453,7 +453,7 @@ _patch_path_for(guid: string, patch_b64: string) {
 // Walking skeleton: a single, conservative example veto (reject a tree
 // that contains an obvious committed secret marker) to prove the
 // architecture. The real design is a PLUGGABLE three-tier list — see
-// docs/build-veto-and-sandbox.md:
+// docs/design/build-veto-and-sandbox.md:
 //   A. tree scan (NOW: pluggable rule list)  — cheap, raw tree + patch
 //   B. resolved-coordinate / SBOM    — dependency CVE/OWASP (design)
 //   C. doppelganger-compile trace    — build-grammar intent via a
@@ -1000,7 +1000,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     // accept → prepare the tree, then run aeb <target>. With capacity >1 each
     // slot builds in its OWN tree <workdir>/<i> (no clobbering); with capacity 1
     // the single build uses <workdir> directly (the common one-builder case —
-    // `--workdir ~/proj` just works). (See docs/agent-provisioning-modes.md.)
+    // `--workdir ~/proj` just works). (See docs/design/agent-provisioning-modes.md.)
     slot_idx = _slot_index(claimed_slot)
     slot_cap = _slot_capacity()
     base_workdir = os.getenv("AEB_AGENT_WORKDIR")
@@ -1015,7 +1015,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     //   mode; the agent OFFERS a set (--provision-modes, fail-closed). Reject if
     //   not offered, or (advance) branch not in --advance-branches, or
     //   (autoclone) repo#branch not in --autoclone-allow. Then provision the
-    //   slot tree per mode. See docs/agent-provisioning-modes.md.
+    //   slot tree per mode. See docs/design/agent-provisioning-modes.md.
     offered = os.getenv("AEB_AGENT_PROVISION_MODES")
     if string.length(offered) == 0 { offered = "patch" }
     req_mode = _json_field(body, "mode")
@@ -1200,7 +1200,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
 
     // run_on: where the build runs.
     //   host (default): `aeb <target>` on the agent host (needs the toolchain).
-    //   podman: the aeb-ctr TWO-PHASE duality (docs/two-aeb-duality.md) so an
+    //   podman: the aeb-ctr TWO-PHASE duality (docs/design/two-aeb-duality.md) so an
     //     agent on an IMMUTABLE/toolchain-less host still builds —
     //       Phase 1 (IN container): `aeb --compile-only <target>` compiles the
     //         orchestrator (_ae_build_all) AND every node, with the image's full
@@ -1471,7 +1471,7 @@ main() {
         // --run-on host|podman: where the agent runs the build it accepts.
         // "podman" delegates each compile step into --ctr-image via the
         // AEB_COMPILE_CONTAINER seam (the compile-in-container/execute-on-host
-        // duality, docs/two-aeb-duality.md) — so an agent on an immutable host
+        // duality, docs/design/two-aeb-duality.md) — so an agent on an immutable host
         // (no toolchain) can still build. Default "host" = today's bare build.
         if string.equals(a, "--run-on") == 1 { i = i + 1; run_on = aether_args_get(i) }
         if string.equals(a, "--ctr-image") == 1 { i = i + 1; ctr_image = aether_args_get(i) }
@@ -1504,7 +1504,7 @@ main() {
         // before auth against the trusted TCP peer address. Unset = no IP
         // restriction. Defense-in-depth under auth; needs Aether >=0.256.
         if string.equals(a, "--allow-from") == 1 { i = i + 1; allow_from = aether_args_get(i) }
-        // Provisioning modes (per-slot tree lifecycle — docs/agent-provisioning-modes.md).
+        // Provisioning modes (per-slot tree lifecycle — docs/design/agent-provisioning-modes.md).
         // --provision-modes: the set this agent OFFERS (default patch). --advance-branches:
         // branch allow-list for `advance`. --autoclone-allow: <repo>[#<branch>] allow-list
         // for `autoclone`. --scrub-after: delete the autoclone tree after each job.

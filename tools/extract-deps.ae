@@ -271,7 +271,7 @@ resolve_dep_rel(dep: string, base_dir: string) {
 // separate `--prereqs` mode so they never mix into the dep-path output. The
 // caller (preflight / install-prereqs) runs this over the target's whole dep
 // closure and unions the result into the prerequisite set.
-// See docs/build-prerequisites-and-provisioning.md.
+// See docs/design/build-prerequisites-and-provisioning.md.
 _emit_prereqs(content: string) {
     out = ""
     seen = map.new()

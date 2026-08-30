@@ -3,7 +3,7 @@
 // Pure-ish: _split_token / _probe_binary are pure string ops; preflight_missing
 // probes the host (command -v) so it asserts against toolchains that are
 // reliably present (sh, ls — always on any box that can run the suite) and a
-// clearly-absent sentinel. See docs/build-prerequisites-and-provisioning.md.
+// clearly-absent sentinel. See docs/design/build-prerequisites-and-provisioning.md.
 
 import std.spec
 import provision (_split_token, _probe_binary, preflight_missing, _fmt_set)

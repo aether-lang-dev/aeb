@@ -1,4 +1,4 @@
-// Tests for the compile-delegation pure builders (docs/two-aeb-duality.md):
+// Tests for the compile-delegation pure builders (docs/design/two-aeb-duality.md):
 // _rewrite_under_root (host path → container /work) and
 // _ae_build_cmd_delegated (wrap `ae build …` in a podman run against the
 // toolchain image). Pure string assembly — no I/O, no container needed.

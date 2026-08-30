@@ -12,7 +12,7 @@
 //     cleanly separated)
 //   - a file with no prereq() emits nothing
 //
-// See docs/build-prerequisites-and-provisioning.md.
+// See docs/design/build-prerequisites-and-provisioning.md.
 
 import std.spec
 import std.string

@@ -1,7 +1,7 @@
 // Unit tests for the generic toolchain-selection + lock-validation core
 // in lib/build. All pure (I/O-free) — no toolchains required.
 //
-// Design: docs/toolchain-selection-and-locks.md
+// Design: docs/design/toolchain-selection-and-locks.md
 //         asks/versioned-bom-and-self-validating-lock.md
 
 import std.spec

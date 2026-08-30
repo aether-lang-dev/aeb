@@ -17,7 +17,7 @@
 // (a letter + ':' + sep-or-end), so it is host-independent here — there are no
 // Windows drives on POSIX, but a token shaped like one is never a valid aeb
 // synonym anyway, so classifying it as plain on every host is both safe and
-// simpler. See docs/windows-cross-platform-notes.md (Nushell-derived rule).
+// simpler. See docs/guides/windows-cross-platform-notes.md (Nushell-derived rule).
 
 import std.string
 import std.list

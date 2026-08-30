@@ -29,7 +29,7 @@ import std.string
 import std.list
 
 // The build file's type IS the WHOLE `.<type>.ae` segment, verbatim — the route
-// is the filename (docs/filename-is-the-route.md). No inference into a fixed set,
+// is the filename (docs/design/filename-is-the-route.md). No inference into a fixed set,
 // no `-`-split, no tags: the literal name between the leading '.' and trailing
 // '.ae' is the type, dashes and all. Any name routes to itself:
 //   .build.ae→build, .install.ae→install, .essais.ae→essais (French & all),
@@ -111,7 +111,7 @@ extract_tag(file: string) {
 //   aeb: 3 build + 2 dist + 4 tests + 2 構築
 //
 // Verbatim on purpose: no normalization of build→compile or tests→test —
-// the filename is the route (docs/filename-is-the-route.md), so the summary
+// the filename is the route (docs/design/filename-is-the-route.md), so the summary
 // speaks the repo's own vocabulary, whatever language or spelling that is.
 // A type absent from the tree is simply not shown (no zero rows). Empty
 // input renders "aeb: 0 targets". Counting is a two-pass O(n·types) scan;

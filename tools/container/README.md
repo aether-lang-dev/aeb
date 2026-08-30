@@ -3,7 +3,7 @@
 `aeb` needs a toolchain (gcc + Aether's aetherc) that an immutable host
 (Bazzite / Silverblue / Fedora-atomic) won't let you install. The fix is to
 run aeb *inside* a container that has the toolchain, with your sources
-bind-mounted. See `docs/containment-and-the-control-plane.md` for the why.
+bind-mounted. See `docs/design/containment-and-the-control-plane.md` for the why.
 
 ## The layering
 
@@ -58,7 +58,7 @@ tests this image should pass:
 
 `aeb-ctr` (in this dir) is `aeb` for an immutable host: **identical CLI**, but
 compilation runs in the container and execution runs on the host. The
-two-aeb duality (docs/two-aeb-duality.md), as a thin host-side launcher over
+two-aeb duality (docs/design/two-aeb-duality.md), as a thin host-side launcher over
 two verified phases:
 
 ```sh

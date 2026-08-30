@@ -2,7 +2,7 @@
 //
 // The type is read LITERALLY from the filename (NOT inferred into a fixed set):
 // the type IS the `<type>` segment of `.<type>[-tag].ae`. The route is the
-// filename (docs/filename-is-the-route.md). Any name routes to itself:
+// filename (docs/design/filename-is-the-route.md). Any name routes to itself:
 //   .build.ae→build, .install.ae→install, .essais.ae→essais (French & all).
 //   .tests[-tag].ae → "test" (the one legacy alias: plural file, singular word).
 //   bare dir / non-".<type>.ae" → "build".

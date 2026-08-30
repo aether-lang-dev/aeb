@@ -1,4 +1,4 @@
-// Tests for the per-target status machine (docs/lifecycle_plan.md Slice 1):
+// Tests for the per-target status machine (docs/plans/lifecycle-plan.md Slice 1):
 // bldr.session status table + fail / record_status + the query API
 // (status_of / any_failed / failures / reason_of / session_handle).
 //

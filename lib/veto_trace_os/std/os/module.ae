@@ -33,7 +33,7 @@ exports (
 // (every shell-out, in every SDK, since they all route through os.system/
 // os.exec) are captured, not fired. The universal chokepoint for "what would
 // this build do" — the Action!/--lib doppelganger trick. See
-// docs/build-veto-and-sandbox.md (Tier C).
+// docs/design/build-veto-and-sandbox.md (Tier C).
 
 // Raw append extern (declared directly to avoid importing std.io, which would
 // risk an import cycle back into std.os).

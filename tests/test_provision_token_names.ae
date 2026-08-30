@@ -2,7 +2,7 @@
 // closed set of canonical prereq names and REJECTS known misnames at declaration
 // time (node not nodejs, jdk not java/openjdk, …). Pure string logic — no host,
 // no install (aeb has no install verb). See
-// docs/build-prerequisites-and-provisioning.md.
+// docs/design/build-prerequisites-and-provisioning.md.
 
 import std.spec
 import provision (_misname_canonical, check_token_names)

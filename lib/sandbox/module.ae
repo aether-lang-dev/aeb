@@ -1,11 +1,11 @@
 // sandbox — the grant model for aeb's layer-3 runtime containment.
 //
-// Layer 3 of docs/build-veto-and-sandbox.md, the runtime half:
+// Layer 3 of docs/design/build-veto-and-sandbox.md, the runtime half:
 // `aeb --sandbox` runs the build under Aether's `spawn_sandboxed` with a
 // deny-by-default grant profile, so a build that tries a denied syscall
 // (connect to an un-granted host, write outside target/, exec off the
 // allowlist) dies at the libc boundary regardless of how it computed the
-// command. See also docs/capability-entrypoint.md.
+// command. See also docs/design/capability-entrypoint.md.
 //
 // A sandbox is a flat `list` of alternating (category, pattern) strings —
 // the EXACT shape Aether's `spawn_sandboxed(grants, program, arg)` and the
@@ -160,7 +160,7 @@ _copy_into(dst: ptr, src: ptr) {
 // named; tighten it via an operator profile.ae.
 //
 // NB: enumerating the toolchain correctly IS the work (constraint #2 in
-// docs/build-veto-and-sandbox.md). This default leans permissive on the
+// docs/design/build-veto-and-sandbox.md). This default leans permissive on the
 // read/exec side (whole /usr, /lib) and strict on write + network — the
 // credential-exfil threat is network + reading secrets and writing them
 // out; denying tcp and constraining fs_write is the high-value part.

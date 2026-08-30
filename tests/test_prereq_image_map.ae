@@ -1,7 +1,7 @@
 // Tests for the requester-side prereq→image mapping (ladder Rung 3): the pure
 // transform from a prereq toolchain token to its toolchain image, and the
 // dominant-token pick for the whole-target dispatch cut. Convention per
-// docs/agent-container-ladder.md: "<lang>:<ver>" -> "aeb-tc:<lang>-<ver>".
+// docs/design/agent-container-ladder.md: "<lang>:<ver>" -> "aeb-tc:<lang>-<ver>".
 
 import std.spec
 import agent (prereq_to_image, dominant_prereq)

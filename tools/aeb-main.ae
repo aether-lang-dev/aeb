@@ -68,7 +68,7 @@ _list_type(f: string) {
 }
 
 // A "set" is a dep-only node — a named target set (.presubmit.ae and
-// friends, docs/presubmit-target-sets.md). We cannot tell dep-only from
+// friends, docs/design/presubmit-target-sets.md). We cannot tell dep-only from
 // the filename alone without reading the file, so treat the documented
 // set names as the hint and let everything else group by its own type.
 _is_set_type(t: string) {
@@ -247,7 +247,7 @@ run_capture(cmd: string) {
 // a dep closure. For each file in `files` (already the transitive closure), run
 // `extract-deps --prereqs` and union the emitted tokens, deduped, preserving
 // first-seen order. Returns a list of token strings. Shared by --prereqs (list)
-// and --preflight (probe). See docs/build-prerequisites-and-provisioning.md.
+// and --preflight (probe). See docs/design/build-prerequisites-and-provisioning.md.
 _collect_prereqs(extract_deps_bin: string, files: ptr) {
     tokens = list.new()
     seen = map.new()

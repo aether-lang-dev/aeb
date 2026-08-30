@@ -14,7 +14,7 @@
 // recorded intent. A scanner / the veto inspects this ("would os.system a
 // curl|sh", "would reach 1.2.3.4") rather than regexing source.
 //
-// HONEST LIMITS (docs/build-veto-and-sandbox.md Tier C): orchestration only
+// HONEST LIMITS (docs/design/build-veto-and-sandbox.md Tier C): orchestration only
 // (never the compiled app); ONE path (the branch this run takes); opaque
 // computation records `<computed>` (treat opacity itself as a vetoable
 // signal). A strong veto INPUT for build-grammar escapes, not a soundness

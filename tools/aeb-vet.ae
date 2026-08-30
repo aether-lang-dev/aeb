@@ -22,7 +22,7 @@
 //   - any per-target veto (lib/veto decide()) → refuse.
 //
 // Exit: 0 = all targets cleared (build may proceed); non-zero = refused.
-// See docs/build-veto-and-sandbox.md.
+// See docs/design/build-veto-and-sandbox.md.
 import bldr
 import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.string
