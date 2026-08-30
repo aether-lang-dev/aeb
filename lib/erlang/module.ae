@@ -62,10 +62,48 @@ app_name(_ctx: ptr, name: string) {
     _e = map.put(_ctx, "erl_app_name", name)
 }
 
-// engine_lib(path) — an engine .so to stage into priv/ (the NIF dlopens it at
-// run time; optional at build time). Scalar.
+// test_source("test/live_test.erl") — an .erl test module to erlc-compile
+// before running (repeatable). Module-relative to source_dir. Used by the
+// eunit() run_main path for a compile-a-test-then-run-its-main suite (no
+// rebar3/escript). Scalar-list.
+test_source(_ctx: ptr, src: string) {
+    if map.has(_ctx, "erl_test_sources") == 0 { _e1 = map.put(_ctx, "erl_test_sources", list.new()) }
+    l, _ = map.get(_ctx, "erl_test_sources")
+    _e2 = list.add(l, src)
+}
+
+// run_main("live_test") — after compiling test_source()s, run
+// `erl -noshell -pa <ebins> -eval '<mod>:main([]), halt(0)'`. The SDK-native
+// form of `erlc + erl -eval main` for a conformance suite that is neither
+// rebar3-eunit nor an escript. Scalar. Pairs with pa(...) + env().
+run_main(_ctx: ptr, mod: string) {
+    _e = map.put(_ctx, "erl_run_main", mod)
+}
+
+// pa("<dir>") — an extra code-path directory (`-pa <dir>`) for the run_main
+// launch, e.g. a dep NIF app's ebin. Repeatable.
+pa(_ctx: ptr, dir: string) {
+    if map.has(_ctx, "erl_pa") == 0 { _e1 = map.put(_ctx, "erl_pa", list.new()) }
+    l, _ = map.get(_ctx, "erl_pa")
+    _e2 = list.add(l, dir)
+}
+
+// engine_lib(path) — an engine .so to stage into priv/. If link_engine(...) is
+// also set, its DIRECTORY becomes the NIF's -L / -Wl,-rpath so a link-time NIF
+// resolves the engine symbols; otherwise it's just staged for a dlopen-style
+// NIF. Scalar.
 engine_lib(_ctx: ptr, lib: string) {
     _e = map.put(_ctx, "erl_engine_lib", lib)
+}
+
+// link_engine(name) — LINK the NIF against the engine at build time:
+// `-L<engine_lib dir> -l<name> -Wl,-rpath,<engine_lib dir>`. For a NIF that
+// declares the engine's exports `extern` and resolves them at link time (with
+// an rpath so it loads at run time) rather than dlopen'ing. Requires
+// engine_lib(...) for the directory. `name` is the library stem (e.g.
+// "selenium_core" for libselenium_core.so). Scalar.
+link_engine(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "erl_link_engine", name)
 }
 
 // --- Pure command builders (tested in tests/test_erlang_cmd.ae) ---
@@ -133,11 +171,13 @@ builder nif(): int {
     app_src_v = ""
     app_nm = "app"
     engine = ""
+    link_engine_name = ""
     if _builder != null {
         if map.has(_builder, "erl_nif_source") == 1 { nif_src, _ = map.get(_builder, "erl_nif_source") }
         if map.has(_builder, "erl_app_src") == 1 { app_src_v, _ = map.get(_builder, "erl_app_src") }
         if map.has(_builder, "erl_app_name") == 1 { app_nm, _ = map.get(_builder, "erl_app_name") }
         if map.has(_builder, "erl_engine_lib") == 1 { engine, _ = map.get(_builder, "erl_engine_lib") }
+        if map.has(_builder, "erl_link_engine") == 1 { link_engine_name, _ = map.get(_builder, "erl_link_engine") }
     }
     if string.length(nif_src) == 0 {
         bldr.fail(ctx, "erlang.nif: nif_source(\"...\") is required")
@@ -154,10 +194,22 @@ builder nif(): int {
     ldl = "-ldl"
     if bldr._is_macos() == 1 { ldl = "" }
 
-    // 1. the NIF .so — NO engine lib on the link line (dlopen'd, not linked).
+    // 1. the NIF .so. By default NO engine lib on the link line (dlopen'd). When
+    //    link_engine(name) is set, add `-L<engine dir> -l<name> -Wl,-rpath,<dir>`
+    //    so a link-time NIF (extern engine symbols) resolves them at build time
+    //    and self-locates the .so at run time via rpath.
+    engine_link_flags = ""
+    if string.length(link_engine_name) > 0 {
+        if string.length(engine) == 0 {
+            bldr.fail(ctx, "erlang.nif: link_engine(\"${link_engine_name}\") requires engine_lib(\"...\") for the -L/-rpath directory")
+            return 1
+        }
+        engine_dir = path.dirname(engine)
+        engine_link_flags = " -L'${engine_dir}' -l${link_engine_name} -Wl,-rpath,'${engine_dir}'"
+    }
     println("${mod_dir}: building NIF (${cc})")
     nif_out = path.join(priv, "${app_nm}.so")
-    nif_cmd = "${cc} -O2 -fPIC -Wall -Wextra -shared -I'${erts_inc}' '${path.join(source_dir, nif_src)}' -o '${nif_out}' ${ldl}"
+    nif_cmd = "${cc} -O2 -fPIC -Wall -Wextra -shared -I'${erts_inc}' '${path.join(source_dir, nif_src)}' -o '${nif_out}'${engine_link_flags} ${ldl}"
     if bldr._sh(nif_cmd) != 0 {
         println("${mod_dir}: NIF build failed")
         bldr.fail(ctx, "erlang NIF build failed")
@@ -192,14 +244,24 @@ builder nif(): int {
         bldr._sh("cp -f '${path.join(source_dir, app_src_v)}' '${appdst}'")
     }
 
-    // 4. stage the engine .so beside the NIF so priv/ is self-contained.
+    // 4. stage the engine .so beside the NIF (its real basename) so priv/ is
+    //    self-contained for a dlopen-style NIF. A link_engine NIF resolves via
+    //    rpath and doesn't need this, but staging is harmless.
     if string.length(engine) > 0 {
         if file.exists(engine) == 1 {
-            bldr._sh("cp -f '${engine}' '${path.join(priv, "libhtmlsanitizer.so")}'")
+            eng_base = path.basename(engine)
+            bldr._sh("cp -f '${engine}' '${path.join(priv, eng_base)}'")
         }
     }
 
     bldr._write_artifact(ctx, "erlang_app", app_dir)
+    // Also publish the OTP-standard consumption edges so BEAM consumers
+    // (elixir/gleam, and this app's own test node) resolve the NIF the
+    // ERL_LIBS way: erl_libs = the _build root (an ERL_LIBS entry), nif_ebin =
+    // this app's ebin (for -pa).
+    erl_libs_dir = path.join(source_dir, "_build")
+    bldr._write_artifact(ctx, "erl_libs", erl_libs_dir)
+    bldr._write_artifact(ctx, "nif_ebin", ebin)
     println("${mod_dir}: built ${app_dir}")
     _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
@@ -229,6 +291,70 @@ builder eunit(): int {
         if map.has(_builder, "proc_steps") == 1 {
             println("${mod_dir}: running tests (eunit)")
             return bldr._run_project(ctx, _builder, "rebar3 eunit", 1)
+        }
+    }
+
+    // run_main("mod") path → erlc the test_source()s, then run mod:main([]) with
+    // ERL_LIBS (env) + -pa code paths. For a compile-then-run-main conformance
+    // suite (neither rebar3 nor escript).
+    if _builder != null {
+        if map.has(_builder, "erl_run_main") == 1 {
+            rmod, _ = map.get(_builder, "erl_run_main")
+            if string.length(rmod) > 0 {
+                source_dir = bldr._get(ctx, "source_dir")
+                target_dir = bldr._get(ctx, "target_dir")
+                bldr._mkdirs(target_dir)
+
+                // 1. erlc the declared test sources into target_dir.
+                tsrcs = ""
+                if map.has(_builder, "erl_test_sources") == 1 {
+                    tl, _ = map.get(_builder, "erl_test_sources")
+                    tn = list.size(tl)
+                    ti = 0
+                    while ti < tn {
+                        ts, _ = list.get(tl, ti)
+                        tsrcs = string.concat(tsrcs, string.concat(" '", string.concat(path.join(source_dir, ts), "'")))
+                        ti = ti + 1
+                    }
+                }
+                if string.length(string.trim(tsrcs)) > 0 {
+                    if bldr._sh("erlc -o '${target_dir}'${tsrcs}") != 0 {
+                        bldr._record_test_result(ctx, 0, 1)
+                        println("${mod_dir}: erlc (test) failed")
+                        bldr.fail(ctx, "erlc (test) failed")
+                        return 1
+                    }
+                }
+
+                // 2. assemble -pa: target_dir (the compiled test) + declared pa()s.
+                pa_flags = "-pa '${target_dir}'"
+                if map.has(_builder, "erl_pa") == 1 {
+                    pl, _ = map.get(_builder, "erl_pa")
+                    pn = list.size(pl)
+                    pi = 0
+                    while pi < pn {
+                        pd, _ = list.get(pl, pi)
+                        pa_flags = string.concat(pa_flags, " -pa '${pd}'")
+                        pi = pi + 1
+                    }
+                }
+
+                // 3. run mod:main([]) and halt on its result.
+                run = "cd '${source_dir}' && erl -noshell ${pa_flags} -eval '${rmod}:main([]), halt(0)'"
+                run = string.concat(bldr._env_export_prefix(_builder), run)
+                println("${mod_dir}: running ${rmod}:main (erl)")
+                rc = bldr._sh(run)
+                if rc != 0 {
+                    bldr._record_test_result(ctx, 0, 1)
+                    println("${mod_dir}: tests FAILED")
+                    bldr.fail(ctx, "tests FAILED")
+                    return rc
+                }
+                bldr._record_test_result(ctx, 1, 0)
+                println("${mod_dir}: tests PASSED")
+                _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+                return 0
+            }
         }
     }
 
