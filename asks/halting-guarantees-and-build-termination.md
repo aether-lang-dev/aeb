@@ -11,7 +11,7 @@ separate, open item.
 ## The ask
 
 u/lookmeat, in the thread that also produced `.presubmit.ae` (see
-`docs/presubmit-target-sets.md`):
+`docs/design/presubmit-target-sets.md`):
 
 > When I say "Totally Functional" I don't mean "functional like LISP" I
 > mean "a subset of functionality that is **not Turing Complete** and
@@ -145,7 +145,7 @@ totality checker, ran until the watchdog killed it (`--timeout 6` →
 exit **124**). A halting guarantee on the language would have certified
 it as terminating.
 
-**The cost would be severe.** `docs/inline-build-steps.md` is a
+**The cost would be severe.** `docs/design/inline-build-steps.md` is a
 load-bearing escape hatch: "if no SDK builder does what you need, the
 full language is right there." LLM.md's design principles lean on it as
 the reason aeb doesn't need YAML-plus-plugins, and the closure-DSL
@@ -233,7 +233,7 @@ mode.
 because the driver's probe and run both go through `build._sh_capture` /
 `build._sh` — the chokepoint that routes shell-outs via MSYS `sh` rather
 than `cmd.exe`. And on a Windows box with no MSYS `make`, the sequential
-loop *is* the path. See `docs/windows-cross-platform-notes.md` § 4.)
+loop *is* the path. See `docs/guides/windows-cross-platform-notes.md` § 4.)
 
 In the Makefile mode the emitted file has one target per node:
 
@@ -450,10 +450,10 @@ it doesn't stall at three paths.
 
 ## Related
 
-- `docs/presubmit-target-sets.md` — the other outcome of the same thread.
+- `docs/design/presubmit-target-sets.md` — the other outcome of the same thread.
 - `TODO.md` § "Full Aether CLI entrypoint" — the supervision tail is the
   main obstacle to porting the trampoline to native Aether; it needs
   `os.run_supervised`-shaped primitives (and Windows Job Objects), which
   is the same machinery this ask leans on.
-- `docs/aeb-vs-bazel.md` — the hermeticity tier, where aeb's other
+- `docs/comparisons/aeb-vs-bazel.md` — the hermeticity tier, where aeb's other
   deliberate divergences from Bazel are recorded.

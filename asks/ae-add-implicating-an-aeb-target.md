@@ -131,7 +131,7 @@ zsync `.so` transport is the first consumer; the per-job-image agent DAG (Rungs
 - `aeb-build-fetch-and-emit-lib-for-zsync-so.md` (the manual version this
   automates), `zsync-delta-transport-for-dispatch.md` (the first consumer)
 - `versioned-bom-and-self-validating-lock.md` (the pinning/lock half)
-- `docs/agent-container-ladder.md` (per-job-image DAG that'd span packages)
+- `docs/design/agent-container-ladder.md` (per-job-image DAG that'd span packages)
 - `lib/fetch/module.ae`, `tools/aebcli/module.ae` (classify_target),
   `lib/build/module.ae` (`prereq`/`--prereqs`, `shared_library_deps_*`)
 - `../zsync` (the worked example: a fetchable repo exposing buildable .so targets)

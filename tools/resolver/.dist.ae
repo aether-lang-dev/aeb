@@ -6,7 +6,7 @@
 // (POM walk, parent chains, dependencyManagement/BOM, property interpolation,
 // download from Central) with ZERO runtime dependencies and NO logging
 // framework. This REPLACES the old Eclipse-Aether MavenResolver (24-jar
-// closure) + its mvn/shade/stub build. See docs/TODO-aether-maven-resolver.md.
+// closure) + its mvn/shade/stub build. See docs/plans/aether-maven-resolver-todo.md.
 //
 // Written in aeb's own java DSL — no mvn, no shade, no hand-rolled shell:
 //   jar_pinned   fetches bld by coordinate+sha256 (cache/~/.m2/Central,

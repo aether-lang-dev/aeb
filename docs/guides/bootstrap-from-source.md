@@ -35,7 +35,7 @@ scaffolds a starter).
 
 | Need | For |
 |---|---|
-| **Aether toolchain** (`ae` / `aetherc`) | building aeb's tools — the one hard dep. See [aether's bootstrap-from-source](https://github.com/aether-lang-dev/aether/blob/main/docs/bootstrap-from-source.md). |
+| **Aether toolchain** (`ae` / `aetherc`) | building aeb's tools — the one hard dep. See [aether's bootstrap-from-source](https://github.com/aether-lang-dev/aether/blob/main/docs/guides/bootstrap-from-source.md). |
 | **bash** (3.2+) | the `aeb` trampoline (POSIX-level; macOS bash 3.2 works) |
 | **GNU make** | two distinct roles: the install is make-based, **and** the node driver uses it at *build* time to schedule nodes in parallel. Without it every build still works, just serially (see below). |
 | **C compiler** (`gcc`/`clang`) | aeb shells out to it for C / Aether-program / generated-header targets |
@@ -192,7 +192,7 @@ Rules of thumb:
 
 - **`ae` must be installed first** — aeb is Aether source. If `install.sh`
   errors with "Aether toolchain not found," install aether (its own
-  `docs/bootstrap-from-source.md`) or pass `AETHER=/path/to/ae`.
+  `docs/guides/bootstrap-from-source.md`) or pass `AETHER=/path/to/ae`.
 - **Do not run aeb's tests to *use* it.** `./tests/run.sh` and `itests/`
   validate aeb itself; building + installing touches no test code.
 - **Pin `AEB_REF`** for reproducibility; unpinned installs track `main`.
@@ -209,5 +209,5 @@ Rules of thumb:
 - [README.md](../README.md) — what aeb is, the CLI flags
   (`--since`, `--scan`, `--shard`, `--timeout`, …).
 - aether's
-  [bootstrap-from-source](https://github.com/aether-lang-dev/aether/blob/main/docs/bootstrap-from-source.md)
+  [bootstrap-from-source](https://github.com/aether-lang-dev/aether/blob/main/docs/guides/bootstrap-from-source.md)
   — install the prerequisite toolchain.

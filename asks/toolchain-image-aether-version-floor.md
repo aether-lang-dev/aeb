@@ -85,4 +85,4 @@ google-monorepo-sim/rust/components/vowelbase (the rust node) and then the
 
 - memory `layered-temp-containers-on-aeb-base` (the ladder + this blocker)
 - memory `per-job-agent-image` (the run_on=podman per-dispatch image vision)
-- `docs/two-aeb-duality.md`, `tools/container/Containerfile.aeb-toolchain`
+- `docs/design/two-aeb-duality.md`, `tools/container/Containerfile.aeb-toolchain`

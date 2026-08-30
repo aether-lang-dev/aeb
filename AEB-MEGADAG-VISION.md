@@ -116,7 +116,7 @@ need a hard workout:
    across a pool of build agents (local or cloud), each builds+tests one impl
    in isolation and reports a verdict. It stresses dispatch, the
    accept/busy/reject decision, and result aggregation at real scale (see
-   `../aeb/docs/agent-lifecycle.md`).
+   `../aeb/docs/design/agent-lifecycle.md`).
 
 3. **141 third-party untrusted repos → the supply-chain story, for real.**
    These are *strangers'* repos with `postinstall` hooks, `binding.gyp`,
@@ -147,7 +147,7 @@ container-up → exercise → container-down inline in Aether):
 - **`.tests.ae`** — the uniform conformance test: bring the SUT up, run the
   shared `todo-backend-js-spec` against its HTTP endpoint, assert 16/16, tear
   down unconditionally (the `up → poke → down` shape from
-  `../aeb/docs/container-lifecycle.md`). DB-backed impls (25 postgres, 9
+  `../aeb/docs/design/container-lifecycle.md`). DB-backed impls (25 postgres, 9
   mongodb) bring up a sidecar DB container too.
 
 The spec is one shared node every `.tests.ae` `build.dep`s — so a change to the

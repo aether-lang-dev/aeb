@@ -133,7 +133,7 @@ This is the open half of
 aeo plants an agent and self-installs substrate; aeb needs a toolchain
 tier. The composition — *use aeo to create the node, then set it up for
 aeb duties* — is described from aeb's side in
-`docs/aeb-host-vm-or-container-setup.md`, but there is no worked
+`docs/guides/aeb-host-vm-or-container-setup.md`, but there is no worked
 end-to-end example. Concretely missing: a script/doc that takes an
 aeo-created node and, in one pass, plants `aeb-cli` + a pinned SHA and
 leaves a node that answers `aeb --list`.
@@ -177,7 +177,7 @@ Worth stating so the plan can be falsified rather than merely followed:
 
 ## Related
 
-- `docs/aeb-host-vm-or-container-setup.md` — the three tiers, what mutates.
+- `docs/guides/aeb-host-vm-or-container-setup.md` — the three tiers, what mutates.
 - `asks/two-aethers-pinned-toolchain-vs-declared-dep.md` — the pin split.
 - `TODO.md` § "Full Aether CLI entrypoint" — `aeb-cli`'s remaining work.
 - aeo's `docs/operations/agent-host-setup.md` + `docs/releasing-aeo.md` — the

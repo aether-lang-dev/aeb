@@ -29,7 +29,7 @@ threads here answer "what if the build should run *somewhere else*":
 
 They compose: an agent can itself run its builds in a container (designed, not
 yet wired — `run_on("podman")`), and the "uniform peer" property
-(`docs/run-policy-class-and-cloud-leverage.md`) is that *originator*, *agent*,
+(`docs/design/run-policy-class-and-cloud-leverage.md`) is that *originator*, *agent*,
 and *container* are the same `aeb` binary in different launch contexts.
 
 Both threads also share the **veto + sandbox** trust model: when a build runs
@@ -192,7 +192,7 @@ There is no `make install-agent`. If aeb builds the agent, aeb installs it.
 run the *compilation* inside a container that has the toolchain, with sources
 bind-mounted — but run the *execution* (the built binaries, the tests) on the
 host, against the host's runtimes. **"two-aeb duality": one binary, two
-instances** (`docs/two-aeb-duality.md`, `docs/containment-and-the-control-plane.md`).
+instances** (`docs/design/two-aeb-duality.md`, `docs/design/containment-and-the-control-plane.md`).
 
 ### 2.2 The image layering
 
@@ -285,7 +285,7 @@ Documented in `../aether/ctr_notes.md`, encoded in `aeb-ctr`:
 
 When a build runs on your box for someone else (agent) or against an
 immutable-host contract (container), the `.build.ae` *itself* is the untrusted
-surface. `docs/build-veto-and-sandbox.md` is the reference; the rule is **the
+surface. `docs/design/build-veto-and-sandbox.md` is the reference; the rule is **the
 veto runs in the trusted harness, never in the graph it inspects** — a
 `.build.ae` cannot clear a verdict about itself.
 
@@ -627,10 +627,10 @@ into a podman container.
 - Trust: `tools/aeb-vet.ae`, `lib/veto/module.ae`, `tools/aeb-sandbox.ae`,
   `lib/sandbox/module.ae`; tests `test_veto*`, `test_sandbox.ae`.
 - Cache: `lib/cache/module.ae`, `tests/test_*cache*`, `itests/cache-smoke.sh`.
-- Docs: `docs/run-policy-class-and-cloud-leverage.md`,
-  `docs/agent-lifecycle.md`, `docs/build-veto-and-sandbox.md`,
-  `docs/two-aeb-duality.md`, `docs/containment-and-the-control-plane.md`,
-  `docs/container-lifecycle.md`.
+- Docs: `docs/design/run-policy-class-and-cloud-leverage.md`,
+  `docs/design/agent-lifecycle.md`, `docs/design/build-veto-and-sandbox.md`,
+  `docs/design/two-aeb-duality.md`, `docs/design/containment-and-the-control-plane.md`,
+  `docs/design/container-lifecycle.md`.
 - Windows-facsimile companion: `mingw_a_b_plan.md`.
 - The two moving floors: `CHANGELOG.md` (aeb), `../aether/CHANGELOG.md`
   (language; HEAD 0.247).

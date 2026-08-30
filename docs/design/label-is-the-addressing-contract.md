@@ -155,7 +155,7 @@ it the single source of where a node's output lives.
 
 The structured-comment channel (`//aeb:output_subdir` / `//aeb:classify`) was
 built per this doc, then **retired**. The realisation:
-`docs/filename-is-the-route.md` showed the **build-file name itself** is the
+`docs/design/filename-is-the-route.md` showed the **build-file name itself** is the
 scan-time, label-resident declaration this doc was looking for —
 `.tests.ae` → `target/tests/`, `.staging.ae` → `target/staging/`. It satisfies
 the addressing contract by construction (every consumer derives the path from

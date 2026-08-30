@@ -29,7 +29,7 @@ works" test — the thing a real user hits first.
 
 aeb has no builder for it, and google-monorepo-sim has no `.example.ae` nodes,
 so there is no reference idiom. Per aeb's own principle
-(`docs/inline-build-steps.md`: SDK builders for common patterns, inline escape
+(`docs/design/inline-build-steps.md`: SDK builders for common patterns, inline escape
 hatch for bespoke, **promote when it recurs**), this pattern recurs across 18
 bindings — it wants to be a real builder rather than 18 inline hand-rolls.
 

@@ -10,7 +10,7 @@ maintainer — something aeb would consume, not an aeb-internal task.
 
 ## What aeb does today (and why it's relevant)
 
-aeb ships a supply-chain build veto (`aeb --vet`, `docs/build-veto-and-sandbox.md`)
+aeb ships a supply-chain build veto (`aeb --vet`, `docs/design/build-veto-and-sandbox.md`)
 whose core question is: **does this build-grammar reach `os.system`/`os.exec`,
 the network, or a raw `extern` — directly or transitively?** A `.build.ae` is an
 Aether program run in the trusted harness; aeb must decide whether to run it.
@@ -87,7 +87,7 @@ read of that output.
 
 ## Cross-ref
 
-- aeb: `docs/build-veto-and-sandbox.md`, `lib/veto` `decide()`,
+- aeb: `docs/design/build-veto-and-sandbox.md`, `lib/veto` `decide()`,
   `lib/veto_trace_os`, `tools/aeb-vet.ae`, `aeb --trace-intent`
 - Aether: #481 (effect tags), #522 (purity inference + `__pure`), `--emit=ast`,
   `--emit=inspect`

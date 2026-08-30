@@ -96,7 +96,7 @@
   `--prereqs` re-invocation hits the same aeb. Proven live end to end on bazzite:
   `prereq rust:1.75 → image aeb-tc:rust-1.75` → lease → dispatch → veto-pass →
   build in the `aeb-tc:rust-1.75` container → `remote build PASSED` rc=0. See
-  `docs/agent-container-ladder.md`.
+  `docs/design/agent-container-ladder.md`.
 
 - **`aether.program` per-node `lib(dir)` setter — extra aetherc `--lib` search
   dir.** The Aether-side twin of `include_dir` (gcc `-I`). A node whose source
@@ -123,7 +123,7 @@
   per-job toolchain container summoned for that dispatch and dropped (`--rm`)
   after — the host needs only podman, no toolchains. (aeb's executors are
   sovereign lease-gated agents, node-granular — same DX, different contract from
-  hyperscale RBE; see `docs/aeb-vs-bazel.md`.) A dispatch names the toolchain image (`"image"` field, gated by
+  hyperscale RBE; see `docs/comparisons/aeb-vs-bazel.md`.) A dispatch names the toolchain image (`"image"` field, gated by
   `--allow-image`); the agent verifies the lease, vetoes, then runs the build
   in that image. The existing compile-in-container/execute-on-host duality runs
   per-node steps on the host (right when the host has runtimes to execute
@@ -133,8 +133,8 @@
   host). Proven end-to-end against `google-monorepo-sim` on bazzite: a dispatch
   for the rust node (`aeb-tc:rust-1.75`) returns `result:pass` with
   `libvowelbase.so` carrying its JNI symbol. See
-  `docs/agent-container-ladder.md` for the climb and
-  `docs/aeb-agent-operating.md` for operation.
+  `docs/design/agent-container-ladder.md` for the climb and
+  `docs/guides/aeb-agent-operating.md` for operation.
 - **Cross-buildtype dep-artifact reads (`lib/build` `_read_dep_artifact`).** A
   dep whose producer wrote under a non-`build` buildtype (e.g. a vendored rust
   crate node `.<name>.crate.ae` → `target/<type>/<dir>`) is now found even after
@@ -195,7 +195,7 @@
   `tests/test_<sdk>_cache.ae` unit test.
 - **Supply-chain build veto + runtime sandbox (`aeb --vet` / `--sandbox`).**
   A layered defense that treats the build itself as an untrusted
-  supply-chain surface (see `docs/build-veto-and-sandbox.md`). The veto runs
+  supply-chain surface (see `docs/design/build-veto-and-sandbox.md`). The veto runs
   in the trusted harness, never in the graph it inspects — a `.build.ae`
   cannot clear a verdict about itself.
   - **`aeb --vet [--veto-policy <f>]`** — static veto before any build.
@@ -252,7 +252,7 @@
   receives its authority, never constructs it. `transform-ae` lowers both
   spellings to the same context-receiving function, so it's a clean
   convention upgrade with no behavior change. Legacy `main()` still works.
-  See `docs/capability-entrypoint.md`.
+  See `docs/design/capability-entrypoint.md`.
 
 - **`aeb --scan '<glob>'` — explicit scan mode.** The scoped counterpart to
   the main `aeb path/to/.leaf.ae` target mode: walks the tree and builds every
@@ -288,7 +288,7 @@
 - **Remote-aeb: `aeb-agent` + `agent.dispatch` (walking skeleton).** A
   sovereign build-agent server and the originator dispatch to it — the
   first running slice of the run-policy / cloud-leverage design
-  (`docs/run-policy-class-and-cloud-leverage.md`). `aeb-agent` is a
+  (`docs/design/run-policy-class-and-cloud-leverage.md`). `aeb-agent` is a
   **standalone binary** (installed at `$PREFIX/bin/aeb-agent`), NOT an
   `aeb agent` subcommand — so a sysop probes "does this machine have the
   agent capability" by whether `aeb-agent` is on `PATH`.
@@ -432,7 +432,7 @@
   `build.lock_validate(...)` — the consume-side check for a future
   generated, hash-stamped lock node (a lock declares the hash of the BOM
   it was generated from and hard-fails if that BOM drifted). Design:
-  `docs/toolchain-selection-and-locks.md`,
+  `docs/design/toolchain-selection-and-locks.md`,
   `asks/versioned-bom-and-self-validating-lock.md`.
 
 ### Changed
@@ -445,7 +445,7 @@
   Now one `<n> <type>` clause per DISTINCT verbatim type (infer_type), first-seen
   order: `aeb: 2 build + 1 dist + 2 tests + 1 構築`; absent types are omitted;
   empty input renders `aeb: 0 targets`. The summary speaks the repo's own
-  filename vocabulary, completing `docs/filename-is-the-route.md`'s reach into
+  filename vocabulary, completing `docs/design/filename-is-the-route.md`'s reach into
   the display layer. New pure `aeblabel.counts_line` (single canonical copy,
   next to `infer_type`), consumed by `tools/aeb-link.ae`; exact-string tests in
   `tests/test_counts_line.ae` including kanji, singular-vs-plural, and
@@ -462,7 +462,7 @@
   tool-noise on stdout). `--in-process` (or `AEB_IN_PROCESS=1`,
   `AEB_PER_NODE=0`) runs the older all-in-one in-process orchestrator —
   simplest to debug, fine for small builds. Design:
-  `docs/nodes-as-subprocesses.md`.
+  `docs/design/nodes-as-subprocesses.md`.
 
 - **Per-node builds run in parallel** (`make -jN` as the scheduler). aeb
   emits a Makefile (one target per node, prerequisites from the dep DAG)
@@ -493,7 +493,7 @@
 
 ### Added
 
-- **`install.sh` + `docs/bootstrap-from-source.md`** — a `curl … | sh`
+- **`install.sh` + `docs/guides/bootstrap-from-source.md`** — a `curl … | sh`
   installer (`AEB_REF`/`PREFIX`/`AETHER` knobs; defaults to the latest tag
   and `~/.local`, no sudo) that fetches the GitHub source tarball for a
   pinned ref and `make install`s it, plus a consumer bootstrap guide
@@ -515,7 +515,7 @@
   reap is always on and a no-op when a build leaks nothing. `--timeout N`
   / `AEB_TIMEOUT=N` (seconds) caps total wall-clock and exits 124 on
   overrun. Bazel-style; per-step isolation is a deferred design
-  (`docs/lifecycle_plan.md` §9).
+  (`docs/plans/lifecycle-plan.md` §9).
 
 - **`fixture_server` teardown hardened** (`lib/build`): servers launch
   with stdin detached and tear down `TERM` → grace-poll → `KILL` → reap,
@@ -556,7 +556,7 @@
   `build.mkdirs(path)`. Lets inline Aether between SDK builders read
   the module's paths without reaching into the internal `_get`.
 
-- **`docs/inline-build-steps.md` + runnable example**
+- **`docs/design/inline-build-steps.md` + runnable example**
   (`docs/examples/inline-git-changelog/`). Documents that a
   `.build.ae` is an Aether program: between idiomatic SDK builders you
   can run any Aether — shell out, parse stdout, transform, write

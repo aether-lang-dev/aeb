@@ -327,11 +327,11 @@ things follow, neither yet verified on a Windows host:
   sequential path is likely the common one, which makes it the path to test
   first and the one any future per-node timeout must also cover.
 Whether the multi-node parallel path has ever run on winbaz is not recorded;
-treat it as unverified. Write-up: `docs/windows-cross-platform-notes.md` § 4.
+treat it as unverified. Write-up: `docs/guides/windows-cross-platform-notes.md` § 4.
 
 **Reference: Nushell** (`../nushell`, MIT, shallow clone). A mature
 Windows-first shell in Rust — high-value comparison for these exact seams.
-Findings written up in `docs/windows-cross-platform-notes.md` (attribution in
+Findings written up in `docs/guides/windows-cross-platform-notes.md` (attribution in
 `NOTICE`). Takeaways: (a) its drive-letter handling = Rust std's
 `Prefix::Disk`, now ported as `_has_windows_drive_prefix` (item 4); (b) the
 dual-separator path rule, ported into the lib/build path helpers above.
@@ -351,7 +351,7 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
    aeb-main. (Historical note: Nushell skips groups on Windows and shells out
    to `taskkill /F /T` precisely because Rust std hands it no group primitive;
    aeb has `os.run_supervised`, so it doesn't take that path — see
-   docs/windows-cross-platform-notes.md §1–2 for the comparison.)
+   docs/guides/windows-cross-platform-notes.md §1–2 for the comparison.)
 
 2. **Classpath separator → `_path_sep()`.**
    **Leaf joins DONE.** All five JVM SDKs' runtime `-cp` assembly now routes
@@ -586,7 +586,7 @@ Analogues exist elsewhere: Mercurial's `narrowhg` extension, Subversion's
 `svn update --set-depth`, jj's own mechanism.
 
 **This is aeb's problem, not Aether's.** It sat in
-`docs/aether-runtime-needs.md` § D as an upstream ask — one option there
+`docs/plans/aether-runtime-needs.md` § D as an upstream ask — one option there
 was a runtime `extern vcs_sparse_add(repo, path)` implemented per VCS in
 the Aether stdlib. That is the wrong layer: Aether is a language runtime
 and has no business knowing about Mercurial or Subversion, and it would
@@ -675,7 +675,7 @@ toolchain is binary-safe blob download (the blobs contain NULs).
 S3/GCS/a tiny CAS server then all speak the same GET/PUT/HEAD-by-sha256
 shape.
 
-**Direction & policy:** [`docs/distributed-cache-plan.md`](docs/distributed-cache-plan.md)
+**Direction & policy:** [`docs/plans/distributed-cache-plan.md`](docs/plans/distributed-cache-plan.md)
 captures the design framing — repeatability vs reproducibility,
 Wingerd-style named scopes (mainline / development / release / task)
 with explicit promotion gates, container-vs-content artifact classes.
@@ -1003,7 +1003,7 @@ between lock file and resolved deps.
 
 ### Toolchain selection & generated locks (partially done)
 
-Design: `docs/toolchain-selection-and-locks.md`,
+Design: `docs/design/toolchain-selection-and-locks.md`,
 `asks/versioned-bom-and-self-validating-lock.md`. Subsumes the
 "Lockfiles" section above (that lock should be the *generated*,
 hash-stamped node described here) and is the multi-SDK half of the
@@ -1165,7 +1165,7 @@ build.env(b) {
 Whole-build runtime containment shipped — `aeb --sandbox` runs the build
 under Aether `spawn_sandboxed` (LD_PRELOAD, deny-by-default grants, no tcp;
 contains the whole gcc/cc1/javac subtree at the libc boundary). See
-docs/build-veto-and-sandbox.md. Phase 2 is the *finer* grain: per-SDK-call
+docs/design/build-veto-and-sandbox.md. Phase 2 is the *finer* grain: per-SDK-call
 grant profiles instead of one whole-build profile, e.g.
 
 ```aether
@@ -1180,7 +1180,7 @@ build.javac(b) {
 
 ## Supply-chain veto + sandbox — stack COMPLETE; frontier follow-ups
 
-The veto/sandbox stack (docs/build-veto-and-sandbox.md) is complete and
+The veto/sandbox stack (docs/design/build-veto-and-sandbox.md) is complete and
 shipped: the tree & patch rule scan (agent-side), the external-scanner hook
 (`--vet-tool`), the AST veto (`--vet`), the dependency SBOM/CVE
 (`--resolve-only`), the intent trace (`--trace-intent`), and the runtime
@@ -1199,7 +1199,7 @@ not missing layers:
 - **Agent-side `spawn_sandboxed` wiring.** `aeb --sandbox` ships for the
   non-agent CLI; the *agent* hosting a dispatch under the sandbox per its
   operator profile is still the design seam
-  (docs/build-veto-and-sandbox.md / run-policy-class-and-cloud-leverage.md).
+  (docs/design/build-veto-and-sandbox.md / run-policy-class-and-cloud-leverage.md).
 - **One-policy-object option (deliberately deferred).** The three operator
   surfaces (veto policy / `--vet-tool` / sandbox profile) are kept separate on
   purpose; a single `policy.ae` driving all three was considered and parked.
@@ -1472,7 +1472,7 @@ the bridge is linked into the binary and the guest runs in its
 address space. For aeb that means the guest would run inside the
 orchestrator (`target/_ae_build_all`), which is the purest fit for
 the one-process model. The container-vs-hosted tradeoff is written
-up in `docs/guest-languages.md`.
+up in `docs/design/guest-languages.md`.
 
 It does **not** work from a real `.build.ae` yet. The orchestrator
 linker (`tools/aeb-link`) doesn't link foreign-language bridges, so
@@ -1674,7 +1674,7 @@ that read standard CI env vars (GITHUB_ACTIONS, CI, GITLAB_CI, etc.).
 ### `aeb --ci <git-url> <commit-hash> <scan-target>` — the wake-on-commit one-shot
 
 **Designed; not built.** Design:
-[docs/aeb-vs-snap-ci-and-the-wake-on-commit-flow.md](docs/aeb-vs-snap-ci-and-the-wake-on-commit-flow.md)
+[docs/comparisons/aeb-vs-snap-ci-and-the-wake-on-commit-flow.md](docs/comparisons/aeb-vs-snap-ci-and-the-wake-on-commit-flow.md)
 (the "concrete CLI" section). The one-shot command a CI trigger / hook hands
 to a runner: clone (or fetch into a cached mirror) the URL, `git checkout
 <hash>`, then run the scan over the target as if you'd `cd`'d in and run `aeb
@@ -1702,7 +1702,7 @@ runner/secrets/approval/deploy wrapper (CI's).
 ### Gentoo-style source-dependency graph — `.src.ae` + `src.fetch` + USE flags
 
 **Designed/analysed; no code yet.** Design doc:
-[docs/gentoo-style-src-deps.md](docs/gentoo-style-src-deps.md). aeb's core
+[docs/design/gentoo-style-src-deps.md](docs/design/gentoo-style-src-deps.md). aeb's core
 already IS a source-dep graph that makes binaries as it traverses (the DAG +
 the bootstrap-tool pattern). "Gentoo-style" adds three things, each modeled on
 an existing mechanism: (1) a `src` SDK — `src.fetch(url, sha256)` (the one
@@ -1717,7 +1717,7 @@ the fetch primitive with prereq()/provisioning.
 ### Build prerequisites & provisioning — `prereq()` / preflight / podman layering
 
 **Fully designed; no code yet.** Design doc:
-[docs/build-prerequisites-and-provisioning.md](docs/build-prerequisites-and-provisioning.md).
+[docs/design/build-prerequisites-and-provisioning.md](docs/design/build-prerequisites-and-provisioning.md).
 This is the principled version of the "Multi-SDK bootstrapping" idea below
 (Cake's build.sh installs specific .NET SDK versions; `require_tool(...)`):
 a leaf *declares* its system-toolchain requirements, and a missing one is a
@@ -2243,7 +2243,7 @@ deps are missing go get them and place them in there
     installed JDKs by vendor/version per module — multi-JDK builds
     in a monorepo. Today aeb uses whatever `javac` is on PATH. This
     is the same gap as the hermetic-toolchain item in
-    `docs/aeb-vs-bazel.md`; if that gets resolved at the runner level
+    `docs/comparisons/aeb-vs-bazel.md`; if that gets resolved at the runner level
     (hermetic-LLVM-style fetch + pin), this falls out.
 
 17. **Profiles** (`<profile id="ci">`). Maven's environment-specific

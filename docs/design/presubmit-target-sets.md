@@ -103,7 +103,7 @@ Three rules already in force compose to give it for free:
    runtime no-op.** Deps are extracted textually before any `.ae` runs, so
    a file whose entire content is dep edges is a perfectly well-formed
    node — it contributes edges and no work.
-3. **The filename IS the route** (`docs/filename-is-the-route.md`). The
+3. **The filename IS the route** (`docs/design/filename-is-the-route.md`). The
    whole `.<name>.ae` segment is the type, verbatim. `.presubmit.ae`
    self-classifies as type `presubmit` and routes to `target/presubmit/`
    with no entry in any classification table.
@@ -153,7 +153,7 @@ target set depends on.** If you must shell out raw, propagate the code.
 A set is normally *only* dep edges. But a `.presubmit.ae` is an Aether
 program like any other build file, so where a gate genuinely belongs to
 the set rather than to any one member, you can write it inline
-(`docs/inline-build-steps.md`) and fail with `build.fail`.
+(`docs/design/inline-build-steps.md`) and fail with `build.fail`.
 
 The example below is the one people ask for first — "fail if the working
 tree is dirty" — and it is the **wrong thing to reach for**. It is shown

@@ -148,7 +148,7 @@ straight from the dev box, start with `--host 0.0.0.0 --allow-from <dev-ip>`
   whole worktree — this is what made Rung 3 build-green. TODO(perfectionist)
   left in code: replace the subtree heuristic with the exact transitive `.ae`
   dep closure (extract-deps BFS), which also catches deps OUTSIDE the target's
-  dir. See `lib/agent` `_veto_scan_root` + `docs/build-veto-and-sandbox.md`.
+  dir. See `lib/agent` `_veto_scan_root` + `docs/design/build-veto-and-sandbox.md`.
 - **Image GC.** Per-job `--rm` drops containers; nothing prunes images. A
   long-lived agent needs an image-GC policy (prune dangling after compose, LRU
   cap).

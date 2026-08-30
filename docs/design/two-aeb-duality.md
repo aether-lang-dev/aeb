@@ -14,7 +14,7 @@ work, delegating only the toolchain-needing steps (compile) to a container-
 side aeb. Builds on what's already proven this session: the `aeb-toolchain`
 container image (`tools/container/`), `aether-build` as the bootstrap, and
 the readiness DAG running `--aeb` in-container. Read after
-`docs/containment-and-the-control-plane.md` (the why) and
+`docs/design/containment-and-the-control-plane.md` (the why) and
 `tools/container/README.md` (the image).
 
 ## The problem this solves
@@ -136,7 +136,7 @@ nothing → everything runs locally as today; an immutable host declares the
 compile→container delegation. The target files (`.build.ae` etc.) are
 unchanged — the split lives in the context/scope, mirroring how
 policy-class/grant separates the request from its environment
-(`docs/run-policy-class-and-cloud-leverage.md`).
+(`docs/design/run-policy-class-and-cloud-leverage.md`).
 
 ## What this unblocks
 

@@ -143,5 +143,5 @@ and result:pass. Composes with `patch_b64` (zsync the base, patch the change).
 ## Cross-ref
 
 - `tools/aeb-agent.ae` `_vm_push` / `_vm_has_rsync` (the transport seam)
-- `docs/agent-container-ladder.md` (RBE shapes; the "ships whole trees" gap)
+- `docs/design/agent-container-ladder.md` (RBE shapes; the "ships whole trees" gap)
 - `../zsync` (the Aether port) + its `LLM.md` (Artistic-2.0, no-aeb-dep rule)

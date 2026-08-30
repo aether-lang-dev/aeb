@@ -12,7 +12,7 @@ stub. The one legacy alias kept: `.tests.ae`→type `test` (singular word, plura
 
 This SUPERSEDES the routing role of the //aeb:output_subdir + //aeb:classify
 directives and the old 3-bucket infer (everything-not-tests/dist → "build" →
-shown as "compile"). Read alongside `docs/label-is-the-addressing-contract.md`
+shown as "compile"). Read alongside `docs/design/label-is-the-addressing-contract.md`
 (which established *why* routing must be label/filename-derivable).
 
 ## The rule, in one line
@@ -153,6 +153,6 @@ need found in any repo, they were dead weight + a three-copy drift hazard.
 
 So the end state is a single mechanism: **the build-file name determines the
 type and the route, full stop.** No inference layer, no override channel, no
-comment grammar. `docs/label-is-the-addressing-contract.md` remains the *why*
+comment grammar. `docs/design/label-is-the-addressing-contract.md` remains the *why*
 (routing must be label-derivable); this is the *how*, and it turned out the
 filename alone suffices.

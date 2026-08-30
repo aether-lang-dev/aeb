@@ -168,7 +168,7 @@ one; the trampoline resolves the *pinned* one; they are allowed to differ.
 ## Explicitly NOT asking for
 
 - **A general installer for TARGET prereqs.**
-  `docs/build-prerequisites-and-provisioning.md` is explicit that
+  `docs/design/build-prerequisites-and-provisioning.md` is explicit that
   resolving a token to an install is unbounded (every toolchain × distro ×
   version × arch) and deliberately out of scope. Role 2 stays **state and
   observe**: if a target declares `jdk:21` or `aether:0.410` and it is
@@ -244,10 +244,10 @@ CI-side test rather than a runtime concern.
 
 ## Related
 
-- `docs/build-prerequisites-and-provisioning.md` — the states-needs /
+- `docs/design/build-prerequisites-and-provisioning.md` — the states-needs /
   observes-presence / never-installs posture this must not break.
-- `docs/toolchain-selection-and-locks.md` — selection vs provisioning.
-- `docs/windows-cross-platform-notes.md` § 5 — the winbaz failure, plus
+- `docs/design/toolchain-selection-and-locks.md` — selection vs provisioning.
+- `docs/guides/windows-cross-platform-notes.md` § 5 — the winbaz failure, plus
   the `MSYSTEM=MINGW64` trap found while fixing it.
 - `LLM.md` § "Recent upstream Aether features aeb could lean on" — where
   the version floors currently live as prose.

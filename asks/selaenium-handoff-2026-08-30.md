@@ -195,7 +195,7 @@ bld alongside). Verified: junit → 8 jars (compiles a real @Test),
 spring-boot-starter → 20 managed jars, --bom parent/property inheritance,
 sbom mode. Build needs only JDK + curl. Old MavenResolver.java, pom.xml, and
 the 38 stubs are retired. Further pure-Aether resolver tracked in
-docs/TODO-aether-maven-resolver.md.
+docs/plans/aether-maven-resolver-todo.md.
 
 A follow-up attempt to rewrite the resolver's .dist.ae in aeb's own java DSL
 (jar_pinned + javac + a new thin_jar verb, instead of shell string.concat) was

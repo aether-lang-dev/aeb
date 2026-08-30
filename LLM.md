@@ -94,14 +94,14 @@ scratch file); and a `git` builder would be the first place aeb hardcodes
 one VCS when root discovery already honours `.avn`/`.hg`/`.svn`/`.bzr`/
 Fossil/Pijul. Policy gates (approval, attestation, external status) have
 a home in `lib/approval`. Full write-up:
-`docs/presubmit-target-sets.md`.
+`docs/design/presubmit-target-sets.md`.
 
 ### Entrypoint: `aeb(cap)` (or legacy `main()`)
 
 A build node's entrypoint is `aeb(cap) { b = build.start() ... }`. `cap`
 is the build context/capability handle the trusted aeb host injects — the
 build *receives* its authority, it does not construct it (this is the same
-handle that backs `--sandbox`; see docs/capability-entrypoint.md). aeb's
+handle that backs `--sandbox`; see docs/design/capability-entrypoint.md). aeb's
 `transform-ae` lowers `aeb(cap)` and the legacy `main()` to the same
 context-receiving function, so both work; `aeb(cap)` is the current
 convention. Don't migrate a regular Aether *program* (a `*_test.ae`, a CLI
@@ -220,7 +220,7 @@ status" is the unembellished current state, not the roadmap.
 | Local incremental cache            | Skip work when inputs unchanged                                 | ✓ Content-addressed cache (`lib/cache`, sha256+zlib) wired into every artifact-producing SDK: maven, aether, java, kotlin, scala, ts, dotnet, go, rust, clojure. `lib/python` is n/a by design (venv non-portable). Shared helpers in `lib/build`; per-SDK `_cache_key_for_*` tested by `tests/test_*_cache.ae`. Remote cache still TODO. |
 | Remote build cache                 | Share artifacts across machines (Bazel, Gradle, Turborepo)      | ✗ TODO. Roadmap entry; `target/<module>/` artifact metadata files are the natural cache units.         |
 | Affected-target detection          | `git diff` → reverse-dep walk → only-build-changed              | ✓ Done. `aeb --since <ref>` builds only targets impacted by changes; `aeb --print-affected <ref>` lists them. Source-to-target ownership: nearest enclosing dir with a build file. |
-| Hermetic toolchains                | Pinned compiler/runtime per build, downloaded if missing        | ✗ Uses whatever's on `PATH` (selects, never provisions). Deliberate divergence — see `docs/aeb-vs-bazel.md` (hermeticity tier) + `docs/toolchain-selection-and-locks.md`. |
+| Hermetic toolchains                | Pinned compiler/runtime per build, downloaded if missing        | ✗ Uses whatever's on `PATH` (selects, never provisions). Deliberate divergence — see `docs/comparisons/aeb-vs-bazel.md` (hermeticity tier) + `docs/design/toolchain-selection-and-locks.md`. |
 | Dependency resolution (transitive) | Maven / npm / Cargo / NuGet closures resolved + classpath built | ✓ Done for Maven (via `tools/aeb-resolve.jar`), npm (pnpm), NuGet, Cargo, Python wheels.                 |
 | Lockfiles for reproducibility      | Pin every transitive dep to exact version + hash                | ✗ TODO. Resolver computes the closure but doesn't write/check a lockfile.                                |
 | Test orchestration                 | Discover, run, report, parallelise, isolate                     | ◐ Partial. `bash.test` (jobs/pre/post hooks), `*.junit5` etc. exist; per-target pass/fail counts feed `[telemetry]` block (`14/14 PASS` / `28/30 FAIL`). Structured XML reports TODO. |
@@ -228,7 +228,7 @@ status" is the unembellished current state, not the roadmap.
 | Build graph visualisation          | DOT / Mermaid / interactive graph                               | ✓ Done. `aeb --graph` (DOT) / `aeb --graph mermaid`. Pipe to `dot -Tsvg` or paste into a Markdown fence. |
 | IDE / LSP integration              | Editor knows about build targets, jump-to-source                | ✗ TODO. No `aeb-lsp` yet; `.build.ae` files use the Aether LSP for syntax only.                          |
 | Watch mode                         | Rebuild on file change                                          | ✓ Done. `aeb --watch [target]` watches source dirs (Linux: inotifywait, macOS: fswatch); change events flow through the affected-target walk and a narrowed rebuild fires. Composes with cache + telemetry. |
-| Sandboxing / isolation             | Build steps see only declared inputs                            | ✓ `aeb --sandbox` runs the build under Aether `spawn_sandboxed` (LD_PRELOAD, deny-by-default grants, no tcp; whole subtree contained at the libc boundary). Plus `aeb --vet` static supply-chain veto (AST + external-tool + agent-side rules). See docs/build-veto-and-sandbox.md. (Linux; needs aether >= 0.230.0.) |
+| Sandboxing / isolation             | Build steps see only declared inputs                            | ✓ `aeb --sandbox` runs the build under Aether `spawn_sandboxed` (LD_PRELOAD, deny-by-default grants, no tcp; whole subtree contained at the libc boundary). Plus `aeb --vet` static supply-chain veto (AST + external-tool + agent-side rules). See docs/design/build-veto-and-sandbox.md. (Linux; needs aether >= 0.230.0.) |
 | Supply-chain build veto            | Treat the build script + tree as an untrusted surface           | ✓ `aeb --vet [--veto-policy <f>]` (AST deny-rules + coordinate allowlist), `--vet-tool '<cmd>'` (bring-your-own SAST), agent-side Tier-A rules (secrets, binding.gyp, pre/postinstall, curl\|sh, tree-size cap). Out-of-tree operator policy; fail-closed. |
 | Sparse checkout for monorepos      | Fetch only the modules a target needs                           | ✓ Done via `aeb gcheckout` (DAG walk → `git sparse-checkout`).                                          |
 | Configuration DSL ceiling          | Expressive without escape hatches into bash/python/Skylark      | ✓ Closure-with-setters, fully Aether-native, no eval'd config.                                          |
@@ -322,7 +322,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   a fork/exec boundary no totality checker reaches. aeb bounds termination
   *dynamically* instead, which is strictly stronger here because it also
   bounds the opaque toolchain child — and it would cost the
-  `docs/inline-build-steps.md` escape hatch that the configuration-DSL-
+  `docs/design/inline-build-steps.md` escape hatch that the configuration-DSL-
   ceiling ✓ depends on.
 - `tools/aeb-link.ae` — the per-build orchestration. THE largest
   Aether file. If a build fails between scan and link, the bug is
@@ -383,7 +383,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   of a webhook-centric automation system. `{{...}}` context
   interpolation, `on()` environment gates, native `std.http`. Hosts
   the `_detect_ci()` consumer; `_detect_ci` itself lives in
-  `lib/build`. Usage: `docs/webhook-triggers.md`; design:
+  `lib/build`. Usage: `docs/design/webhook-triggers.md`; design:
   `asks/webhook-outbound-trigger.md`.
 - `lib/container/module.ae` — container SDK. `container.image` builds
   OCI images; `container.run(b) { image_ref(...) command(...) }` runs
@@ -391,7 +391,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   first slice of a container-as-step grammar. aeb's two ways to run a
   guest language — `container.run` (a separate process) vs Aether's
   in-process `contrib.host.<lang>` hosting — and the isolation/cost
-  tradeoff between them are written up in `docs/guest-languages.md`.
+  tradeoff between them are written up in `docs/design/guest-languages.md`.
   In-process hosting from a `.build.ae` is not wired yet: `aeb-link`
   would need to link the `contrib.host.<lang>` C bridge into the
   orchestrator (the `tests/test_host_lua.build.sh` sidecar does this
@@ -1076,7 +1076,7 @@ Agreed shape (Paul's framing) — **Role 1 shipped, Role 2 not yet**:
   target on a Java 21 JVM.
 
 Still NO installer — states needs, observes presence, never provisions
-(`docs/build-prerequisites-and-provisioning.md`).
+(`docs/design/build-prerequisites-and-provisioning.md`).
 
 **IMPLEMENTED (2026-07-27)** for Role 1, as TWO files, because two
 different clocks were being conflated:

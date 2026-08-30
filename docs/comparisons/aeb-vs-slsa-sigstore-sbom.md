@@ -49,7 +49,7 @@ supply.sign(b) {
 ```
 
 Approval attestation lives in
-[aeb-approval-hooks.md](/home/paul/scm/aetherBuild/docs/aeb-approval-hooks.md).
+[aeb-approval-hooks.md](/home/paul/scm/aetherBuild/docs/design/aeb-approval-hooks.md).
 
 ## Rule of thumb
 

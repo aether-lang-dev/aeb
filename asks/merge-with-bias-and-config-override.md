@@ -295,7 +295,7 @@ noted as the one piece that might earn its place later, on evidence.
 - `asks/halting-guarantees-and-build-termination.md` — the other
   declined idea from the same thread, same shape of argument (the
   proposal targets a layer where aeb's problem isn't).
-- `docs/presubmit-target-sets.md` — the one idea from the thread that was
+- `docs/design/presubmit-target-sets.md` — the one idea from the thread that was
   adopted.
 - LLM.md § "Design principles when extending aeb" (#2) and § "The
   load-bearing principle" — the two rules this ask is measured against.

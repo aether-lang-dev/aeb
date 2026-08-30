@@ -165,7 +165,7 @@ git clone https://github.com/aether-lang-dev/aeb.git && cd aeb && make install
 
 Ensure `~/.local/bin` is on your `PATH`. Full guide — pinning in CI,
 tracking HEAD, an automation recipe — in
-[docs/bootstrap-from-source.md](docs/bootstrap-from-source.md).
+[docs/guides/bootstrap-from-source.md](docs/guides/bootstrap-from-source.md).
 
 ## Setup
 
@@ -202,7 +202,7 @@ the whole tree implicitly; scoping is always explicit (name a target, or
 
 Build files declare their entrypoint as `aeb(cap)` (the capability the
 trusted host injects; legacy `main()` also works) — see the examples above
-and [docs/capability-entrypoint.md](docs/capability-entrypoint.md).
+and [docs/design/capability-entrypoint.md](docs/design/capability-entrypoint.md).
 
 aeb auto-detects Podman's socket and sets `DOCKER_HOST` so TestContainers
 works without a daemon.
@@ -459,7 +459,7 @@ tree is dirty", is the wrong thing to reach for.
 > result that proves nothing. Prefer an SDK builder for anything a set
 > depends on.
 
-Full write-up: [`docs/presubmit-target-sets.md`](docs/presubmit-target-sets.md).
+Full write-up: [`docs/design/presubmit-target-sets.md`](docs/design/presubmit-target-sets.md).
 
 ### Affected-target detection (`aeb --since`, `aeb --print-affected`)
 
@@ -581,7 +581,7 @@ backgrounds a server or leaks a helper can't leave a process lingering
 into aeb's exit (which, under a sandboxed agent/CI harness, can
 otherwise poison the exit code). This reap is always on and is a no-op
 when a build leaves nothing running. Per-*step* timeouts and isolation
-are a deferred design (see `docs/lifecycle_plan.md` §9) — today the cap and
+are a deferred design (see `docs/plans/lifecycle-plan.md` §9) — today the cap and
 reap are build-wide.
 
 #### Per-node output, and `--in-process`
@@ -615,7 +615,7 @@ sequential per-node loop — same artifacts, no warning, just serial. So
 > `PATH` must be the **MSYS/MinGW** GNU make (aeb runs it via MSYS `sh`,
 > never `cmd.exe`). Without it you get the serial path, which is a
 > supported configuration. See
-> [`docs/windows-cross-platform-notes.md`](docs/windows-cross-platform-notes.md) § 4.
+> [`docs/guides/windows-cross-platform-notes.md`](docs/guides/windows-cross-platform-notes.md) § 4.
 
 **`AEB_SCHED=native`** (experimental) replaces `make` with an in-process
 ready-queue scheduler built on Aether's `os.spawn_proc` / `os.wait_any`
@@ -653,7 +653,7 @@ does not do at all. Native scheduler only (it warns if set without it).
 **`--in-process`** (or `AEB_IN_PROCESS=1`) runs the older all-in-one
 orchestrator — one process, all nodes in-process, tool output streamed
 inline. Simplest to debug, and fine for small builds. Design:
-[`docs/nodes-as-subprocesses.md`](docs/nodes-as-subprocesses.md).
+[`docs/design/nodes-as-subprocesses.md`](docs/design/nodes-as-subprocesses.md).
 
 #### Composite targets via `build.scan()`
 
@@ -765,7 +765,7 @@ Per-target row format: `<type>: <label> <wall>s [<cache>] <P>/<T> PASS|FAIL`
   leading `.` and trailing `.ae` (`.build.ae` → build, `.tests.ae` →
   tests, `.dist.ae` → dist, `.essais.ae` → essais, `.構築.ae` → 構築).
   No normalization — the summary speaks the repo's own filename
-  vocabulary (see docs/filename-is-the-route.md).
+  vocabulary (see docs/design/filename-is-the-route.md).
 - **`<label>`** — module path, with `:tag` suffix for tagged build
   files (see "Multiple build files per directory" above).
 - **`<wall>s`** — wall time in seconds, two decimals.
@@ -967,7 +967,7 @@ Layers (use any subset): a Tier-A tree/patch rule scan (secrets, `binding.gyp`,
 --emit=ast` (deny extern/exec/net/import, a coordinate allowlist), an external
 SAST hook (`--vet-tool`), and `spawn_sandboxed` runtime containment. Fail-closed
 throughout. `--sandbox` is Linux-only (needs aether ≥ 0.230.0). Full design in
-[docs/build-veto-and-sandbox.md](docs/build-veto-and-sandbox.md).
+[docs/design/build-veto-and-sandbox.md](docs/design/build-veto-and-sandbox.md).
 
 ### Distribution metadata (`meta` SDK) and exporters (`brew`, …)
 
@@ -1543,7 +1543,7 @@ A/B harness, and it runs natively on Windows. **It may become the default `aeb`
 in a future release** (retiring the bash trampoline, making `aeb` pure Aether end
 to end); for now bash `aeb` is the default and `aeb-cli` the proven-equivalent
 alternate. See `mingw_a_b_plan.md` and
-[docs/aether-runtime-needs.md](docs/aether-runtime-needs.md).
+[docs/plans/aether-runtime-needs.md](docs/plans/aether-runtime-needs.md).
 
 ```
 aeb/
