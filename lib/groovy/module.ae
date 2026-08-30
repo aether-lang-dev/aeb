@@ -77,6 +77,18 @@ main_class(_ctx: ptr, cls: string) {
     _e = map.put(_ctx, "main_class", cls)
 }
 
+// run_script("test/live_test.groovy") — run a Groovy SCRIPT (top-level
+// statements, no class/main) with the `groovy` launcher, instead of compiling
+// test classes for main_class/junit5. Scripting is Groovy's defining idiom;
+// this is the SDK form of `groovy -cp <deps> <script>`. The path is relative to
+// the module source_dir. The run reuses the verified-capable JVM/Groovy (from a
+// min_/skip_below_ floor), the compiled prod wrapper classes + deps on the
+// classpath, jvm_flag() flags, and env(). Mutually exclusive with main_class;
+// when set, no test compile happens.
+run_script(_ctx: ptr, script: string) {
+    _e = map.put(_ctx, "run_script", script)
+}
+
 // jvm_flag("--enable-native-access=ALL-UNNAMED") — one extra flag passed to the
 // JVM that runs main_class (repeatable). Needed by FFM/native-access runners.
 // Ignored unless main_class is set.
@@ -129,6 +141,16 @@ _groovyc_bin(groovy_home: string) {
         if file.exists(cand) == 1 { return cand }
     }
     return "groovyc"
+}
+
+// _groovy_bin(groovy_home) — the `groovy` SCRIPT launcher (not the compiler),
+// for run_script. <home>/bin/groovy, else bare `groovy` on PATH.
+_groovy_bin(groovy_home: string) {
+    if string.length(groovy_home) > 0 {
+        cand = path.join(groovy_home, "bin/groovy")
+        if file.exists(cand) == 1 { return cand }
+    }
+    return "groovy"
 }
 
 // _groovy_jars_nl(home) — newline-separated list of groovy's OWN runtime
@@ -522,6 +544,60 @@ builder groovyc_test(): int {
             return 0
         }
         println("${mod_dir}: groovy toolchain verified — ${capable_jar}")
+    }
+
+    // run_script: run a Groovy SCRIPT directly (no test compile), reusing the
+    // verified JVM/Groovy, the prod wrapper classes + deps on the classpath,
+    // jvm_flag()s and env(). This is `groovy -cp <cp> <script>`; when a capable
+    // jar was verified we drive it as `java -cp <jar:cp> groovy.ui.GroovyMain`
+    // (the script launcher's real main), matching how the compile path drives
+    // FileSystemCompiler through the verified jar.
+    if _builder != null {
+        if map.has(_builder, "run_script") == 1 {
+            script_rel, _ = map.get(_builder, "run_script")
+            gh_s = _groovy_home()
+            gcp_s = _nl_to_colon(_groovy_jars_nl(gh_s))
+            launcher = _groovy_bin(gh_s)
+            if string.length(capable_jar) > 0 { gcp_s = capable_jar }
+
+            run_cp_s = ""
+            prod_s = path.join(target_dir, "classes")
+            if dir.exists(prod_s) == 1 { run_cp_s = bldr._cp_append(run_cp_s, prod_s) }
+            run_cp_s = bldr._cp_append(run_cp_s, dep_cp)
+            run_cp_s = bldr._cp_append(run_cp_s, lib_cp)
+
+            jflags_s = ""
+            if map.has(_builder, "jvm_flag") == 1 {
+                jf_s, _ = map.get(_builder, "jvm_flag")
+                njf_s = list.size(jf_s)
+                ji_s = 0
+                while ji_s < njf_s {
+                    one_s, _ = list.get(jf_s, ji_s)
+                    jflags_s = string.concat(jflags_s, string.concat(" ", one_s))
+                    ji_s = ji_s + 1
+                }
+            }
+
+            script_abs = path.join(source_dir, script_rel)
+            run_cmd_s = ""
+            if string.length(capable_jar) > 0 {
+                full_cp_s = bldr._cp_append(gcp_s, run_cp_s)
+                run_cmd_s = "${capable_java}${jflags_s} -cp ${full_cp_s} groovy.ui.GroovyMain '${script_abs}'"
+            } else {
+                run_cmd_s = "${launcher}${jflags_s} -cp ${run_cp_s} '${script_abs}'"
+            }
+            println("${mod_dir}: running script ${script_rel}")
+            run_cmd_s = string.concat(bldr._env_export_prefix(_builder), run_cmd_s)
+            src_rc = bldr._sh(run_cmd_s)
+            if src_rc != 0 {
+                println("${mod_dir}: script ${script_rel} reported failures")
+                bldr._record_test_result_exitcode(ctx, 0, 1)
+                bldr.fail(ctx, "groovy script run failed")
+                return 1
+            }
+            bldr._record_test_result_exitcode(ctx, 1, 0)
+            return 0
+        }
     }
 
     println("${mod_dir}: compiling test code (groovyc)")
