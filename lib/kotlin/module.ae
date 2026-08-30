@@ -47,6 +47,22 @@ skip_below_jdk(_ctx: ptr, ver: string) {
     _e = map.put(_ctx, "kotlin_skip_below_jdk", ver)
 }
 
+// jvm_args("--enable-native-access=ALL-UNNAMED") — extra flags for the `java`
+// launcher that kotlin_test runs the suite with. Repeatable; space-joined.
+// kotlin_test already reads "jvm_args" but had no setter, so a Panama-FFM
+// binding (needs --enable-native-access, an ERROR on JDK 24+) couldn't pass it.
+// Mirrors java.jvm_args.
+jvm_args(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "jvm_args") == 1 {
+        prev, _ = map.get(_ctx, "jvm_args")
+        combined = string.concat(prev, " ")
+        combined = string.concat(combined, arg)
+        _e1 = map.put(_ctx, "jvm_args", combined)
+    } else {
+        _e2 = map.put(_ctx, "jvm_args", arg)
+    }
+}
+
 
 compiler_plugin(_ctx: ptr, path: string) {
     if map.has(_ctx, "compiler_plugin") == 1 {
