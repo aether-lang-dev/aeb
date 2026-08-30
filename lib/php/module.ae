@@ -19,8 +19,9 @@
 //   }
 //
 // Setters: env(K,V) [lib/build], phpunit_phar("…"), phpunit_phar_url("…"),
-// config("…"). A binding that declares its own step("…") still gets the
-// generic _run_project path (back-compat).
+// config("…"), ini(K,V) [-d php.ini directive, e.g. ini("ffi.enable","1") for
+// an ext-ffi binding; requires the phar runner]. A binding that declares its
+// own step("…") still gets the generic _run_project path (back-compat).
 import bldr
 import std.string
 import std.os
@@ -28,6 +29,7 @@ import std.io
 import std.file
 import std.path
 import std.map
+import std.list
 
 // --- DSL setters ---
 
@@ -55,6 +57,20 @@ config(_ctx: ptr, cfg: string) {
     _e = map.put(_ctx, "phpunit_config", cfg)
 }
 
+// ini("ffi.enable", "1") — a php.ini directive passed as `-d <key>=<value>` on
+// the php command line (both the phpunit-phar runner and a bare `phpunit`
+// wrapper honor it). Repeatable; accumulates in order. The motivating case: an
+// FFI binding needs `-d ffi.enable=1` (ext-ffi ships but is off by default) so
+// its `FFI::cdef` load works under the test runner. List (append); enables the
+// `-d` prefix on the php invocation.
+ini(_ctx: ptr, key: string, value: string) {
+    if map.has(_ctx, "php_ini") == 0 {
+        _e1 = map.put(_ctx, "php_ini", list.new())
+    }
+    lst, _ = map.get(_ctx, "php_ini")
+    _e2 = list.add(lst, "${key}=${value}")
+}
+
 // --- Pure command builders (tested in tests/test_php_cmd.ae) ---
 
 // phpunit_cmd(source_dir, runner, config_part) — `cd '<dir>' && <runner>
@@ -64,9 +80,26 @@ phpunit_cmd(source_dir: string, runner: string, config_part: string) {
     return "cd '${source_dir}' && ${runner}${config_part}"
 }
 
-// phar_runner(phar) — "php '<phar>'", the runner string for a phar.
-phar_runner(phar: string) {
-    return "php '${phar}'";
+// php_ini_part(ini_list) — " -d k1=v1 -d k2=v2" for the php command line, or ""
+// when no ini() directives were declared. Pure.
+php_ini_part(ini_list: ptr) {
+    out = ""
+    if ini_list != null {
+        n = list.size(ini_list)
+        i = 0
+        while i < n {
+            kv, _ = list.get(ini_list, i)
+            out = string.concat(out, " -d ${kv}")
+            i = i + 1
+        }
+    }
+    return out
+}
+
+// phar_runner(phar, ini_part) — "php<ini_part> '<phar>'", the runner string for
+// a phar. ini_part is the " -d k=v …" prefix from php_ini_part (or "").
+phar_runner(phar: string, ini_part: string) {
+    return "php${ini_part} '${phar}'";
 }
 
 // config_part(cfg) — " --configuration '<cfg>'" or "" when empty.
@@ -110,6 +143,16 @@ builder test(): int {
     // Resolve the runner: a phar (fetched if missing) or bare phpunit. Phar
     // mode is enabled by EITHER an explicit phpunit_phar(...) path OR a
     // phpunit_phar_url(...) — the local filename defaults to "phpunit.phar".
+    // php.ini directives (-d k=v), e.g. an FFI binding's `-d ffi.enable=1`.
+    ini_list = null
+    if _builder != null {
+        if map.has(_builder, "php_ini") == 1 { ini_list, _ = map.get(_builder, "php_ini") }
+    }
+    ini_part = php_ini_part(ini_list)
+
+    // Bare `phpunit` is not the php interpreter, so -d flags can't ride it;
+    // ini() therefore requires the phar runner (`php -d… phpunit.phar`). This
+    // is the normal FFI case anyway (declares phpunit_phar_url).
     runner = "phpunit"
     phar = ""
     url = ""
@@ -134,7 +177,7 @@ builder test(): int {
                 }
             }
         }
-        runner = phar_runner(phar)
+        runner = phar_runner(phar, ini_part)
     }
 
     cfg = ""
