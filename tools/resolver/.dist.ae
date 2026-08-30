@@ -29,6 +29,15 @@
 // the shade-sourcing + javac-rewire is the follow-up. See the selaenium
 // handoff (#2) and docs discussion of a Maven-install-free resolver.
 //
+// SHADE + STUBS DON'T COLLIDE — the mechanism: compile MavenResolver.java
+// against stubs/ → the out dir gets MavenResolver.class PLUS stub .class
+// files (org/eclipse/…, org/apache/… — same FQNs as the real impl). Before
+// shading, DELETE the stub classes from the out dir (keep only
+// aeb/maven/*.class): e.g. `find <out> \( -path '*/org/eclipse/*' -o -path
+// '*/org/apache/*' \) -delete`. Then shade fat-jars our class + the REAL
+// impl jars, so the real Artifact.class etc. land with no stub shadowing.
+// The stubs are pure compile scaffolding, swept before packaging.
+//
 //   aeb tools/resolver/.dist.ae   # → target/tools/resolver/bin/aeb-resolve.jar
 //
 // NOT wired into make (make builds the Aether parts of aeb; this Java
