@@ -1,74 +1,73 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for junit5_cmd() — JUnit 5 (Jupiter) ConsoleLauncher command builder
-
+import std.spec
+import std.map
+import bldr
 import java (junit5_cmd)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
+    fw = spec.init()
+
     // Host-specific dynamic-library env var (DYLD_LIBRARY_PATH on macOS,
     // LD_LIBRARY_PATH on Linux) — junit5_cmd emits bldr._dyld_env_var();
     // mirror it so the expectation holds on both platforms.
     dyld = bldr._dyld_env_var()
 
-    _assert_eq("no-config no-ldpath",
-        junit5_cmd("test-classes:deps.jar", "out/test-classes", "", null),
-        "timeout 60 java -Dtestcontainers.ryuk.disabled=true -cp test-classes:deps.jar org.junit.platform.console.ConsoleLauncher execute --scan-classpath=out/test-classes --fail-if-no-tests")
+    spec.describe(fw, "junit5_cmd") {
+        spec.it("no-config no-ldpath") callback {
+            spec.assert_str_eq(
+                junit5_cmd("test-classes:deps.jar", "out/test-classes", "", null),
+                "timeout 60 java -Dtestcontainers.ryuk.disabled=true -cp test-classes:deps.jar org.junit.platform.console.ConsoleLauncher execute --scan-classpath=out/test-classes --fail-if-no-tests", "no-config no-ldpath")
+        }
 
-    _assert_eq("with ld_path",
-        junit5_cmd("test-classes", "out/test-classes", "/lib/native", null),
-        "timeout 60 env ${dyld}=/lib/native java -Djava.library.path=/lib/native -Dtestcontainers.ryuk.disabled=true -cp test-classes org.junit.platform.console.ConsoleLauncher execute --scan-classpath=out/test-classes --fail-if-no-tests")
+        spec.it("with ld_path") callback {
+            spec.assert_str_eq(
+                junit5_cmd("test-classes", "out/test-classes", "/lib/native", null),
+                "timeout 60 env ${dyld}=/lib/native java -Djava.library.path=/lib/native -Dtestcontainers.ryuk.disabled=true -cp test-classes org.junit.platform.console.ConsoleLauncher execute --scan-classpath=out/test-classes --fail-if-no-tests", "with ld_path")
+        }
 
-    opts3 = map_new()
-    map_put(opts3, "test_timeout", "120")
-    _assert_eq("custom timeout",
-        junit5_cmd("cp", "td", "", opts3),
-        "timeout 120 java -Dtestcontainers.ryuk.disabled=true -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests")
+        spec.it("custom timeout") callback {
+            opts3 = map_new()
+            map_put(opts3, "test_timeout", "120")
+            spec.assert_str_eq(
+                junit5_cmd("cp", "td", "", opts3),
+                "timeout 120 java -Dtestcontainers.ryuk.disabled=true -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests", "custom timeout")
+        }
 
-    opts4 = map_new()
-    map_put(opts4, "jvm_args", "-Xmx2g -ea")
-    _assert_eq("jvm_args",
-        junit5_cmd("cp", "td", "", opts4),
-        "timeout 60 java -Dtestcontainers.ryuk.disabled=true -Xmx2g -ea -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests")
+        spec.it("jvm_args") callback {
+            opts4 = map_new()
+            map_put(opts4, "jvm_args", "-Xmx2g -ea")
+            spec.assert_str_eq(
+                junit5_cmd("cp", "td", "", opts4),
+                "timeout 60 java -Dtestcontainers.ryuk.disabled=true -Xmx2g -ea -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests", "jvm_args")
+        }
 
-    opts5 = map_new()
-    map_put(opts5, "enable_preview", "true")
-    _assert_eq("enable_preview",
-        junit5_cmd("cp", "td", "", opts5),
-        "timeout 60 java -Dtestcontainers.ryuk.disabled=true --enable-preview -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests")
+        spec.it("enable_preview") callback {
+            opts5 = map_new()
+            map_put(opts5, "enable_preview", "true")
+            spec.assert_str_eq(
+                junit5_cmd("cp", "td", "", opts5),
+                "timeout 60 java -Dtestcontainers.ryuk.disabled=true --enable-preview -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests", "enable_preview")
+        }
 
-    opts6 = map_new()
-    map_put(opts6, "extra", "-Dfoo=bar")
-    _assert_eq("extra flags",
-        junit5_cmd("cp", "td", "", opts6),
-        "timeout 60 java -Dtestcontainers.ryuk.disabled=true -Dfoo=bar -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests")
+        spec.it("extra flags") callback {
+            opts6 = map_new()
+            map_put(opts6, "extra", "-Dfoo=bar")
+            spec.assert_str_eq(
+                junit5_cmd("cp", "td", "", opts6),
+                "timeout 60 java -Dtestcontainers.ryuk.disabled=true -Dfoo=bar -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests", "extra flags")
+        }
 
-    opts7 = map_new()
-    map_put(opts7, "test_timeout", "300")
-    map_put(opts7, "jvm_args", "-Xmx4g")
-    map_put(opts7, "extra", "-Dtest.env=ci")
-    map_put(opts7, "enable_preview", "true")
-    _assert_eq("ld_path+timeout+jvm_args+extra+preview",
-        junit5_cmd("cp", "td", "/lib", opts7),
-        "timeout 300 env ${dyld}=/lib java -Djava.library.path=/lib -Dtestcontainers.ryuk.disabled=true -Xmx4g -Dtest.env=ci --enable-preview -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests")
+        spec.it("ld_path+timeout+jvm_args+extra+preview") callback {
+            opts7 = map_new()
+            map_put(opts7, "test_timeout", "300")
+            map_put(opts7, "jvm_args", "-Xmx4g")
+            map_put(opts7, "extra", "-Dtest.env=ci")
+            map_put(opts7, "enable_preview", "true")
+            spec.assert_str_eq(
+                junit5_cmd("cp", "td", "/lib", opts7),
+                "timeout 300 env ${dyld}=/lib java -Djava.library.path=/lib -Dtestcontainers.ryuk.disabled=true -Xmx4g -Dtest.env=ci --enable-preview -cp cp org.junit.platform.console.ConsoleLauncher execute --scan-classpath=td --fail-if-no-tests", "ld_path+timeout+jvm_args+extra+preview")
+        }
+    }
 
-    println("junit5_cmd tests done")
+    spec.run_summary(fw)
 }

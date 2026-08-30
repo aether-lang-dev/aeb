@@ -1,39 +1,9 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for cargo_workspace_toml_content() — workspace Cargo.toml generation
-
-import rust
+import std.spec
+import std.map
 import rust (cargo_workspace_toml_content, cargo_crate_toml_content,
              workspace_member, workspace_dep,
              workspace_dep_features, workspace_edition, workspace_resolver)
-
-_assert_contains(label: string, actual: string, substring: string) {
-    if string_contains(actual, substring) == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected to contain: ${substring}")
-        println("  actual: ${actual}")
-    }
-}
-
-_assert_not_contains(label: string, actual: string, substring: string) {
-    if string_contains(actual, substring) == 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label} (should NOT contain)")
-        println("  unexpected: ${substring}")
-    }
-}
 
 // Helper: add a workspace member
 _add_member(opts: ptr, path: string) {
@@ -69,238 +39,267 @@ _add_ws_dep_features(opts: ptr, name: string, ver: string, feats: string) {
 }
 
 main() {
-    // --- Test 1: minimal workspace ---
-    opts1 = map_new()
-    _add_member(opts1, "crates/lib")
-    _add_member(opts1, "crates/cli")
-    toml1 = cargo_workspace_toml_content(opts1)
-    _assert_contains("has [workspace]", toml1, "[workspace]")
-    _assert_contains("has resolver 2", toml1, "resolver = \"2\"")
-    _assert_contains("member lib", toml1, "\"crates/lib\"")
-    _assert_contains("member cli", toml1, "\"crates/cli\"")
-    _assert_not_contains("no [workspace.dependencies]", toml1, "[workspace.dependencies]")
+    fw = spec.init()
 
-    // --- Test 2: workspace with shared deps ---
-    opts2 = map_new()
-    _add_member(opts2, "crates/lib")
-    _add_member(opts2, "crates/server")
-    _add_ws_dep(opts2, "serde", "1.0.188")
-    _add_ws_dep(opts2, "log", "0.4.20")
-    toml2 = cargo_workspace_toml_content(opts2)
-    _assert_contains("has [workspace.dependencies]", toml2, "[workspace.dependencies]")
-    _assert_contains("serde dep", toml2, "serde = \"1.0.188\"")
-    _assert_contains("log dep", toml2, "log = \"0.4.20\"")
+    spec.describe(fw, "cargo_workspace_toml_content") {
+        spec.it("minimal workspace") callback {
+            opts1 = map_new()
+            _add_member(opts1, "crates/lib")
+            _add_member(opts1, "crates/cli")
+            toml1 = cargo_workspace_toml_content(opts1)
+            spec.assert_contains(toml1, "[workspace]", "has [workspace]")
+            spec.assert_contains(toml1, "resolver = \"2\"", "has resolver 2")
+            spec.assert_contains(toml1, "\"crates/lib\"", "member lib")
+            spec.assert_contains(toml1, "\"crates/cli\"", "member cli")
+            spec.assert_false(string_contains(toml1, "[workspace.dependencies]") == 1, "no [workspace.dependencies]")
+        }
 
-    // --- Test 3: workspace deps with features ---
-    opts3 = map_new()
-    _add_member(opts3, "crates/lib")
-    _add_ws_dep_features(opts3, "tokio", "1.32.0", "full,tracing")
-    _add_ws_dep_features(opts3, "serde", "1.0.188", "derive")
-    _add_ws_dep_features(opts3, "reqwest", "0.13.2", "multipart,json,gzip")
-    toml3 = cargo_workspace_toml_content(opts3)
-    _assert_contains("tokio features", toml3, "tokio = { version = \"1.32.0\", features = [\"full\", \"tracing\"] }")
-    _assert_contains("serde features", toml3, "serde = { version = \"1.0.188\", features = [\"derive\"] }")
-    _assert_contains("reqwest features", toml3, "reqwest = { version = \"0.13.2\", features = [\"multipart\", \"json\", \"gzip\"] }")
+        spec.it("workspace with shared deps") callback {
+            opts2 = map_new()
+            _add_member(opts2, "crates/lib")
+            _add_member(opts2, "crates/server")
+            _add_ws_dep(opts2, "serde", "1.0.188")
+            _add_ws_dep(opts2, "log", "0.4.20")
+            toml2 = cargo_workspace_toml_content(opts2)
+            spec.assert_contains(toml2, "[workspace.dependencies]", "has [workspace.dependencies]")
+            spec.assert_contains(toml2, "serde = \"1.0.188\"", "serde dep")
+            spec.assert_contains(toml2, "log = \"0.4.20\"", "log dep")
+        }
 
-    // --- Test 4: custom resolver ---
-    opts4 = map_new()
-    map_put(opts4, "resolver", "1")
-    _add_member(opts4, "src/lib")
-    toml4 = cargo_workspace_toml_content(opts4)
-    _assert_contains("resolver 1", toml4, "resolver = \"1\"")
+        spec.it("workspace deps with features") callback {
+            opts3 = map_new()
+            _add_member(opts3, "crates/lib")
+            _add_ws_dep_features(opts3, "tokio", "1.32.0", "full,tracing")
+            _add_ws_dep_features(opts3, "serde", "1.0.188", "derive")
+            _add_ws_dep_features(opts3, "reqwest", "0.13.2", "multipart,json,gzip")
+            toml3 = cargo_workspace_toml_content(opts3)
+            spec.assert_contains(toml3, "tokio = { version = \"1.32.0\", features = [\"full\", \"tracing\"] }", "tokio features")
+            spec.assert_contains(toml3, "serde = { version = \"1.0.188\", features = [\"derive\"] }", "serde features")
+            spec.assert_contains(toml3, "reqwest = { version = \"0.13.2\", features = [\"multipart\", \"json\", \"gzip\"] }", "reqwest features")
+        }
 
-    // --- Test 5: workspace.package edition ---
-    opts5 = map_new()
-    map_put(opts5, "edition", "2024")
-    _add_member(opts5, "crates/lib")
-    toml5 = cargo_workspace_toml_content(opts5)
-    _assert_contains("has [workspace.package]", toml5, "[workspace.package]")
-    _assert_contains("edition 2024", toml5, "edition = \"2024\"")
+        spec.it("custom resolver") callback {
+            opts4 = map_new()
+            map_put(opts4, "resolver", "1")
+            _add_member(opts4, "src/lib")
+            toml4 = cargo_workspace_toml_content(opts4)
+            spec.assert_contains(toml4, "resolver = \"1\"", "resolver 1")
+        }
 
-    // --- Test 6: mixed simple + features deps (Oxen-like) ---
-    opts6 = map_new()
-    map_put(opts6, "edition", "2024")
-    _add_member(opts6, "crates/lib")
-    _add_member(opts6, "crates/cli")
-    _add_member(opts6, "crates/server")
-    _add_ws_dep(opts6, "log", "0.4.20")
-    _add_ws_dep(opts6, "serde_json", "1.0.106")
-    _add_ws_dep(opts6, "rand", "0.8.5")
-    _add_ws_dep_features(opts6, "tokio", "1.32.0", "full,tracing")
-    _add_ws_dep_features(opts6, "serde", "1.0.188", "derive")
-    _add_ws_dep_features(opts6, "polars", "0.49.0", "lazy,parquet,json")
-    _add_ws_dep_features(opts6, "clap", "4.4.2", "cargo,derive")
-    toml6 = cargo_workspace_toml_content(opts6)
-    _assert_contains("3 members", toml6, "\"crates/lib\"")
-    _assert_contains("simple dep", toml6, "log = \"0.4.20\"")
-    _assert_contains("polars features", toml6, "polars = { version = \"0.49.0\", features = [\"lazy\", \"parquet\", \"json\"] }")
-    _assert_contains("clap features", toml6, "clap = { version = \"4.4.2\", features = [\"cargo\", \"derive\"] }")
-    _assert_contains("edition in package", toml6, "edition = \"2024\"")
+        spec.it("workspace.package edition") callback {
+            opts5 = map_new()
+            map_put(opts5, "edition", "2024")
+            _add_member(opts5, "crates/lib")
+            toml5 = cargo_workspace_toml_content(opts5)
+            spec.assert_contains(toml5, "[workspace.package]", "has [workspace.package]")
+            spec.assert_contains(toml5, "edition = \"2024\"", "edition 2024")
+        }
 
-    // --- Test 7: member crate Cargo.toml with workspace refs ---
-    // A member crate uses `dep.workspace = true` instead of specifying versions
-    opts7 = map_new()
-    map_put(opts7, "crate_name", "liboxen")
-    map_put(opts7, "edition", "2024")
-    // workspace deps referenced by name
-    if map_has(opts7, "_ws_refs") == 0 {
-        map_put(opts7, "_ws_refs", list_new())
+        // mixed simple + features deps (Oxen-like)
+        spec.it("mixed simple + features deps (Oxen-like)") callback {
+            opts6 = map_new()
+            map_put(opts6, "edition", "2024")
+            _add_member(opts6, "crates/lib")
+            _add_member(opts6, "crates/cli")
+            _add_member(opts6, "crates/server")
+            _add_ws_dep(opts6, "log", "0.4.20")
+            _add_ws_dep(opts6, "serde_json", "1.0.106")
+            _add_ws_dep(opts6, "rand", "0.8.5")
+            _add_ws_dep_features(opts6, "tokio", "1.32.0", "full,tracing")
+            _add_ws_dep_features(opts6, "serde", "1.0.188", "derive")
+            _add_ws_dep_features(opts6, "polars", "0.49.0", "lazy,parquet,json")
+            _add_ws_dep_features(opts6, "clap", "4.4.2", "cargo,derive")
+            toml6 = cargo_workspace_toml_content(opts6)
+            spec.assert_contains(toml6, "\"crates/lib\"", "3 members")
+            spec.assert_contains(toml6, "log = \"0.4.20\"", "simple dep")
+            spec.assert_contains(toml6, "polars = { version = \"0.49.0\", features = [\"lazy\", \"parquet\", \"json\"] }", "polars features")
+            spec.assert_contains(toml6, "clap = { version = \"4.4.2\", features = [\"cargo\", \"derive\"] }", "clap features")
+            spec.assert_contains(toml6, "edition = \"2024\"", "edition in package")
+        }
+
+        // full [workspace.package] metadata
+        spec.it("full [workspace.package] metadata") callback {
+            opts_meta = map_new()
+            _add_member(opts_meta, "crates/lib")
+            map_put(opts_meta, "version", "0.46.11")
+            map_put(opts_meta, "edition", "2024")
+            map_put(opts_meta, "license_file", "LICENSE")
+            map_put(opts_meta, "description", "Oxen is a fast version control system")
+            map_put(opts_meta, "homepage", "https://oxen.ai")
+            map_put(opts_meta, "repository", "https://github.com/Oxen-AI/Oxen")
+            map_put(opts_meta, "readme", "README.md")
+            map_put(opts_meta, "rust_version", "1.94")
+            map_put(opts_meta, "keywords", "machine-learning,AI,version-control")
+            map_put(opts_meta, "categories", "science,database")
+            map_put(opts_meta, "exclude", "crates/data,experiments/*")
+            toml_meta = cargo_workspace_toml_content(opts_meta)
+            spec.assert_contains(toml_meta, "exclude = [\"crates/data\", \"experiments/*\"]", "exclude globs")
+            spec.assert_contains(toml_meta, "version = \"0.46.11\"", "workspace version")
+            spec.assert_contains(toml_meta, "license-file = \"LICENSE\"", "license-file")
+            spec.assert_contains(toml_meta, "description = \"Oxen is a fast version control system\"", "description")
+            spec.assert_contains(toml_meta, "homepage = \"https://oxen.ai\"", "homepage")
+            spec.assert_contains(toml_meta, "repository = \"https://github.com/Oxen-AI/Oxen\"", "repository")
+            spec.assert_contains(toml_meta, "readme = \"README.md\"", "readme")
+            spec.assert_contains(toml_meta, "rust-version = \"1.94\"", "rust-version")
+            spec.assert_contains(toml_meta, "keywords = [\"machine-learning\", \"AI\", \"version-control\"]", "keywords")
+            spec.assert_contains(toml_meta, "categories = [\"science\", \"database\"]", "categories")
+        }
+
+        // workspace_dep_full with default-features=false
+        spec.it("workspace_dep_full with default-features=false") callback {
+            opts12 = map_new()
+            _add_member(opts12, "crates/lib")
+            if map_has(opts12, "_ws_deps_full") == 0 {
+                map_put(opts12, "_ws_deps_full", list_new())
+            }
+            full12, _ = map.get(opts12, "_ws_deps_full")
+            // flate2 with no default features
+            e12a = string_concat("flate2", "~")
+            e12a = string_concat(e12a, "1.1.0")
+            e12a = string_concat(e12a, "~")
+            e12a = string_concat(e12a, "zlib-ng")
+            e12a = string_concat(e12a, "~")
+            e12a = string_concat(e12a, "")       // no package alias
+            e12a = string_concat(e12a, "~")
+            e12a = string_concat(e12a, "true")   // default-features = false
+            list_add(full12, e12a)
+            // duckdb with package alias AND no default features
+            e12b = string_concat("duckdb", "~")
+            e12b = string_concat(e12b, "=1.10501.0")
+            e12b = string_concat(e12b, "~")
+            e12b = string_concat(e12b, "serde_json")
+            e12b = string_concat(e12b, "~")
+            e12b = string_concat(e12b, "duckdb")  // package name
+            e12b = string_concat(e12b, "~")
+            e12b = string_concat(e12b, "true")
+            list_add(full12, e12b)
+            toml12 = cargo_workspace_toml_content(opts12)
+            spec.assert_contains(toml12, "flate2 = { version = \"1.1.0\", features = [\"zlib-ng\"], default-features = false }", "flate2 nodef")
+            spec.assert_contains(toml12, "duckdb = { package = \"duckdb\", version = \"=1.10501.0\", features = [\"serde_json\"], default-features = false }", "duckdb full")
+        }
     }
-    ws_refs, _ = map.get(opts7, "_ws_refs")
-    list_add(ws_refs, "serde")
-    list_add(ws_refs, "tokio")
-    list_add(ws_refs, "log")
-    toml7 = cargo_crate_toml_content(opts7)
-    _assert_contains("member name", toml7, "name = \"liboxen\"")
-    _assert_contains("member edition inherit", toml7, "edition.workspace = true")
-    _assert_contains("serde workspace", toml7, "serde.workspace = true")
-    _assert_contains("tokio workspace", toml7, "tokio.workspace = true")
-    _assert_contains("log workspace", toml7, "log.workspace = true")
 
-    // --- Test 8: member crate with mixed workspace + local deps ---
-    opts8 = map_new()
-    map_put(opts8, "crate_name", "oxen-server")
-    map_put(opts8, "edition", "2024")
-    if map_has(opts8, "_ws_refs") == 0 {
-        map_put(opts8, "_ws_refs", list_new())
+    spec.describe(fw, "cargo_crate_toml_content (member crates)") {
+        // member crate Cargo.toml with workspace refs. A member crate uses
+        // `dep.workspace = true` instead of specifying versions.
+        spec.it("member crate with workspace refs") callback {
+            opts7 = map_new()
+            map_put(opts7, "crate_name", "liboxen")
+            map_put(opts7, "edition", "2024")
+            // workspace deps referenced by name
+            if map_has(opts7, "_ws_refs") == 0 {
+                map_put(opts7, "_ws_refs", list_new())
+            }
+            ws_refs, _ = map.get(opts7, "_ws_refs")
+            list_add(ws_refs, "serde")
+            list_add(ws_refs, "tokio")
+            list_add(ws_refs, "log")
+            toml7 = cargo_crate_toml_content(opts7)
+            spec.assert_contains(toml7, "name = \"liboxen\"", "member name")
+            spec.assert_contains(toml7, "edition.workspace = true", "member edition inherit")
+            spec.assert_contains(toml7, "serde.workspace = true", "serde workspace")
+            spec.assert_contains(toml7, "tokio.workspace = true", "tokio workspace")
+            spec.assert_contains(toml7, "log.workspace = true", "log workspace")
+        }
+
+        // member crate with mixed workspace + local deps
+        spec.it("member crate with mixed workspace + local deps") callback {
+            opts8 = map_new()
+            map_put(opts8, "crate_name", "oxen-server")
+            map_put(opts8, "edition", "2024")
+            if map_has(opts8, "_ws_refs") == 0 {
+                map_put(opts8, "_ws_refs", list_new())
+            }
+            ws_refs8, _ = map.get(opts8, "_ws_refs")
+            list_add(ws_refs8, "tokio")
+            list_add(ws_refs8, "actix-web")
+            // Also has a path dep on liboxen
+            if map_has(opts8, "_path_deps") == 0 {
+                map_put(opts8, "_path_deps", list_new())
+            }
+            pd, _ = map.get(opts8, "_path_deps")
+            entry = string_concat("liboxen", "~")
+            entry = string_concat(entry, "../lib")
+            list_add(pd, entry)
+            toml8 = cargo_crate_toml_content(opts8)
+            spec.assert_contains(toml8, "name = \"oxen-server\"", "member name server")
+            spec.assert_contains(toml8, "actix-web.workspace = true", "actix workspace")
+            spec.assert_contains(toml8, "liboxen = { path = \"../lib\" }", "path dep liboxen")
+        }
+
+        // member with [features] section
+        spec.it("member with [features] section") callback {
+            opts9 = map_new()
+            map_put(opts9, "crate_name", "oxen-server")
+            map_put(opts9, "edition", "2024")
+            // Add some features
+            if map_has(opts9, "_features") == 0 {
+                map_put(opts9, "_features", list_new())
+            }
+            f9, _ = map.get(opts9, "_features")
+            // Simple feature with deps
+            e9a = string_concat("otel", "~")
+            e9a = string_concat(e9a, "dep:opentelemetry,dep:tracing-opentelemetry")
+            list_add(f9, e9a)
+            // Feature with crate/subfeature syntax
+            e9b = string_concat("postgres", "~")
+            e9b = string_concat(e9b, "sqlx/postgres")
+            list_add(f9, e9b)
+            // Empty feature flag
+            e9c = string_concat("backup", "~")
+            list_add(f9, e9c)
+            toml9 = cargo_crate_toml_content(opts9)
+            spec.assert_contains(toml9, "[features]", "has [features]")
+            spec.assert_contains(toml9, "otel = [\"dep:opentelemetry\", \"dep:tracing-opentelemetry\"]", "otel feature")
+            spec.assert_contains(toml9, "postgres = [\"sqlx/postgres\"]", "postgres feature")
+            spec.assert_contains(toml9, "backup = []", "backup empty")
+        }
+
+        // default features list
+        spec.it("default features list") callback {
+            opts10 = map_new()
+            map_put(opts10, "crate_name", "myapp")
+            map_put(opts10, "edition", "2024")
+            map_put(opts10, "_default_features", "otel,postgres")
+            toml10 = cargo_crate_toml_content(opts10)
+            spec.assert_contains(toml10, "default = [\"otel\", \"postgres\"]", "default features")
+        }
+
+        // [[bin]] sections
+        spec.it("[[bin]] sections") callback {
+            opts11 = map_new()
+            map_put(opts11, "crate_name", "oxen-cli")
+            map_put(opts11, "edition", "2024")
+            if map_has(opts11, "_bins") == 0 {
+                map_put(opts11, "_bins", list_new())
+            }
+            b11, _ = map.get(opts11, "_bins")
+            e11 = string_concat("oxen", "~")
+            e11 = string_concat(e11, "src/main.rs")
+            list_add(b11, e11)
+            toml11 = cargo_crate_toml_content(opts11)
+            spec.assert_contains(toml11, "[[bin]]", "has [[bin]]")
+            spec.assert_contains(toml11, "name = \"oxen\"", "bin name")
+            spec.assert_contains(toml11, "path = \"src/main.rs\"", "bin path")
+        }
+
+        // [dev-dependencies] with workspace refs
+        spec.it("[dev-dependencies] with workspace refs") callback {
+            opts13 = map_new()
+            map_put(opts13, "crate_name", "oxen-server")
+            map_put(opts13, "edition", "2024")
+            if map_has(opts13, "_dev_ws_refs") == 0 {
+                map_put(opts13, "_dev_ws_refs", list_new())
+            }
+            dev13, _ = map.get(opts13, "_dev_ws_refs")
+            list_add(dev13, "actix-multipart-test")
+            list_add(dev13, "mockito")
+            toml13 = cargo_crate_toml_content(opts13)
+            spec.assert_contains(toml13, "[dev-dependencies]", "has [dev-dependencies]")
+            spec.assert_contains(toml13, "actix-multipart-test.workspace = true", "dev actix-multipart-test")
+            spec.assert_contains(toml13, "mockito.workspace = true", "dev mockito")
+        }
     }
-    ws_refs8, _ = map.get(opts8, "_ws_refs")
-    list_add(ws_refs8, "tokio")
-    list_add(ws_refs8, "actix-web")
-    // Also has a path dep on liboxen
-    if map_has(opts8, "_path_deps") == 0 {
-        map_put(opts8, "_path_deps", list_new())
-    }
-    pd, _ = map.get(opts8, "_path_deps")
-    entry = string_concat("liboxen", "~")
-    entry = string_concat(entry, "../lib")
-    list_add(pd, entry)
-    toml8 = cargo_crate_toml_content(opts8)
-    _assert_contains("member name server", toml8, "name = \"oxen-server\"")
-    _assert_contains("actix workspace", toml8, "actix-web.workspace = true")
-    _assert_contains("path dep liboxen", toml8, "liboxen = { path = \"../lib\" }")
 
-    // --- Test 9: member with [features] section ---
-    opts9 = map_new()
-    map_put(opts9, "crate_name", "oxen-server")
-    map_put(opts9, "edition", "2024")
-    // Add some features
-    if map_has(opts9, "_features") == 0 {
-        map_put(opts9, "_features", list_new())
-    }
-    f9, _ = map.get(opts9, "_features")
-    // Simple feature with deps
-    e9a = string_concat("otel", "~")
-    e9a = string_concat(e9a, "dep:opentelemetry,dep:tracing-opentelemetry")
-    list_add(f9, e9a)
-    // Feature with crate/subfeature syntax
-    e9b = string_concat("postgres", "~")
-    e9b = string_concat(e9b, "sqlx/postgres")
-    list_add(f9, e9b)
-    // Empty feature flag
-    e9c = string_concat("backup", "~")
-    list_add(f9, e9c)
-    toml9 = cargo_crate_toml_content(opts9)
-    _assert_contains("has [features]", toml9, "[features]")
-    _assert_contains("otel feature", toml9, "otel = [\"dep:opentelemetry\", \"dep:tracing-opentelemetry\"]")
-    _assert_contains("postgres feature", toml9, "postgres = [\"sqlx/postgres\"]")
-    _assert_contains("backup empty", toml9, "backup = []")
-
-    // --- Test 10: default features list ---
-    opts10 = map_new()
-    map_put(opts10, "crate_name", "myapp")
-    map_put(opts10, "edition", "2024")
-    map_put(opts10, "_default_features", "otel,postgres")
-    toml10 = cargo_crate_toml_content(opts10)
-    _assert_contains("default features", toml10, "default = [\"otel\", \"postgres\"]")
-
-    // --- Test 11: [[bin]] sections ---
-    opts11 = map_new()
-    map_put(opts11, "crate_name", "oxen-cli")
-    map_put(opts11, "edition", "2024")
-    if map_has(opts11, "_bins") == 0 {
-        map_put(opts11, "_bins", list_new())
-    }
-    b11, _ = map.get(opts11, "_bins")
-    e11 = string_concat("oxen", "~")
-    e11 = string_concat(e11, "src/main.rs")
-    list_add(b11, e11)
-    toml11 = cargo_crate_toml_content(opts11)
-    _assert_contains("has [[bin]]", toml11, "[[bin]]")
-    _assert_contains("bin name", toml11, "name = \"oxen\"")
-    _assert_contains("bin path", toml11, "path = \"src/main.rs\"")
-
-    // --- Test 12: workspace_dep_full with default-features=false ---
-    opts12 = map_new()
-    _add_member(opts12, "crates/lib")
-    if map_has(opts12, "_ws_deps_full") == 0 {
-        map_put(opts12, "_ws_deps_full", list_new())
-    }
-    full12, _ = map.get(opts12, "_ws_deps_full")
-    // flate2 with no default features
-    e12a = string_concat("flate2", "~")
-    e12a = string_concat(e12a, "1.1.0")
-    e12a = string_concat(e12a, "~")
-    e12a = string_concat(e12a, "zlib-ng")
-    e12a = string_concat(e12a, "~")
-    e12a = string_concat(e12a, "")       // no package alias
-    e12a = string_concat(e12a, "~")
-    e12a = string_concat(e12a, "true")   // default-features = false
-    list_add(full12, e12a)
-    // duckdb with package alias AND no default features
-    e12b = string_concat("duckdb", "~")
-    e12b = string_concat(e12b, "=1.10501.0")
-    e12b = string_concat(e12b, "~")
-    e12b = string_concat(e12b, "serde_json")
-    e12b = string_concat(e12b, "~")
-    e12b = string_concat(e12b, "duckdb")  // package name
-    e12b = string_concat(e12b, "~")
-    e12b = string_concat(e12b, "true")
-    list_add(full12, e12b)
-    toml12 = cargo_workspace_toml_content(opts12)
-    _assert_contains("flate2 nodef", toml12, "flate2 = { version = \"1.1.0\", features = [\"zlib-ng\"], default-features = false }")
-    _assert_contains("duckdb full", toml12, "duckdb = { package = \"duckdb\", version = \"=1.10501.0\", features = [\"serde_json\"], default-features = false }")
-
-    // --- Test 13a: full [workspace.package] metadata ---
-    opts_meta = map_new()
-    _add_member(opts_meta, "crates/lib")
-    map_put(opts_meta, "version", "0.46.11")
-    map_put(opts_meta, "edition", "2024")
-    map_put(opts_meta, "license_file", "LICENSE")
-    map_put(opts_meta, "description", "Oxen is a fast version control system")
-    map_put(opts_meta, "homepage", "https://oxen.ai")
-    map_put(opts_meta, "repository", "https://github.com/Oxen-AI/Oxen")
-    map_put(opts_meta, "readme", "README.md")
-    map_put(opts_meta, "rust_version", "1.94")
-    map_put(opts_meta, "keywords", "machine-learning,AI,version-control")
-    map_put(opts_meta, "categories", "science,database")
-    map_put(opts_meta, "exclude", "crates/data,experiments/*")
-    toml_meta = cargo_workspace_toml_content(opts_meta)
-    _assert_contains("exclude globs", toml_meta, "exclude = [\"crates/data\", \"experiments/*\"]")
-    _assert_contains("workspace version", toml_meta, "version = \"0.46.11\"")
-    _assert_contains("license-file", toml_meta, "license-file = \"LICENSE\"")
-    _assert_contains("description", toml_meta, "description = \"Oxen is a fast version control system\"")
-    _assert_contains("homepage", toml_meta, "homepage = \"https://oxen.ai\"")
-    _assert_contains("repository", toml_meta, "repository = \"https://github.com/Oxen-AI/Oxen\"")
-    _assert_contains("readme", toml_meta, "readme = \"README.md\"")
-    _assert_contains("rust-version", toml_meta, "rust-version = \"1.94\"")
-    _assert_contains("keywords", toml_meta, "keywords = [\"machine-learning\", \"AI\", \"version-control\"]")
-    _assert_contains("categories", toml_meta, "categories = [\"science\", \"database\"]")
-
-    // --- Test 13: [dev-dependencies] with workspace refs ---
-    opts13 = map_new()
-    map_put(opts13, "crate_name", "oxen-server")
-    map_put(opts13, "edition", "2024")
-    if map_has(opts13, "_dev_ws_refs") == 0 {
-        map_put(opts13, "_dev_ws_refs", list_new())
-    }
-    dev13, _ = map.get(opts13, "_dev_ws_refs")
-    list_add(dev13, "actix-multipart-test")
-    list_add(dev13, "mockito")
-    toml13 = cargo_crate_toml_content(opts13)
-    _assert_contains("has [dev-dependencies]", toml13, "[dev-dependencies]")
-    _assert_contains("dev actix-multipart-test", toml13, "actix-multipart-test.workspace = true")
-    _assert_contains("dev mockito", toml13, "mockito.workspace = true")
-
-    println("cargo_workspace tests done")
+    spec.run_summary(fw)
 }

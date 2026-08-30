@@ -1,54 +1,67 @@
 // Tests for lib/zig's pure command-string builders + test-summary parser.
-
+import std.spec
 import zig (build_cmd, test_cmd, run_cmd, _optimize_flag,
            _parse_zig_test_counts)
-import std.string
-import std.list
-import std.map
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
-}
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
 
 main() {
-    // --- _optimize_flag
-    _eq("optimize empty → ''", _optimize_flag(""), "")
-    _eq("optimize ReleaseFast", _optimize_flag("ReleaseFast"), " -Doptimize=ReleaseFast")
+    fw = spec.init()
 
-    // --- build / test / run commands.
-    _eq("build plain", build_cmd("zig", "/proj", ""),
-        "cd '/proj' && 'zig' build")
-    _eq("build release", build_cmd("zig", "/proj", " -Doptimize=ReleaseFast"),
-        "cd '/proj' && 'zig' build -Doptimize=ReleaseFast")
-    _eq("test plain", test_cmd("zig", "/proj", ""),
-        "cd '/proj' && 'zig' build test")
-    _eq("run plain", run_cmd("zig", "/proj", ""),
-        "cd '/proj' && 'zig' build run")
-    _eq("custom zig bin quoted", build_cmd("/opt/zig/zig", "/proj", ""),
-        "cd '/proj' && '/opt/zig/zig' build")
+    spec.describe(fw, "_optimize_flag") {
+        spec.it("empty → ''") callback {
+            spec.assert_str_eq(_optimize_flag(""), "", "optimize empty → ''")
+        }
+        spec.it("ReleaseFast") callback {
+            spec.assert_str_eq(_optimize_flag("ReleaseFast"), " -Doptimize=ReleaseFast", "optimize ReleaseFast")
+        }
+    }
+
+    spec.describe(fw, "build / test / run commands") {
+        spec.it("build plain") callback {
+            spec.assert_str_eq(build_cmd("zig", "/proj", ""),
+                "cd '/proj' && 'zig' build", "build plain")
+        }
+        spec.it("build release") callback {
+            spec.assert_str_eq(build_cmd("zig", "/proj", " -Doptimize=ReleaseFast"),
+                "cd '/proj' && 'zig' build -Doptimize=ReleaseFast", "build release")
+        }
+        spec.it("test plain") callback {
+            spec.assert_str_eq(test_cmd("zig", "/proj", ""),
+                "cd '/proj' && 'zig' build test", "test plain")
+        }
+        spec.it("run plain") callback {
+            spec.assert_str_eq(run_cmd("zig", "/proj", ""),
+                "cd '/proj' && 'zig' build run", "run plain")
+        }
+        spec.it("custom zig bin quoted") callback {
+            spec.assert_str_eq(build_cmd("/opt/zig/zig", "/proj", ""),
+                "cd '/proj' && '/opt/zig/zig' build", "custom zig bin quoted")
+        }
+    }
 
     // --- _parse_zig_test_counts (exit_code arg only used in fallback).
-    // Form 1: "All N tests passed."
-    pp0, pf0 = _parse_zig_test_counts("All 7 tests passed.", 0)
-    _assert("form1: 7 passed", pp0 == 7)
-    _assert("form1: 0 failed", pf0 == 0)
+    spec.describe(fw, "_parse_zig_test_counts") {
+        // Form 1: "All N tests passed."
+        spec.it("form1: All N tests passed") callback {
+            pp0, pf0 = _parse_zig_test_counts("All 7 tests passed.", 0)
+            spec.assert_eq(pp0, 7, "form1: 7 passed")
+            spec.assert_eq(pf0, 0, "form1: 0 failed")
+        }
 
-    // Form 2: "N passed; M failed."
-    pp1, pf1 = _parse_zig_test_counts("5 passed; 2 failed.", 1)
-    _assert("form2: 5 passed", pp1 == 5)
-    _assert("form2: 2 failed", pf1 == 2)
+        // Form 2: "N passed; M failed."
+        spec.it("form2: N passed; M failed") callback {
+            pp1, pf1 = _parse_zig_test_counts("5 passed; 2 failed.", 1)
+            spec.assert_eq(pp1, 5, "form2: 5 passed")
+            spec.assert_eq(pf1, 2, "form2: 2 failed")
+        }
 
-    // Form 3 fallback: no recognisable counts, use exit code.
-    pp2, pf2 = _parse_zig_test_counts("Build Summary: 3/3 steps succeeded", 0)
-    _assert("fallback green: 1/0", pp2 == 1 && pf2 == 0)
-    pp3, pf3 = _parse_zig_test_counts("error: test failure", 1)
-    _assert("fallback red: 0/1", pp3 == 0 && pf3 == 1)
+        // Form 3 fallback: no recognisable counts, use exit code.
+        spec.it("form3 fallback: use exit code") callback {
+            pp2, pf2 = _parse_zig_test_counts("Build Summary: 3/3 steps succeeded", 0)
+            spec.assert_true(pp2 == 1 && pf2 == 0, "fallback green: 1/0")
+            pp3, pf3 = _parse_zig_test_counts("error: test failure", 1)
+            spec.assert_true(pp3 == 0 && pf3 == 1, "fallback red: 0/1")
+        }
+    }
 
-    println("zig command-string + test-count parser tests done")
+    spec.run_summary(fw)
 }

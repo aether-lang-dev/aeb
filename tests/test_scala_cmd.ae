@@ -1,54 +1,51 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for scala.scalac_cmd, scala.munit_cmd
+import std.spec
+import std.map
 
 import scala (scalac_cmd, munit_cmd,
               assembly_unzip_jar_cmd, assembly_copy_classes_cmd,
               assembly_jar_cmd, _ends_with_jar,
               main_class, output_jar)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    _assert_eq("scalac_cmd basic",
-        scalac_cmd("/c/scala3-compiler.jar:/c/dotty-deps.jar",
-                   "/out/classes",
-                   "/out/classes:/lib/scala3-library.jar",
-                   "/out/sources.txt"),
-        "java -cp '/c/scala3-compiler.jar:/c/dotty-deps.jar' dotty.tools.dotc.Main -d '/out/classes' -cp '/out/classes:/lib/scala3-library.jar' @'/out/sources.txt'")
+    fw = spec.init()
 
-    _assert_eq("scalac_cmd test classes",
-        scalac_cmd("/c/compiler.jar",
-                   "/out/test-classes",
-                   "/out/test-classes:/lib/lib.jar:/maven/junit.jar",
-                   "/out/test_sources.txt"),
-        "java -cp '/c/compiler.jar' dotty.tools.dotc.Main -d '/out/test-classes' -cp '/out/test-classes:/lib/lib.jar:/maven/junit.jar' @'/out/test_sources.txt'")
+    spec.describe(fw, "scalac_cmd / munit_cmd") {
+        spec.it("scalac_cmd basic") callback {
+            spec.assert_str_eq(
+                scalac_cmd("/c/scala3-compiler.jar:/c/dotty-deps.jar",
+                           "/out/classes",
+                           "/out/classes:/lib/scala3-library.jar",
+                           "/out/sources.txt"),
+                "java -cp '/c/scala3-compiler.jar:/c/dotty-deps.jar' dotty.tools.dotc.Main -d '/out/classes' -cp '/out/classes:/lib/scala3-library.jar' @'/out/sources.txt'",
+                "scalac_cmd basic")
+        }
 
-    _assert_eq("munit_cmd basic",
-        munit_cmd("/out/test-classes:/lib/scala3.jar:/maven/junit.jar",
-                  "com.example.FooTest com.example.BarTest"),
-        "java -cp '/out/test-classes:/lib/scala3.jar:/maven/junit.jar' org.junit.runner.JUnitCore com.example.FooTest com.example.BarTest")
+        spec.it("scalac_cmd test classes") callback {
+            spec.assert_str_eq(
+                scalac_cmd("/c/compiler.jar",
+                           "/out/test-classes",
+                           "/out/test-classes:/lib/lib.jar:/maven/junit.jar",
+                           "/out/test_sources.txt"),
+                "java -cp '/c/compiler.jar' dotty.tools.dotc.Main -d '/out/test-classes' -cp '/out/test-classes:/lib/lib.jar:/maven/junit.jar' @'/out/test_sources.txt'",
+                "scalac_cmd test classes")
+        }
 
-    _assert_eq("munit_cmd single class",
-        munit_cmd("/cp", "com.foo.Test"),
-        "java -cp '/cp' org.junit.runner.JUnitCore com.foo.Test")
+        spec.it("munit_cmd basic") callback {
+            spec.assert_str_eq(
+                munit_cmd("/out/test-classes:/lib/scala3.jar:/maven/junit.jar",
+                          "com.example.FooTest com.example.BarTest"),
+                "java -cp '/out/test-classes:/lib/scala3.jar:/maven/junit.jar' org.junit.runner.JUnitCore com.example.FooTest com.example.BarTest",
+                "munit_cmd basic")
+        }
+
+        spec.it("munit_cmd single class") callback {
+            spec.assert_str_eq(
+                munit_cmd("/cp", "com.foo.Test"),
+                "java -cp '/cp' org.junit.runner.JUnitCore com.foo.Test",
+                "munit_cmd single class")
+        }
+    }
 
     // === scala.assembly pure command builders =========================
     //
@@ -56,77 +53,86 @@ main() {
     //   1. assembly_unzip_jar_cmd — unzip a classpath .jar into stage
     //   2. assembly_copy_classes_cmd — copy a directory's contents
     //   3. assembly_jar_cmd — `jar cfM` the staged tree
+    spec.describe(fw, "scala.assembly pure command builders") {
+        spec.it("assembly_unzip_jar_cmd basic") callback {
+            spec.assert_str_eq(
+                assembly_unzip_jar_cmd("/m2/scala3-library.jar", "/proj/target/_assembly"),
+                "unzip -qq -o '/m2/scala3-library.jar' -d '/proj/target/_assembly'",
+                "assembly_unzip_jar_cmd basic")
+        }
 
-    _assert_eq("assembly_unzip_jar_cmd basic",
-        assembly_unzip_jar_cmd("/m2/scala3-library.jar", "/proj/target/_assembly"),
-        "unzip -qq -o '/m2/scala3-library.jar' -d '/proj/target/_assembly'")
+        spec.it("assembly_unzip_jar_cmd spaces in paths") callback {
+            spec.assert_str_eq(
+                assembly_unzip_jar_cmd("/m2/with space/foo.jar", "/proj with space/_assembly"),
+                "unzip -qq -o '/m2/with space/foo.jar' -d '/proj with space/_assembly'",
+                "assembly_unzip_jar_cmd spaces in paths")
+        }
 
-    _assert_eq("assembly_unzip_jar_cmd spaces in paths",
-        assembly_unzip_jar_cmd("/m2/with space/foo.jar", "/proj with space/_assembly"),
-        "unzip -qq -o '/m2/with space/foo.jar' -d '/proj with space/_assembly'")
+        spec.it("assembly_copy_classes_cmd basic") callback {
+            spec.assert_str_eq(
+                assembly_copy_classes_cmd("/proj/target/classes", "/proj/target/_assembly"),
+                "cp -a '/proj/target/classes/.' '/proj/target/_assembly/'",
+                "assembly_copy_classes_cmd basic")
+        }
 
-    _assert_eq("assembly_copy_classes_cmd basic",
-        assembly_copy_classes_cmd("/proj/target/classes", "/proj/target/_assembly"),
-        "cp -a '/proj/target/classes/.' '/proj/target/_assembly/'")
+        spec.it("assembly_copy_classes_cmd cross-module dep") callback {
+            spec.assert_str_eq(
+                assembly_copy_classes_cmd("/proj/common/target/classes", "/proj/module-1/target/_assembly"),
+                "cp -a '/proj/common/target/classes/.' '/proj/module-1/target/_assembly/'",
+                "assembly_copy_classes_cmd cross-module dep")
+        }
 
-    _assert_eq("assembly_copy_classes_cmd cross-module dep",
-        assembly_copy_classes_cmd("/proj/common/target/classes", "/proj/module-1/target/_assembly"),
-        "cp -a '/proj/common/target/classes/.' '/proj/module-1/target/_assembly/'")
+        spec.it("assembly_jar_cmd basic") callback {
+            spec.assert_str_eq(
+                assembly_jar_cmd("/proj/target/bin/app-assembly.jar", "/proj/target/_assembly"),
+                "jar cfM '/proj/target/bin/app-assembly.jar' -C '/proj/target/_assembly' .",
+                "assembly_jar_cmd basic")
+        }
 
-    _assert_eq("assembly_jar_cmd basic",
-        assembly_jar_cmd("/proj/target/bin/app-assembly.jar", "/proj/target/_assembly"),
-        "jar cfM '/proj/target/bin/app-assembly.jar' -C '/proj/target/_assembly' .")
-
-    _assert_eq("assembly_jar_cmd spaces in jar path",
-        assembly_jar_cmd("/path with space/out.jar", "/stage"),
-        "jar cfM '/path with space/out.jar' -C '/stage' .")
+        spec.it("assembly_jar_cmd spaces in jar path") callback {
+            spec.assert_str_eq(
+                assembly_jar_cmd("/path with space/out.jar", "/stage"),
+                "jar cfM '/path with space/out.jar' -C '/stage' .",
+                "assembly_jar_cmd spaces in jar path")
+        }
+    }
 
     // === _ends_with_jar — classpath entry classifier =================
-
-    if _ends_with_jar("/m2/foo.jar") == 1 {
-        println("PASS: _ends_with_jar positive")
-    } else {
-        println("FAIL: _ends_with_jar positive")
-    }
-
-    if _ends_with_jar("/proj/classes") == 0 {
-        println("PASS: _ends_with_jar negative (dir)")
-    } else {
-        println("FAIL: _ends_with_jar negative (dir)")
-    }
-
-    if _ends_with_jar("foo.JAR") == 0 {
-        println("PASS: _ends_with_jar is case-sensitive (.JAR is not a match)")
-    } else {
-        println("FAIL: _ends_with_jar should not match .JAR")
-    }
-
-    if _ends_with_jar(".jar") == 1 {
-        println("PASS: _ends_with_jar matches exact 4-char ext")
-    } else {
-        println("FAIL: _ends_with_jar should match .jar")
-    }
-
-    if _ends_with_jar("foo") == 0 {
-        println("PASS: _ends_with_jar short string returns 0")
-    } else {
-        println("FAIL: _ends_with_jar should not match 3-char input")
+    spec.describe(fw, "_ends_with_jar classifier") {
+        spec.it("positive") callback {
+            spec.assert_eq(_ends_with_jar("/m2/foo.jar"), 1, "_ends_with_jar positive")
+        }
+        spec.it("negative (dir)") callback {
+            spec.assert_eq(_ends_with_jar("/proj/classes"), 0, "_ends_with_jar negative (dir)")
+        }
+        spec.it("case-sensitive (.JAR is not a match)") callback {
+            spec.assert_eq(_ends_with_jar("foo.JAR"), 0, "_ends_with_jar is case-sensitive (.JAR is not a match)")
+        }
+        spec.it("matches exact 4-char ext") callback {
+            spec.assert_eq(_ends_with_jar(".jar"), 1, "_ends_with_jar matches exact 4-char ext")
+        }
+        spec.it("short string returns 0") callback {
+            spec.assert_eq(_ends_with_jar("foo"), 0, "_ends_with_jar short string returns 0")
+        }
     }
 
     // === Setter accumulation =========================================
+    spec.describe(fw, "setter accumulation") {
+        spec.it("main_class + output_jar stored, last-call-wins") callback {
+            bm = map_new()
+            main_class(bm, "com.example.App")
+            output_jar(bm, "myapp-1.0.jar")
+            mc, _ = map_get(bm, "main_class")
+            oj, _ = map_get(bm, "scala_output_jar")
+            spec.assert_str_eq(mc, "com.example.App", "main_class stored")
+            spec.assert_str_eq(oj, "myapp-1.0.jar", "output_jar stored")
 
-    bm = map_new()
-    main_class(bm, "com.example.App")
-    output_jar(bm, "myapp-1.0.jar")
-    mc, _ = map_get(bm, "main_class")
-    oj, _ = map_get(bm, "scala_output_jar")
-    _assert_eq("main_class stored", mc, "com.example.App")
-    _assert_eq("output_jar stored", oj, "myapp-1.0.jar")
+            // Scalar last-call-wins.
+            main_class(bm, "com.example.Other")
+            mc2, _ = map_get(bm, "main_class")
+            spec.assert_str_eq(mc2, "com.example.Other", "main_class last-call-wins")
+        }
+    }
 
-    // Scalar last-call-wins.
-    main_class(bm, "com.example.Other")
-    mc2, _ = map_get(bm, "main_class")
-    _assert_eq("main_class last-call-wins", mc2, "com.example.Other")
-
-    println("scala cmd tests done")
+    spec.run_summary(fw)
 }

@@ -1,104 +1,105 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
+// Tests for pnpm.pnpm_spec_from_dep, pnpm.pnpm_add_cmd
+import std.spec
 import std.list
 import std.map
-import std.path
-import std.dir
 
-import bldr
-// Tests for pnpm.pnpm_spec_from_dep, pnpm.pnpm_add_cmd
-
-import pnpm
 import pnpm (pnpm_spec_from_dep, pnpm_add_cmd, pnpm_install_cmd,
              pnpm_run_cmd, script_arg, frozen_lockfile)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
+    fw = spec.init()
+
     // --- pnpm_spec_from_dep: name:version translation ---
-    _assert_eq("simple name:version",
-        pnpm_spec_from_dep("react:18.3.1"),
-        "react@18.3.1")
-
-    _assert_eq("scoped @angular/core:11.2.4",
-        pnpm_spec_from_dep("@angular/core:11.2.4"),
-        "@angular/core@11.2.4")
-
-    _assert_eq("scoped with caret @types/node:^20",
-        pnpm_spec_from_dep("@types/node:^20.0.0"),
-        "@types/node@^20.0.0")
-
-    _assert_eq("no colon — pass through",
-        pnpm_spec_from_dep("react"),
-        "react")
+    spec.describe(fw, "pnpm_spec_from_dep") {
+        spec.it("simple name:version") callback {
+            spec.assert_str_eq(pnpm_spec_from_dep("react:18.3.1"), "react@18.3.1",
+                "simple name:version")
+        }
+        spec.it("scoped @angular/core:11.2.4") callback {
+            spec.assert_str_eq(pnpm_spec_from_dep("@angular/core:11.2.4"), "@angular/core@11.2.4",
+                "scoped @angular/core:11.2.4")
+        }
+        spec.it("scoped with caret @types/node:^20") callback {
+            spec.assert_str_eq(pnpm_spec_from_dep("@types/node:^20.0.0"), "@types/node@^20.0.0",
+                "scoped with caret @types/node:^20")
+        }
+        spec.it("no colon — pass through") callback {
+            spec.assert_str_eq(pnpm_spec_from_dep("react"), "react", "no colon — pass through")
+        }
+    }
 
     // --- pnpm_add_cmd: command assembly ---
-    _assert_eq("empty deps list",
-        pnpm_add_cmd("/proj/.aeb", null),
-        "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb'")
-
-    deps2 = list_new()
-    _assert_eq("zero-size deps",
-        pnpm_add_cmd("/proj/.aeb", deps2),
-        "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb'")
-
-    deps3 = list_new()
-    list_add(deps3, "react:18.3.1")
-    _assert_eq("single dep",
-        pnpm_add_cmd("/proj/.aeb", deps3),
-        "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb' 'react@18.3.1'")
-
-    deps4 = list_new()
-    list_add(deps4, "react:18.3.1")
-    list_add(deps4, "@angular/core:11.2.4")
-    list_add(deps4, "lodash")
-    _assert_eq("mixed deps (versioned scoped + bare)",
-        pnpm_add_cmd("/proj/.aeb", deps4),
-        "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb' 'react@18.3.1' '@angular/core@11.2.4' 'lodash'")
+    spec.describe(fw, "pnpm_add_cmd") {
+        spec.it("empty deps list") callback {
+            spec.assert_str_eq(pnpm_add_cmd("/proj/.aeb", null),
+                "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb'", "empty deps list")
+        }
+        spec.it("zero-size deps") callback {
+            deps2 = list_new()
+            spec.assert_str_eq(pnpm_add_cmd("/proj/.aeb", deps2),
+                "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb'", "zero-size deps")
+        }
+        spec.it("single dep") callback {
+            deps3 = list_new()
+            list_add(deps3, "react:18.3.1")
+            spec.assert_str_eq(pnpm_add_cmd("/proj/.aeb", deps3),
+                "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb' 'react@18.3.1'", "single dep")
+        }
+        spec.it("mixed deps (versioned scoped + bare)") callback {
+            deps4 = list_new()
+            list_add(deps4, "react:18.3.1")
+            list_add(deps4, "@angular/core:11.2.4")
+            list_add(deps4, "lodash")
+            spec.assert_str_eq(pnpm_add_cmd("/proj/.aeb", deps4),
+                "COREPACK_ENABLE_STRICT=0 pnpm add --prefix '/proj/.aeb' 'react@18.3.1' '@angular/core@11.2.4' 'lodash'",
+                "mixed deps (versioned scoped + bare)")
+        }
+    }
 
     // --- pnpm_install_cmd: from-project-package.json shape ---
-    _assert_eq("pnpm install (no frozen-lockfile)",
-        pnpm_install_cmd("/proj", 0),
-        "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm install")
-
-    _assert_eq("pnpm install --frozen-lockfile",
-        pnpm_install_cmd("/proj", 1),
-        "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm install --frozen-lockfile")
+    spec.describe(fw, "pnpm_install_cmd") {
+        spec.it("pnpm install (no frozen-lockfile)") callback {
+            spec.assert_str_eq(pnpm_install_cmd("/proj", 0),
+                "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm install", "pnpm install (no frozen-lockfile)")
+        }
+        spec.it("pnpm install --frozen-lockfile") callback {
+            spec.assert_str_eq(pnpm_install_cmd("/proj", 1),
+                "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm install --frozen-lockfile", "pnpm install --frozen-lockfile")
+        }
+    }
 
     // --- pnpm_run_cmd: scripts from package.json ---
-    _assert_eq("pnpm run bare script",
-        pnpm_run_cmd("/proj", "lint", ""),
-        "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm run lint")
-
-    _assert_eq("pnpm run script with args (after --)",
-        pnpm_run_cmd("/proj", "lint", "--fix --quiet"),
-        "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm run lint -- --fix --quiet")
+    spec.describe(fw, "pnpm_run_cmd") {
+        spec.it("pnpm run bare script") callback {
+            spec.assert_str_eq(pnpm_run_cmd("/proj", "lint", ""),
+                "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm run lint", "pnpm run bare script")
+        }
+        spec.it("pnpm run script with args (after --)") callback {
+            spec.assert_str_eq(pnpm_run_cmd("/proj", "lint", "--fix --quiet"),
+                "cd '/proj' && COREPACK_ENABLE_STRICT=0 pnpm run lint -- --fix --quiet",
+                "pnpm run script with args (after --)")
+        }
+    }
 
     // --- Setter accumulation for the new builders ---
-    bm1 = map_new()
-    script_arg(bm1, "--silent")
-    script_arg(bm1, "--reporter=tap")
-    args1, _ = map_get(bm1, "pnpm_script_args")
-    arg0, _ = list_get(args1, 0)
-    arg1, _ = list_get(args1, 1)
-    _assert_eq("script_arg first stored", arg0, "--silent")
-    _assert_eq("script_arg second stored", arg1, "--reporter=tap")
+    spec.describe(fw, "setters") {
+        spec.it("script_arg accumulates in order") callback {
+            bm1 = map_new()
+            script_arg(bm1, "--silent")
+            script_arg(bm1, "--reporter=tap")
+            args1, _ = map_get(bm1, "pnpm_script_args")
+            arg0, _ = list_get(args1, 0)
+            arg1, _ = list_get(args1, 1)
+            spec.assert_str_eq(arg0, "--silent", "script_arg first stored")
+            spec.assert_str_eq(arg1, "--reporter=tap", "script_arg second stored")
+        }
+        spec.it("frozen_lockfile marker set") callback {
+            bm2 = map_new()
+            frozen_lockfile(bm2)
+            frozen_marker, _ = map_get(bm2, "pnpm_frozen_lockfile")
+            spec.assert_str_eq(frozen_marker, "1", "frozen_lockfile marker set")
+        }
+    }
 
-    bm2 = map_new()
-    frozen_lockfile(bm2)
-    frozen_marker, _ = map_get(bm2, "pnpm_frozen_lockfile")
-    _assert_eq("frozen_lockfile marker set", frozen_marker, "1")
-
-    println("pnpm cmd tests done")
+    spec.run_summary(fw)
 }

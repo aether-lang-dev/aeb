@@ -2,80 +2,64 @@
 //   bash_xargs_cmd     — `xargs -a <list> -P N -I{} <runner> {}`
 //   bash_runner_body   — full text of the runner script that each
 //                        xargs child invokes
+import std.spec
 import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 import bash (bash_xargs_cmd, bash_runner_body)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 main() {
-    // --- bash_xargs_cmd ---
-    _assert_eq("xargs: P=4",
-        bash_xargs_cmd("/tmp/list.txt", "/tmp/runner.sh", "4"),
-        "xargs -a /tmp/list.txt -P 4 -I{} /tmp/runner.sh {}")
+    fw = spec.init()
 
-    _assert_eq("xargs: P=1 (single-thread fan-out, exotic)",
-        bash_xargs_cmd("/tmp/list", "/tmp/runner", "1"),
-        "xargs -a /tmp/list -P 1 -I{} /tmp/runner {}")
-
-    _assert_eq("xargs: shell-substituted jobs arg (jobs(0) → nproc/2 path)",
-        bash_xargs_cmd("/tmp/L", "/tmp/R", "8"),
-        "xargs -a /tmp/L -P 8 -I{} /tmp/R {}")
-
-    _assert_eq("xargs: realistic mktemp-shaped paths",
-        bash_xargs_cmd("/tmp/tmp.aBcDeF", "/tmp/tmp.xYz123", "6"),
-        "xargs -a /tmp/tmp.aBcDeF -P 6 -I{} /tmp/tmp.xYz123 {}")
-
-    // --- bash_runner_body ---
-    // The runner is static — same body every invocation. We assert
-    // the full text. If the body changes intentionally, update the
-    // expected string here in lockstep with the implementation.
-    expected_runner = "#!/bin/bash\nname=\"\${1%%|*}\"\nfull=\"\${1#*|}\"\nbash \"\$full\" >/dev/null 2>&1\nrc=\$?\nif [ \$rc -eq 0 ]; then\n  printf 'PASS\\t%s\\n' \"\$name\"\nelse\n  printf 'FAIL\\t%s\\t%d\\n' \"\$name\" \"\$rc\"\nfi\n"
-    actual_runner = bash_runner_body()
-    _assert_eq("runner_body: full text", actual_runner, expected_runner)
-
-    // Spot-check key fragments — if these break, the runner won't
-    // behave as the parallel mode expects.
-    _assert_eq("runner_body: starts with shebang",
-        string.substring(actual_runner, 0, 11), "#!/bin/bash")
-
-    if string.index_of(actual_runner, "%%|*") >= 0 {
-        println("PASS: runner_body: contains \${1%%|*} for name extraction")
-    } else {
-        println("FAIL: runner_body: missing \${1%%|*}")
-    }
-    if string.index_of(actual_runner, "#*|") >= 0 {
-        println("PASS: runner_body: contains \${1#*|} for path extraction")
-    } else {
-        println("FAIL: runner_body: missing \${1#*|}")
-    }
-    if string.index_of(actual_runner, "PASS\\t") >= 0 {
-        println("PASS: runner_body: emits PASS<TAB>")
-    } else {
-        println("FAIL: runner_body: missing PASS<TAB>")
-    }
-    if string.index_of(actual_runner, "FAIL\\t") >= 0 {
-        println("PASS: runner_body: emits FAIL<TAB>")
-    } else {
-        println("FAIL: runner_body: missing FAIL<TAB>")
+    spec.describe(fw, "bash_xargs_cmd") {
+        spec.it("P=4") callback {
+            spec.assert_str_eq(bash_xargs_cmd("/tmp/list.txt", "/tmp/runner.sh", "4"),
+                "xargs -a /tmp/list.txt -P 4 -I{} /tmp/runner.sh {}", "xargs: P=4")
+        }
+        spec.it("P=1 (single-thread fan-out, exotic)") callback {
+            spec.assert_str_eq(bash_xargs_cmd("/tmp/list", "/tmp/runner", "1"),
+                "xargs -a /tmp/list -P 1 -I{} /tmp/runner {}", "xargs: P=1")
+        }
+        spec.it("shell-substituted jobs arg (jobs(0) → nproc/2 path)") callback {
+            spec.assert_str_eq(bash_xargs_cmd("/tmp/L", "/tmp/R", "8"),
+                "xargs -a /tmp/L -P 8 -I{} /tmp/R {}", "xargs: substituted jobs arg")
+        }
+        spec.it("realistic mktemp-shaped paths") callback {
+            spec.assert_str_eq(bash_xargs_cmd("/tmp/tmp.aBcDeF", "/tmp/tmp.xYz123", "6"),
+                "xargs -a /tmp/tmp.aBcDeF -P 6 -I{} /tmp/tmp.xYz123 {}", "xargs: mktemp-shaped paths")
+        }
     }
 
-    println("bash cmd tests done")
+    spec.describe(fw, "bash_runner_body") {
+        // The runner is static — same body every invocation. We assert
+        // the full text. If the body changes intentionally, update the
+        // expected string here in lockstep with the implementation.
+        spec.it("full text") callback {
+            expected_runner = "#!/bin/bash\nname=\"\${1%%|*}\"\nfull=\"\${1#*|}\"\nbash \"\$full\" >/dev/null 2>&1\nrc=\$?\nif [ \$rc -eq 0 ]; then\n  printf 'PASS\\t%s\\n' \"\$name\"\nelse\n  printf 'FAIL\\t%s\\t%d\\n' \"\$name\" \"\$rc\"\nfi\n"
+            spec.assert_str_eq(bash_runner_body(), expected_runner, "runner_body: full text")
+        }
+
+        // Spot-check key fragments — if these break, the runner won't
+        // behave as the parallel mode expects.
+        spec.it("starts with shebang") callback {
+            spec.assert_str_eq(string.substring(bash_runner_body(), 0, 11), "#!/bin/bash",
+                "runner_body: starts with shebang")
+        }
+        spec.it("contains \${1%%|*} for name extraction") callback {
+            spec.assert_true(string.index_of(bash_runner_body(), "%%|*") >= 0,
+                "runner_body: contains \${1%%|*}")
+        }
+        spec.it("contains \${1#*|} for path extraction") callback {
+            spec.assert_true(string.index_of(bash_runner_body(), "#*|") >= 0,
+                "runner_body: contains \${1#*|}")
+        }
+        spec.it("emits PASS<TAB>") callback {
+            spec.assert_true(string.index_of(bash_runner_body(), "PASS\\t") >= 0,
+                "runner_body: emits PASS<TAB>")
+        }
+        spec.it("emits FAIL<TAB>") callback {
+            spec.assert_true(string.index_of(bash_runner_body(), "FAIL\\t") >= 0,
+                "runner_body: emits FAIL<TAB>")
+        }
+    }
+
+    spec.run_summary(fw)
 }

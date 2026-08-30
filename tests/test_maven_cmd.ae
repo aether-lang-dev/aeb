@@ -1,105 +1,107 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
+// Tests for maven.mvn_resolve_cmd()
+import std.spec
 import std.list
 import std.map
-import std.path
-import std.dir
-
-import bldr
-// Tests for maven.mvn_resolve_cmd()
-
 import maven (mvn_resolve_cmd, resolve)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    // Empty everything
-    _assert_eq("nothing — just resolver+output flag",
-        mvn_resolve_cmd("/aeb/tools/aeb-resolve.jar", null, null, null, null),
-        "java -jar /aeb/tools/aeb-resolve.jar --output classpath")
+    fw = spec.init()
 
-    // Only deps
-    deps2 = list_new()
-    list_add(deps2, "org.springframework.boot:spring-boot-starter:3.4.4")
-    _assert_eq("single dep",
-        mvn_resolve_cmd("/aeb/aeb-resolve.jar", null, null, null, deps2),
-        "java -jar /aeb/aeb-resolve.jar --output classpath org.springframework.boot:spring-boot-starter:3.4.4")
+    spec.describe(fw, "mvn_resolve_cmd") {
+        // Empty everything
+        spec.it("nothing — just resolver+output flag") callback {
+            spec.assert_str_eq(
+                mvn_resolve_cmd("/aeb/tools/aeb-resolve.jar", null, null, null, null),
+                "java -jar /aeb/tools/aeb-resolve.jar --output classpath", "nothing — just resolver+output flag")
+        }
 
-    // Multiple deps
-    deps3 = list_new()
-    list_add(deps3, "org.apache.commons:commons-lang3:3.14.0")
-    list_add(deps3, "com.google.guava:guava:33.0.0-jre")
-    _assert_eq("multiple deps",
-        mvn_resolve_cmd("/r.jar", null, null, null, deps3),
-        "java -jar /r.jar --output classpath org.apache.commons:commons-lang3:3.14.0 com.google.guava:guava:33.0.0-jre")
+        // Only deps
+        spec.it("single dep") callback {
+            deps2 = list_new()
+            list_add(deps2, "org.springframework.boot:spring-boot-starter:3.4.4")
+            spec.assert_str_eq(
+                mvn_resolve_cmd("/aeb/aeb-resolve.jar", null, null, null, deps2),
+                "java -jar /aeb/aeb-resolve.jar --output classpath org.springframework.boot:spring-boot-starter:3.4.4", "single dep")
+        }
 
-    // BOM coords + deps (versions implied by BOM)
-    boms4 = list_new()
-    list_add(boms4, "org.springframework.boot:spring-boot-dependencies:3.4.4")
-    deps4 = list_new()
-    list_add(deps4, "org.springframework.data:spring-data-keyvalue")
-    _assert_eq("bom + dep without version",
-        mvn_resolve_cmd("/r.jar", null, boms4, null, deps4),
-        "java -jar /r.jar --output classpath --bom org.springframework.boot:spring-boot-dependencies:3.4.4 org.springframework.data:spring-data-keyvalue")
+        // Multiple deps
+        spec.it("multiple deps") callback {
+            deps3 = list_new()
+            list_add(deps3, "org.apache.commons:commons-lang3:3.14.0")
+            list_add(deps3, "com.google.guava:guava:33.0.0-jre")
+            spec.assert_str_eq(
+                mvn_resolve_cmd("/r.jar", null, null, null, deps3),
+                "java -jar /r.jar --output classpath org.apache.commons:commons-lang3:3.14.0 com.google.guava:guava:33.0.0-jre", "multiple deps")
+        }
 
-    // BOM file
-    bom_files5 = list_new()
-    list_add(bom_files5, "/proj/.spring-boot.bom.ae")
-    deps5 = list_new()
-    list_add(deps5, "org.springframework:spring-core")
-    _assert_eq("bom file",
-        mvn_resolve_cmd("/r.jar", bom_files5, null, null, deps5),
-        "java -jar /r.jar --output classpath --bom-file /proj/.spring-boot.bom.ae org.springframework:spring-core")
+        // BOM coords + deps (versions implied by BOM)
+        spec.it("bom + dep without version") callback {
+            boms4 = list_new()
+            list_add(boms4, "org.springframework.boot:spring-boot-dependencies:3.4.4")
+            deps4 = list_new()
+            list_add(deps4, "org.springframework.data:spring-data-keyvalue")
+            spec.assert_str_eq(
+                mvn_resolve_cmd("/r.jar", null, boms4, null, deps4),
+                "java -jar /r.jar --output classpath --bom org.springframework.boot:spring-boot-dependencies:3.4.4 org.springframework.data:spring-data-keyvalue", "bom + dep without version")
+        }
 
-    // Custom repo
-    repos6 = list_new()
-    list_add(repos6, "https://artifactory.example.com/maven")
-    deps6 = list_new()
-    list_add(deps6, "com.example:lib:1.0")
-    _assert_eq("custom repo",
-        mvn_resolve_cmd("/r.jar", null, null, repos6, deps6),
-        "java -jar /r.jar --output classpath --repo https://artifactory.example.com/maven com.example:lib:1.0")
+        // BOM file
+        spec.it("bom file") callback {
+            bom_files5 = list_new()
+            list_add(bom_files5, "/proj/.spring-boot.bom.ae")
+            deps5 = list_new()
+            list_add(deps5, "org.springframework:spring-core")
+            spec.assert_str_eq(
+                mvn_resolve_cmd("/r.jar", bom_files5, null, null, deps5),
+                "java -jar /r.jar --output classpath --bom-file /proj/.spring-boot.bom.ae org.springframework:spring-core", "bom file")
+        }
 
-    // Full combo: bom-file + bom + repo + deps
-    bom_files7 = list_new()
-    list_add(bom_files7, "/proj/.deps.bom.ae")
-    boms7 = list_new()
-    list_add(boms7, "org.spring:spring-bom:6.0")
-    repos7 = list_new()
-    list_add(repos7, "https://repo1.example.com")
-    list_add(repos7, "https://repo2.example.com")
-    deps7 = list_new()
-    list_add(deps7, "org.foo:foo:1.0")
-    list_add(deps7, "org.bar:bar:2.0")
-    _assert_eq("full combo",
-        mvn_resolve_cmd("/r.jar", bom_files7, boms7, repos7, deps7),
-        "java -jar /r.jar --output classpath --bom-file /proj/.deps.bom.ae --bom org.spring:spring-bom:6.0 --repo https://repo1.example.com --repo https://repo2.example.com org.foo:foo:1.0 org.bar:bar:2.0")
+        // Custom repo
+        spec.it("custom repo") callback {
+            repos6 = list_new()
+            list_add(repos6, "https://artifactory.example.com/maven")
+            deps6 = list_new()
+            list_add(deps6, "com.example:lib:1.0")
+            spec.assert_str_eq(
+                mvn_resolve_cmd("/r.jar", null, null, repos6, deps6),
+                "java -jar /r.jar --output classpath --repo https://artifactory.example.com/maven com.example:lib:1.0", "custom repo")
+        }
 
-    // Regression: resolve() on a context that declares NO maven deps must
-    // return "" cleanly, not deref a null "maven_deps" list. Before the
-    // map.has guard, list.size(null) was reached before the dep_count==0
-    // check, segfaulting (exit 139) every JVM builder — java_main, kotlinc,
-    // kotlinc_test — on any node without maven_dep()/load_bom_file().
-    // See asks/java-main-segfaults-when-node-has-no-maven-deps.md.
-    empty_ctx = map_new()
-    _assert_eq("resolve() with no maven_deps key returns empty (no segfault)",
-        resolve(empty_ctx), "")
+        // Full combo: bom-file + bom + repo + deps
+        spec.it("full combo") callback {
+            bom_files7 = list_new()
+            list_add(bom_files7, "/proj/.deps.bom.ae")
+            boms7 = list_new()
+            list_add(boms7, "org.spring:spring-bom:6.0")
+            repos7 = list_new()
+            list_add(repos7, "https://repo1.example.com")
+            list_add(repos7, "https://repo2.example.com")
+            deps7 = list_new()
+            list_add(deps7, "org.foo:foo:1.0")
+            list_add(deps7, "org.bar:bar:2.0")
+            spec.assert_str_eq(
+                mvn_resolve_cmd("/r.jar", bom_files7, boms7, repos7, deps7),
+                "java -jar /r.jar --output classpath --bom-file /proj/.deps.bom.ae --bom org.spring:spring-bom:6.0 --repo https://repo1.example.com --repo https://repo2.example.com org.foo:foo:1.0 org.bar:bar:2.0", "full combo")
+        }
+    }
 
-    // (classpath() is the caller of resolve(); asserting resolve() covers the
-    // tier-1 guarantee — resolve is what shells out to aeb-resolve.jar, and it
-    // early-returns "" here. classpath() itself is intentionally not called in
-    // this unit test because it writes a maven_classpath artifact to disk.)
+    spec.describe(fw, "resolve regression") {
+        // Regression: resolve() on a context that declares NO maven deps must
+        // return "" cleanly, not deref a null "maven_deps" list. Before the
+        // map.has guard, list.size(null) was reached before the dep_count==0
+        // check, segfaulting (exit 139) every JVM builder — java_main, kotlinc,
+        // kotlinc_test — on any node without maven_dep()/load_bom_file().
+        // See asks/java-main-segfaults-when-node-has-no-maven-deps.md.
+        //
+        // (classpath() is the caller of resolve(); asserting resolve() covers the
+        // tier-1 guarantee — resolve is what shells out to aeb-resolve.jar, and it
+        // early-returns "" here. classpath() itself is intentionally not called in
+        // this unit test because it writes a maven_classpath artifact to disk.)
+        spec.it("resolve() with no maven_deps key returns empty (no segfault)") callback {
+            empty_ctx = map_new()
+            spec.assert_str_eq(resolve(empty_ctx), "", "resolve() with no maven_deps key returns empty (no segfault)")
+        }
+    }
 
-    println("maven cmd tests done")
+    spec.run_summary(fw)
 }

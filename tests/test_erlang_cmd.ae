@@ -1,22 +1,10 @@
 // Tests for lib/erlang's pure command-string builders + the setters added
 // for the run_main / NIF-engine surface (run_main, test_source, pa,
 // engine_lib, link_engine).
+import std.spec
 import erlang (escript_cmd, run_main, test_source, pa, engine_lib, link_engine)
-import std.string
 import std.list
 import std.map
-
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
 
 _list_size_at(m: ptr, k: string) {
     if map.has(m, k) == 0 { return 0 }
@@ -37,48 +25,66 @@ _str_at(m: ptr, k: string) {
 }
 
 main() {
-    // --- escript_cmd: pure command string.
-    _eq("escript runs from source_dir, path quoted",
-        escript_cmd("/proj", "test/playback.escript"),
-        "cd '/proj' && escript 'test/playback.escript'")
+    fw = spec.init()
 
-    // --- run_main(mod): scalar, the module launched with `erl -run <mod>`.
-    bm = map.new()
-    run_main(bm, "html_sanitizer")
-    _eq("run_main stored as scalar", _str_at(bm, "erl_run_main"), "html_sanitizer")
-    run_main(bm, "other_mod")
-    _eq("run_main last-call-wins", _str_at(bm, "erl_run_main"), "other_mod")
+    spec.describe(fw, "escript_cmd") {
+        // --- escript_cmd: pure command string.
+        spec.it("runs from source_dir, path quoted") callback {
+            spec.assert_str_eq(
+                escript_cmd("/proj", "test/playback.escript"),
+                "cd '/proj' && escript 'test/playback.escript'", "escript runs from source_dir, path quoted")
+        }
+    }
 
-    // --- pa(dir): repeatable code-path list (`-pa <dir>` per entry).
-    bp = map.new()
-    pa(bp, "deps/nif/ebin")
-    pa(bp, "target/build/engine/ebin")
-    _assert("pa accumulates 2 entries", _list_size_at(bp, "erl_pa") == 2)
-    _eq("pa order: first preserved", _list_get_at(bp, "erl_pa", 0), "deps/nif/ebin")
+    spec.describe(fw, "run_main / pa / test_source / engine setters") {
+        // --- run_main(mod): scalar, the module launched with `erl -run <mod>`.
+        spec.it("run_main scalar, last-call-wins") callback {
+            bm = map.new()
+            run_main(bm, "html_sanitizer")
+            spec.assert_str_eq(_str_at(bm, "erl_run_main"), "html_sanitizer", "run_main stored as scalar")
+            run_main(bm, "other_mod")
+            spec.assert_str_eq(_str_at(bm, "erl_run_main"), "other_mod", "run_main last-call-wins")
+        }
 
-    // --- test_source(src): repeatable list of test .erl sources.
-    bt = map.new()
-    test_source(bt, "test/sanitizer_SUITE.erl")
-    test_source(bt, "test/roundtrip_SUITE.erl")
-    _assert("test_source accumulates 2 entries", _list_size_at(bt, "erl_test_sources") == 2)
-    _eq("test_source order: second preserved",
-        _list_get_at(bt, "erl_test_sources", 1), "test/roundtrip_SUITE.erl")
+        // --- pa(dir): repeatable code-path list (`-pa <dir>` per entry).
+        spec.it("pa accumulates, order preserved") callback {
+            bp = map.new()
+            pa(bp, "deps/nif/ebin")
+            pa(bp, "target/build/engine/ebin")
+            spec.assert_true(_list_size_at(bp, "erl_pa") == 2, "pa accumulates 2 entries")
+            spec.assert_str_eq(_list_get_at(bp, "erl_pa", 0), "deps/nif/ebin", "pa order: first preserved")
+        }
 
-    // --- engine_lib(path) + link_engine(name): the NIF-links-engine pair.
-    // engine_lib is the .so to stage; link_engine is the library stem the
-    // NIF links against at build time (-l<name>). Both scalar.
-    be = map.new()
-    engine_lib(be, "target/build/selenium_core/lib/libselenium_core.so")
-    link_engine(be, "selenium_core")
-    _eq("engine_lib stored as scalar",
-        _str_at(be, "erl_engine_lib"), "target/build/selenium_core/lib/libselenium_core.so")
-    _eq("link_engine stored as scalar (library stem)",
-        _str_at(be, "erl_link_engine"), "selenium_core")
+        // --- test_source(src): repeatable list of test .erl sources.
+        spec.it("test_source accumulates, order preserved") callback {
+            bt = map.new()
+            test_source(bt, "test/sanitizer_SUITE.erl")
+            test_source(bt, "test/roundtrip_SUITE.erl")
+            spec.assert_true(_list_size_at(bt, "erl_test_sources") == 2, "test_source accumulates 2 entries")
+            spec.assert_str_eq(_list_get_at(bt, "erl_test_sources", 1), "test/roundtrip_SUITE.erl",
+                "test_source order: second preserved")
+        }
 
-    // --- untouched map: keys absent.
-    bu = map.new()
-    _assert("untouched map has no erl_pa", _list_size_at(bu, "erl_pa") == 0)
-    _eq("untouched map has empty erl_run_main", _str_at(bu, "erl_run_main"), "")
+        // --- engine_lib(path) + link_engine(name): the NIF-links-engine pair.
+        // engine_lib is the .so to stage; link_engine is the library stem the
+        // NIF links against at build time (-l<name>). Both scalar.
+        spec.it("engine_lib + link_engine scalars") callback {
+            be = map.new()
+            engine_lib(be, "target/build/selenium_core/lib/libselenium_core.so")
+            link_engine(be, "selenium_core")
+            spec.assert_str_eq(_str_at(be, "erl_engine_lib"), "target/build/selenium_core/lib/libselenium_core.so",
+                "engine_lib stored as scalar")
+            spec.assert_str_eq(_str_at(be, "erl_link_engine"), "selenium_core",
+                "link_engine stored as scalar (library stem)")
+        }
 
-    println("erlang command-string tests done")
+        // --- untouched map: keys absent.
+        spec.it("untouched map: keys absent") callback {
+            bu = map.new()
+            spec.assert_true(_list_size_at(bu, "erl_pa") == 0, "untouched map has no erl_pa")
+            spec.assert_str_eq(_str_at(bu, "erl_run_main"), "", "untouched map has empty erl_run_main")
+        }
+    }
+
+    spec.run_summary(fw)
 }

@@ -1,88 +1,92 @@
 // Tests for _parse_xargs_output() in lib/bash/module.ae — counts
 // FAIL lines in the captured xargs stdout. The function also prints
 // PASS:/FAIL: lines via println as a side effect; tests only assert
-// the return value (the count). The printed text appears interleaved
-// in the test's stdout but doesn't break PASS:/FAIL: assertion
-// matching because run.sh greps for ^PASS:/^FAIL: at line start, and
-// the parser's child-line output starts with two-space indent.
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
+// the return value (the count).
+import std.spec
 import bash (_parse_xargs_output)
 
-_assert_eq_int(label: string, actual: int, expected: int) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    // --- empty input ---
-    _assert_eq_int("parse: empty string",
-        _parse_xargs_output(""), 0)
-    _assert_eq_int("parse: lone newline",
-        _parse_xargs_output("\n"), 0)
+    fw = spec.init()
 
-    // --- all-pass cases ---
-    all_pass = "PASS\ttest_a.sh\nPASS\ttest_b.sh\nPASS\ttest_c.sh\n"
-    _assert_eq_int("parse: 3 pass",
-        _parse_xargs_output(all_pass), 0)
+    spec.describe(fw, "_parse_xargs_output: empty input") {
+        spec.it("empty string") callback {
+            spec.assert_eq(_parse_xargs_output(""), 0, "parse: empty string")
+        }
+        spec.it("lone newline") callback {
+            spec.assert_eq(_parse_xargs_output("\n"), 0, "parse: lone newline")
+        }
+    }
 
-    _assert_eq_int("parse: 1 pass",
-        _parse_xargs_output("PASS\tonly.sh\n"), 0)
+    spec.describe(fw, "_parse_xargs_output: all-pass") {
+        spec.it("3 pass") callback {
+            all_pass = "PASS\ttest_a.sh\nPASS\ttest_b.sh\nPASS\ttest_c.sh\n"
+            spec.assert_eq(_parse_xargs_output(all_pass), 0, "parse: 3 pass")
+        }
+        spec.it("1 pass") callback {
+            spec.assert_eq(_parse_xargs_output("PASS\tonly.sh\n"), 0, "parse: 1 pass")
+        }
+        // Trailing-line-without-newline: parser handles this case via
+        // the post-loop `if start < out_n` branch.
+        spec.it("trailing line no newline") callback {
+            spec.assert_eq(_parse_xargs_output("PASS\tno_trailing_lf.sh"), 0,
+                "parse: trailing line no newline")
+        }
+    }
 
-    // Trailing-line-without-newline: parser handles this case via
-    // the post-loop `if start < out_n` branch.
-    _assert_eq_int("parse: trailing line no newline",
-        _parse_xargs_output("PASS\tno_trailing_lf.sh"), 0)
+    spec.describe(fw, "_parse_xargs_output: all-fail") {
+        spec.it("3 fail") callback {
+            all_fail = "FAIL\ttest_x.sh\t1\nFAIL\ttest_y.sh\t7\nFAIL\ttest_z.sh\t127\n"
+            spec.assert_eq(_parse_xargs_output(all_fail), 3, "parse: 3 fail")
+        }
+        spec.it("1 fail with exit code") callback {
+            spec.assert_eq(_parse_xargs_output("FAIL\ttest_a.sh\t42\n"), 1,
+                "parse: 1 fail with exit code")
+        }
+    }
 
-    // --- all-fail cases ---
-    all_fail = "FAIL\ttest_x.sh\t1\nFAIL\ttest_y.sh\t7\nFAIL\ttest_z.sh\t127\n"
-    _assert_eq_int("parse: 3 fail",
-        _parse_xargs_output(all_fail), 3)
+    spec.describe(fw, "_parse_xargs_output: mixed") {
+        spec.it("pass+fail+pass") callback {
+            mixed = "PASS\ttest_a.sh\nFAIL\ttest_b.sh\t1\nPASS\ttest_c.sh\n"
+            spec.assert_eq(_parse_xargs_output(mixed), 1, "parse: pass+fail+pass")
+        }
+        spec.it("2 fail + 2 pass interleaved") callback {
+            mixed2 = "FAIL\ttest_first.sh\t1\nPASS\ttest_second.sh\nFAIL\ttest_third.sh\t9\nPASS\ttest_fourth.sh\n"
+            spec.assert_eq(_parse_xargs_output(mixed2), 2, "parse: 2 fail + 2 pass interleaved")
+        }
+    }
 
-    _assert_eq_int("parse: 1 fail with exit code",
-        _parse_xargs_output("FAIL\ttest_a.sh\t42\n"), 1)
+    spec.describe(fw, "_parse_xargs_output: malformed lines ignored") {
+        spec.it("noise lines ignored") callback {
+            spec.assert_eq(_parse_xargs_output("noise\nrandom\nPASS\tok.sh\n"), 0,
+                "parse: noise lines ignored")
+        }
+        spec.it("missing tab in PASS") callback {
+            spec.assert_eq(_parse_xargs_output("PASSnotab\nPASS\tok.sh\n"), 0,
+                "parse: missing tab in PASS")
+        }
+        spec.it("empty lines ignored") callback {
+            spec.assert_eq(_parse_xargs_output("\n\nPASS\tok.sh\n\n"), 0,
+                "parse: empty lines ignored")
+        }
+    }
 
-    // --- mixed (the canonical case) ---
-    mixed = "PASS\ttest_a.sh\nFAIL\ttest_b.sh\t1\nPASS\ttest_c.sh\n"
-    _assert_eq_int("parse: pass+fail+pass",
-        _parse_xargs_output(mixed), 1)
+    // FAIL with missing exit-code field still counts as fail: the renderer
+    // prints "FAIL: <name>" without exit info, but the parser still
+    // increments the failed counter.
+    spec.describe(fw, "_parse_xargs_output: FAIL without exit code") {
+        spec.it("FAIL without exit code field") callback {
+            spec.assert_eq(_parse_xargs_output("FAIL\tno_ec.sh\n"), 1,
+                "parse: FAIL without exit code field")
+        }
+    }
 
-    mixed2 = "FAIL\ttest_first.sh\t1\nPASS\ttest_second.sh\nFAIL\ttest_third.sh\t9\nPASS\ttest_fourth.sh\n"
-    _assert_eq_int("parse: 2 fail + 2 pass interleaved",
-        _parse_xargs_output(mixed2), 2)
+    spec.describe(fw, "_parse_xargs_output: realistic") {
+        // realistic xargs output: scripts complete out of order
+        spec.it("realistic 7-test run, 1 fail") callback {
+            realistic = "PASS\ttest_d.sh\nPASS\ttest_a.sh\nPASS\ttest_c.sh\nPASS\ttest_b.sh\nFAIL\ttest_fail.sh\t7\nPASS\ttest_e.sh\nPASS\ttest_f.sh\n"
+            spec.assert_eq(_parse_xargs_output(realistic), 1, "parse: realistic 7-test run, 1 fail")
+        }
+    }
 
-    // --- malformed lines should be ignored, not counted ---
-    _assert_eq_int("parse: noise lines ignored",
-        _parse_xargs_output("noise\nrandom\nPASS\tok.sh\n"), 0)
-    _assert_eq_int("parse: missing tab in PASS",
-        _parse_xargs_output("PASSnotab\nPASS\tok.sh\n"), 0)
-    _assert_eq_int("parse: empty lines ignored",
-        _parse_xargs_output("\n\nPASS\tok.sh\n\n"), 0)
-
-    // --- FAIL with missing exit-code field still counts as fail ---
-    // (the renderer prints "FAIL: <name>" without exit info, but
-    // the parser still increments the failed counter)
-    _assert_eq_int("parse: FAIL without exit code field",
-        _parse_xargs_output("FAIL\tno_ec.sh\n"), 1)
-
-    // --- realistic xargs output: scripts complete out of order ---
-    realistic = "PASS\ttest_d.sh\nPASS\ttest_a.sh\nPASS\ttest_c.sh\nPASS\ttest_b.sh\nFAIL\ttest_fail.sh\t7\nPASS\ttest_e.sh\nPASS\ttest_f.sh\n"
-    _assert_eq_int("parse: realistic 7-test run, 1 fail",
-        _parse_xargs_output(realistic), 1)
-
-    println("bash parse_xargs tests done")
+    spec.run_summary(fw)
 }

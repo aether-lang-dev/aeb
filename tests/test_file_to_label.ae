@@ -10,55 +10,100 @@
 // is only one implementation. (tests/run.sh builds with `--lib lib
 // --lib tools` so the import resolves — multi-entry --lib, aether
 // 0.150.)
-import std.string
-
-extern println(s: string)
-
+import std.spec
 import aeblabel (extract_tag, file_to_label, infer_type)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 main() {
+    fw = spec.init()
+
     // --- extract_tag: DEPRECATED — tags are gone, always "" ---
-    _assert_eq("tag: deprecated always empty (.build.ae)",     extract_tag("ae/svnserver/.build.ae"),      "")
-    _assert_eq("tag: deprecated always empty (.build-seed.ae)",extract_tag("ae/svnserver/.build-seed.ae"), "")
-    _assert_eq("tag: deprecated always empty (.tests-int.ae)", extract_tag("ae/x/.tests-int.ae"),          "")
-    _assert_eq("tag: deprecated always empty (empty)",         extract_tag(""),                            "")
+    spec.describe(fw, "extract_tag (deprecated → always empty)") {
+        spec.it("empty (.build.ae)") callback {
+            spec.assert_str_eq(extract_tag("ae/svnserver/.build.ae"), "", "tag: deprecated always empty (.build.ae)")
+        }
+        spec.it("empty (.build-seed.ae)") callback {
+            spec.assert_str_eq(extract_tag("ae/svnserver/.build-seed.ae"), "", "tag: deprecated always empty (.build-seed.ae)")
+        }
+        spec.it("empty (.tests-int.ae)") callback {
+            spec.assert_str_eq(extract_tag("ae/x/.tests-int.ae"), "", "tag: deprecated always empty (.tests-int.ae)")
+        }
+        spec.it("empty (empty)") callback {
+            spec.assert_str_eq(extract_tag(""), "", "tag: deprecated always empty (empty)")
+        }
+    }
 
     // --- infer_type: the WHOLE .<name>.ae segment IS the type, verbatim ---
-    _assert_eq("type: .build.ae",          infer_type("ae/svnserver/.build.ae"),          "build")
-    _assert_eq("type: .tests.ae (literal, no alias)",  infer_type("ae/svnserver/.tests.ae"), "tests")
-    _assert_eq("type: .test.ae (singular, equally literal)", infer_type("ae/x/.test.ae"),   "test")
-    _assert_eq("type: .tes.ae (typo, still literal)",  infer_type("ae/x/.tes.ae"),           "tes")
-    _assert_eq("type: .dist.ae",           infer_type("ae/svnserver/.dist.ae"),           "dist")
-    _assert_eq("type: .install.ae",        infer_type("tools/remote-agent/.install.ae"),  "install")
-    _assert_eq("type: .bidi-codegen.ae (dashes kept)", infer_type("py/.bidi-codegen.ae"), "bidi-codegen")
-    _assert_eq("type: .quantum-signal.ae", infer_type("foo/.quantum-signal.ae"),          "quantum-signal")
-    _assert_eq("type: .essais.ae (French)",infer_type("foo/.essais.ae"),                  "essais")
-    _assert_eq("type: bare dir → build",   infer_type("ae/x"),                            "build")
-    _assert_eq("type: non-build-file → build", infer_type("ae/x/main.ae"),                "build")
+    spec.describe(fw, "infer_type (verbatim segment)") {
+        spec.it(".build.ae") callback {
+            spec.assert_str_eq(infer_type("ae/svnserver/.build.ae"), "build", "type: .build.ae")
+        }
+        spec.it(".tests.ae (literal, no alias)") callback {
+            spec.assert_str_eq(infer_type("ae/svnserver/.tests.ae"), "tests", "type: .tests.ae (literal, no alias)")
+        }
+        spec.it(".test.ae (singular, equally literal)") callback {
+            spec.assert_str_eq(infer_type("ae/x/.test.ae"), "test", "type: .test.ae (singular, equally literal)")
+        }
+        spec.it(".tes.ae (typo, still literal)") callback {
+            spec.assert_str_eq(infer_type("ae/x/.tes.ae"), "tes", "type: .tes.ae (typo, still literal)")
+        }
+        spec.it(".dist.ae") callback {
+            spec.assert_str_eq(infer_type("ae/svnserver/.dist.ae"), "dist", "type: .dist.ae")
+        }
+        spec.it(".install.ae") callback {
+            spec.assert_str_eq(infer_type("tools/remote-agent/.install.ae"), "install", "type: .install.ae")
+        }
+        spec.it(".bidi-codegen.ae (dashes kept)") callback {
+            spec.assert_str_eq(infer_type("py/.bidi-codegen.ae"), "bidi-codegen", "type: .bidi-codegen.ae (dashes kept)")
+        }
+        spec.it(".quantum-signal.ae") callback {
+            spec.assert_str_eq(infer_type("foo/.quantum-signal.ae"), "quantum-signal", "type: .quantum-signal.ae")
+        }
+        spec.it(".essais.ae (French)") callback {
+            spec.assert_str_eq(infer_type("foo/.essais.ae"), "essais", "type: .essais.ae (French)")
+        }
+        spec.it("bare dir → build") callback {
+            spec.assert_str_eq(infer_type("ae/x"), "build", "type: bare dir → build")
+        }
+        spec.it("non-build-file → build") callback {
+            spec.assert_str_eq(infer_type("ae/x/main.ae"), "build", "type: non-build-file → build")
+        }
+    }
 
     // --- file_to_label: <type>:<dir> for non-build, bare <dir> for build ---
-    _assert_eq("label: .build.ae (unprefixed)", file_to_label("ae/svnserver/.build.ae"), "ae/svnserver")
-    _assert_eq("label: .tests.ae (literal type prefix)", file_to_label("ae/svnserver/.tests.ae"), "tests:ae/svnserver")
-    _assert_eq("label: .dist.ae",  file_to_label("ae/svnserver/.dist.ae"),  "dist:ae/svnserver")
-    _assert_eq("label: .install.ae", file_to_label("tools/remote-agent/.install.ae"), "install:tools/remote-agent")
-    _assert_eq("label: .bidi-codegen.ae", file_to_label("py/.bidi-codegen.ae"), "bidi-codegen:py")
-    _assert_eq("label: top-level .build.ae", file_to_label(".build.ae"),    ".")
-    _assert_eq("label: deep path",            file_to_label("a/b/c/d/.build.ae"), "a/b/c/d")
+    spec.describe(fw, "file_to_label") {
+        spec.it(".build.ae (unprefixed)") callback {
+            spec.assert_str_eq(file_to_label("ae/svnserver/.build.ae"), "ae/svnserver", "label: .build.ae (unprefixed)")
+        }
+        spec.it(".tests.ae (literal type prefix)") callback {
+            spec.assert_str_eq(file_to_label("ae/svnserver/.tests.ae"), "tests:ae/svnserver", "label: .tests.ae (literal type prefix)")
+        }
+        spec.it(".dist.ae") callback {
+            spec.assert_str_eq(file_to_label("ae/svnserver/.dist.ae"), "dist:ae/svnserver", "label: .dist.ae")
+        }
+        spec.it(".install.ae") callback {
+            spec.assert_str_eq(file_to_label("tools/remote-agent/.install.ae"), "install:tools/remote-agent", "label: .install.ae")
+        }
+        spec.it(".bidi-codegen.ae") callback {
+            spec.assert_str_eq(file_to_label("py/.bidi-codegen.ae"), "bidi-codegen:py", "label: .bidi-codegen.ae")
+        }
+        spec.it("top-level .build.ae") callback {
+            spec.assert_str_eq(file_to_label(".build.ae"), ".", "label: top-level .build.ae")
+        }
+        spec.it("deep path") callback {
+            spec.assert_str_eq(file_to_label("a/b/c/d/.build.ae"), "a/b/c/d", "label: deep path")
+        }
+    }
 
     // --- co-located variants are just different-named TYPES (no tags) ---
     // ae/svnserver/.build.ae and ae/svnserver/.seed.ae are types build + seed.
-    _assert_eq("colocated: .seed.ae is type 'seed'", file_to_label("ae/svnserver/.seed.ae"), "seed:ae/svnserver")
-    _assert_eq("colocated: distinct from .build.ae", file_to_label("ae/svnserver/.build.ae"), "ae/svnserver")
+    spec.describe(fw, "co-located variants (distinct types, no tags)") {
+        spec.it(".seed.ae is type 'seed'") callback {
+            spec.assert_str_eq(file_to_label("ae/svnserver/.seed.ae"), "seed:ae/svnserver", "colocated: .seed.ae is type 'seed'")
+        }
+        spec.it("distinct from .build.ae") callback {
+            spec.assert_str_eq(file_to_label("ae/svnserver/.build.ae"), "ae/svnserver", "colocated: distinct from .build.ae")
+        }
+    }
 
-    println("file_to_label tests done")
+    spec.run_summary(fw)
 }

@@ -1,72 +1,74 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for lib/c's pure helper functions: _include_flags,
 // _strip_ext, _cc_of, _opt_str. The compile/program builders shell
 // out to a real C compiler, so they are exercised by the c-hello
 // integration test, not here.
-
-import c
+import std.spec
+import std.string
 import c (_include_flags, _strip_ext, _cc_of, _opt_str)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
+    fw = spec.init()
+
     // _strip_ext — derive object base name from a source name.
-    _assert_eq("strip_ext: simple", _strip_ext("hello.c"), "hello")
-    _assert_eq("strip_ext: multi-dot", _strip_ext("a.b.c"), "a.b")
-    _assert_eq("strip_ext: no extension", _strip_ext("Makefile"), "Makefile")
+    spec.describe(fw, "_strip_ext") {
+        spec.it("simple") callback {
+            spec.assert_str_eq(_strip_ext("hello.c"), "hello", "strip_ext: simple")
+        }
+        spec.it("multi-dot") callback {
+            spec.assert_str_eq(_strip_ext("a.b.c"), "a.b", "strip_ext: multi-dot")
+        }
+        spec.it("no extension") callback {
+            spec.assert_str_eq(_strip_ext("Makefile"), "Makefile", "strip_ext: no extension")
+        }
+    }
 
     // _include_flags — turn a c_includes value into "-Idir -Idir".
-    o1 = map_new()
-    _assert_eq("include_flags: none", _include_flags(o1), "")
-
-    o2 = map_new()
-    map_put(o2, "c_includes", "include")
-    _assert_eq("include_flags: one", _include_flags(o2), " -Iinclude")
-
-    o3 = map_new()
-    map_put(o3, "c_includes", "include src/hdr ../shared")
-    _assert_eq("include_flags: three", _include_flags(o3),
-        " -Iinclude -Isrc/hdr -I../shared")
+    spec.describe(fw, "_include_flags") {
+        spec.it("none") callback {
+            o1 = map_new()
+            spec.assert_str_eq(_include_flags(o1), "", "include_flags: none")
+        }
+        spec.it("one") callback {
+            o2 = map_new()
+            map_put(o2, "c_includes", "include")
+            spec.assert_str_eq(_include_flags(o2), " -Iinclude", "include_flags: one")
+        }
+        spec.it("three") callback {
+            o3 = map_new()
+            map_put(o3, "c_includes", "include src/hdr ../shared")
+            spec.assert_str_eq(_include_flags(o3), " -Iinclude -Isrc/hdr -I../shared", "include_flags: three")
+        }
+    }
 
     // _cc_of — explicit override wins; otherwise the host default.
-    o4 = map_new()
-    map_put(o4, "c_cc", "x86_64-w64-mingw32-gcc")
-    _assert_eq("cc_of: explicit override", _cc_of(o4),
-        "x86_64-w64-mingw32-gcc")
-
-    // No override → bldr._default_cc() for this host. We don't pin
-    // the exact value (it is OS-dependent), only that it is non-empty.
-    o5 = map_new()
-    def_cc = _cc_of(o5)
-    if string.length(def_cc) > 0 {
-        println("PASS: cc_of: host default non-empty (${def_cc})")
-    } else {
-        println("FAIL: cc_of: host default was empty")
+    spec.describe(fw, "_cc_of") {
+        spec.it("explicit override") callback {
+            o4 = map_new()
+            map_put(o4, "c_cc", "x86_64-w64-mingw32-gcc")
+            spec.assert_str_eq(_cc_of(o4), "x86_64-w64-mingw32-gcc", "cc_of: explicit override")
+        }
+        // No override → bldr._default_cc() for this host. We don't pin
+        // the exact value (it is OS-dependent), only that it is non-empty.
+        spec.it("host default non-empty") callback {
+            o5 = map_new()
+            def_cc = _cc_of(o5)
+            spec.assert_true(string.length(def_cc) > 0, "cc_of: host default non-empty")
+        }
     }
 
     // _opt_str — present vs absent key.
-    o6 = map_new()
-    map_put(o6, "c_cflags", "-O2 -Wall")
-    _assert_eq("opt_str: present", _opt_str(o6, "c_cflags"), "-O2 -Wall")
-    _assert_eq("opt_str: absent", _opt_str(o6, "c_link_flags"), "")
+    spec.describe(fw, "_opt_str") {
+        spec.it("present") callback {
+            o6 = map_new()
+            map_put(o6, "c_cflags", "-O2 -Wall")
+            spec.assert_str_eq(_opt_str(o6, "c_cflags"), "-O2 -Wall", "opt_str: present")
+        }
+        spec.it("absent") callback {
+            o6 = map_new()
+            map_put(o6, "c_cflags", "-O2 -Wall")
+            spec.assert_str_eq(_opt_str(o6, "c_link_flags"), "", "opt_str: absent")
+        }
+    }
 
-    println("c cmd tests done")
+    spec.run_summary(fw)
 }

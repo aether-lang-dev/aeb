@@ -1,56 +1,47 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for lxc_create_cmd() — LXC container create command builder
-
-import container
+import std.spec
+import std.map
 import container (lxc_create_cmd)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    // Default template is download
-    _assert_eq("default template",
-        lxc_create_cmd("mycontainer", null),
-        "lxc-create -n mycontainer -t download")
+    fw = spec.init()
 
-    // Custom template
-    opts2 = map_new()
-    map_put(opts2, "template", "ubuntu")
-    _assert_eq("ubuntu template",
-        lxc_create_cmd("webserver", opts2),
-        "lxc-create -n webserver -t ubuntu")
+    spec.describe(fw, "lxc_create_cmd") {
+        // Default template is download
+        spec.it("default template") callback {
+            spec.assert_str_eq(
+                lxc_create_cmd("mycontainer", null),
+                "lxc-create -n mycontainer -t download", "default template")
+        }
 
-    // With extra options (passed after --)
-    opts3 = map_new()
-    map_put(opts3, "extra", "-d ubuntu -r jammy -a amd64")
-    _assert_eq("download with distro args",
-        lxc_create_cmd("dev-box", opts3),
-        "lxc-create -n dev-box -t download -- -d ubuntu -r jammy -a amd64")
+        // Custom template
+        spec.it("ubuntu template") callback {
+            opts2 = map_new()
+            map_put(opts2, "template", "ubuntu")
+            spec.assert_str_eq(
+                lxc_create_cmd("webserver", opts2),
+                "lxc-create -n webserver -t ubuntu", "ubuntu template")
+        }
 
-    // Template + extra
-    opts4 = map_new()
-    map_put(opts4, "template", "local")
-    map_put(opts4, "extra", "-m /path/to/metadata -f /path/to/rootfs.tar.xz")
-    _assert_eq("local template with paths",
-        lxc_create_cmd("from-backup", opts4),
-        "lxc-create -n from-backup -t local -- -m /path/to/metadata -f /path/to/rootfs.tar.xz")
+        // With extra options (passed after --)
+        spec.it("download with distro args") callback {
+            opts3 = map_new()
+            map_put(opts3, "extra", "-d ubuntu -r jammy -a amd64")
+            spec.assert_str_eq(
+                lxc_create_cmd("dev-box", opts3),
+                "lxc-create -n dev-box -t download -- -d ubuntu -r jammy -a amd64", "download with distro args")
+        }
 
-    println("lxc_create_cmd tests done")
+        // Template + extra
+        spec.it("local template with paths") callback {
+            opts4 = map_new()
+            map_put(opts4, "template", "local")
+            map_put(opts4, "extra", "-m /path/to/metadata -f /path/to/rootfs.tar.xz")
+            spec.assert_str_eq(
+                lxc_create_cmd("from-backup", opts4),
+                "lxc-create -n from-backup -t local -- -m /path/to/metadata -f /path/to/rootfs.tar.xz", "local template with paths")
+        }
+    }
+
+    spec.run_summary(fw)
 }

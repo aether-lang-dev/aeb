@@ -1,49 +1,78 @@
 // Unit tests for the remote-cache config core in lib/cache/module.ae.
 // These are the PURE helpers (url/mode in as arguments) — no env, no I/O.
-import std.string
-import std.io
+import std.spec
 
 import cache (_remote_fs_root_of, _remote_effective_mode_of, _remote_read_enabled_of, _remote_write_enabled_of)
 
-_eq_str(label: string, actual: string, expected: string) {
-    if actual == expected { println("PASS: ${label}") }
-    else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'  actual: '${actual}'")
-    }
-}
-
-_eq_int(label: string, actual: int, expected: int) {
-    if actual == expected { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (expected ${expected}, got ${actual})") }
-}
-
 main() {
-    // --- _remote_fs_root_of: scheme handling ---
-    _eq_str("fs_root: empty url -> ''", _remote_fs_root_of(""), "")
-    _eq_str("fs_root: file:// stripped", _remote_fs_root_of("file:///srv/aeb-cache"), "/srv/aeb-cache")
-    _eq_str("fs_root: plain path passthrough", _remote_fs_root_of("/mnt/shared/cache"), "/mnt/shared/cache")
-    _eq_str("fs_root: http -> '' (not fs)", _remote_fs_root_of("http://cache.local/x"), "")
-    _eq_str("fs_root: https -> '' (not fs)", _remote_fs_root_of("https://cache.local/x"), "")
+    fw = spec.init()
 
-    // --- _remote_effective_mode_of: defaults ---
-    _eq_str("mode: explicit wins", _remote_effective_mode_of("read", "/p"), "read")
-    _eq_str("mode: empty+url -> readwrite", _remote_effective_mode_of("", "/p"), "readwrite")
-    _eq_str("mode: empty+no-url -> off", _remote_effective_mode_of("", ""), "off")
+    spec.describe(fw, "_remote_fs_root_of: scheme handling") {
+        spec.it("empty url -> ''") callback {
+            spec.assert_str_eq(_remote_fs_root_of(""), "", "fs_root: empty url -> ''")
+        }
+        spec.it("file:// stripped") callback {
+            spec.assert_str_eq(_remote_fs_root_of("file:///srv/aeb-cache"), "/srv/aeb-cache", "fs_root: file:// stripped")
+        }
+        spec.it("plain path passthrough") callback {
+            spec.assert_str_eq(_remote_fs_root_of("/mnt/shared/cache"), "/mnt/shared/cache", "fs_root: plain path passthrough")
+        }
+        spec.it("http -> '' (not fs)") callback {
+            spec.assert_str_eq(_remote_fs_root_of("http://cache.local/x"), "", "fs_root: http -> '' (not fs)")
+        }
+        spec.it("https -> '' (not fs)") callback {
+            spec.assert_str_eq(_remote_fs_root_of("https://cache.local/x"), "", "fs_root: https -> '' (not fs)")
+        }
+    }
 
-    // --- read/write enablement matrix ---
-    _eq_int("read: 'read'+url -> 1", _remote_read_enabled_of("read", "/p"), 1)
-    _eq_int("read: 'readwrite'+url -> 1", _remote_read_enabled_of("readwrite", "/p"), 1)
-    _eq_int("read: 'write'+url -> 0", _remote_read_enabled_of("write", "/p"), 0)
-    _eq_int("read: 'off'+url -> 0", _remote_read_enabled_of("off", "/p"), 0)
-    _eq_int("read: default(empty)+url -> 1", _remote_read_enabled_of("", "/p"), 1)
-    _eq_int("read: no url -> 0", _remote_read_enabled_of("", ""), 0)
+    spec.describe(fw, "_remote_effective_mode_of: defaults") {
+        spec.it("explicit wins") callback {
+            spec.assert_str_eq(_remote_effective_mode_of("read", "/p"), "read", "mode: explicit wins")
+        }
+        spec.it("empty+url -> readwrite") callback {
+            spec.assert_str_eq(_remote_effective_mode_of("", "/p"), "readwrite", "mode: empty+url -> readwrite")
+        }
+        spec.it("empty+no-url -> off") callback {
+            spec.assert_str_eq(_remote_effective_mode_of("", ""), "off", "mode: empty+no-url -> off")
+        }
+    }
 
-    _eq_int("write: 'write'+url -> 1", _remote_write_enabled_of("write", "/p"), 1)
-    _eq_int("write: 'readwrite'+url -> 1", _remote_write_enabled_of("readwrite", "/p"), 1)
-    _eq_int("write: 'read'+url -> 0", _remote_write_enabled_of("read", "/p"), 0)
-    _eq_int("write: default(empty)+url -> 1", _remote_write_enabled_of("", "/p"), 1)
-    _eq_int("write: no url -> 0", _remote_write_enabled_of("", ""), 0)
+    spec.describe(fw, "read/write enablement matrix") {
+        spec.it("read: 'read'+url -> 1") callback {
+            spec.assert_eq(_remote_read_enabled_of("read", "/p"), 1, "read: 'read'+url -> 1")
+        }
+        spec.it("read: 'readwrite'+url -> 1") callback {
+            spec.assert_eq(_remote_read_enabled_of("readwrite", "/p"), 1, "read: 'readwrite'+url -> 1")
+        }
+        spec.it("read: 'write'+url -> 0") callback {
+            spec.assert_eq(_remote_read_enabled_of("write", "/p"), 0, "read: 'write'+url -> 0")
+        }
+        spec.it("read: 'off'+url -> 0") callback {
+            spec.assert_eq(_remote_read_enabled_of("off", "/p"), 0, "read: 'off'+url -> 0")
+        }
+        spec.it("read: default(empty)+url -> 1") callback {
+            spec.assert_eq(_remote_read_enabled_of("", "/p"), 1, "read: default(empty)+url -> 1")
+        }
+        spec.it("read: no url -> 0") callback {
+            spec.assert_eq(_remote_read_enabled_of("", ""), 0, "read: no url -> 0")
+        }
 
-    println("remote cache config tests done")
+        spec.it("write: 'write'+url -> 1") callback {
+            spec.assert_eq(_remote_write_enabled_of("write", "/p"), 1, "write: 'write'+url -> 1")
+        }
+        spec.it("write: 'readwrite'+url -> 1") callback {
+            spec.assert_eq(_remote_write_enabled_of("readwrite", "/p"), 1, "write: 'readwrite'+url -> 1")
+        }
+        spec.it("write: 'read'+url -> 0") callback {
+            spec.assert_eq(_remote_write_enabled_of("read", "/p"), 0, "write: 'read'+url -> 0")
+        }
+        spec.it("write: default(empty)+url -> 1") callback {
+            spec.assert_eq(_remote_write_enabled_of("", "/p"), 1, "write: default(empty)+url -> 1")
+        }
+        spec.it("write: no url -> 0") callback {
+            spec.assert_eq(_remote_write_enabled_of("", ""), 0, "write: no url -> 0")
+        }
+    }
+
+    spec.run_summary(fw)
 }

@@ -1,59 +1,44 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for python.pytest_cmd, python.ruff_lint_cmd, python.mypy_cmd,
 // python.build_package_cmd, python.pip_install_cmd,
 // python.pip_install_requirements_cmd
+import std.spec
+import std.map
 
-import python
 import python (pytest_cmd, ruff_lint_cmd, mypy_cmd, build_package_cmd, pip_install_cmd, pip_install_requirements_cmd, pyproject_path)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    _assert_eq("pytest_cmd basic",
-        pytest_cmd("/v/bin/python", "/proj/src", "/proj"),
-        "cd '/proj' && '/v/bin/python' -m pytest '/proj/src' -v")
+    fw = spec.init()
 
-    _assert_eq("ruff_lint_cmd basic",
-        ruff_lint_cmd("/v/bin/ruff", "/proj/src"),
-        "'/v/bin/ruff' check '/proj/src'")
-
-    _assert_eq("mypy_cmd basic",
-        mypy_cmd("/v/bin/python", "/proj/src", "/proj"),
-        "cd '/proj' && '/v/bin/python' -m mypy '/proj/src' --ignore-missing-imports")
-
-    _assert_eq("build_package_cmd basic",
-        build_package_cmd("/v/bin/python", "/proj", "/proj/target/dist"),
-        "cd '/proj' && '/v/bin/python' -m build --outdir '/proj/target/dist'")
-
-    _assert_eq("pip_install_cmd basic",
-        pip_install_cmd("/v/bin/pip", "requests==2.31.0"),
-        "'/v/bin/pip' install -q 'requests==2.31.0'")
-
-    _assert_eq("pip_install_cmd wheel path",
-        pip_install_cmd("/v/bin/pip", "/lib/wheels/foo.whl"),
-        "'/v/bin/pip' install -q '/lib/wheels/foo.whl'")
-
-    _assert_eq("pip_install_requirements_cmd basic",
-        pip_install_requirements_cmd("/v/bin/pip", "/proj/requirements.txt"),
-        "'/v/bin/pip' install -q -r '/proj/requirements.txt'")
+    spec.describe(fw, "python exec-string builders") {
+        spec.it("pytest_cmd basic") callback {
+            spec.assert_str_eq(pytest_cmd("/v/bin/python", "/proj/src", "/proj"),
+                "cd '/proj' && '/v/bin/python' -m pytest '/proj/src' -v", "pytest_cmd basic")
+        }
+        spec.it("ruff_lint_cmd basic") callback {
+            spec.assert_str_eq(ruff_lint_cmd("/v/bin/ruff", "/proj/src"),
+                "'/v/bin/ruff' check '/proj/src'", "ruff_lint_cmd basic")
+        }
+        spec.it("mypy_cmd basic") callback {
+            spec.assert_str_eq(mypy_cmd("/v/bin/python", "/proj/src", "/proj"),
+                "cd '/proj' && '/v/bin/python' -m mypy '/proj/src' --ignore-missing-imports", "mypy_cmd basic")
+        }
+        spec.it("build_package_cmd basic") callback {
+            spec.assert_str_eq(build_package_cmd("/v/bin/python", "/proj", "/proj/target/dist"),
+                "cd '/proj' && '/v/bin/python' -m build --outdir '/proj/target/dist'", "build_package_cmd basic")
+        }
+        spec.it("pip_install_cmd basic") callback {
+            spec.assert_str_eq(pip_install_cmd("/v/bin/pip", "requests==2.31.0"),
+                "'/v/bin/pip' install -q 'requests==2.31.0'", "pip_install_cmd basic")
+        }
+        spec.it("pip_install_cmd wheel path") callback {
+            spec.assert_str_eq(pip_install_cmd("/v/bin/pip", "/lib/wheels/foo.whl"),
+                "'/v/bin/pip' install -q '/lib/wheels/foo.whl'", "pip_install_cmd wheel path")
+        }
+        spec.it("pip_install_requirements_cmd basic") callback {
+            spec.assert_str_eq(pip_install_requirements_cmd("/v/bin/pip", "/proj/requirements.txt"),
+                "'/v/bin/pip' install -q -r '/proj/requirements.txt'", "pip_install_requirements_cmd basic")
+        }
+    }
 
     // python.package_existing(b) reuses build_package_cmd verbatim
     // (same `cd <dir> && python -m build --outdir <dist>` shape) —
@@ -61,21 +46,26 @@ main() {
     // build_package_cmd assertion above. What's new is the
     // `pyproject_path` setter; assert it accumulates as a scalar
     // key on the builder map.
-    bm = map.new()
-    pyproject_path(bm, "py/pyproject.toml")
-    pyproject_stored = ""
-    if map.has(bm, "pyproject_path") == 1 {
-        pyproject_stored, _ = map.get(bm, "pyproject_path")
+    spec.describe(fw, "pyproject_path setter") {
+        spec.it("stores the path") callback {
+            bm = map.new()
+            pyproject_path(bm, "py/pyproject.toml")
+            pyproject_stored = ""
+            if map.has(bm, "pyproject_path") == 1 {
+                pyproject_stored, _ = map.get(bm, "pyproject_path")
+            }
+            spec.assert_str_eq(pyproject_stored, "py/pyproject.toml", "pyproject_path setter stores the path")
+        }
+        // Last-call-wins on a second pyproject_path call (scalar
+        // semantics, same as the other lib/python scalar setters).
+        spec.it("is last-call-wins") callback {
+            bm = map.new()
+            pyproject_path(bm, "py/pyproject.toml")
+            pyproject_path(bm, "subproject/pyproject.toml")
+            pyproject_stored, _ = map.get(bm, "pyproject_path")
+            spec.assert_str_eq(pyproject_stored, "subproject/pyproject.toml", "pyproject_path setter is last-call-wins")
+        }
     }
-    _assert_eq("pyproject_path setter stores the path",
-        pyproject_stored, "py/pyproject.toml")
 
-    // Last-call-wins on a second pyproject_path call (scalar
-    // semantics, same as the other lib/python scalar setters).
-    pyproject_path(bm, "subproject/pyproject.toml")
-    pyproject_stored, _ = map.get(bm, "pyproject_path")
-    _assert_eq("pyproject_path setter is last-call-wins",
-        pyproject_stored, "subproject/pyproject.toml")
-
-    println("python cmd tests done")
+    spec.run_summary(fw)
 }

@@ -9,63 +9,84 @@
 //
 // See TODO.md § "Windows support (cut-down runner)".
 
+import std.spec
 import bldr (_basename, _dirname, _path_ext, _path_join, _path_to_slashes, _is_windows)
-import std.string
-
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
 
 main() {
+    fw = spec.init()
+
     // --- _basename: final component, trailing separators ignored ---
-    _eq("basename foo/bar",        _basename("foo/bar"),        "bar")
-    _eq("basename foo/bar/",       _basename("foo/bar/"),       "bar")
-    _eq("basename bare",           _basename("bar"),            "bar")
-    _eq("basename /",              _basename("/"),              "/")
-    _eq("basename /abs/file.txt",  _basename("/abs/file.txt"),  "file.txt")
-    _eq("basename deep///run",     _basename("a/b///run"),      "run")
-    _eq("basename trailing run//", _basename("a/b/run//"),      "run")
+    spec.describe(fw, "_basename") {
+        spec.it("final component, trailing separators ignored") callback {
+            spec.assert_str_eq(_basename("foo/bar"),        "bar",      "basename foo/bar")
+            spec.assert_str_eq(_basename("foo/bar/"),       "bar",      "basename foo/bar/")
+            spec.assert_str_eq(_basename("bar"),            "bar",      "basename bare")
+            spec.assert_str_eq(_basename("/"),              "/",        "basename /")
+            spec.assert_str_eq(_basename("/abs/file.txt"),  "file.txt", "basename /abs/file.txt")
+            spec.assert_str_eq(_basename("a/b///run"),      "run",      "basename deep///run")
+            spec.assert_str_eq(_basename("a/b/run//"),      "run",      "basename trailing run//")
+        }
+    }
 
     // --- _dirname: parent, trailing separators ignored ---
-    _eq("dirname foo/bar",         _dirname("foo/bar"),         "foo")
-    _eq("dirname foo/bar/",        _dirname("foo/bar/"),        "foo")
-    _eq("dirname bare",            _dirname("bar"),             ".")
-    _eq("dirname /foo",            _dirname("/foo"),            "/")
-    _eq("dirname /a/b/c",          _dirname("/a/b/c"),          "/a/b")
-    _eq("dirname collapse foo//b", _dirname("foo//bar"),        "foo")
+    spec.describe(fw, "_dirname") {
+        spec.it("parent, trailing separators ignored") callback {
+            spec.assert_str_eq(_dirname("foo/bar"),         "foo",  "dirname foo/bar")
+            spec.assert_str_eq(_dirname("foo/bar/"),        "foo",  "dirname foo/bar/")
+            spec.assert_str_eq(_dirname("bar"),             ".",    "dirname bare")
+            spec.assert_str_eq(_dirname("/foo"),            "/",    "dirname /foo")
+            spec.assert_str_eq(_dirname("/a/b/c"),          "/a/b", "dirname /a/b/c")
+            spec.assert_str_eq(_dirname("foo//bar"),        "foo",  "dirname collapse foo//b")
+        }
+    }
 
     // --- _path_ext: extension without the dot, Rust Path::extension semantics ---
-    _eq("ext a.tar.gz",            _path_ext("a.tar.gz"),       "gz")
-    _eq("ext dir/file.ae",         _path_ext("dir/file.ae"),    "ae")
-    _eq("ext noext",               _path_ext("noext"),          "")
-    _eq("ext hidden .gitignore",   _path_ext(".gitignore"),     "")
-    _eq("ext dotdir/.x has none",  _path_ext("dotdir/.x"),      "")
-    _eq("ext trailing dot",        _path_ext("foo."),           "")
-    _eq("ext dot-in-parent only",  _path_ext("a.b/file"),       "")
+    spec.describe(fw, "_path_ext") {
+        spec.it("extension without the dot, Rust Path::extension semantics") callback {
+            spec.assert_str_eq(_path_ext("a.tar.gz"),    "gz", "ext a.tar.gz")
+            spec.assert_str_eq(_path_ext("dir/file.ae"), "ae", "ext dir/file.ae")
+            spec.assert_str_eq(_path_ext("noext"),       "",   "ext noext")
+            spec.assert_str_eq(_path_ext(".gitignore"),  "",   "ext hidden .gitignore")
+            spec.assert_str_eq(_path_ext("dotdir/.x"),   "",   "ext dotdir/.x has none")
+            spec.assert_str_eq(_path_ext("foo."),        "",   "ext trailing dot")
+            spec.assert_str_eq(_path_ext("a.b/file"),    "",   "ext dot-in-parent only")
+        }
+    }
 
     // --- _path_join: collapse the seam, honour absolute b ---
-    _eq("join simple",             _path_join("a/b", "c"),      "a/b/c")
-    _eq("join strips a trailing",  _path_join("a/b/", "c"),     "a/b/c")
-    _eq("join empty a",            _path_join("", "c"),         "c")
-    _eq("join empty b",            _path_join("a", ""),         "a")
-    _eq("join absolute b wins",    _path_join("a/b", "/abs"),   "/abs")
+    spec.describe(fw, "_path_join") {
+        spec.it("collapse the seam, honour absolute b") callback {
+            spec.assert_str_eq(_path_join("a/b", "c"),    "a/b/c", "join simple")
+            spec.assert_str_eq(_path_join("a/b/", "c"),   "a/b/c", "join strips a trailing")
+            spec.assert_str_eq(_path_join("", "c"),       "c",     "join empty a")
+            spec.assert_str_eq(_path_join("a", ""),       "a",     "join empty b")
+            spec.assert_str_eq(_path_join("a/b", "/abs"), "/abs",  "join absolute b wins")
+        }
+    }
 
     // --- _path_to_slashes: backslash normalisation ---
-    _eq("to_slashes plain",        _path_to_slashes("a/b/c"),   "a/b/c")
-    _eq("to_slashes backslashes",  _path_to_slashes("a\\b\\c"), "a/b/c")
-    _eq("to_slashes drive",        _path_to_slashes("C:\\src"), "C:/src")
+    spec.describe(fw, "_path_to_slashes") {
+        spec.it("backslash normalisation") callback {
+            spec.assert_str_eq(_path_to_slashes("a/b/c"),   "a/b/c", "to_slashes plain")
+            spec.assert_str_eq(_path_to_slashes("a\\b\\c"), "a/b/c", "to_slashes backslashes")
+            spec.assert_str_eq(_path_to_slashes("C:\\src"), "C:/src", "to_slashes drive")
+        }
+    }
 
     // --- Windows-only: '\' is a separator there, a filename char on POSIX ---
-    if _is_windows() == 1 {
-        _eq("win basename a\\b",   _basename("a\\b"),           "b")
-        _eq("win dirname a\\b",    _dirname("a\\b"),            "a")
-        _eq("win basename C:\\x",  _basename("C:\\x"),          "x")
+    spec.describe(fw, "backslash separator (host-gated)") {
+        spec.it("backslash is a separator on Windows, a name char on POSIX") callback {
+            if _is_windows() == 1 {
+                spec.assert_str_eq(_basename("a\\b"),   "b", "win basename a\\b")
+                spec.assert_str_eq(_dirname("a\\b"),    "a", "win dirname a\\b")
+                spec.assert_str_eq(_basename("C:\\x"),  "x", "win basename C:\\x")
+            }
+            else {
+                // On POSIX, a backslash is just part of the name (no separator).
+                spec.assert_str_eq(_basename("a\\b"), "a\\b", "posix basename a\\b")
+            }
+        }
     }
-    else {
-        // On POSIX, a backslash is just part of the name (no separator).
-        _eq("posix basename a\\b", _basename("a\\b"),           "a\\b")
-    }
+
+    spec.run_summary(fw)
 }

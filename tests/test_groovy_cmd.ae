@@ -1,46 +1,64 @@
 // Tests for lib/groovy's pure command pieces: the groovyc invocation string
 // and the JAVA_OPTS bytecode-target prefix.
-
-import groovy (groovyc_cmd, _java_opts, target_bytecode, run_script)
-import std.string
+import std.spec
 import std.map
-
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
+import groovy (groovyc_cmd, _java_opts, target_bytecode, run_script)
 
 main() {
-    // --- groovyc_cmd(bin, classes_dir, classpath, file_list) ---
-    _eq("groovyc resolved bin + multi-entry cp",
-        groovyc_cmd("/opt/groovy/bin/groovyc", "/t/classes", "/cp/a.jar:/cp/b.jar", "Foo.groovy Bar.groovy"),
-        "/opt/groovy/bin/groovyc -d /t/classes -cp /cp/a.jar:/cp/b.jar Foo.groovy Bar.groovy")
-    _eq("groovyc bare bin (PATH fallback)",
-        groovyc_cmd("groovyc", "/t", "cp", "F.groovy"),
-        "groovyc -d /t -cp cp F.groovy")
+    fw = spec.init()
 
-    // --- _java_opts(builder_map): target_bytecode → JAVA_OPTS prefix ---
-    _eq("java_opts: null bmap → empty", _java_opts(null), "")
-    bm0 = map.new()
-    _eq("java_opts: target_bytecode unset → empty", _java_opts(bm0), "")
-    bm = map.new()
-    target_bytecode(bm, "22")
-    _eq("java_opts: target_bytecode(22)",
-        _java_opts(bm), "JAVA_OPTS=\"-Dgroovy.target.bytecode=22\" ")
-    bm2 = map.new()
-    target_bytecode(bm2, "17")
-    _eq("java_opts: target_bytecode(17)",
-        _java_opts(bm2), "JAVA_OPTS=\"-Dgroovy.target.bytecode=17\" ")
+    spec.describe(fw, "groovyc_cmd") {
+        // groovyc_cmd(bin, classes_dir, classpath, file_list)
+        spec.it("resolved bin + multi-entry cp") callback {
+            spec.assert_str_eq(
+                groovyc_cmd("/opt/groovy/bin/groovyc", "/t/classes", "/cp/a.jar:/cp/b.jar", "Foo.groovy Bar.groovy"),
+                "/opt/groovy/bin/groovyc -d /t/classes -cp /cp/a.jar:/cp/b.jar Foo.groovy Bar.groovy", "groovyc resolved bin + multi-entry cp")
+        }
+        spec.it("bare bin (PATH fallback)") callback {
+            spec.assert_str_eq(
+                groovyc_cmd("groovyc", "/t", "cp", "F.groovy"),
+                "groovyc -d /t -cp cp F.groovy", "groovyc bare bin (PATH fallback)")
+        }
+    }
 
-    // --- run_script(script): scalar setter, run a Groovy script directly
-    // (no test compile). Stored under "run_script"; last call wins.
-    bmr = map.new()
-    run_script(bmr, "scripts/smoke.groovy")
-    sv, _ = map.get(bmr, "run_script")
-    _eq("run_script stored as scalar", sv, "scripts/smoke.groovy")
-    run_script(bmr, "scripts/other.groovy")
-    sv2, _ = map.get(bmr, "run_script")
-    _eq("run_script last-call-wins", sv2, "scripts/other.groovy")
+    spec.describe(fw, "_java_opts") {
+        // _java_opts(builder_map): target_bytecode → JAVA_OPTS prefix
+        spec.it("null bmap → empty") callback {
+            spec.assert_str_eq(_java_opts(null), "", "java_opts: null bmap → empty")
+        }
+        spec.it("target_bytecode unset → empty") callback {
+            bm0 = map.new()
+            spec.assert_str_eq(_java_opts(bm0), "", "java_opts: target_bytecode unset → empty")
+        }
+        spec.it("target_bytecode(22)") callback {
+            bm = map.new()
+            target_bytecode(bm, "22")
+            spec.assert_str_eq(_java_opts(bm), "JAVA_OPTS=\"-Dgroovy.target.bytecode=22\" ", "java_opts: target_bytecode(22)")
+        }
+        spec.it("target_bytecode(17)") callback {
+            bm2 = map.new()
+            target_bytecode(bm2, "17")
+            spec.assert_str_eq(_java_opts(bm2), "JAVA_OPTS=\"-Dgroovy.target.bytecode=17\" ", "java_opts: target_bytecode(17)")
+        }
+    }
+
+    spec.describe(fw, "run_script") {
+        // run_script(script): scalar setter, run a Groovy script directly
+        // (no test compile). Stored under "run_script"; last call wins.
+        spec.it("stored as scalar") callback {
+            bmr = map.new()
+            run_script(bmr, "scripts/smoke.groovy")
+            sv, _ = map.get(bmr, "run_script")
+            spec.assert_str_eq(sv, "scripts/smoke.groovy", "run_script stored as scalar")
+        }
+        spec.it("last-call-wins") callback {
+            bmr = map.new()
+            run_script(bmr, "scripts/smoke.groovy")
+            run_script(bmr, "scripts/other.groovy")
+            sv2, _ = map.get(bmr, "run_script")
+            spec.assert_str_eq(sv2, "scripts/other.groovy", "run_script last-call-wins")
+        }
+    }
+
+    spec.run_summary(fw)
 }

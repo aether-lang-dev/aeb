@@ -4,34 +4,16 @@
 // sort target paths, then keep entries whose zero-based position
 // modulo M equals N-1.
 
+import std.spec
 import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
 import std.list
-import std.map
-import std.path
-import std.dir
 
-extern println(s: string)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
-_parse_shard(spec: string) {
-    slash = string.index_of(spec, "/")
+_parse_shard(spec_str: string) {
+    slash = string.index_of(spec_str, "/")
     if slash <= 0 { return 0, 0, 0 }
-    if slash >= string.length(spec) - 1 { return 0, 0, 0 }
-    left = string.substring(spec, 0, slash)
-    right = string.substring(spec, slash + 1, string.length(spec))
+    if slash >= string.length(spec_str) - 1 { return 0, 0, 0 }
+    left = string.substring(spec_str, 0, slash)
+    right = string.substring(spec_str, slash + 1, string.length(spec_str))
     idx, _ierr = string.to_int(left)
     total, _terr = string.to_int(right)
     if idx < 1 { return 0, 0, 0 }
@@ -40,8 +22,8 @@ _parse_shard(spec: string) {
     return idx, total, 1
 }
 
-_select_from_sorted(items: ptr, spec: string) {
-    idx, total, ok = _parse_shard(spec)
+_select_from_sorted(items: ptr, spec_str: string) {
+    idx, total, ok = _parse_shard(spec_str)
     if ok == 0 { return "INVALID" }
     out = ""
     n = list.size(items)
@@ -60,6 +42,8 @@ _select_from_sorted(items: ptr, spec: string) {
 }
 
 main() {
+    fw = spec.init()
+
     items = list.new()
     list.add(items, "a/.tests.ae")
     list.add(items, "b/.tests.ae")
@@ -67,12 +51,37 @@ main() {
     list.add(items, "d/.tests.ae")
     list.add(items, "e/.tests.ae")
 
-    _assert_eq("shard 1/2", _select_from_sorted(items, "1/2"), "a/.tests.ae\nc/.tests.ae\ne/.tests.ae")
-    _assert_eq("shard 2/2", _select_from_sorted(items, "2/2"), "b/.tests.ae\nd/.tests.ae")
-    _assert_eq("shard 3/4", _select_from_sorted(items, "3/4"), "c/.tests.ae")
-    _assert_eq("sparse shard valid", _select_from_sorted(items, "4/8"), "d/.tests.ae")
-    _assert_eq("empty shard valid", _select_from_sorted(items, "8/8"), "")
-    _assert_eq("invalid zero", _select_from_sorted(items, "0/2"), "INVALID")
-    _assert_eq("invalid too high", _select_from_sorted(items, "3/2"), "INVALID")
-    _assert_eq("invalid syntax", _select_from_sorted(items, "2"), "INVALID")
+    spec.describe(fw, "shard selection") {
+        spec.it("shard 1/2") callback {
+            spec.assert_str_eq(_select_from_sorted(items, "1/2"),
+                "a/.tests.ae\nc/.tests.ae\ne/.tests.ae", "1/2")
+        }
+        spec.it("shard 2/2") callback {
+            spec.assert_str_eq(_select_from_sorted(items, "2/2"),
+                "b/.tests.ae\nd/.tests.ae", "2/2")
+        }
+        spec.it("shard 3/4") callback {
+            spec.assert_str_eq(_select_from_sorted(items, "3/4"), "c/.tests.ae", "3/4")
+        }
+        spec.it("sparse shard valid") callback {
+            spec.assert_str_eq(_select_from_sorted(items, "4/8"), "d/.tests.ae", "4/8")
+        }
+        spec.it("empty shard valid") callback {
+            spec.assert_str_eq(_select_from_sorted(items, "8/8"), "", "8/8")
+        }
+    }
+
+    spec.describe(fw, "invalid shard specs") {
+        spec.it("invalid zero") callback {
+            spec.assert_str_eq(_select_from_sorted(items, "0/2"), "INVALID", "0/2")
+        }
+        spec.it("invalid too high") callback {
+            spec.assert_str_eq(_select_from_sorted(items, "3/2"), "INVALID", "3/2")
+        }
+        spec.it("invalid syntax") callback {
+            spec.assert_str_eq(_select_from_sorted(items, "2"), "INVALID", "no slash")
+        }
+    }
+
+    spec.run_summary(fw)
 }

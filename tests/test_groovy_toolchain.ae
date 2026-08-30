@@ -7,53 +7,73 @@
 // — here we cover the PURE decision logic that has no toolchain dependency:
 //   bldr._verify_toolchain(probe_cmd, ok_token) — token/version-marker gate
 //   groovy._min_int(builder_map, key)            — declared minimum as int
-
-import bldr (_verify_toolchain, _java_ge)
-import groovy (_min_int, min_groovy, min_jdk)
+import std.spec
 import std.string
 import std.map
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
+import bldr (_verify_toolchain, _java_ge)
+import groovy (_min_int, min_groovy, min_jdk)
 
 main() {
-    // --- _verify_toolchain: the ok-token IS the success signal ---
-    // (os.exec doesn't surface exit codes, so a probe must print a sentinel.)
-    _assert("verify: token present -> usable",
-        _verify_toolchain("printf 'AEB_PROBE_OK\\n'", "AEB_PROBE_OK"))
-    _assert("verify: token absent -> not usable (== 0)",
-        1 - _verify_toolchain("printf 'nope\\n'", "AEB_PROBE_OK"))
-    _assert("verify: a failing command prints no token -> not usable",
-        1 - _verify_toolchain("false", "AEB_PROBE_OK"))
+    fw = spec.init()
 
-    // The version-marker veto: even if the probe limps far enough to emit the
-    // token, a bytecode-version mismatch in the output rejects it. This is the
-    // Groovy-too-old-for-JDK-22-bytecode case.
-    _assert("verify: UnsupportedClassVersionError vetoes despite token",
-        1 - _verify_toolchain("printf 'AEB_PROBE_OK\\nUnsupportedClassVersionError\\n'", "AEB_PROBE_OK"))
-    _assert("verify: 'class file version' marker vetoes despite token",
-        1 - _verify_toolchain("printf 'class file version 68.0\\nAEB_PROBE_OK\\n'", "AEB_PROBE_OK"))
+    spec.describe(fw, "_verify_toolchain") {
+        // --- _verify_toolchain: the ok-token IS the success signal ---
+        // (os.exec doesn't surface exit codes, so a probe must print a sentinel.)
+        spec.it("token present -> usable") callback {
+            spec.assert_true(
+                _verify_toolchain("printf 'AEB_PROBE_OK\\n'", "AEB_PROBE_OK"), "verify: token present -> usable")
+        }
+        spec.it("token absent -> not usable (== 0)") callback {
+            spec.assert_true(
+                1 - _verify_toolchain("printf 'nope\\n'", "AEB_PROBE_OK"), "verify: token absent -> not usable (== 0)")
+        }
+        spec.it("a failing command prints no token -> not usable") callback {
+            spec.assert_true(
+                1 - _verify_toolchain("false", "AEB_PROBE_OK"), "verify: a failing command prints no token -> not usable")
+        }
 
-    // --- _min_int: declared minimum read back as an int ---
-    b = map.new()
-    _assert("min_int: unset key -> 0", _min_int(b, "min_jdk") == 0)
-    _assert("min_int: null builder -> 0", _min_int(null, "min_jdk") == 0)
+        // The version-marker veto: even if the probe limps far enough to emit the
+        // token, a bytecode-version mismatch in the output rejects it. This is the
+        // Groovy-too-old-for-JDK-22-bytecode case.
+        spec.it("UnsupportedClassVersionError vetoes despite token") callback {
+            spec.assert_true(
+                1 - _verify_toolchain("printf 'AEB_PROBE_OK\\nUnsupportedClassVersionError\\n'", "AEB_PROBE_OK"), "verify: UnsupportedClassVersionError vetoes despite token")
+        }
+        spec.it("'class file version' marker vetoes despite token") callback {
+            spec.assert_true(
+                1 - _verify_toolchain("printf 'class file version 68.0\\nAEB_PROBE_OK\\n'", "AEB_PROBE_OK"), "verify: 'class file version' marker vetoes despite token")
+        }
+    }
 
-    b2 = map.new()
-    min_jdk(b2, "22")
-    min_groovy(b2, "4")
-    _assert("min_int: reads min_jdk", _min_int(b2, "min_jdk") == 22)
-    _assert("min_int: reads min_groovy", _min_int(b2, "min_groovy") == 4)
+    spec.describe(fw, "_min_int") {
+        // --- _min_int: declared minimum read back as an int ---
+        spec.it("unset key -> 0") callback {
+            b = map.new()
+            spec.assert_true(_min_int(b, "min_jdk") == 0, "min_int: unset key -> 0")
+        }
+        spec.it("null builder -> 0") callback {
+            spec.assert_true(_min_int(null, "min_jdk") == 0, "min_int: null builder -> 0")
+        }
+        spec.it("reads min_jdk / min_groovy") callback {
+            b2 = map.new()
+            min_jdk(b2, "22")
+            min_groovy(b2, "4")
+            spec.assert_true(_min_int(b2, "min_jdk") == 22, "min_int: reads min_jdk")
+            spec.assert_true(_min_int(b2, "min_groovy") == 4, "min_int: reads min_groovy")
+        }
+    }
 
-    // --- bldr._java_ge: shared JDK selector (string floor now) ---
-    // Two box-agnostic invariants: empty floor and unsatisfiable both -> "".
-    // ("" = "caller uses default java"; "999" = "SKIP/FAIL signal".)
-    _assert("java_ge: \"\" -> \"\" (no requirement)", string.length(_java_ge("")) == 0)
-    _assert("java_ge: 999 -> \"\" (unsatisfiable)", string.length(_java_ge("999")) == 0)
+    spec.describe(fw, "_java_ge") {
+        // --- bldr._java_ge: shared JDK selector (string floor now) ---
+        // Two box-agnostic invariants: empty floor and unsatisfiable both -> "".
+        // ("" = "caller uses default java"; "999" = "SKIP/FAIL signal".)
+        spec.it("\"\" -> \"\" (no requirement)") callback {
+            spec.assert_true(string.length(_java_ge("")) == 0, "java_ge: \"\" -> \"\" (no requirement)")
+        }
+        spec.it("999 -> \"\" (unsatisfiable)") callback {
+            spec.assert_true(string.length(_java_ge("999")) == 0, "java_ge: 999 -> \"\" (unsatisfiable)")
+        }
+    }
 
-    println("groovy toolchain tests done")
+    spec.run_summary(fw)
 }

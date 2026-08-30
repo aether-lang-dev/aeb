@@ -9,68 +9,76 @@
 // arithmetic) — their cross-module return type isn't inferred as int, so `+`
 // is rejected but `== 1` typechecks (the same idiom every SDK uses on them).
 
+import std.spec
 import bldr (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix, _is_abs_path)
 import std.string
 
-extern println(s: string)
-
-_eq_s(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
-_ok(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
-
 main() {
-    os = _host_os()
+    fw = spec.init()
 
-    // --- The normalised token is one of the known values ---
-    known = 0
-    if string.equals(os, "linux") == 1 { known = 1 }
-    if string.equals(os, "macos") == 1 { known = 1 }
-    if string.equals(os, "windows") == 1 { known = 1 }
-    if string.equals(os, "freebsd") == 1 { known = 1 }
-    _ok("_host_os() returns a known token", known)
+    spec.describe(fw, "_host_os + _is_* predicates") {
+        // --- The normalised token is one of the known values ---
+        spec.it("_host_os() returns a known token") callback {
+            os = _host_os()
+            known = 0
+            if string.equals(os, "linux") == 1 { known = 1 }
+            if string.equals(os, "macos") == 1 { known = 1 }
+            if string.equals(os, "windows") == 1 { known = 1 }
+            if string.equals(os, "freebsd") == 1 { known = 1 }
+            spec.assert_true(known, "_host_os() returns a known token")
+        }
 
-    // --- Exactly one _is_* predicate fires, and it matches the token ---
-    n = 0
-    if _is_linux()   == 1 { n = n + 1 }
-    if _is_macos()   == 1 { n = n + 1 }
-    if _is_windows() == 1 { n = n + 1 }
-    if _is_freebsd() == 1 { n = n + 1 }
-    _ok("exactly one _is_* predicate is true", _is_one(n))
-    _ok("_is_linux() agrees with token",   _agree(_is_linux(),   os, "linux"))
-    _ok("_is_macos() agrees with token",   _agree(_is_macos(),   os, "macos"))
-    _ok("_is_windows() agrees with token", _agree(_is_windows(), os, "windows"))
-    _ok("_is_freebsd() agrees with token", _agree(_is_freebsd(), os, "freebsd"))
+        // --- Exactly one _is_* predicate fires, and it matches the token ---
+        spec.it("exactly one _is_* predicate is true, agreeing with the token") callback {
+            os = _host_os()
+            n = 0
+            if _is_linux()   == 1 { n = n + 1 }
+            if _is_macos()   == 1 { n = n + 1 }
+            if _is_windows() == 1 { n = n + 1 }
+            if _is_freebsd() == 1 { n = n + 1 }
+            spec.assert_true(_is_one(n), "exactly one _is_* predicate is true")
+            spec.assert_true(_agree(_is_linux(),   os, "linux"),   "_is_linux() agrees with token")
+            spec.assert_true(_agree(_is_macos(),   os, "macos"),   "_is_macos() agrees with token")
+            spec.assert_true(_agree(_is_windows(), os, "windows"), "_is_windows() agrees with token")
+            spec.assert_true(_agree(_is_freebsd(), os, "freebsd"), "_is_freebsd() agrees with token")
+        }
+    }
 
-    // --- _path_sep(): ';' iff Windows, ':' otherwise ---
-    if _is_windows() == 1 { _eq_s("_path_sep() is ';' on Windows", _path_sep(), ";") }
-    else { _eq_s("_path_sep() is ':' off Windows", _path_sep(), ":") }
-
-    // --- _exe_suffix(): '.exe' iff Windows, '' otherwise ---
-    if _is_windows() == 1 { _eq_s("_exe_suffix() is '.exe' on Windows", _exe_suffix(), ".exe") }
-    else { _eq_s("_exe_suffix() is '' off Windows", _exe_suffix(), "") }
-
-    // --- _default_cc(): clang-as-cc on macOS/FreeBSD, gcc elsewhere ---
-    cc = _default_cc()
-    if _is_macos() == 1 { _eq_s("_default_cc() is 'cc' on macOS", cc, "cc") }
-    if _is_freebsd() == 1 { _eq_s("_default_cc() is 'cc' on FreeBSD", cc, "cc") }
-    if _is_linux() == 1 { _eq_s("_default_cc() is 'gcc' on Linux", cc, "gcc") }
+    spec.describe(fw, "per-OS scalars") {
+        // --- _path_sep(): ';' iff Windows, ':' otherwise ---
+        spec.it("_path_sep(): ';' on Windows, ':' otherwise") callback {
+            if _is_windows() == 1 { spec.assert_str_eq(_path_sep(), ";", "_path_sep() is ';' on Windows") }
+            else { spec.assert_str_eq(_path_sep(), ":", "_path_sep() is ':' off Windows") }
+        }
+        // --- _exe_suffix(): '.exe' iff Windows, '' otherwise ---
+        spec.it("_exe_suffix(): '.exe' on Windows, '' otherwise") callback {
+            if _is_windows() == 1 { spec.assert_str_eq(_exe_suffix(), ".exe", "_exe_suffix() is '.exe' on Windows") }
+            else { spec.assert_str_eq(_exe_suffix(), "", "_exe_suffix() is '' off Windows") }
+        }
+        // --- _default_cc(): clang-as-cc on macOS/FreeBSD, gcc elsewhere ---
+        spec.it("_default_cc(): 'cc' on macOS/FreeBSD, 'gcc' on Linux") callback {
+            cc = _default_cc()
+            if _is_macos() == 1 { spec.assert_str_eq(cc, "cc", "_default_cc() is 'cc' on macOS") }
+            if _is_freebsd() == 1 { spec.assert_str_eq(cc, "cc", "_default_cc() is 'cc' on FreeBSD") }
+            if _is_linux() == 1 { spec.assert_str_eq(cc, "gcc", "_default_cc() is 'gcc' on Linux") }
+        }
+    }
 
     // --- _has_windows_drive_prefix(): the Prefix::Disk rule (host-independent,
     //     it's pure string analysis — runs the same on every platform) ---
-    _ok("'C:' (bare cwd-relative drive)",      _has_windows_drive_prefix("C:"))
-    _ok("'C:\\src' (backslash)",               _has_windows_drive_prefix("C:\\src"))
-    _ok("'d:/tmp' (lower-case, fwd slash)",    _has_windows_drive_prefix("d:/tmp"))
-    _no("'java/foo:bar' (target synonym)",     _has_windows_drive_prefix("java/foo:bar"))
-    _no("':name' (bare synonym, no path)",     _has_windows_drive_prefix(":name"))
-    _no("'C:name' (letter+colon+non-sep)",     _has_windows_drive_prefix("C:name"))
-    _no("'/abs/posix' (posix absolute)",       _has_windows_drive_prefix("/abs/posix"))
-    _no("'12:34' (digit, not a letter)",       _has_windows_drive_prefix("12:34"))
-    _no("'' (empty)",                          _has_windows_drive_prefix(""))
+    spec.describe(fw, "_has_windows_drive_prefix") {
+        spec.it("the Prefix::Disk rule (pure string analysis)") callback {
+            spec.assert_true(_has_windows_drive_prefix("C:"),         "'C:' (bare cwd-relative drive)")
+            spec.assert_true(_has_windows_drive_prefix("C:\\src"),    "'C:\\src' (backslash)")
+            spec.assert_true(_has_windows_drive_prefix("d:/tmp"),     "'d:/tmp' (lower-case, fwd slash)")
+            spec.assert_false(_has_windows_drive_prefix("java/foo:bar"), "'java/foo:bar' (target synonym)")
+            spec.assert_false(_has_windows_drive_prefix(":name"),       "':name' (bare synonym, no path)")
+            spec.assert_false(_has_windows_drive_prefix("C:name"),      "'C:name' (letter+colon+non-sep)")
+            spec.assert_false(_has_windows_drive_prefix("/abs/posix"),  "'/abs/posix' (posix absolute)")
+            spec.assert_false(_has_windows_drive_prefix("12:34"),       "'12:34' (digit, not a letter)")
+            spec.assert_false(_has_windows_drive_prefix(""),            "'' (empty)")
+        }
+    }
 
     // --- _is_abs_path(): the canonical host-aware "is this absolute?" the SDKs
     //     use to decide resolve-against-source_dir vs pass-through. Pure string
@@ -78,32 +86,39 @@ main() {
     //     must read as absolute; a Windows abs path is 'C:/..', never '/..', so
     //     a bare leading-slash test (what these sites used before) would mangle
     //     it into '<dir>/C:/..'. This is the regression guard for that class. ---
-    _ok("'/abs/posix' is absolute",             _is_abs_path("/abs/posix"))
-    _ok("'C:/Users/x' (drive, fwd slash)",      _is_abs_path("C:/Users/x"))
-    _ok("'C:\\Users\\x' (drive, backslash)",    _is_abs_path("C:\\Users\\x"))
-    _ok("'d:/tmp' (lower-case drive)",          _is_abs_path("d:/tmp"))
-    _ok("'C:' (bare cwd-relative drive)",       _is_abs_path("C:"))
-    _ok("'\\\\host\\share' (UNC)",              _is_abs_path("\\\\host\\share"))
-    _no("'rel/path' (bare relative)",           _is_abs_path("rel/path"))
-    _no("'a.cp' (bare filename)",               _is_abs_path("a.cp"))
-    _no("'./rel' (dot-relative)",               _is_abs_path("./rel"))
-    _no("'' (empty)",                           _is_abs_path(""))
+    spec.describe(fw, "_is_abs_path") {
+        spec.it("POSIX '/' and Windows drive/UNC both read as absolute") callback {
+            spec.assert_true(_is_abs_path("/abs/posix"),         "'/abs/posix' is absolute")
+            spec.assert_true(_is_abs_path("C:/Users/x"),         "'C:/Users/x' (drive, fwd slash)")
+            spec.assert_true(_is_abs_path("C:\\Users\\x"),       "'C:\\Users\\x' (drive, backslash)")
+            spec.assert_true(_is_abs_path("d:/tmp"),             "'d:/tmp' (lower-case drive)")
+            spec.assert_true(_is_abs_path("C:"),                 "'C:' (bare cwd-relative drive)")
+            spec.assert_true(_is_abs_path("\\\\host\\share"),    "'\\\\host\\share' (UNC)")
+            spec.assert_false(_is_abs_path("rel/path"),          "'rel/path' (bare relative)")
+            spec.assert_false(_is_abs_path("a.cp"),              "'a.cp' (bare filename)")
+            spec.assert_false(_is_abs_path("./rel"),             "'./rel' (dot-relative)")
+            spec.assert_false(_is_abs_path(""),                  "'' (empty)")
+        }
+    }
 
     // --- _cp_append(): conditional classpath join with the host separator.
     //     Expectations built from _path_sep() so the test holds on every host.
-    sep = _path_sep()
-    _eq_s("_cp_append into empty cp = part",   _cp_append("", "a.jar"), "a.jar")
-    _eq_s("_cp_append empty part = cp",         _cp_append("out", ""), "out")
-    _eq_s("_cp_append empty + empty = empty",   _cp_append("", ""), "")
-    _eq_s("_cp_append joins with host sep",     _cp_append("out", "a.jar"),
-        string.concat("out", string.concat(sep, "a.jar")))
-    _eq_s("_cp_append chains (sep between each)", _cp_append(_cp_append("out", "a.jar"), "b.jar"),
-        string.concat("out", string.concat(sep, string.concat("a.jar", string.concat(sep, "b.jar")))))
-}
+    spec.describe(fw, "_cp_append") {
+        spec.it("conditional classpath join with the host separator") callback {
+            sep = _path_sep()
+            spec.assert_str_eq(_cp_append("", "a.jar"), "a.jar", "_cp_append into empty cp = part")
+            spec.assert_str_eq(_cp_append("out", ""), "out", "_cp_append empty part = cp")
+            spec.assert_str_eq(_cp_append("", ""), "", "_cp_append empty + empty = empty")
+            spec.assert_str_eq(_cp_append("out", "a.jar"),
+                string.concat("out", string.concat(sep, "a.jar")),
+                "_cp_append joins with host sep")
+            spec.assert_str_eq(_cp_append(_cp_append("out", "a.jar"), "b.jar"),
+                string.concat("out", string.concat(sep, string.concat("a.jar", string.concat(sep, "b.jar")))),
+                "_cp_append chains (sep between each)")
+        }
+    }
 
-_no(label: string, cond: int) {
-    if cond == 0 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
+    spec.run_summary(fw)
 }
 
 _is_one(n: int) {

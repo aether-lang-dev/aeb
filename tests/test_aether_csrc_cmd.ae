@@ -8,68 +8,75 @@
 // The exec itself rides the shared _shell_out_ae_build (already
 // covered for the binary path); these pin the csrc-specific string
 // surface per the string-builder pattern (LLM.md § SDK extension).
-import std.string
+import std.spec
 import std.map
 import std.list
 
-extern println(s: string)
-
 import aether (ae_csrc_flags, csrc_default_output, ae_lib_flags)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 main() {
+    fw = spec.init()
+
     // --- ae_csrc_flags: emit flag, optional --with= csv ---
-    _assert_eq("flags: no caps",
-        ae_csrc_flags(""), " --emit=csrc")
-    _assert_eq("flags: one cap",
-        ae_csrc_flags("net"), " --emit=csrc --with=net")
-    _assert_eq("flags: csv caps, order preserved",
-        ae_csrc_flags("net,fs"), " --emit=csrc --with=net,fs")
-    _assert_eq("flags: all",
-        ae_csrc_flags("all"), " --emit=csrc --with=all")
+    spec.describe(fw, "ae_csrc_flags") {
+        spec.it("no caps") callback {
+            spec.assert_str_eq(ae_csrc_flags(""), " --emit=csrc", "no caps")
+        }
+        spec.it("one cap") callback {
+            spec.assert_str_eq(ae_csrc_flags("net"), " --emit=csrc --with=net", "one cap")
+        }
+        spec.it("csv caps, order preserved") callback {
+            spec.assert_str_eq(ae_csrc_flags("net,fs"), " --emit=csrc --with=net,fs", "csv caps")
+        }
+        spec.it("all") callback {
+            spec.assert_str_eq(ae_csrc_flags("all"), " --emit=csrc --with=all", "all")
+        }
+    }
 
     // --- csrc_default_output: strip trailing .ae only ---
-    _assert_eq("output: greet.ae → greet",
-        csrc_default_output("greet.ae"), "greet")
-    _assert_eq("output: dotted stem keeps inner dots",
-        csrc_default_output("a.b.ae"), "a.b")
-    _assert_eq("output: no suffix passes through",
-        csrc_default_output("greet"), "greet")
-    _assert_eq("output: bare '.ae' passes through (nothing to strip to)",
-        csrc_default_output(".ae"), ".ae")
+    spec.describe(fw, "csrc_default_output") {
+        spec.it("greet.ae → greet") callback {
+            spec.assert_str_eq(csrc_default_output("greet.ae"), "greet", "strip .ae")
+        }
+        spec.it("dotted stem keeps inner dots") callback {
+            spec.assert_str_eq(csrc_default_output("a.b.ae"), "a.b", "inner dots")
+        }
+        spec.it("no suffix passes through") callback {
+            spec.assert_str_eq(csrc_default_output("greet"), "greet", "no suffix")
+        }
+        spec.it("bare '.ae' passes through (nothing to strip to)") callback {
+            spec.assert_str_eq(csrc_default_output(".ae"), ".ae", "bare .ae")
+        }
+    }
 
     // --- ae_lib_flags: --emit=lib, optional --with=, one --extra per source ---
-    _assert_eq("lib: no caps, no extras",
-        ae_lib_flags("", null, "/src"), " --emit=lib")
-    _assert_eq("lib: caps, no extras",
-        ae_lib_flags("net", null, "/src"), " --emit=lib --with=net")
+    spec.describe(fw, "ae_lib_flags") {
+        spec.it("no caps, no extras") callback {
+            spec.assert_str_eq(ae_lib_flags("", null, "/src"), " --emit=lib", "no caps no extras")
+        }
+        spec.it("caps, no extras") callback {
+            spec.assert_str_eq(ae_lib_flags("net", null, "/src"), " --emit=lib --with=net", "caps no extras")
+        }
+        // extra_source(...) -> --extra, resolved against source_dir (relative) or
+        // passed through (absolute).
+        spec.it("relative extra_source resolved against source_dir") callback {
+            b1 = map.new()
+            ex1 = list.new()
+            list.add(ex1, "_embed_support.c")
+            map.put(b1, "extra_source", ex1)
+            spec.assert_str_eq(ae_lib_flags("", b1, "/src"),
+                " --emit=lib --extra /src/_embed_support.c", "relative extra")
+        }
+        spec.it("caps + mixed abs/rel extras, in order") callback {
+            b2 = map.new()
+            ex2 = list.new()
+            list.add(ex2, "/abs/x.c")
+            list.add(ex2, "rel/y.c")
+            map.put(b2, "extra_source", ex2)
+            spec.assert_str_eq(ae_lib_flags("fs", b2, "/src"),
+                " --emit=lib --with=fs --extra /abs/x.c --extra /src/rel/y.c", "mixed extras")
+        }
+    }
 
-    // extra_source(...) -> --extra, resolved against source_dir (relative) or
-    // passed through (absolute).
-    b1 = map.new()
-    ex1 = list.new()
-    list.add(ex1, "_embed_support.c")
-    map.put(b1, "extra_source", ex1)
-    _assert_eq("lib: relative extra_source resolved against source_dir",
-        ae_lib_flags("", b1, "/src"), " --emit=lib --extra /src/_embed_support.c")
-
-    b2 = map.new()
-    ex2 = list.new()
-    list.add(ex2, "/abs/x.c")
-    list.add(ex2, "rel/y.c")
-    map.put(b2, "extra_source", ex2)
-    _assert_eq("lib: caps + mixed abs/rel extras, in order",
-        ae_lib_flags("fs", b2, "/src"),
-        " --emit=lib --with=fs --extra /abs/x.c --extra /src/rel/y.c")
-
-    println("aether csrc cmd tests done")
+    spec.run_summary(fw)
 }

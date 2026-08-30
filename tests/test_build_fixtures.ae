@@ -5,46 +5,13 @@
 // records and return shell-statement lists. The actual spawn /
 // kill / sleep timing is exercised indirectly via the bash test
 // runner; these tests pin the rendered shell shape.
-//
-// Lives under tests/ rather than near lib/build/ for parity with
-// the rest of the suite. Imported names should be considered
-// public-ish helpers consumable by other test SDKs (next user:
-// aether.driver_test).
 
+import std.spec
 import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
 import std.list
-import std.map
-import std.path
-import std.dir
 
 import bldr (_upper_ascii_word, _split_tabs, _synth_fixture_pre,
               _synth_fixture_post)
-
-extern println(s: string)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
-_assert_eq_int(label: string, actual: int, expected: int) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
 
 // Pack a fixture_seed record the way the setter does.
 _pack_seed(name: string, repo: string, seed_bin: string) {
@@ -102,155 +69,190 @@ _exp_wait(dol: string, up: string) {
 }
 
 main() {
-    // --- _upper_ascii_word ---
-    _assert_eq("upper: simple",        _upper_ascii_word("primary"),  "PRIMARY")
-    _assert_eq("upper: mixed",         _upper_ascii_word("Primary1"), "PRIMARY1")
-    _assert_eq("upper: hyphenated",    _upper_ascii_word("foo-bar"),  "FOO-BAR")
-    _assert_eq("upper: already upper", _upper_ascii_word("ABC"),      "ABC")
-    _assert_eq("upper: empty",         _upper_ascii_word(""),         "")
+    fw = spec.init()
 
-    // --- _split_tabs ---
-    f = _split_tabs("a\tb\tc", 3)
-    _assert_eq_int("split: 3 fields, count", list.size(f), 3)
-    a, _ = list.get(f, 0)
-    b, _ = list.get(f, 1)
-    c, _ = list.get(f, 2)
-    _assert_eq("split: field 0", a, "a")
-    _assert_eq("split: field 1", b, "b")
-    _assert_eq("split: field 2", c, "c")
+    spec.describe(fw, "_upper_ascii_word") {
+        spec.it("simple") callback {
+            spec.assert_str_eq(_upper_ascii_word("primary"), "PRIMARY", "upper: simple")
+        }
+        spec.it("mixed") callback {
+            spec.assert_str_eq(_upper_ascii_word("Primary1"), "PRIMARY1", "upper: mixed")
+        }
+        spec.it("hyphenated") callback {
+            spec.assert_str_eq(_upper_ascii_word("foo-bar"), "FOO-BAR", "upper: hyphenated")
+        }
+        spec.it("already upper") callback {
+            spec.assert_str_eq(_upper_ascii_word("ABC"), "ABC", "upper: already upper")
+        }
+        spec.it("empty") callback {
+            spec.assert_str_eq(_upper_ascii_word(""), "", "upper: empty")
+        }
+    }
 
-    f2 = _split_tabs("only", 3)
-    _assert_eq_int("split: under-supplied count", list.size(f2), 3)
-    a2, _ = list.get(f2, 0)
-    b2, _ = list.get(f2, 1)
-    c2, _ = list.get(f2, 2)
-    _assert_eq("split: under field 0", a2, "only")
-    _assert_eq("split: under field 1 empty", b2, "")
-    _assert_eq("split: under field 2 empty", c2, "")
+    spec.describe(fw, "_split_tabs") {
+        spec.it("3 fields") callback {
+            f = _split_tabs("a\tb\tc", 3)
+            spec.assert_eq(list.size(f), 3, "split: 3 fields, count")
+            a, _ = list.get(f, 0)
+            b, _ = list.get(f, 1)
+            c, _ = list.get(f, 2)
+            spec.assert_str_eq(a, "a", "split: field 0")
+            spec.assert_str_eq(b, "b", "split: field 1")
+            spec.assert_str_eq(c, "c", "split: field 2")
+        }
+        spec.it("under-supplied count pads empty") callback {
+            f2 = _split_tabs("only", 3)
+            spec.assert_eq(list.size(f2), 3, "split: under-supplied count")
+            a2, _ = list.get(f2, 0)
+            b2, _ = list.get(f2, 1)
+            c2, _ = list.get(f2, 2)
+            spec.assert_str_eq(a2, "only", "split: under field 0")
+            spec.assert_str_eq(b2, "", "split: under field 1 empty")
+            spec.assert_str_eq(c2, "", "split: under field 2 empty")
+        }
+    }
 
-    // --- _synth_fixture_pre with one seed (no seed_bin) ---
-    seeds_only = list.new()
-    list.add(seeds_only, _pack_seed("primary", "/tmp/r1", ""))
-    pre1 = _synth_fixture_pre(seeds_only, null)
-    _assert_eq_int("pre: seed-no-bin yields 3 lines", list.size(pre1), 3)
-    p0, _ = list.get(pre1, 0)
-    p1, _ = list.get(pre1, 1)
-    p2, _ = list.get(pre1, 2)
-    _assert_eq("pre: seed export", p0, "export PRIMARY_PATH=\"/tmp/r1\"")
-    _assert_eq("pre: seed rm",     p1, "rm -rf \"/tmp/r1\"")
-    _assert_eq("pre: seed mkdir",  p2, "mkdir -p \"/tmp/r1\"")
+    spec.describe(fw, "_synth_fixture_pre") {
+        // one seed (no seed_bin)
+        spec.it("seed-no-bin yields 3 lines") callback {
+            seeds_only = list.new()
+            list.add(seeds_only, _pack_seed("primary", "/tmp/r1", ""))
+            pre1 = _synth_fixture_pre(seeds_only, null)
+            spec.assert_eq(list.size(pre1), 3, "pre: seed-no-bin yields 3 lines")
+            p0, _ = list.get(pre1, 0)
+            p1, _ = list.get(pre1, 1)
+            p2, _ = list.get(pre1, 2)
+            spec.assert_str_eq(p0, "export PRIMARY_PATH=\"/tmp/r1\"", "pre: seed export")
+            spec.assert_str_eq(p1, "rm -rf \"/tmp/r1\"", "pre: seed rm")
+            spec.assert_str_eq(p2, "mkdir -p \"/tmp/r1\"", "pre: seed mkdir")
+        }
 
-    // --- _synth_fixture_pre with one seed + seed_bin ---
-    seeds_bin = list.new()
-    list.add(seeds_bin, _pack_seed("primary", "/tmp/r1", "/usr/bin/seed"))
-    pre2 = _synth_fixture_pre(seeds_bin, null)
-    _assert_eq_int("pre: seed-with-bin yields 3 lines", list.size(pre2), 3)
-    q0, _ = list.get(pre2, 0)
-    q1, _ = list.get(pre2, 1)
-    q2, _ = list.get(pre2, 2)
-    _assert_eq("pre: seed_bin export", q0, "export PRIMARY_PATH=\"/tmp/r1\"")
-    _assert_eq("pre: seed_bin rm",     q1, "rm -rf \"/tmp/r1\"")
-    _assert_eq("pre: seed_bin run",    q2, "\"/usr/bin/seed\" \"/tmp/r1\" >/dev/null")
+        // one seed + seed_bin
+        spec.it("seed-with-bin yields 3 lines") callback {
+            seeds_bin = list.new()
+            list.add(seeds_bin, _pack_seed("primary", "/tmp/r1", "/usr/bin/seed"))
+            pre2 = _synth_fixture_pre(seeds_bin, null)
+            spec.assert_eq(list.size(pre2), 3, "pre: seed-with-bin yields 3 lines")
+            q0, _ = list.get(pre2, 0)
+            q1, _ = list.get(pre2, 1)
+            q2, _ = list.get(pre2, 2)
+            spec.assert_str_eq(q0, "export PRIMARY_PATH=\"/tmp/r1\"", "pre: seed_bin export")
+            spec.assert_str_eq(q1, "rm -rf \"/tmp/r1\"", "pre: seed_bin rm")
+            spec.assert_str_eq(q2, "\"/usr/bin/seed\" \"/tmp/r1\" >/dev/null", "pre: seed_bin run")
+        }
 
-    // --- _synth_fixture_pre with one server ---
-    servers = list.new()
-    list.add(servers, _pack_server("primary", "/usr/bin/server",
-                                   "demo /tmp/r1 9540", 9540, 1500))
-    pre3 = _synth_fixture_pre(null, servers)
-    // 4 lines: BIN export, PORT export, spawn+PID-capture combined,
-    // sleep. The spawn and PID-capture share one shell statement
-    // because `cmd &` doesn't accept `;` after.
-    _assert_eq_int("pre: server yields 4 lines", list.size(pre3), 4)
-    s0, _ = list.get(pre3, 0)
-    s1, _ = list.get(pre3, 1)
-    s2, _ = list.get(pre3, 2)
-    s3, _ = list.get(pre3, 3)
-    _assert_eq("pre: server BIN export",   s0, "export PRIMARY_BIN=\"/usr/bin/server\"")
-    _assert_eq("pre: server PORT export",  s1, "export PRIMARY_PORT=\"9540\"")
-    // Expected: `eval "\"${PRIMARY_BIN}\" demo /tmp/r1 9540" > "/tmp/aeb_fixture_primary.log" 2>&1 & PRIMARY_PID=$!`
-    // Built via concat — Aether parses ${...} in string literals.
-    dol = "$"
-    expected_spawn = string.concat("( eval exec \"\\\"", dol)
-    expected_spawn = string.concat(expected_spawn, "{PRIMARY_BIN}\\\" demo /tmp/r1 9540\" ) > \"/tmp/aeb_fixture_primary.log\" 2>&1 < /dev/null & export PRIMARY_PID=")
-    expected_spawn = string.concat(expected_spawn, dol)
-    expected_spawn = string.concat(expected_spawn, "!")
-    _assert_eq("pre: server spawn+PID", s2, expected_spawn)
-    // Expected: `sleep $(printf "%d.%03d" $((1500/1000)) $((1500%1000)))`
-    expected_sleep = string.concat("sleep ", dol)
-    expected_sleep = string.concat(expected_sleep, "(printf \"%d.%03d\" ")
-    expected_sleep = string.concat(expected_sleep, dol)
-    expected_sleep = string.concat(expected_sleep, "((1500/1000)) ")
-    expected_sleep = string.concat(expected_sleep, dol)
-    expected_sleep = string.concat(expected_sleep, "((1500%1000)))")
-    _assert_eq("pre: server sleep",        s3, expected_sleep)
+        // one server
+        spec.it("server yields 4 lines") callback {
+            servers = list.new()
+            list.add(servers, _pack_server("primary", "/usr/bin/server",
+                                           "demo /tmp/r1 9540", 9540, 1500))
+            pre3 = _synth_fixture_pre(null, servers)
+            // 4 lines: BIN export, PORT export, spawn+PID-capture combined,
+            // sleep. The spawn and PID-capture share one shell statement
+            // because `cmd &` doesn't accept `;` after.
+            spec.assert_eq(list.size(pre3), 4, "pre: server yields 4 lines")
+            s0, _ = list.get(pre3, 0)
+            s1, _ = list.get(pre3, 1)
+            s2, _ = list.get(pre3, 2)
+            s3, _ = list.get(pre3, 3)
+            spec.assert_str_eq(s0, "export PRIMARY_BIN=\"/usr/bin/server\"", "pre: server BIN export")
+            spec.assert_str_eq(s1, "export PRIMARY_PORT=\"9540\"", "pre: server PORT export")
+            // Expected: `eval "\"${PRIMARY_BIN}\" demo /tmp/r1 9540" > "/tmp/aeb_fixture_primary.log" 2>&1 & PRIMARY_PID=$!`
+            // Built via concat — Aether parses ${...} in string literals.
+            dol = "$"
+            expected_spawn = string.concat("( eval exec \"\\\"", dol)
+            expected_spawn = string.concat(expected_spawn, "{PRIMARY_BIN}\\\" demo /tmp/r1 9540\" ) > \"/tmp/aeb_fixture_primary.log\" 2>&1 < /dev/null & export PRIMARY_PID=")
+            expected_spawn = string.concat(expected_spawn, dol)
+            expected_spawn = string.concat(expected_spawn, "!")
+            spec.assert_str_eq(s2, expected_spawn, "pre: server spawn+PID")
+            // Expected: `sleep $(printf "%d.%03d" $((1500/1000)) $((1500%1000)))`
+            expected_sleep = string.concat("sleep ", dol)
+            expected_sleep = string.concat(expected_sleep, "(printf \"%d.%03d\" ")
+            expected_sleep = string.concat(expected_sleep, dol)
+            expected_sleep = string.concat(expected_sleep, "((1500/1000)) ")
+            expected_sleep = string.concat(expected_sleep, dol)
+            expected_sleep = string.concat(expected_sleep, "((1500%1000)))")
+            spec.assert_str_eq(s3, expected_sleep, "pre: server sleep")
+        }
 
-    // --- _synth_fixture_post: teardown + rm in correct order ---
-    // Each server now lowers to 4 teardown lines (TERM, grace-poll,
-    // KILL, wait) so a server that ignores TERM still dies and is
-    // reaped before the step returns.
-    seeds_with_server = list.new()
-    list.add(seeds_with_server, _pack_seed("primary", "/tmp/r1", ""))
-    servers_one = list.new()
-    list.add(servers_one, _pack_server("primary", "/usr/bin/server", "", 9540, 1000))
-    post = _synth_fixture_post(seeds_with_server, servers_one)
-    _assert_eq_int("post: 4 teardown + rm = 5 lines", list.size(post), 5)
-    pt, _ = list.get(post, 0)
-    pg, _ = list.get(post, 1)
-    pk, _ = list.get(post, 2)
-    pw, _ = list.get(post, 3)
-    pr, _ = list.get(post, 4)
-    _assert_eq("post: TERM",  pt, _exp_term(dol, "PRIMARY"))
-    _assert_eq("post: grace", pg, _exp_grace(dol, "PRIMARY"))
-    _assert_eq("post: KILL",  pk, _exp_kill(dol, "PRIMARY"))
-    _assert_eq("post: wait",  pw, _exp_wait(dol, "PRIMARY"))
-    _assert_eq("post: rm",    pr, "rm -rf \"/tmp/r1\" 2>/dev/null || true")
+        // declaration order across seeds + servers
+        spec.it("declaration order: seeds then servers") callback {
+            seeds_two = list.new()
+            list.add(seeds_two, _pack_seed("primary",   "/tmp/p", ""))
+            list.add(seeds_two, _pack_seed("secondary", "/tmp/s", ""))
+            servers_two = list.new()
+            list.add(servers_two, _pack_server("primary",   "/b/p", "", 9540, 1000))
+            list.add(servers_two, _pack_server("secondary", "/b/s", "", 9541, 1000))
+            pre_combo = _synth_fixture_pre(seeds_two, servers_two)
+            // 3 lines per seed × 2 = 6, plus 4 lines per server × 2 = 8, total 14
+            spec.assert_eq(list.size(pre_combo), 14, "pre: combo line count")
+            // First line should be the primary's seed export (seeds before servers).
+            first, _ = list.get(pre_combo, 0)
+            spec.assert_str_eq(first, "export PRIMARY_PATH=\"/tmp/p\"", "pre: combo starts with primary seed")
+            // After 6 seed lines, line 6 should be the first server (PRIMARY_BIN).
+            line6, _ = list.get(pre_combo, 6)
+            spec.assert_str_eq(line6, "export PRIMARY_BIN=\"/b/p\"", "pre: combo seeds-then-servers")
+        }
 
-    // --- _synth_fixture_post: multi-server reverse-order teardown ---
-    s_two = list.new()
-    list.add(s_two, _pack_server("source",      "/b/s1", "", 9430, 1000))
-    list.add(s_two, _pack_server("destination", "/b/s2", "", 9431, 1000))
-    post2 = _synth_fixture_post(null, s_two)
-    _assert_eq_int("post: 2 servers × 4 = 8 lines", list.size(post2), 8)
-    // Reverse order: destination torn down first (4 lines), then source.
-    d0, _ = list.get(post2, 0)
-    d1, _ = list.get(post2, 1)
-    d2, _ = list.get(post2, 2)
-    d3, _ = list.get(post2, 3)
-    s0, _ = list.get(post2, 4)
-    s1, _ = list.get(post2, 5)
-    s2b, _ = list.get(post2, 6)
-    s3b, _ = list.get(post2, 7)
-    _assert_eq("post: dest TERM first", d0, _exp_term(dol, "DESTINATION"))
-    _assert_eq("post: dest grace",      d1, _exp_grace(dol, "DESTINATION"))
-    _assert_eq("post: dest KILL",       d2, _exp_kill(dol, "DESTINATION"))
-    _assert_eq("post: dest wait",       d3, _exp_wait(dol, "DESTINATION"))
-    _assert_eq("post: source TERM last", s0, _exp_term(dol, "SOURCE"))
-    _assert_eq("post: source grace",     s1, _exp_grace(dol, "SOURCE"))
-    _assert_eq("post: source KILL",      s2b, _exp_kill(dol, "SOURCE"))
-    _assert_eq("post: source wait",      s3b, _exp_wait(dol, "SOURCE"))
+        // null both → empty
+        spec.it("null+null → empty") callback {
+            empty = _synth_fixture_pre(null, null)
+            spec.assert_eq(list.size(empty), 0, "pre: null+null → empty")
+        }
+    }
 
-    // --- _synth_fixture_pre: declaration order across seeds + servers ---
-    seeds_two = list.new()
-    list.add(seeds_two, _pack_seed("primary",   "/tmp/p", ""))
-    list.add(seeds_two, _pack_seed("secondary", "/tmp/s", ""))
-    servers_two = list.new()
-    list.add(servers_two, _pack_server("primary",   "/b/p", "", 9540, 1000))
-    list.add(servers_two, _pack_server("secondary", "/b/s", "", 9541, 1000))
-    pre_combo = _synth_fixture_pre(seeds_two, servers_two)
-    // 3 lines per seed × 2 = 6, plus 4 lines per server × 2 = 8, total 14
-    _assert_eq_int("pre: combo line count", list.size(pre_combo), 14)
-    // First line should be the primary's seed export (seeds before servers).
-    first, _ = list.get(pre_combo, 0)
-    _assert_eq("pre: combo starts with primary seed", first,
-               "export PRIMARY_PATH=\"/tmp/p\"")
-    // After 6 seed lines, line 6 should be the first server (PRIMARY_BIN).
-    line6, _ = list.get(pre_combo, 6)
-    _assert_eq("pre: combo seeds-then-servers", line6,
-               "export PRIMARY_BIN=\"/b/p\"")
+    spec.describe(fw, "_synth_fixture_post") {
+        // teardown + rm in correct order.
+        // Each server lowers to 4 teardown lines (TERM, grace-poll, KILL,
+        // wait) so a server that ignores TERM still dies and is reaped
+        // before the step returns.
+        spec.it("teardown + rm in order") callback {
+            dol = "$"
+            seeds_with_server = list.new()
+            list.add(seeds_with_server, _pack_seed("primary", "/tmp/r1", ""))
+            servers_one = list.new()
+            list.add(servers_one, _pack_server("primary", "/usr/bin/server", "", 9540, 1000))
+            post = _synth_fixture_post(seeds_with_server, servers_one)
+            spec.assert_eq(list.size(post), 5, "post: 4 teardown + rm = 5 lines")
+            pt, _ = list.get(post, 0)
+            pg, _ = list.get(post, 1)
+            pk, _ = list.get(post, 2)
+            pw, _ = list.get(post, 3)
+            pr, _ = list.get(post, 4)
+            spec.assert_str_eq(pt, _exp_term(dol, "PRIMARY"), "post: TERM")
+            spec.assert_str_eq(pg, _exp_grace(dol, "PRIMARY"), "post: grace")
+            spec.assert_str_eq(pk, _exp_kill(dol, "PRIMARY"), "post: KILL")
+            spec.assert_str_eq(pw, _exp_wait(dol, "PRIMARY"), "post: wait")
+            spec.assert_str_eq(pr, "rm -rf \"/tmp/r1\" 2>/dev/null || true", "post: rm")
+        }
 
-    // --- _synth_fixture_pre: null both → empty ---
-    empty = _synth_fixture_pre(null, null)
-    _assert_eq_int("pre: null+null → empty", list.size(empty), 0)
+        // multi-server reverse-order teardown
+        spec.it("multi-server reverse-order teardown") callback {
+            dol = "$"
+            s_two = list.new()
+            list.add(s_two, _pack_server("source",      "/b/s1", "", 9430, 1000))
+            list.add(s_two, _pack_server("destination", "/b/s2", "", 9431, 1000))
+            post2 = _synth_fixture_post(null, s_two)
+            spec.assert_eq(list.size(post2), 8, "post: 2 servers × 4 = 8 lines")
+            // Reverse order: destination torn down first (4 lines), then source.
+            d0, _ = list.get(post2, 0)
+            d1, _ = list.get(post2, 1)
+            d2, _ = list.get(post2, 2)
+            d3, _ = list.get(post2, 3)
+            s0, _ = list.get(post2, 4)
+            s1, _ = list.get(post2, 5)
+            s2b, _ = list.get(post2, 6)
+            s3b, _ = list.get(post2, 7)
+            spec.assert_str_eq(d0, _exp_term(dol, "DESTINATION"), "post: dest TERM first")
+            spec.assert_str_eq(d1, _exp_grace(dol, "DESTINATION"), "post: dest grace")
+            spec.assert_str_eq(d2, _exp_kill(dol, "DESTINATION"), "post: dest KILL")
+            spec.assert_str_eq(d3, _exp_wait(dol, "DESTINATION"), "post: dest wait")
+            spec.assert_str_eq(s0, _exp_term(dol, "SOURCE"), "post: source TERM last")
+            spec.assert_str_eq(s1, _exp_grace(dol, "SOURCE"), "post: source grace")
+            spec.assert_str_eq(s2b, _exp_kill(dol, "SOURCE"), "post: source KILL")
+            spec.assert_str_eq(s3b, _exp_wait(dol, "SOURCE"), "post: source wait")
+        }
+    }
 
-    println("bash fixture-synthesis tests done")
+    spec.run_summary(fw)
 }

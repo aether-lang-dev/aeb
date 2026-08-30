@@ -4,130 +4,166 @@
 // aware maven/python/dotnet/dart/gleam/zig verbs). Confirms the EXACT shell
 // string that would be exec'd across the env / step / workdir permutations.
 
+import std.spec
 import bldr (_project_run_cmd, _run_project_cmd, _env_export_prefix, env, step, workdir)
-import std.string
 import std.list
 import std.map
 
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
 _l1(a: string) { l = list.new()  _x = list.add(l, a)  return l }
 _l2(a: string, b: string) { l = list.new()  _x = list.add(l, a)  _y = list.add(l, b)  return l }
 
 main() {
-    empty = list.new()
+    fw = spec.init()
 
     // --- _project_run_cmd: the low-level assembler (absdir, env list, steps) ---
-    _eq("plain single step",
-        _project_run_cmd("/proj", empty, _l1("mix test")),
-        "cd \"/proj\" && mix test")
-    _eq("one env",
-        _project_run_cmd("/proj", _l1("SERVIRTIUM_VCR_LIB='/p/lib.so'"), _l1("cargo test")),
-        "cd \"/proj\" && export SERVIRTIUM_VCR_LIB='/p/lib.so' && cargo test")
-    _eq("two env + two steps (fail-fast &&)",
-        _project_run_cmd("/proj", _l2("A='1'", "B='2'"), _l2("mix deps.get", "mix test")),
-        "cd \"/proj\" && export A='1' && export B='2' && mix deps.get && mix test")
-    _eq("step keeps its own embedded quotes (no nested bash -c)",
-        _project_run_cmd("/n", empty, _l1("for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done")),
-        "cd \"/n\" && for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done")
+    spec.describe(fw, "_project_run_cmd") {
+        spec.it("plain single step") callback {
+            empty = list.new()
+            spec.assert_str_eq(_project_run_cmd("/proj", empty, _l1("mix test")),
+                "cd \"/proj\" && mix test", "plain single step")
+        }
+        spec.it("one env") callback {
+            empty = list.new()
+            spec.assert_str_eq(
+                _project_run_cmd("/proj", _l1("SERVIRTIUM_VCR_LIB='/p/lib.so'"), _l1("cargo test")),
+                "cd \"/proj\" && export SERVIRTIUM_VCR_LIB='/p/lib.so' && cargo test", "one env")
+        }
+        spec.it("two env + two steps (fail-fast &&)") callback {
+            spec.assert_str_eq(
+                _project_run_cmd("/proj", _l2("A='1'", "B='2'"), _l2("mix deps.get", "mix test")),
+                "cd \"/proj\" && export A='1' && export B='2' && mix deps.get && mix test",
+                "two env + two steps (fail-fast &&)")
+        }
+        spec.it("step keeps its own embedded quotes (no nested bash -c)") callback {
+            empty = list.new()
+            spec.assert_str_eq(
+                _project_run_cmd("/n", empty, _l1("for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done")),
+                "cd \"/n\" && for t in tests/*.nim; do nim c -r \"$t\" || exit 1; done",
+                "step keeps its own embedded quotes (no nested bash -c)")
+        }
+    }
 
     // --- _run_project_cmd: resolution from a builder map, built via the REAL
     //     env()/step()/workdir() setters (so this also exercises those). ---
-    _eq("null bmap → source_dir + default step",
-        _run_project_cmd("/m", "/r", null, "mix test"), "cd \"/m\" && mix test")
-
-    be = map.new()
-    env(be, "SERVIRTIUM_VCR_LIB", "/p/lib.so")
-    _eq("env() setter → one export before default",
-        _run_project_cmd("/m", "/r", be, "cargo test"),
-        "cd \"/m\" && export SERVIRTIUM_VCR_LIB='/p/lib.so' && cargo test")
-
-    be2 = map.new()
-    env(be2, "JAVA_HOME", "/jdk")
-    env(be2, "SERVIRTIUM_VCR_LIB", "/lib.so")
-    _eq("two env() setters → exports in order",
-        _run_project_cmd("/m", "/r", be2, "mvn -q test"),
-        "cd \"/m\" && export JAVA_HOME='/jdk' && export SERVIRTIUM_VCR_LIB='/lib.so' && mvn -q test")
-
-    // dotnet.test_existing() calls _run_project with the default step
-    // "dotnet test --nologo", so a block env() (e.g. a P/Invoke binding's
-    // native-lib path) threads through here exactly like every other builder
-    // on _run_project. Regression guard: the sibling reported test_existing
-    // "doesn't thread block env()" — it does, via this path.
-    bdn = map.new()
-    env(bdn, "SELENIUM_CORE_LIB", "/x/libselenium_core.so")
-    _eq("dotnet.test_existing threads block env()",
-        _run_project_cmd("/proj/dotnet", "/proj", bdn, "dotnet test --nologo"),
-        "cd \"/proj/dotnet\" && export SELENIUM_CORE_LIB='/x/libselenium_core.so' && dotnet test --nologo")
-
-    bw = map.new()
-    workdir(bw, "kotlin")
-    _eq("workdir() setter → root-relative cd",
-        _run_project_cmd("/m", "/r", bw, "mvn -q test"), "cd \"/r/kotlin\" && mvn -q test")
-
-    bs = map.new()
-    step(bs, "mix deps.get >/dev/null 2>&1")
-    step(bs, "mix test")
-    _eq("step() setters override the default",
-        _run_project_cmd("/m", "/r", bs, "mix test"),
-        "cd \"/m\" && mix deps.get >/dev/null 2>&1 && mix test")
-
-    // the real elixir shape: env + two steps
-    bes = map.new()
-    env(bes, "SERVIRTIUM_NIF_EBIN", "/e/ebin")
-    step(bes, "mix deps.get >/dev/null 2>&1")
-    step(bes, "mix test")
-    _eq("env + steps (elixir node)",
-        _run_project_cmd("/m", "/r", bes, "mix test"),
-        "cd \"/m\" && export SERVIRTIUM_NIF_EBIN='/e/ebin' && mix deps.get >/dev/null 2>&1 && mix test")
-
-    // the real kotlin shape: workdir + env + subshell-install step + test step
-    bk = map.new()
-    workdir(bk, "kotlin")
-    env(bk, "JAVA_HOME", "/jdk")
-    step(bk, "(cd ../java && mvn -q -DskipTests install)")
-    step(bk, "mvn -q test")
-    _eq("workdir + env + steps (kotlin node)",
-        _run_project_cmd("/m", "/r", bk, "mvn -q test"),
-        "cd \"/r/kotlin\" && export JAVA_HOME='/jdk' && (cd ../java && mvn -q -DskipTests install) && mvn -q test")
+    spec.describe(fw, "_run_project_cmd from a builder map") {
+        spec.it("null bmap → source_dir + default step") callback {
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mix test"),
+                "cd \"/m\" && mix test", "null bmap → source_dir + default step")
+        }
+        spec.it("env() setter → one export before default") callback {
+            be = map.new()
+            env(be, "SERVIRTIUM_VCR_LIB", "/p/lib.so")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", be, "cargo test"),
+                "cd \"/m\" && export SERVIRTIUM_VCR_LIB='/p/lib.so' && cargo test",
+                "env() setter → one export before default")
+        }
+        spec.it("two env() setters → exports in order") callback {
+            be2 = map.new()
+            env(be2, "JAVA_HOME", "/jdk")
+            env(be2, "SERVIRTIUM_VCR_LIB", "/lib.so")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", be2, "mvn -q test"),
+                "cd \"/m\" && export JAVA_HOME='/jdk' && export SERVIRTIUM_VCR_LIB='/lib.so' && mvn -q test",
+                "two env() setters → exports in order")
+        }
+        // dotnet.test_existing() calls _run_project with the default step
+        // "dotnet test --nologo", so a block env() (e.g. a P/Invoke binding's
+        // native-lib path) threads through here exactly like every other builder
+        // on _run_project. Regression guard: the sibling reported test_existing
+        // "doesn't thread block env()" — it does, via this path.
+        spec.it("dotnet.test_existing threads block env()") callback {
+            bdn = map.new()
+            env(bdn, "SELENIUM_CORE_LIB", "/x/libselenium_core.so")
+            spec.assert_str_eq(
+                _run_project_cmd("/proj/dotnet", "/proj", bdn, "dotnet test --nologo"),
+                "cd \"/proj/dotnet\" && export SELENIUM_CORE_LIB='/x/libselenium_core.so' && dotnet test --nologo",
+                "dotnet.test_existing threads block env()")
+        }
+        spec.it("workdir() setter → root-relative cd") callback {
+            bw = map.new()
+            workdir(bw, "kotlin")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", bw, "mvn -q test"),
+                "cd \"/r/kotlin\" && mvn -q test", "workdir() setter → root-relative cd")
+        }
+        spec.it("step() setters override the default") callback {
+            bs = map.new()
+            step(bs, "mix deps.get >/dev/null 2>&1")
+            step(bs, "mix test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", bs, "mix test"),
+                "cd \"/m\" && mix deps.get >/dev/null 2>&1 && mix test",
+                "step() setters override the default")
+        }
+        // the real elixir shape: env + two steps
+        spec.it("env + steps (elixir node)") callback {
+            bes = map.new()
+            env(bes, "SERVIRTIUM_NIF_EBIN", "/e/ebin")
+            step(bes, "mix deps.get >/dev/null 2>&1")
+            step(bes, "mix test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", bes, "mix test"),
+                "cd \"/m\" && export SERVIRTIUM_NIF_EBIN='/e/ebin' && mix deps.get >/dev/null 2>&1 && mix test",
+                "env + steps (elixir node)")
+        }
+        // the real kotlin shape: workdir + env + subshell-install step + test step
+        spec.it("workdir + env + steps (kotlin node)") callback {
+            bk = map.new()
+            workdir(bk, "kotlin")
+            env(bk, "JAVA_HOME", "/jdk")
+            step(bk, "(cd ../java && mvn -q -DskipTests install)")
+            step(bk, "mvn -q test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", bk, "mvn -q test"),
+                "cd \"/r/kotlin\" && export JAVA_HOME='/jdk' && (cd ../java && mvn -q -DskipTests install) && mvn -q test",
+                "workdir + env + steps (kotlin node)")
+        }
+    }
 
     // --- _env_export_prefix: the prefix the ENHANCED existing verbs prepend
     //     (rust.cargo_test_existing, ruby.rspec, zig/dart/gleam.test, junit5) ---
-    _eq("env prefix: null bmap → empty", _env_export_prefix(null), "")
-    bp0 = map.new()
-    _eq("env prefix: no env → empty", _env_export_prefix(bp0), "")
-    bp1 = map.new()
-    env(bp1, "SERVIRTIUM_VCR_LIB", "/lib.so")
-    _eq("env prefix: one", _env_export_prefix(bp1), "export SERVIRTIUM_VCR_LIB='/lib.so' && ")
-    bp2 = map.new()
-    env(bp2, "A", "1")
-    env(bp2, "B", "2")
-    _eq("env prefix: two", _env_export_prefix(bp2), "export A='1' && export B='2' && ")
+    spec.describe(fw, "_env_export_prefix") {
+        spec.it("null bmap → empty") callback {
+            spec.assert_str_eq(_env_export_prefix(null), "", "env prefix: null bmap → empty")
+        }
+        spec.it("no env → empty") callback {
+            bp0 = map.new()
+            spec.assert_str_eq(_env_export_prefix(bp0), "", "env prefix: no env → empty")
+        }
+        spec.it("one") callback {
+            bp1 = map.new()
+            env(bp1, "SERVIRTIUM_VCR_LIB", "/lib.so")
+            spec.assert_str_eq(_env_export_prefix(bp1), "export SERVIRTIUM_VCR_LIB='/lib.so' && ", "env prefix: one")
+        }
+        spec.it("two") callback {
+            bp2 = map.new()
+            env(bp2, "A", "1")
+            env(bp2, "B", "2")
+            spec.assert_str_eq(_env_export_prefix(bp2), "export A='1' && export B='2' && ", "env prefix: two")
+        }
+    }
 
     // --- per-language SDK DEFAULT exec strings (what each verb runs with an
     //     empty block, at module /m). A greppable spec of every SDK's default. ---
-    _eq("elixir.test",            _run_project_cmd("/m", "/r", null, "mix test"),                 "cd \"/m\" && mix test")
-    _eq("elixir.compile",         _run_project_cmd("/m", "/r", null, "mix compile"),              "cd \"/m\" && mix compile")
-    _eq("nim.test",               _run_project_cmd("/m", "/r", null, "nimble test"),              "cd \"/m\" && nimble test")
-    _eq("nim.build",              _run_project_cmd("/m", "/r", null, "nimble build"),             "cd \"/m\" && nimble build")
-    _eq("lua.test",               _run_project_cmd("/m", "/r", null, "busted"),                   "cd \"/m\" && busted")
-    _eq("php.test",               _run_project_cmd("/m", "/r", null, "phpunit"),                  "cd \"/m\" && phpunit")
-    _eq("haskell.test",           _run_project_cmd("/m", "/r", null, "cabal test"),               "cd \"/m\" && cabal test")
-    _eq("haskell.build",          _run_project_cmd("/m", "/r", null, "cabal build"),              "cd \"/m\" && cabal build")
-    _eq("javascript.test",        _run_project_cmd("/m", "/r", null, "npm test"),                 "cd \"/m\" && npm test")
-    _eq("javascript.build",       _run_project_cmd("/m", "/r", null, "npm install"),              "cd \"/m\" && npm install")
-    _eq("pharo.test",             _run_project_cmd("/m", "/r", null, "./run-tests.sh"),           "cd \"/m\" && ./run-tests.sh")
-    _eq("erlang.compile",         _run_project_cmd("/m", "/r", null, "rebar3 compile"),           "cd \"/m\" && rebar3 compile")
-    _eq("erlang.eunit",           _run_project_cmd("/m", "/r", null, "rebar3 eunit"),             "cd \"/m\" && rebar3 eunit")
-    _eq("maven.test",             _run_project_cmd("/m", "/r", null, "mvn -q test"),              "cd \"/m\" && mvn -q test")
-    _eq("maven.install",          _run_project_cmd("/m", "/r", null, "mvn -q -DskipTests install"), "cd \"/m\" && mvn -q -DskipTests install")
-    _eq("python.test",            _run_project_cmd("/m", "/r", null, "python3 -m pytest -q"),     "cd \"/m\" && python3 -m pytest -q")
-    _eq("dotnet.test_existing",   _run_project_cmd("/m", "/r", null, "dotnet test --nologo"),     "cd \"/m\" && dotnet test --nologo")
-    _eq("dart.test_existing",     _run_project_cmd("/m", "/r", null, "dart test"),                "cd \"/m\" && dart test")
-    _eq("gleam.test_existing",    _run_project_cmd("/m", "/r", null, "gleam test"),               "cd \"/m\" && gleam test")
-    _eq("zig.test_existing",      _run_project_cmd("/m", "/r", null, "zig build test"),           "cd \"/m\" && zig build test")
+    spec.describe(fw, "per-language SDK default exec strings") {
+        spec.it("every SDK default resolves to cd \"/m\" && <cmd>") callback {
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mix test"),                 "cd \"/m\" && mix test",                 "elixir.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mix compile"),              "cd \"/m\" && mix compile",              "elixir.compile")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "nimble test"),              "cd \"/m\" && nimble test",              "nim.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "nimble build"),             "cd \"/m\" && nimble build",             "nim.build")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "busted"),                   "cd \"/m\" && busted",                   "lua.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "phpunit"),                  "cd \"/m\" && phpunit",                  "php.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "cabal test"),               "cd \"/m\" && cabal test",               "haskell.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "cabal build"),              "cd \"/m\" && cabal build",              "haskell.build")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "npm test"),                 "cd \"/m\" && npm test",                 "javascript.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "npm install"),              "cd \"/m\" && npm install",              "javascript.build")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "./run-tests.sh"),           "cd \"/m\" && ./run-tests.sh",           "pharo.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "rebar3 compile"),           "cd \"/m\" && rebar3 compile",           "erlang.compile")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "rebar3 eunit"),             "cd \"/m\" && rebar3 eunit",             "erlang.eunit")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mvn -q test"),              "cd \"/m\" && mvn -q test",              "maven.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mvn -q -DskipTests install"), "cd \"/m\" && mvn -q -DskipTests install", "maven.install")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "python3 -m pytest -q"),     "cd \"/m\" && python3 -m pytest -q",     "python.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "dotnet test --nologo"),     "cd \"/m\" && dotnet test --nologo",     "dotnet.test_existing")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "dart test"),                "cd \"/m\" && dart test",                "dart.test_existing")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "gleam test"),               "cd \"/m\" && gleam test",               "gleam.test_existing")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "zig build test"),           "cd \"/m\" && zig build test",           "zig.test_existing")
+        }
+    }
+
+    spec.run_summary(fw)
 }

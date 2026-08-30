@@ -1,67 +1,82 @@
 // Tests for lib/cpp's pure command-string builders.
 
+import std.spec
 import cpp (cxx_compile_cmd, _std_flag, _join_flagged, _join_raw)
-import std.string
 import std.list
-import std.map
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
-}
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
 
 main() {
-    // --- _std_flag
-    _eq("std flag empty", _std_flag(""), "")
-    _eq("std flag c++20", _std_flag("c++20"), " -std=c++20")
+    fw = spec.init()
 
-    // --- _join_flagged: -I over include dirs.
-    incs = list.new()
-    list.add(incs, "include")
-    list.add(incs, "src")
-    _eq("join_flagged -I two dirs", _join_flagged("-I", incs), " -I'include' -I'src'")
-    _eq("join_flagged null → ''", _join_flagged("-I", null), "")
+    spec.describe(fw, "_std_flag") {
+        spec.it("std flag empty") callback {
+            spec.assert_str_eq(_std_flag(""), "", "std flag empty")
+        }
+        spec.it("std flag c++20") callback {
+            spec.assert_str_eq(_std_flag("c++20"), " -std=c++20", "std flag c++20")
+        }
+    }
 
-    // --- _join_raw: quoted source/flag segments.
-    srcs = list.new()
-    list.add(srcs, "src/main.cpp")
-    list.add(srcs, "src/util.cpp")
-    _eq("join_raw two sources", _join_raw(srcs), " 'src/main.cpp' 'src/util.cpp'")
-    _eq("join_raw null → ''", _join_raw(null), "")
+    spec.describe(fw, "_join_flagged: -I over include dirs") {
+        spec.it("two dirs") callback {
+            incs = list.new()
+            list.add(incs, "include")
+            list.add(incs, "src")
+            spec.assert_str_eq(_join_flagged("-I", incs), " -I'include' -I'src'", "join_flagged -I two dirs")
+        }
+        spec.it("null → ''") callback {
+            spec.assert_str_eq(_join_flagged("-I", null), "", "join_flagged null → ''")
+        }
+    }
 
-    // --- cxx_compile_cmd: the whole line, minimal.
-    s1 = list.new()
-    list.add(s1, "main.cpp")
-    _eq("compile minimal",
-        cxx_compile_cmd("c++", "/proj", "", s1, null, null, null, "/proj/target/cpp/app"),
-        "cd '/proj' && 'c++' 'main.cpp' -o '/proj/target/cpp/app'")
+    spec.describe(fw, "_join_raw: quoted source/flag segments") {
+        spec.it("two sources") callback {
+            srcs = list.new()
+            list.add(srcs, "src/main.cpp")
+            list.add(srcs, "src/util.cpp")
+            spec.assert_str_eq(_join_raw(srcs), " 'src/main.cpp' 'src/util.cpp'", "join_raw two sources")
+        }
+        spec.it("null → ''") callback {
+            spec.assert_str_eq(_join_raw(null), "", "join_raw null → ''")
+        }
+    }
 
-    // --- cxx_compile_cmd: full — std, includes, cxxflags, link flags.
-    s2 = list.new()
-    list.add(s2, "src/a.cpp")
-    list.add(s2, "src/b.cpp")
-    inc2 = list.new()
-    list.add(inc2, "include")
-    fl2 = list.new()
-    list.add(fl2, "-O2")
-    list.add(fl2, "-Wall")
-    lk2 = list.new()
-    list.add(lk2, "-lpthread")
-    _eq("compile full",
-        cxx_compile_cmd("clang++", "/proj", " -std=c++20", s2, inc2, fl2, lk2, "/out/app"),
-        "cd '/proj' && 'clang++' -std=c++20 -I'include' '-O2' '-Wall' 'src/a.cpp' 'src/b.cpp' '-lpthread' -o '/out/app'")
+    spec.describe(fw, "cxx_compile_cmd") {
+        // --- the whole line, minimal.
+        spec.it("compile minimal") callback {
+            s1 = list.new()
+            list.add(s1, "main.cpp")
+            spec.assert_str_eq(
+                cxx_compile_cmd("c++", "/proj", "", s1, null, null, null, "/proj/target/cpp/app"),
+                "cd '/proj' && 'c++' 'main.cpp' -o '/proj/target/cpp/app'", "compile minimal")
+        }
 
-    // --- custom compiler + spaces in output path are quoted.
-    s3 = list.new()
-    list.add(s3, "m.cpp")
-    _eq("output path with spaces quoted",
-        cxx_compile_cmd("g++", "/proj", "", s3, null, null, null, "/out dir/app"),
-        "cd '/proj' && 'g++' 'm.cpp' -o '/out dir/app'")
+        // --- full — std, includes, cxxflags, link flags.
+        spec.it("compile full") callback {
+            s2 = list.new()
+            list.add(s2, "src/a.cpp")
+            list.add(s2, "src/b.cpp")
+            inc2 = list.new()
+            list.add(inc2, "include")
+            fl2 = list.new()
+            list.add(fl2, "-O2")
+            list.add(fl2, "-Wall")
+            lk2 = list.new()
+            list.add(lk2, "-lpthread")
+            spec.assert_str_eq(
+                cxx_compile_cmd("clang++", "/proj", " -std=c++20", s2, inc2, fl2, lk2, "/out/app"),
+                "cd '/proj' && 'clang++' -std=c++20 -I'include' '-O2' '-Wall' 'src/a.cpp' 'src/b.cpp' '-lpthread' -o '/out/app'",
+                "compile full")
+        }
 
-    println("cpp command-string tests done")
+        // --- custom compiler + spaces in output path are quoted.
+        spec.it("output path with spaces quoted") callback {
+            s3 = list.new()
+            list.add(s3, "m.cpp")
+            spec.assert_str_eq(
+                cxx_compile_cmd("g++", "/proj", "", s3, null, null, null, "/out dir/app"),
+                "cd '/proj' && 'g++' 'm.cpp' -o '/out dir/app'", "output path with spaces quoted")
+        }
+    }
+
+    spec.run_summary(fw)
 }

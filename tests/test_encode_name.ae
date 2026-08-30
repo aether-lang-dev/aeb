@@ -1,23 +1,10 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
+import std.spec
 import aeblabel (encode_name)
 
 // Tests for encode_name — converts file paths to C-safe function names
 // Mirrors the bash: / → _    _ → __   - → _H_   . → _D_
 
-// string_concat/length/contains/trim are now supplied by std.string; os_exec
-// became a Go-style (output, err) wrapper, so the single-string extern is
-// os_exec_raw. No local extern redeclarations needed.
-
-// TESTS THE REAL IMPLEMENTATION (aeblabel.encode_name), imported below.
+// TESTS THE REAL IMPLEMENTATION (aeblabel.encode_name), imported above.
 //
 // It used to define its OWN sed-based encode_name right here and assert
 // against that — a fourth copy testing itself. It would have passed with
@@ -28,74 +15,80 @@ import aeblabel (encode_name)
 // The sed version is also not portable: `printf | sed` returns empty under
 // cmd.exe, which is why the shipped code is pure string ops.
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    _assert_eq("simple dir",
-        encode_name("java/components/nasal"),
-        "java_components_nasal")
+    fw = spec.init()
 
-    _assert_eq("hyphen",
-        encode_name("libs/cart/cart-page"),
-        "libs_cart_cart_H_page")
+    spec.describe(fw, "encode_name") {
+        spec.it("simple dir") callback {
+            spec.assert_str_eq(encode_name("java/components/nasal"),
+                "java_components_nasal", "simple dir")
+        }
 
-    _assert_eq("bldr.ae",
-        encode_name("common/.build.ae"),
-        "common__D_build_D_ae")
+        spec.it("hyphen") callback {
+            spec.assert_str_eq(encode_name("libs/cart/cart-page"),
+                "libs_cart_cart_H_page", "hyphen")
+        }
 
-    _assert_eq("tests.ae",
-        encode_name("javatests/apps/monorepos_rule/.tests.ae"),
-        "javatests_apps_monorepos_rule__D_tests_D_ae")
+        spec.it("bldr.ae") callback {
+            spec.assert_str_eq(encode_name("common/.build.ae"),
+                "common__D_build_D_ae", "bldr.ae")
+        }
 
-    _assert_eq("dist.ae",
-        encode_name("java/apps/monorepos_rule/.dist.ae"),
-        "java_apps_monorepos_rule__D_dist_D_ae")
+        spec.it("tests.ae") callback {
+            spec.assert_str_eq(encode_name("javatests/apps/monorepos_rule/.tests.ae"),
+                "javatests_apps_monorepos_rule__D_tests_D_ae", "tests.ae")
+        }
 
-    _assert_eq("multi hyphen",
-        encode_name("libs/shared/product-detail-page/.build.ae"),
-        "libs_shared_product_H_detail_H_page__D_build_D_ae")
+        spec.it("dist.ae") callback {
+            spec.assert_str_eq(encode_name("java/apps/monorepos_rule/.dist.ae"),
+                "java_apps_monorepos_rule__D_dist_D_ae", "dist.ae")
+        }
 
-    _assert_eq("underscore preserved",
-        encode_name("my_module/.build.ae"),
-        "my_module__D_build_D_ae")
+        spec.it("multi hyphen") callback {
+            spec.assert_str_eq(encode_name("libs/shared/product-detail-page/.build.ae"),
+                "libs_shared_product_H_detail_H_page__D_build_D_ae", "multi hyphen")
+        }
 
-    _assert_eq("simple name",
-        encode_name("common"),
-        "common")
+        spec.it("underscore preserved") callback {
+            spec.assert_str_eq(encode_name("my_module/.build.ae"),
+                "my_module__D_build_D_ae", "underscore preserved")
+        }
 
-    // Root-level target: ".build.ae" (label ".") would encode to a
-    // LEADING-underscore "_D_build_D_ae", which aetherc escapes to
-    // "ae_D_build_D_ae" (0.516 reserved-namespace fix) — desyncing the
-    // orchestrator extern from the definition and breaking the link with an
-    // `undefined reference`. encode_name now mirrors that escape so the two
-    // stay in sync. A subdir target ("foo/.build.ae") is letter-leading and is
-    // untouched. Regression guard for the root-label link bug.
-    _assert_eq("root-level .build.ae escapes leading underscore",
-        encode_name(".build.ae"),
-        "ae_D_build_D_ae")
-    _assert_eq("root-level .tests.ae likewise",
-        encode_name(".tests.ae"),
-        "ae_D_tests_D_ae")
-    // A dot-prefixed FAN-OUT root (aeb .all.ae) is the same leading-underscore
-    // case: without the escape it derives to "_D_all_D_ae", which the
-    // orchestrator's _main externs and nothing defines — an "Undefined symbols:
-    // __D_all_D_ae" link failure on macOS (Apple ld; GNU ld tolerated it, hiding
-    // it on Linux for weeks). Reproduced + fixed on macOS/x86_64.
-    // (asks/dotted-root-mangles-to-undefined-entry-symbol.md)
-    _assert_eq("root-level .all.ae fan-out root escapes leading underscore",
-        encode_name(".all.ae"),
-        "ae_D_all_D_ae")
-    _assert_eq("subdir target unaffected (letter-leading)",
-        encode_name("foo/.build.ae"),
-        "foo__D_build_D_ae")
+        spec.it("simple name") callback {
+            spec.assert_str_eq(encode_name("common"),
+                "common", "simple name")
+        }
 
-    println("encode_name tests done")
+        // Root-level target: ".build.ae" (label ".") would encode to a
+        // LEADING-underscore "_D_build_D_ae", which aetherc escapes to
+        // "ae_D_build_D_ae" (0.516 reserved-namespace fix) — desyncing the
+        // orchestrator extern from the definition and breaking the link with an
+        // `undefined reference`. encode_name now mirrors that escape so the two
+        // stay in sync. A subdir target ("foo/.build.ae") is letter-leading and is
+        // untouched. Regression guard for the root-label link bug.
+        spec.it("root-level .build.ae escapes leading underscore") callback {
+            spec.assert_str_eq(encode_name(".build.ae"),
+                "ae_D_build_D_ae", "root-level .build.ae escapes leading underscore")
+        }
+        spec.it("root-level .tests.ae likewise") callback {
+            spec.assert_str_eq(encode_name(".tests.ae"),
+                "ae_D_tests_D_ae", "root-level .tests.ae likewise")
+        }
+        // A dot-prefixed FAN-OUT root (aeb .all.ae) is the same leading-underscore
+        // case: without the escape it derives to "_D_all_D_ae", which the
+        // orchestrator's _main externs and nothing defines — an "Undefined symbols:
+        // __D_all_D_ae" link failure on macOS (Apple ld; GNU ld tolerated it, hiding
+        // it on Linux for weeks). Reproduced + fixed on macOS/x86_64.
+        // (asks/dotted-root-mangles-to-undefined-entry-symbol.md)
+        spec.it("root-level .all.ae fan-out root escapes leading underscore") callback {
+            spec.assert_str_eq(encode_name(".all.ae"),
+                "ae_D_all_D_ae", "root-level .all.ae fan-out root escapes leading underscore")
+        }
+        spec.it("subdir target unaffected (letter-leading)") callback {
+            spec.assert_str_eq(encode_name("foo/.build.ae"),
+                "foo__D_build_D_ae", "subdir target unaffected (letter-leading)")
+        }
+    }
+
+    spec.run_summary(fw)
 }

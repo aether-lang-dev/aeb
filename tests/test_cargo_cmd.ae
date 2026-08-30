@@ -1,129 +1,138 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
-// Tests for cargo_build_cmd()
-
-import rust
+// Tests for cargo_build_cmd() / cargo_test_cmd() and the binary_name / extra setters.
+import std.spec
 import rust (cargo_build_cmd, cargo_test_cmd, binary_name, extra)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    _assert_eq("no-config defaults to --release",
-        cargo_build_cmd("/src/mymod", "/target/mymod", null),
-        "cd /src/mymod && cargo build --release --target-dir=/target/mymod/lib")
+    fw = spec.init()
 
-    opts2 = map_new()
-    map_put(opts2, "profile", "dev")
-    _assert_eq("custom profile",
-        cargo_build_cmd("/src", "/target", opts2),
-        "cd /src && cargo build --profile dev --target-dir=/target/lib")
+    spec.describe(fw, "cargo_build_cmd") {
+        spec.it("no-config defaults to --release") callback {
+            spec.assert_str_eq(cargo_build_cmd("/src/mymod", "/target/mymod", null),
+                "cd /src/mymod && cargo build --release --target-dir=/target/mymod/lib",
+                "no-config defaults to --release")
+        }
+        spec.it("custom profile") callback {
+            opts2 = map_new()
+            map_put(opts2, "profile", "dev")
+            spec.assert_str_eq(cargo_build_cmd("/src", "/target", opts2),
+                "cd /src && cargo build --profile dev --target-dir=/target/lib",
+                "custom profile")
+        }
+        spec.it("features + jobs") callback {
+            opts3 = map_new()
+            map_put(opts3, "features", "jni,serde")
+            map_put(opts3, "jobs", "4")
+            spec.assert_str_eq(cargo_build_cmd("/src", "/target", opts3),
+                "cd /src && cargo build --release --features jni,serde --jobs 4 --target-dir=/target/lib",
+                "features + jobs")
+        }
+        spec.it("all combined") callback {
+            opts4 = map_new()
+            map_put(opts4, "profile", "release")
+            map_put(opts4, "features", "jni")
+            map_put(opts4, "jobs", "8")
+            map_put(opts4, "extra", "--locked")
+            spec.assert_str_eq(cargo_build_cmd("/src", "/target", opts4),
+                "cd /src && cargo build --profile release --features jni --jobs 8 --locked --target-dir=/target/lib",
+                "all combined")
+        }
+    }
 
-    opts3 = map_new()
-    map_put(opts3, "features", "jni,serde")
-    map_put(opts3, "jobs", "4")
-    _assert_eq("features + jobs",
-        cargo_build_cmd("/src", "/target", opts3),
-        "cd /src && cargo build --release --features jni,serde --jobs 4 --target-dir=/target/lib")
+    // binary_name setter (consumed by cargo_project_existing).
+    spec.describe(fw, "binary_name setter") {
+        spec.it("stores the name") callback {
+            bm = map_new()
+            binary_name(bm, "selenium-manager")
+            bn, _ = map_get(bm, "binary_name")
+            spec.assert_str_eq(bn, "selenium-manager", "binary_name setter stores the name")
+        }
+        spec.it("scalar last-call-wins") callback {
+            bm = map_new()
+            binary_name(bm, "selenium-manager")
+            binary_name(bm, "renamed")
+            bn2, _ = map_get(bm, "binary_name")
+            spec.assert_str_eq(bn2, "renamed", "binary_name last-call-wins")
+        }
+    }
 
-    opts4 = map_new()
-    map_put(opts4, "profile", "release")
-    map_put(opts4, "features", "jni")
-    map_put(opts4, "jobs", "8")
-    map_put(opts4, "extra", "--locked")
-    _assert_eq("all combined",
-        cargo_build_cmd("/src", "/target", opts4),
-        "cd /src && cargo build --profile release --features jni --jobs 8 --locked --target-dir=/target/lib")
+    // extra setter: the DSL setter that populates "extra". The cmd builders
+    // already read the key; this covers the setter itself, which is what a
+    // `cargo_test_existing(b) { extra("--lib") }` block calls. Then feed the
+    // setter's own map through cargo_test_cmd to prove the setter → builder
+    // path end-to-end.
+    spec.describe(fw, "extra setter") {
+        spec.it("stores the args") callback {
+            xm = map_new()
+            extra(xm, "--lib")
+            xv, _ = map_get(xm, "extra")
+            spec.assert_str_eq(xv, "--lib", "extra setter stores the args")
+        }
+        spec.it("feeds cargo_test_cmd (cargo test --lib)") callback {
+            xm = map_new()
+            extra(xm, "--lib")
+            spec.assert_str_eq(cargo_test_cmd("/proj/rust", "", xm),
+                "cd '/proj/rust' && cargo test --lib",
+                "extra setter feeds cargo_test_cmd (cargo test --lib)")
+        }
+    }
 
-    // --- binary_name setter (consumed by cargo_project_existing).
-    bm = map_new()
-    binary_name(bm, "selenium-manager")
-    bn, _ = map_get(bm, "binary_name")
-    _assert_eq("binary_name setter stores the name",
-        bn, "selenium-manager")
-
-    // Scalar last-call-wins.
-    binary_name(bm, "renamed")
-    bn2, _ = map_get(bm, "binary_name")
-    _assert_eq("binary_name last-call-wins",
-        bn2, "renamed")
-
-    // --- extra setter: the DSL setter that populates "extra". The cmd
-    // builders already read the key (asserted above); this covers the
-    // setter itself, which is what a `cargo_test_existing(b) { extra("--lib") }`
-    // block calls. Then feed the setter's own map through cargo_test_cmd to
-    // prove the setter → builder path end-to-end.
-    xm = map_new()
-    extra(xm, "--lib")
-    xv, _ = map_get(xm, "extra")
-    _assert_eq("extra setter stores the args", xv, "--lib")
-    _assert_eq("extra setter feeds cargo_test_cmd (cargo test --lib)",
-        cargo_test_cmd("/proj/rust", "", xm),
-        "cd '/proj/rust' && cargo test --lib")
-
-    // --- cargo_test_cmd (consumed by rust.cargo_test_existing).
+    // cargo_test_cmd (consumed by rust.cargo_test_existing).
     // Empty target_dir "" → legacy form (cargo's default target/); the
     // isolated form is asserted separately below.
-    _assert_eq("cargo_test_cmd bare",
-        cargo_test_cmd("/proj/rust", "", null),
-        "cd '/proj/rust' && cargo test")
+    spec.describe(fw, "cargo_test_cmd") {
+        spec.it("bare") callback {
+            spec.assert_str_eq(cargo_test_cmd("/proj/rust", "", null),
+                "cd '/proj/rust' && cargo test", "cargo_test_cmd bare")
+        }
+        spec.it("with features") callback {
+            test_opts = map_new()
+            map_put(test_opts, "features", "experimental")
+            spec.assert_str_eq(cargo_test_cmd("/proj/rust", "", test_opts),
+                "cd '/proj/rust' && cargo test --features experimental",
+                "cargo_test_cmd with features")
+        }
+        spec.it("jobs + extra") callback {
+            test_opts2 = map_new()
+            map_put(test_opts2, "jobs", "4")
+            map_put(test_opts2, "extra", "--release")
+            spec.assert_str_eq(cargo_test_cmd("/proj/rust", "", test_opts2),
+                "cd '/proj/rust' && cargo test --jobs 4 --release",
+                "cargo_test_cmd jobs + extra")
+        }
+        // all four opts combined, order is canonical (features → jobs → extra).
+        // Selenium's rust/.tests.ae would land close to this shape.
+        spec.it("features+jobs+extra ordering") callback {
+            test_opts3 = map_new()
+            map_put(test_opts3, "features", "experimental,bidi")
+            map_put(test_opts3, "jobs", "2")
+            map_put(test_opts3, "extra", "--locked -- --nocapture")
+            spec.assert_str_eq(cargo_test_cmd("/proj/rust", "", test_opts3),
+                "cd '/proj/rust' && cargo test --features experimental,bidi --jobs 2 --locked -- --nocapture",
+                "cargo_test_cmd features+jobs+extra ordering")
+        }
+        // target-dir isolation (selenium 1b): a non-empty target_dir appends
+        // --target-dir=<target>/lib, MATCHING cargo_build_cmd so the test run
+        // reuses the build node's compiled deps (target/lib) instead of
+        // recompiling under cargo's default target/.
+        spec.it("isolates via --target-dir") callback {
+            spec.assert_str_eq(cargo_test_cmd("/proj/rust", "/proj/rust/target", null),
+                "cd '/proj/rust' && cargo test --target-dir=/proj/rust/target/lib",
+                "cargo_test_cmd isolates via --target-dir")
+        }
+        spec.it("target-dir + extra") callback {
+            xm = map_new()
+            extra(xm, "--lib")
+            spec.assert_str_eq(cargo_test_cmd("/proj/rust", "/proj/rust/target", xm),
+                "cd '/proj/rust' && cargo test --lib --target-dir=/proj/rust/target/lib",
+                "cargo_test_cmd target-dir + extra")
+        }
+        // source_dir with spaces (single-quoted).
+        spec.it("source_dir with spaces") callback {
+            spec.assert_str_eq(cargo_test_cmd("/path with space/rust", "", null),
+                "cd '/path with space/rust' && cargo test",
+                "cargo_test_cmd source_dir with spaces")
+        }
+    }
 
-    test_opts = map_new()
-    map_put(test_opts, "features", "experimental")
-    _assert_eq("cargo_test_cmd with features",
-        cargo_test_cmd("/proj/rust", "", test_opts),
-        "cd '/proj/rust' && cargo test --features experimental")
-
-    test_opts2 = map_new()
-    map_put(test_opts2, "jobs", "4")
-    map_put(test_opts2, "extra", "--release")
-    _assert_eq("cargo_test_cmd jobs + extra",
-        cargo_test_cmd("/proj/rust", "", test_opts2),
-        "cd '/proj/rust' && cargo test --jobs 4 --release")
-
-    // --- cargo_test_cmd: all four opts combined, order is canonical
-    // (features → jobs → extra). Selenium's rust/.tests.ae would land
-    // close to this shape.
-    test_opts3 = map_new()
-    map_put(test_opts3, "features", "experimental,bidi")
-    map_put(test_opts3, "jobs", "2")
-    map_put(test_opts3, "extra", "--locked -- --nocapture")
-    _assert_eq("cargo_test_cmd features+jobs+extra ordering",
-        cargo_test_cmd("/proj/rust", "", test_opts3),
-        "cd '/proj/rust' && cargo test --features experimental,bidi --jobs 2 --locked -- --nocapture")
-
-    // --- cargo_test_cmd target-dir isolation (selenium 1b): a non-empty
-    // target_dir appends --target-dir=<target>/lib, MATCHING cargo_build_cmd
-    // so the test run reuses the build node's compiled deps (target/lib)
-    // instead of recompiling under cargo's default target/. The suffix here
-    // must equal the tail cargo_build_cmd produces for the same target_dir.
-    _assert_eq("cargo_test_cmd isolates via --target-dir",
-        cargo_test_cmd("/proj/rust", "/proj/rust/target", null),
-        "cd '/proj/rust' && cargo test --target-dir=/proj/rust/target/lib")
-    _assert_eq("cargo_test_cmd target-dir + extra",
-        cargo_test_cmd("/proj/rust", "/proj/rust/target", xm),
-        "cd '/proj/rust' && cargo test --lib --target-dir=/proj/rust/target/lib")
-
-    // --- cargo_test_cmd: source_dir with spaces (single-quoted).
-    _assert_eq("cargo_test_cmd source_dir with spaces",
-        cargo_test_cmd("/path with space/rust", "", null),
-        "cd '/path with space/rust' && cargo test")
-
-    println("cargo_build_cmd tests done")
+    spec.run_summary(fw)
 }

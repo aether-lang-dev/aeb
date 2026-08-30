@@ -1,109 +1,114 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for clojure.clj_aot_compile_cmd, clojure.clj_load_check_cmd,
-// clojure.clj_test_cmd
-
+// clojure.clj_test_cmd and the uberjar / munging helpers.
+import std.spec
 import clojure (clj_aot_compile_cmd, clj_load_check_cmd, clj_test_cmd,
                 uber_unzip_jar_cmd, uber_copy_tree_cmd, uber_jar_cmd,
                 _ns_to_main_class, _ends_with_jar,
                 main_ns, output_jar)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    _assert_eq("clj_aot_compile_cmd basic",
-        clj_aot_compile_cmd("/out/classes",
-                            "/src/main:/out/classes:/maven/clojure.jar",
-                            "myapp.core"),
-        "java -Dclojure.compile.path='/out/classes' -cp '/src/main:/out/classes:/maven/clojure.jar' clojure.main -e \"(compile 'myapp.core)\"")
+    fw = spec.init()
 
-    _assert_eq("clj_load_check_cmd basic",
-        clj_load_check_cmd("/src/main:/out/classes:/maven/clojure.jar"),
-        "java -cp '/src/main:/out/classes:/maven/clojure.jar' clojure.main -e \"(println :ok)\"")
-
-    _assert_eq("clj_test_cmd no timeout",
-        clj_test_cmd("/src/main:/src/test:/maven/junit.jar",
-                     "'myapp.core-test 'myapp.util-test ",
-                     ""),
-        "java -cp '/src/main:/src/test:/maven/junit.jar' clojure.main -e \"(require 'myapp.core-test 'myapp.util-test ) (let [r (clojure.test/run-tests 'myapp.core-test 'myapp.util-test )] (System/exit (+ (:fail r) (:error r))))\"")
-
-    _assert_eq("clj_test_cmd with timeout",
-        clj_test_cmd("/cp",
-                     "'foo-test ",
-                     "60"),
-        "timeout 60 java -cp '/cp' clojure.main -e \"(require 'foo-test ) (let [r (clojure.test/run-tests 'foo-test )] (System/exit (+ (:fail r) (:error r))))\"")
-
-    // === clojure.uberjar pure command builders ========================
-
-    _assert_eq("uber_unzip_jar_cmd basic",
-        uber_unzip_jar_cmd("/m2/clojure-1.12.0.jar", "/proj/target/_uber"),
-        "unzip -qq -o '/m2/clojure-1.12.0.jar' -d '/proj/target/_uber'")
-
-    _assert_eq("uber_copy_tree_cmd basic",
-        uber_copy_tree_cmd("/proj/src", "/proj/target/_uber"),
-        "cp -a '/proj/src/.' '/proj/target/_uber/'")
-
-    _assert_eq("uber_jar_cmd basic",
-        uber_jar_cmd("/proj/target/bin/app-standalone.jar", "/proj/target/_uber"),
-        "jar cfM '/proj/target/bin/app-standalone.jar' -C '/proj/target/_uber' .")
-
-    _assert_eq("uber_jar_cmd spaces in path",
-        uber_jar_cmd("/path with space/out.jar", "/stage"),
-        "jar cfM '/path with space/out.jar' -C '/stage' .")
-
-    // === _ns_to_main_class — Clojure ns -> Java class munging =========
-
-    _assert_eq("_ns_to_main_class no dashes",
-        _ns_to_main_class("com.example.core"), "com.example.core")
-
-    _assert_eq("_ns_to_main_class single dash",
-        _ns_to_main_class("my-app.core"), "my_app.core")
-
-    _assert_eq("_ns_to_main_class multiple dashes",
-        _ns_to_main_class("foo-bar-baz.web-server"), "foo_bar_baz.web_server")
-
-    _assert_eq("_ns_to_main_class dots preserved",
-        _ns_to_main_class("a.b.c"), "a.b.c")
-
-    // === _ends_with_jar ===============================================
-
-    if _ends_with_jar("/m2/clojure.jar") == 1 {
-        println("PASS: _ends_with_jar positive")
-    } else {
-        println("FAIL: _ends_with_jar positive")
-    }
-    if _ends_with_jar("/proj/src") == 0 {
-        println("PASS: _ends_with_jar negative")
-    } else {
-        println("FAIL: _ends_with_jar negative")
+    spec.describe(fw, "clj command builders") {
+        spec.it("clj_aot_compile_cmd basic") callback {
+            spec.assert_str_eq(
+                clj_aot_compile_cmd("/out/classes",
+                                    "/src/main:/out/classes:/maven/clojure.jar",
+                                    "myapp.core"),
+                "java -Dclojure.compile.path='/out/classes' -cp '/src/main:/out/classes:/maven/clojure.jar' clojure.main -e \"(compile 'myapp.core)\"",
+                "clj_aot_compile_cmd basic")
+        }
+        spec.it("clj_load_check_cmd basic") callback {
+            spec.assert_str_eq(
+                clj_load_check_cmd("/src/main:/out/classes:/maven/clojure.jar"),
+                "java -cp '/src/main:/out/classes:/maven/clojure.jar' clojure.main -e \"(println :ok)\"",
+                "clj_load_check_cmd basic")
+        }
+        spec.it("clj_test_cmd no timeout") callback {
+            spec.assert_str_eq(
+                clj_test_cmd("/src/main:/src/test:/maven/junit.jar",
+                             "'myapp.core-test 'myapp.util-test ",
+                             ""),
+                "java -cp '/src/main:/src/test:/maven/junit.jar' clojure.main -e \"(require 'myapp.core-test 'myapp.util-test ) (let [r (clojure.test/run-tests 'myapp.core-test 'myapp.util-test )] (System/exit (+ (:fail r) (:error r))))\"",
+                "clj_test_cmd no timeout")
+        }
+        spec.it("clj_test_cmd with timeout") callback {
+            spec.assert_str_eq(
+                clj_test_cmd("/cp",
+                             "'foo-test ",
+                             "60"),
+                "timeout 60 java -cp '/cp' clojure.main -e \"(require 'foo-test ) (let [r (clojure.test/run-tests 'foo-test )] (System/exit (+ (:fail r) (:error r))))\"",
+                "clj_test_cmd with timeout")
+        }
     }
 
-    // === Setter accumulation ==========================================
+    spec.describe(fw, "clojure.uberjar pure command builders") {
+        spec.it("uber_unzip_jar_cmd basic") callback {
+            spec.assert_str_eq(
+                uber_unzip_jar_cmd("/m2/clojure-1.12.0.jar", "/proj/target/_uber"),
+                "unzip -qq -o '/m2/clojure-1.12.0.jar' -d '/proj/target/_uber'",
+                "uber_unzip_jar_cmd basic")
+        }
+        spec.it("uber_copy_tree_cmd basic") callback {
+            spec.assert_str_eq(
+                uber_copy_tree_cmd("/proj/src", "/proj/target/_uber"),
+                "cp -a '/proj/src/.' '/proj/target/_uber/'",
+                "uber_copy_tree_cmd basic")
+        }
+        spec.it("uber_jar_cmd basic") callback {
+            spec.assert_str_eq(
+                uber_jar_cmd("/proj/target/bin/app-standalone.jar", "/proj/target/_uber"),
+                "jar cfM '/proj/target/bin/app-standalone.jar' -C '/proj/target/_uber' .",
+                "uber_jar_cmd basic")
+        }
+        spec.it("uber_jar_cmd spaces in path") callback {
+            spec.assert_str_eq(
+                uber_jar_cmd("/path with space/out.jar", "/stage"),
+                "jar cfM '/path with space/out.jar' -C '/stage' .",
+                "uber_jar_cmd spaces in path")
+        }
+    }
 
-    bm = map_new()
-    main_ns(bm, "com.example.core")
-    output_jar(bm, "app-1.0.jar")
-    mn, _ = map_get(bm, "main_ns")
-    oj, _ = map_get(bm, "clojure_output_jar")
-    _assert_eq("main_ns stored", mn, "com.example.core")
-    _assert_eq("output_jar stored", oj, "app-1.0.jar")
+    // _ns_to_main_class — Clojure ns -> Java class munging
+    spec.describe(fw, "_ns_to_main_class") {
+        spec.it("no dashes") callback {
+            spec.assert_str_eq(_ns_to_main_class("com.example.core"), "com.example.core",
+                "_ns_to_main_class no dashes")
+        }
+        spec.it("single dash") callback {
+            spec.assert_str_eq(_ns_to_main_class("my-app.core"), "my_app.core",
+                "_ns_to_main_class single dash")
+        }
+        spec.it("multiple dashes") callback {
+            spec.assert_str_eq(_ns_to_main_class("foo-bar-baz.web-server"), "foo_bar_baz.web_server",
+                "_ns_to_main_class multiple dashes")
+        }
+        spec.it("dots preserved") callback {
+            spec.assert_str_eq(_ns_to_main_class("a.b.c"), "a.b.c",
+                "_ns_to_main_class dots preserved")
+        }
+    }
 
-    println("clojure cmd tests done")
+    spec.describe(fw, "_ends_with_jar") {
+        spec.it("positive") callback {
+            spec.assert_true(_ends_with_jar("/m2/clojure.jar") == 1, "_ends_with_jar positive")
+        }
+        spec.it("negative") callback {
+            spec.assert_true(_ends_with_jar("/proj/src") == 0, "_ends_with_jar negative")
+        }
+    }
+
+    spec.describe(fw, "setter accumulation") {
+        spec.it("main_ns + output_jar stored") callback {
+            bm = map_new()
+            main_ns(bm, "com.example.core")
+            output_jar(bm, "app-1.0.jar")
+            mn, _ = map_get(bm, "main_ns")
+            oj, _ = map_get(bm, "clojure_output_jar")
+            spec.assert_str_eq(mn, "com.example.core", "main_ns stored")
+            spec.assert_str_eq(oj, "app-1.0.jar", "output_jar stored")
+        }
+    }
+
+    spec.run_summary(fw)
 }

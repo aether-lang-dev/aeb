@@ -3,55 +3,72 @@
 // so a cabal package can link against a C lib (the selenium engine .so):
 //   _hs_lib_flags   — per link_dir(): --extra-lib-dirs + -rpath ghc-option
 //   _hs_target_suffix — target(): " <t>" or ""
-import haskell (link_dir, target, _hs_lib_flags, _hs_target_suffix)
-import std.string
-import std.list
+import std.spec
 import std.map
-
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
+import haskell (link_dir, target, _hs_lib_flags, _hs_target_suffix)
 
 main() {
-    // --- _hs_lib_flags: null / no link_dir() → empty.
-    _eq("_hs_lib_flags null bmap → empty", _hs_lib_flags(null), "")
-    b0 = map.new()
-    _eq("_hs_lib_flags no link_dir → empty", _hs_lib_flags(b0), "")
+    fw = spec.init()
 
-    // --- _hs_lib_flags: one link_dir → --extra-lib-dirs + rpath ghc-option.
-    b1 = map.new()
-    link_dir(b1, "/proj/target/build/engine/lib")
-    _eq("_hs_lib_flags one dir",
-        _hs_lib_flags(b1),
-        " --extra-lib-dirs='/proj/target/build/engine/lib' --ghc-options=-optl-Wl,-rpath,'/proj/target/build/engine/lib'")
+    spec.describe(fw, "_hs_lib_flags") {
+        // --- null / no link_dir() → empty.
+        spec.it("null bmap → empty") callback {
+            spec.assert_str_eq(_hs_lib_flags(null), "", "_hs_lib_flags null bmap → empty")
+        }
+        spec.it("no link_dir → empty") callback {
+            b0 = map.new()
+            spec.assert_str_eq(_hs_lib_flags(b0), "", "_hs_lib_flags no link_dir → empty")
+        }
 
-    // --- _hs_lib_flags: link_dir accumulates; flags emitted per dir in order.
-    b2 = map.new()
-    link_dir(b2, "/a")
-    link_dir(b2, "/b")
-    _eq("_hs_lib_flags two dirs, order preserved",
-        _hs_lib_flags(b2),
-        " --extra-lib-dirs='/a' --ghc-options=-optl-Wl,-rpath,'/a' --extra-lib-dirs='/b' --ghc-options=-optl-Wl,-rpath,'/b'")
+        // --- one link_dir → --extra-lib-dirs + rpath ghc-option.
+        spec.it("one dir") callback {
+            b1 = map.new()
+            link_dir(b1, "/proj/target/build/engine/lib")
+            spec.assert_str_eq(
+                _hs_lib_flags(b1),
+                " --extra-lib-dirs='/proj/target/build/engine/lib' --ghc-options=-optl-Wl,-rpath,'/proj/target/build/engine/lib'", "_hs_lib_flags one dir")
+        }
 
-    // --- _hs_target_suffix: unset → empty; set → " <t>".
-    _eq("_hs_target_suffix null bmap → empty", _hs_target_suffix(null), "")
-    bt0 = map.new()
-    _eq("_hs_target_suffix unset → empty", _hs_target_suffix(bt0), "")
-    bt = map.new()
-    target(bt, "test:live")
-    _eq("_hs_target_suffix set → ' <target>'", _hs_target_suffix(bt), " test:live")
+        // --- link_dir accumulates; flags emitted per dir in order.
+        spec.it("two dirs, order preserved") callback {
+            b2 = map.new()
+            link_dir(b2, "/a")
+            link_dir(b2, "/b")
+            spec.assert_str_eq(
+                _hs_lib_flags(b2),
+                " --extra-lib-dirs='/a' --ghc-options=-optl-Wl,-rpath,'/a' --extra-lib-dirs='/b' --ghc-options=-optl-Wl,-rpath,'/b'", "_hs_lib_flags two dirs, order preserved")
+        }
+    }
 
-    // --- setter storage sanity: link_dir list + target scalar keys.
-    _assert("link_dir stored under hs_link_dirs", map.has(b1, "hs_link_dirs"))
-    _assert("target stored under hs_target", map.has(bt, "hs_target"))
+    spec.describe(fw, "_hs_target_suffix") {
+        // --- unset → empty; set → " <t>".
+        spec.it("null bmap → empty") callback {
+            spec.assert_str_eq(_hs_target_suffix(null), "", "_hs_target_suffix null bmap → empty")
+        }
+        spec.it("unset → empty") callback {
+            bt0 = map.new()
+            spec.assert_str_eq(_hs_target_suffix(bt0), "", "_hs_target_suffix unset → empty")
+        }
+        spec.it("set → ' <target>'") callback {
+            bt = map.new()
+            target(bt, "test:live")
+            spec.assert_str_eq(_hs_target_suffix(bt), " test:live", "_hs_target_suffix set → ' <target>'")
+        }
+    }
 
-    println("haskell command-string tests done")
+    spec.describe(fw, "setter storage") {
+        // --- setter storage sanity: link_dir list + target scalar keys.
+        spec.it("link_dir stored under hs_link_dirs") callback {
+            b1 = map.new()
+            link_dir(b1, "/proj/target/build/engine/lib")
+            spec.assert_true(map.has(b1, "hs_link_dirs"), "link_dir stored under hs_link_dirs")
+        }
+        spec.it("target stored under hs_target") callback {
+            bt = map.new()
+            target(bt, "test:live")
+            spec.assert_true(map.has(bt, "hs_target"), "target stored under hs_target")
+        }
+    }
+
+    spec.run_summary(fw)
 }

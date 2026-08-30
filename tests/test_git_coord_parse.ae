@@ -4,62 +4,71 @@
 // grammar: @ref finds, =sha verifies, #synonym names; '-' slug separator (not
 // '@', which aeb's symbol encoder can't handle).
 
+import std.spec
 import bldr (_git_repo, _git_ref, _git_synonym, _git_sha, _git_synonym_relpath, _git_pkg_slug, _git_sha_matches)
-import std.string
-
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
-_ok(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
 
 main() {
-    // Full coordinate: repo + ref + synonym + sha
-    full = "git:github.com/aether-lang-dev/zsync-port@main#cmd/zsync:zsync=a298837195fe60df567c66ff4922e0e5baceee6a"
-    _eq("full repo",    _git_repo(full),    "github.com/aether-lang-dev/zsync-port")
-    _eq("full ref",     _git_ref(full),     "main")
-    _eq("full synonym", _git_synonym(full), "cmd/zsync:zsync")
-    _eq("full sha",     _git_sha(full),     "a298837195fe60df567c66ff4922e0e5baceee6a")
+    fw = spec.init()
 
-    // Tag ref + no sha (unpinned-by-sha)
-    tag = "git:github.com/u/repo@0.7.1#cmd/fileserver:fileserver"
-    _eq("tag repo",     _git_repo(tag),     "github.com/u/repo")
-    _eq("tag ref",      _git_ref(tag),      "0.7.1")
-    _eq("tag synonym",  _git_synonym(tag),  "cmd/fileserver:fileserver")
-    _eq("tag sha empty",_git_sha(tag),      "")
+    spec.describe(fw, "git coordinate parser") {
+        // Full coordinate: repo + ref + synonym + sha
+        spec.it("full coordinate: repo + ref + synonym + sha") callback {
+            full = "git:github.com/aether-lang-dev/zsync-port@main#cmd/zsync:zsync=a298837195fe60df567c66ff4922e0e5baceee6a"
+            spec.assert_str_eq(_git_repo(full), "github.com/aether-lang-dev/zsync-port", "full repo")
+            spec.assert_str_eq(_git_ref(full), "main", "full ref")
+            spec.assert_str_eq(_git_synonym(full), "cmd/zsync:zsync", "full synonym")
+            spec.assert_str_eq(_git_sha(full), "a298837195fe60df567c66ff4922e0e5baceee6a", "full sha")
+        }
 
-    // No ref (default branch), with sha
-    noref = "git:github.com/u/repo#lib:core=abc123"
-    _eq("noref repo",   _git_repo(noref),   "github.com/u/repo")
-    _eq("noref ref empty", _git_ref(noref), "")
-    _eq("noref synonym",_git_synonym(noref),"lib:core")
-    _eq("noref sha",    _git_sha(noref),    "abc123")
+        // Tag ref + no sha (unpinned-by-sha)
+        spec.it("tag ref + no sha") callback {
+            tag = "git:github.com/u/repo@0.7.1#cmd/fileserver:fileserver"
+            spec.assert_str_eq(_git_repo(tag), "github.com/u/repo", "tag repo")
+            spec.assert_str_eq(_git_ref(tag), "0.7.1", "tag ref")
+            spec.assert_str_eq(_git_synonym(tag), "cmd/fileserver:fileserver", "tag synonym")
+            spec.assert_str_eq(_git_sha(tag), "", "tag sha empty")
+        }
 
-    // file:// remote (the offline test form) — '/' in repo, ref after @
-    fileurl = "git:file:///home/paul/scm/zsync@main#cmd/zsync:zsync=0cdc40d"
-    _eq("file repo",    _git_repo(fileurl), "file:///home/paul/scm/zsync")
-    _eq("file ref",     _git_ref(fileurl),  "main")
-    _eq("file synonym", _git_synonym(fileurl), "cmd/zsync:zsync")
-    _eq("file sha",     _git_sha(fileurl),  "0cdc40d")
+        // No ref (default branch), with sha
+        spec.it("no ref (default branch), with sha") callback {
+            noref = "git:github.com/u/repo#lib:core=abc123"
+            spec.assert_str_eq(_git_repo(noref), "github.com/u/repo", "noref repo")
+            spec.assert_str_eq(_git_ref(noref), "", "noref ref empty")
+            spec.assert_str_eq(_git_synonym(noref), "lib:core", "noref synonym")
+            spec.assert_str_eq(_git_sha(noref), "abc123", "noref sha")
+        }
 
-    // synonym → .name.ae relpath
-    _eq("relpath dir:name", _git_synonym_relpath("cmd/zsync:zsync"), "cmd/zsync/.zsync.ae")
-    _eq("relpath :name",    _git_synonym_relpath(":zsync"),          "./.zsync.ae")
-    _eq("relpath bare",     _git_synonym_relpath("zsync"),           "./.zsync.ae")
+        // file:// remote (the offline test form) — '/' in repo, ref after @
+        spec.it("file:// remote") callback {
+            fileurl = "git:file:///home/paul/scm/zsync@main#cmd/zsync:zsync=0cdc40d"
+            spec.assert_str_eq(_git_repo(fileurl), "file:///home/paul/scm/zsync", "file repo")
+            spec.assert_str_eq(_git_ref(fileurl), "main", "file ref")
+            spec.assert_str_eq(_git_synonym(fileurl), "cmd/zsync:zsync", "file synonym")
+            spec.assert_str_eq(_git_sha(fileurl), "0cdc40d", "file sha")
+        }
 
-    // slug uses '-' (NOT '@' — symbol-encoder can't handle @), strips .git
-    _eq("slug sha",  _git_pkg_slug("github.com/u/zsync-port", "a298837"), "zsync-port-a298837")
-    _eq("slug .git", _git_pkg_slug("github.com/u/repo.git", "main"),       "repo-main")
-    _eq("slug HEAD", _git_pkg_slug("github.com/u/repo", ""),               "repo-HEAD")
+        // synonym → .name.ae relpath
+        spec.it("synonym → .name.ae relpath") callback {
+            spec.assert_str_eq(_git_synonym_relpath("cmd/zsync:zsync"), "cmd/zsync/.zsync.ae", "relpath dir:name")
+            spec.assert_str_eq(_git_synonym_relpath(":zsync"), "./.zsync.ae", "relpath :name")
+            spec.assert_str_eq(_git_synonym_relpath("zsync"), "./.zsync.ae", "relpath bare")
+        }
 
-    // sha-prefix pin matching
-    _ok("sha exact",   _git_sha_matches("a298837abc", "a298837abc"))
-    _ok("sha prefix",  _git_sha_matches("a298837abcdef", "a298837"))
-    _ok("sha empty-want", _git_sha_matches("anything", ""))
-    _ok("sha no-match", 1 - _git_sha_matches("a298837", "deadbeef"))
+        // slug uses '-' (NOT '@' — symbol-encoder can't handle @), strips .git
+        spec.it("slug uses '-', strips .git") callback {
+            spec.assert_str_eq(_git_pkg_slug("github.com/u/zsync-port", "a298837"), "zsync-port-a298837", "slug sha")
+            spec.assert_str_eq(_git_pkg_slug("github.com/u/repo.git", "main"), "repo-main", "slug .git")
+            spec.assert_str_eq(_git_pkg_slug("github.com/u/repo", ""), "repo-HEAD", "slug HEAD")
+        }
+
+        // sha-prefix pin matching
+        spec.it("sha-prefix pin matching") callback {
+            spec.assert_true(_git_sha_matches("a298837abc", "a298837abc"), "sha exact")
+            spec.assert_true(_git_sha_matches("a298837abcdef", "a298837"), "sha prefix")
+            spec.assert_true(_git_sha_matches("anything", ""), "sha empty-want")
+            spec.assert_true(1 - _git_sha_matches("a298837", "deadbeef"), "sha no-match")
+        }
+    }
+
+    spec.run_summary(fw)
 }

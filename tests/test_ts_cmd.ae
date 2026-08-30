@@ -1,98 +1,96 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
-import pnpm
 // Tests for ts.tsc_cmd, ts.tsc_files_cmd, ts.mocha_cmd
+import std.spec
+import std.map
 
-import ts
 import ts (tsc_cmd, tsc_files_cmd, mocha_cmd)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    // --- tsc_cmd: project mode ---
-    _assert_eq("tsc_cmd no opts",
-        tsc_cmd("/n/.bin/tsc", "/proj/tsconfig.lib.json", null),
-        "/n/.bin/tsc -p '/proj/tsconfig.lib.json'")
+    fw = spec.init()
 
-    opts2 = map_new()
-    map_put(opts2, "skip_lib_check", "true")
-    _assert_eq("tsc_cmd skip_lib_check",
-        tsc_cmd("/n/tsc", "/p/tsconfig.json", opts2),
-        "/n/tsc -p '/p/tsconfig.json' --skipLibCheck")
+    spec.describe(fw, "tsc_cmd: project mode") {
+        spec.it("no opts") callback {
+            spec.assert_str_eq(
+                tsc_cmd("/n/.bin/tsc", "/proj/tsconfig.lib.json", null),
+                "/n/.bin/tsc -p '/proj/tsconfig.lib.json'", "tsc_cmd no opts")
+        }
+        spec.it("skip_lib_check") callback {
+            opts2 = map_new()
+            map_put(opts2, "skip_lib_check", "true")
+            spec.assert_str_eq(
+                tsc_cmd("/n/tsc", "/p/tsconfig.json", opts2),
+                "/n/tsc -p '/p/tsconfig.json' --skipLibCheck", "tsc_cmd skip_lib_check")
+        }
+        spec.it("out_dir") callback {
+            opts3 = map_new()
+            map_put(opts3, "out_dir", "/out/js")
+            spec.assert_str_eq(
+                tsc_cmd("/n/tsc", "/p/tsconfig.json", opts3),
+                "/n/tsc -p '/p/tsconfig.json' --outDir '/out/js'", "tsc_cmd out_dir")
+        }
+        spec.it("combined") callback {
+            opts4 = map_new()
+            map_put(opts4, "skip_lib_check", "true")
+            map_put(opts4, "out_dir", "/out")
+            map_put(opts4, "extra", "--noEmitOnError")
+            spec.assert_str_eq(
+                tsc_cmd("/n/tsc", "/p/tsconfig.json", opts4),
+                "/n/tsc -p '/p/tsconfig.json' --skipLibCheck --outDir '/out' --noEmitOnError", "tsc_cmd combined")
+        }
+    }
 
-    opts3 = map_new()
-    map_put(opts3, "out_dir", "/out/js")
-    _assert_eq("tsc_cmd out_dir",
-        tsc_cmd("/n/tsc", "/p/tsconfig.json", opts3),
-        "/n/tsc -p '/p/tsconfig.json' --outDir '/out/js'")
+    spec.describe(fw, "tsc_files_cmd: free-files mode") {
+        spec.it("no opts") callback {
+            spec.assert_str_eq(
+                tsc_files_cmd("/src", null),
+                "cd /src && tsc", "tsc_files_cmd no opts")
+        }
+        spec.it("strict+target+module") callback {
+            opts5 = map_new()
+            map_put(opts5, "strict", "true")
+            map_put(opts5, "target", "ES2022")
+            map_put(opts5, "module_kind", "esnext")
+            spec.assert_str_eq(
+                tsc_files_cmd("/src", opts5),
+                "cd /src && tsc --strict --target ES2022 --module esnext", "tsc_files_cmd strict+target+module")
+        }
+        spec.it("out_dir+extra") callback {
+            opts6 = map_new()
+            map_put(opts6, "out_dir", "dist")
+            map_put(opts6, "extra", "--declaration")
+            spec.assert_str_eq(
+                tsc_files_cmd("/src", opts6),
+                "cd /src && tsc --outDir dist --declaration", "tsc_files_cmd out_dir+extra")
+        }
+    }
 
-    opts4 = map_new()
-    map_put(opts4, "skip_lib_check", "true")
-    map_put(opts4, "out_dir", "/out")
-    map_put(opts4, "extra", "--noEmitOnError")
-    _assert_eq("tsc_cmd combined",
-        tsc_cmd("/n/tsc", "/p/tsconfig.json", opts4),
-        "/n/tsc -p '/p/tsconfig.json' --skipLibCheck --outDir '/out' --noEmitOnError")
+    spec.describe(fw, "mocha_cmd: tests") {
+        spec.it("no ld_path") callback {
+            spec.assert_str_eq(
+                mocha_cmd("/np", "", "", "/m/mocha", null, "test.js"),
+                "NODE_PATH=/np node /m/mocha test.js", "mocha_cmd no ld_path")
+        }
+        spec.it("with ld_path") callback {
+            spec.assert_str_eq(
+                mocha_cmd("/np", "/lib", "LD_LIBRARY_PATH", "/m/mocha", null, "test.js"),
+                "NODE_PATH=/np LD_LIBRARY_PATH=/lib node /m/mocha test.js", "mocha_cmd with ld_path")
+        }
+        spec.it("timeout+reporter") callback {
+            opts7 = map_new()
+            map_put(opts7, "timeout", "5000")
+            map_put(opts7, "reporter", "spec")
+            spec.assert_str_eq(
+                mocha_cmd("/np", "", "", "/m/mocha", opts7, "test.js"),
+                "NODE_PATH=/np node /m/mocha --timeout 5000 --reporter spec test.js", "mocha_cmd timeout+reporter")
+        }
+        spec.it("grep+extra") callback {
+            opts8 = map_new()
+            map_put(opts8, "grep", "Foo")
+            map_put(opts8, "extra", "--exit")
+            spec.assert_str_eq(
+                mocha_cmd("/np", "", "", "/m/mocha", opts8, "test.js"),
+                "NODE_PATH=/np node /m/mocha --grep 'Foo' --exit test.js", "mocha_cmd grep+extra")
+        }
+    }
 
-    // --- tsc_files_cmd: free-files mode ---
-    _assert_eq("tsc_files_cmd no opts",
-        tsc_files_cmd("/src", null),
-        "cd /src && tsc")
-
-    opts5 = map_new()
-    map_put(opts5, "strict", "true")
-    map_put(opts5, "target", "ES2022")
-    map_put(opts5, "module_kind", "esnext")
-    _assert_eq("tsc_files_cmd strict+target+module",
-        tsc_files_cmd("/src", opts5),
-        "cd /src && tsc --strict --target ES2022 --module esnext")
-
-    opts6 = map_new()
-    map_put(opts6, "out_dir", "dist")
-    map_put(opts6, "extra", "--declaration")
-    _assert_eq("tsc_files_cmd out_dir+extra",
-        tsc_files_cmd("/src", opts6),
-        "cd /src && tsc --outDir dist --declaration")
-
-    // --- mocha_cmd: tests ---
-    _assert_eq("mocha_cmd no ld_path",
-        mocha_cmd("/np", "", "", "/m/mocha", null, "test.js"),
-        "NODE_PATH=/np node /m/mocha test.js")
-
-    _assert_eq("mocha_cmd with ld_path",
-        mocha_cmd("/np", "/lib", "LD_LIBRARY_PATH", "/m/mocha", null, "test.js"),
-        "NODE_PATH=/np LD_LIBRARY_PATH=/lib node /m/mocha test.js")
-
-    opts7 = map_new()
-    map_put(opts7, "timeout", "5000")
-    map_put(opts7, "reporter", "spec")
-    _assert_eq("mocha_cmd timeout+reporter",
-        mocha_cmd("/np", "", "", "/m/mocha", opts7, "test.js"),
-        "NODE_PATH=/np node /m/mocha --timeout 5000 --reporter spec test.js")
-
-    opts8 = map_new()
-    map_put(opts8, "grep", "Foo")
-    map_put(opts8, "extra", "--exit")
-    _assert_eq("mocha_cmd grep+extra",
-        mocha_cmd("/np", "", "", "/m/mocha", opts8, "test.js"),
-        "NODE_PATH=/np node /m/mocha --grep 'Foo' --exit test.js")
-
-    println("ts cmd tests done")
+    spec.run_summary(fw)
 }

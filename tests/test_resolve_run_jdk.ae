@@ -11,72 +11,114 @@
 // The JDK-present path isn't deterministically testable (depends on the box), so
 // the UNMET paths use an impossibly-high floor ("999"), "" on any box.
 
+import std.spec
 import bldr (_resolve_run_jdk, _str_key, _version_ge, _normalize_jvm_version)
 import std.string
 import std.map
 
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
-_eqs(label: string, a: string, b: string) {
-    if string.equals(a, b) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${a}', want '${b}')") }
-}
-
 main() {
+    fw = spec.init()
+
     ctx = map.new()
 
-    // --- no floor -> ambient java, ok ---
-    j0, s0 = _resolve_run_jdk(ctx, "mod", "", "", "x")
-    _assert("no floor -> ok", string.equals(s0, "ok"))
-    _assert("no floor -> ambient java", string.equals(j0, "java"))
+    spec.describe(fw, "_resolve_run_jdk gate") {
+        // --- no floor -> ambient java, ok ---
+        spec.it("no floor -> ok, ambient java") callback {
+            j0, s0 = _resolve_run_jdk(ctx, "mod", "", "", "x")
+            spec.assert_str_eq(s0, "ok", "no floor -> ok")
+            spec.assert_str_eq(j0, "java", "no floor -> ambient java")
+        }
 
-    // --- unmet hard requirement -> FAIL ---
-    j1, s1 = _resolve_run_jdk(ctx, "mod", "999", "", "x")
-    _assert("min 999 unmet -> fail", string.equals(s1, "fail"))
-    _assert("min 999 unmet -> empty path", string.length(j1) == 0)
+        // --- unmet hard requirement -> FAIL ---
+        spec.it("min 999 unmet -> fail, empty path") callback {
+            j1, s1 = _resolve_run_jdk(ctx, "mod", "999", "", "x")
+            spec.assert_str_eq(s1, "fail", "min 999 unmet -> fail")
+            spec.assert_eq(string.length(j1), 0, "min 999 unmet -> empty path")
+        }
 
-    // --- unmet portable floor -> SKIP ---
-    j2, s2 = _resolve_run_jdk(ctx, "mod", "", "999", "x")
-    _assert("skip 999 unmet -> skip", string.equals(s2, "skip"))
+        // --- unmet portable floor -> SKIP ---
+        spec.it("skip 999 unmet -> skip") callback {
+            j2, s2 = _resolve_run_jdk(ctx, "mod", "", "999", "x")
+            spec.assert_str_eq(s2, "skip", "skip 999 unmet -> skip")
+        }
 
-    // --- precedence: min wins when both unmet -> FAIL not skip ---
-    j3, s3 = _resolve_run_jdk(ctx, "mod", "999", "999", "x")
-    _assert("both unmet -> min wins -> fail", string.equals(s3, "fail"))
+        // --- precedence: min wins when both unmet -> FAIL not skip ---
+        spec.it("both unmet -> min wins -> fail") callback {
+            j3, s3 = _resolve_run_jdk(ctx, "mod", "999", "999", "x")
+            spec.assert_str_eq(s3, "fail", "both unmet -> min wins -> fail")
+        }
 
-    // --- below the JDK-6 floor -> toolow (config error) ---
-    j4, s4 = _resolve_run_jdk(ctx, "mod", "5", "", "x")
-    _assert("min 5 (below 6) -> toolow", string.equals(s4, "toolow"))
-    j5, s5 = _resolve_run_jdk(ctx, "mod", "1.5", "", "x")
-    _assert("min 1.5 (Java 5, below 6) -> toolow", string.equals(s5, "toolow"))
+        // --- below the JDK-6 floor -> toolow (config error) ---
+        spec.it("min 5 (below 6) -> toolow") callback {
+            j4, s4 = _resolve_run_jdk(ctx, "mod", "5", "", "x")
+            spec.assert_str_eq(s4, "toolow", "min 5 (below 6) -> toolow")
+        }
+        spec.it("min 1.5 (Java 5, below 6) -> toolow") callback {
+            j5, s5 = _resolve_run_jdk(ctx, "mod", "1.5", "", "x")
+            spec.assert_str_eq(s5, "toolow", "min 1.5 (Java 5, below 6) -> toolow")
+        }
+    }
 
-    // --- _normalize_jvm_version: JEP 223 extended backwards ---
-    _eqs("normalize 22", _normalize_jvm_version("22"), "22")
-    _eqs("normalize 21.0.2", _normalize_jvm_version("21.0.2"), "21.0.2")
-    _eqs("normalize 1.8.0_412 -> 8.0", _normalize_jvm_version("1.8.0_412"), "8.0")
-    _eqs("normalize 1.6 -> 6", _normalize_jvm_version("1.6"), "6")
-    _eqs("normalize 22-ea -> 22", _normalize_jvm_version("22-ea"), "22")
+    spec.describe(fw, "_normalize_jvm_version: JEP 223 extended backwards") {
+        spec.it("normalize 22") callback {
+            spec.assert_str_eq(_normalize_jvm_version("22"), "22", "normalize 22")
+        }
+        spec.it("normalize 21.0.2") callback {
+            spec.assert_str_eq(_normalize_jvm_version("21.0.2"), "21.0.2", "normalize 21.0.2")
+        }
+        spec.it("normalize 1.8.0_412 -> 8.0") callback {
+            spec.assert_str_eq(_normalize_jvm_version("1.8.0_412"), "8.0", "normalize 1.8.0_412 -> 8.0")
+        }
+        spec.it("normalize 1.6 -> 6") callback {
+            spec.assert_str_eq(_normalize_jvm_version("1.6"), "6", "normalize 1.6 -> 6")
+        }
+        spec.it("normalize 22-ea -> 22") callback {
+            spec.assert_str_eq(_normalize_jvm_version("22-ea"), "22", "normalize 22-ea -> 22")
+        }
+    }
 
-    // --- _version_ge: per-segment numeric, floor semantics ---
-    _assert("22 >= 22", _version_ge("22", "22") == 1)
-    _assert("24 >= 22", _version_ge("24", "22") == 1)
-    _assert("17 >= 22 is false", _version_ge("17", "22") == 0)
-    _assert("21.0.2 >= 21.0.1", _version_ge("21.0.2", "21.0.1") == 1)
-    _assert("21.0.1 >= 21.0.2 is false", _version_ge("21.0.1", "21.0.2") == 0)
-    _assert("22 >= 22.0.0 (missing want segs = 0)", _version_ge("22", "22.0.0") == 1)
-    // the lexical trap: "8" is NOT >= "22" numerically (naive string compare fails this)
-    _assert("8 >= 22 is false (numeric, not lexical)", _version_ge("8", "22") == 0)
-    _assert("8 >= 1.11-ish: 8 major beats minor '11' correctly", _version_ge("9", "1") == 1)
+    spec.describe(fw, "_version_ge: per-segment numeric, floor semantics") {
+        spec.it("22 >= 22") callback {
+            spec.assert_eq(_version_ge("22", "22"), 1, "22 >= 22")
+        }
+        spec.it("24 >= 22") callback {
+            spec.assert_eq(_version_ge("24", "22"), 1, "24 >= 22")
+        }
+        spec.it("17 >= 22 is false") callback {
+            spec.assert_eq(_version_ge("17", "22"), 0, "17 >= 22 is false")
+        }
+        spec.it("21.0.2 >= 21.0.1") callback {
+            spec.assert_eq(_version_ge("21.0.2", "21.0.1"), 1, "21.0.2 >= 21.0.1")
+        }
+        spec.it("21.0.1 >= 21.0.2 is false") callback {
+            spec.assert_eq(_version_ge("21.0.1", "21.0.2"), 0, "21.0.1 >= 21.0.2 is false")
+        }
+        spec.it("22 >= 22.0.0 (missing want segs = 0)") callback {
+            spec.assert_eq(_version_ge("22", "22.0.0"), 1, "22 >= 22.0.0 (missing want segs = 0)")
+        }
+        // the lexical trap: "8" is NOT >= "22" numerically (naive string compare fails this)
+        spec.it("8 >= 22 is false (numeric, not lexical)") callback {
+            spec.assert_eq(_version_ge("8", "22"), 0, "8 >= 22 is false (numeric, not lexical)")
+        }
+        spec.it("8 major beats minor '11' correctly") callback {
+            spec.assert_eq(_version_ge("9", "1"), 1, "8 >= 1.11-ish: 8 major beats minor '11' correctly")
+        }
+    }
 
-    // --- _str_key ---
-    b = map.new()
-    map.put(b, "k", "21.0.2")
-    _eqs("_str_key reads stored string", _str_key(b, "k"), "21.0.2")
-    _eqs("_str_key unset -> empty", _str_key(b, "nope"), "")
-    _eqs("_str_key null bmap -> empty", _str_key(null, "k"), "")
+    spec.describe(fw, "_str_key") {
+        spec.it("reads stored string") callback {
+            b = map.new()
+            map.put(b, "k", "21.0.2")
+            spec.assert_str_eq(_str_key(b, "k"), "21.0.2", "_str_key reads stored string")
+        }
+        spec.it("unset -> empty") callback {
+            b = map.new()
+            spec.assert_str_eq(_str_key(b, "nope"), "", "_str_key unset -> empty")
+        }
+        spec.it("null bmap -> empty") callback {
+            spec.assert_str_eq(_str_key(null, "k"), "", "_str_key null bmap -> empty")
+        }
+    }
 
-    println("resolve_run_jdk tests done")
+    spec.run_summary(fw)
 }

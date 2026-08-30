@@ -4,107 +4,177 @@
 // Design: docs/toolchain-selection-and-locks.md
 //         asks/versioned-bom-and-self-validating-lock.md
 
+import std.spec
 import bldr (_digits_prefix, _version_is_floor, _match_major_version,
               _jvm_dir_major, _select_jvm_home, _toolchain_not_found_msg,
               lock_validate)
 import std.string
 
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
-
-_assert_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label} (got '${got}' want '${want}')")
-    }
-}
-
 main() {
-    // --- _digits_prefix ---
-    _assert("digits_prefix '21' = 21", _digits_prefix("21") == 21)
-    _assert("digits_prefix '24.0.2' = 24", _digits_prefix("24.0.2") == 24)
-    _assert("digits_prefix '21+' = 21", _digits_prefix("21+") == 21)
-    _assert("digits_prefix '3.11' = 3", _digits_prefix("3.11") == 3)
-    _assert("digits_prefix 'abc' = -1", _digits_prefix("abc") == -1)
-    _assert("digits_prefix '' = -1", _digits_prefix("") == -1)
+    fw = spec.init()
 
-    // --- _version_is_floor ---
-    _assert("floor '21+' = 1", _version_is_floor("21+") == 1)
-    _assert("floor '21' = 0", _version_is_floor("21") == 0)
-    _assert("floor '' = 0", _version_is_floor("") == 0)
+    spec.describe(fw, "_digits_prefix") {
+        spec.it("'21' = 21") callback {
+            spec.assert_eq(_digits_prefix("21"), 21, "digits_prefix '21' = 21")
+        }
+        spec.it("'24.0.2' = 24") callback {
+            spec.assert_eq(_digits_prefix("24.0.2"), 24, "digits_prefix '24.0.2' = 24")
+        }
+        spec.it("'21+' = 21") callback {
+            spec.assert_eq(_digits_prefix("21+"), 21, "digits_prefix '21+' = 21")
+        }
+        spec.it("'3.11' = 3") callback {
+            spec.assert_eq(_digits_prefix("3.11"), 3, "digits_prefix '3.11' = 3")
+        }
+        spec.it("'abc' = -1") callback {
+            spec.assert_eq(_digits_prefix("abc"), -1, "digits_prefix 'abc' = -1")
+        }
+        spec.it("'' = -1") callback {
+            spec.assert_eq(_digits_prefix(""), -1, "digits_prefix '' = -1")
+        }
+    }
 
-    // --- _match_major_version ---
-    _assert("match 21 vs 21", _match_major_version("21", "21") == 1)
-    _assert("match 21 vs 24 = no", _match_major_version("21", "24") == 0)
-    _assert("match 21+ vs 24 = yes (floor)", _match_major_version("21+", "24") == 1)
-    _assert("match 21+ vs 17 = no (floor)", _match_major_version("21+", "17") == 0)
-    _assert("match 21+ vs 21 = yes (floor, equal)", _match_major_version("21+", "21") == 1)
-    _assert("match 21 vs 21.0.2 = yes (minor ignored)", _match_major_version("21", "21.0.2") == 1)
-    _assert("match garbage want = no", _match_major_version("x", "21") == 0)
+    spec.describe(fw, "_version_is_floor") {
+        spec.it("'21+' = 1") callback {
+            spec.assert_eq(_version_is_floor("21+"), 1, "floor '21+' = 1")
+        }
+        spec.it("'21' = 0") callback {
+            spec.assert_eq(_version_is_floor("21"), 0, "floor '21' = 0")
+        }
+        spec.it("'' = 0") callback {
+            spec.assert_eq(_version_is_floor(""), 0, "floor '' = 0")
+        }
+    }
+
+    spec.describe(fw, "_match_major_version") {
+        spec.it("21 vs 21") callback {
+            spec.assert_eq(_match_major_version("21", "21"), 1, "match 21 vs 21")
+        }
+        spec.it("21 vs 24 = no") callback {
+            spec.assert_eq(_match_major_version("21", "24"), 0, "match 21 vs 24 = no")
+        }
+        spec.it("21+ vs 24 = yes (floor)") callback {
+            spec.assert_eq(_match_major_version("21+", "24"), 1, "match 21+ vs 24 = yes (floor)")
+        }
+        spec.it("21+ vs 17 = no (floor)") callback {
+            spec.assert_eq(_match_major_version("21+", "17"), 0, "match 21+ vs 17 = no (floor)")
+        }
+        spec.it("21+ vs 21 = yes (floor, equal)") callback {
+            spec.assert_eq(_match_major_version("21+", "21"), 1, "match 21+ vs 21 = yes (floor, equal)")
+        }
+        spec.it("21 vs 21.0.2 = yes (minor ignored)") callback {
+            spec.assert_eq(_match_major_version("21", "21.0.2"), 1, "match 21 vs 21.0.2 = yes (minor ignored)")
+        }
+        spec.it("garbage want = no") callback {
+            spec.assert_eq(_match_major_version("x", "21"), 0, "match garbage want = no")
+        }
+    }
 
     // --- _jvm_dir_major (the real shapes on this box) ---
-    _assert_eq("jvm major amazon-corretto", _jvm_dir_major("java-21-amazon-corretto"), "21")
-    _assert_eq("jvm major openjdk", _jvm_dir_major("java-17-openjdk-amd64"), "17")
-    _assert_eq("jvm major legacy 1.17.0", _jvm_dir_major("java-1.17.0-openjdk-amd64"), "17")
-    _assert_eq("jvm major jdk-21.0.2", _jvm_dir_major("jdk-21.0.2"), "21")
-    _assert_eq("jvm major temurin-25.0.1", _jvm_dir_major("temurin-25.0.1"), "25")
-    _assert_eq("jvm major non-version 'default-java'", _jvm_dir_major("default-java"), "")
+    spec.describe(fw, "_jvm_dir_major") {
+        spec.it("amazon-corretto") callback {
+            spec.assert_str_eq(_jvm_dir_major("java-21-amazon-corretto"), "21", "jvm major amazon-corretto")
+        }
+        spec.it("openjdk") callback {
+            spec.assert_str_eq(_jvm_dir_major("java-17-openjdk-amd64"), "17", "jvm major openjdk")
+        }
+        spec.it("legacy 1.17.0") callback {
+            spec.assert_str_eq(_jvm_dir_major("java-1.17.0-openjdk-amd64"), "17", "jvm major legacy 1.17.0")
+        }
+        spec.it("jdk-21.0.2") callback {
+            spec.assert_str_eq(_jvm_dir_major("jdk-21.0.2"), "21", "jvm major jdk-21.0.2")
+        }
+        spec.it("temurin-25.0.1") callback {
+            spec.assert_str_eq(_jvm_dir_major("temurin-25.0.1"), "25", "jvm major temurin-25.0.1")
+        }
+        spec.it("non-version 'default-java'") callback {
+            spec.assert_str_eq(_jvm_dir_major("default-java"), "", "jvm major non-version 'default-java'")
+        }
+    }
 
     // --- _select_jvm_home (mirrors /usr/lib/jvm on this Chromebook) ---
-    listing = "default-java\njava-1.17.0-openjdk-amd64\njava-17-openjdk-amd64\njava-21-amazon-corretto\njava-24-amazon-corretto"
-    _assert_eq("select jdk 21",
-        _select_jvm_home("/usr/lib/jvm", listing, "21"),
-        "/usr/lib/jvm/java-21-amazon-corretto")
-    _assert_eq("select jdk 24",
-        _select_jvm_home("/usr/lib/jvm", listing, "24"),
-        "/usr/lib/jvm/java-24-amazon-corretto")
-    // floor: 21+ should pick the first satisfying entry in listing order.
-    // Entries 17,17 fail; java-21 is first to satisfy 21+.
-    _assert_eq("select jdk 21+ (first satisfying in order)",
-        _select_jvm_home("/usr/lib/jvm", listing, "21+"),
-        "/usr/lib/jvm/java-21-amazon-corretto")
-    // a version not installed → "" (caller turns this into a hard-fail)
-    _assert_eq("select jdk 99 = none",
-        _select_jvm_home("/usr/lib/jvm", listing, "99"),
-        "")
+    spec.describe(fw, "_select_jvm_home") {
+        spec.it("select jdk 21") callback {
+            listing = "default-java\njava-1.17.0-openjdk-amd64\njava-17-openjdk-amd64\njava-21-amazon-corretto\njava-24-amazon-corretto"
+            spec.assert_str_eq(
+                _select_jvm_home("/usr/lib/jvm", listing, "21"),
+                "/usr/lib/jvm/java-21-amazon-corretto", "select jdk 21")
+        }
+        spec.it("select jdk 24") callback {
+            listing = "default-java\njava-1.17.0-openjdk-amd64\njava-17-openjdk-amd64\njava-21-amazon-corretto\njava-24-amazon-corretto"
+            spec.assert_str_eq(
+                _select_jvm_home("/usr/lib/jvm", listing, "24"),
+                "/usr/lib/jvm/java-24-amazon-corretto", "select jdk 24")
+        }
+        // floor: 21+ should pick the first satisfying entry in listing order.
+        // Entries 17,17 fail; java-21 is first to satisfy 21+.
+        spec.it("select jdk 21+ (first satisfying in order)") callback {
+            listing = "default-java\njava-1.17.0-openjdk-amd64\njava-17-openjdk-amd64\njava-21-amazon-corretto\njava-24-amazon-corretto"
+            spec.assert_str_eq(
+                _select_jvm_home("/usr/lib/jvm", listing, "21+"),
+                "/usr/lib/jvm/java-21-amazon-corretto", "select jdk 21+ (first satisfying in order)")
+        }
+        // a version not installed → "" (caller turns this into a hard-fail)
+        spec.it("select jdk 99 = none") callback {
+            listing = "default-java\njava-1.17.0-openjdk-amd64\njava-17-openjdk-amd64\njava-21-amazon-corretto\njava-24-amazon-corretto"
+            spec.assert_str_eq(
+                _select_jvm_home("/usr/lib/jvm", listing, "99"),
+                "", "select jdk 99 = none")
+        }
+    }
 
     // --- _toolchain_not_found_msg ---
-    msg = _toolchain_not_found_msg("jdk", "99", "17\n21\n24")
-    _assert("not-found names the request", string.index_of(msg, "need jdk 99") >= 0)
-    _assert("not-found lists installed", string.index_of(msg, "17, 21, 24") >= 0)
-    msg_none = _toolchain_not_found_msg("jdk", "99", "")
-    _assert("not-found handles empty install set", string.index_of(msg_none, "(none)") >= 0)
+    spec.describe(fw, "_toolchain_not_found_msg") {
+        spec.it("names the request") callback {
+            msg = _toolchain_not_found_msg("jdk", "99", "17\n21\n24")
+            spec.assert_true(string.index_of(msg, "need jdk 99") >= 0, "not-found names the request")
+        }
+        spec.it("lists installed") callback {
+            msg = _toolchain_not_found_msg("jdk", "99", "17\n21\n24")
+            spec.assert_true(string.index_of(msg, "17, 21, 24") >= 0, "not-found lists installed")
+        }
+        spec.it("handles empty install set") callback {
+            msg_none = _toolchain_not_found_msg("jdk", "99", "")
+            spec.assert_true(string.index_of(msg_none, "(none)") >= 0, "not-found handles empty install set")
+        }
+    }
 
     // --- lock_validate ---
-    // consistent: embedded == current, no runtime gate
-    _assert_eq("lock ok (hash match, no runtime gate)",
-        lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "", ""),
-        "")
-    // missing source
-    miss = lock_validate("pip_versions.ae", "sha256:aaa", "", "", "")
-    _assert("lock missing-source fails", string.index_of(miss, "missing or unreadable") >= 0)
-    // stale hash
-    stale = lock_validate("pip_versions.ae", "sha256:aaa", "sha256:bbb", "", "")
-    _assert("lock stale-hash fails", string.index_of(stale, "stale vs") >= 0)
-    // runtime mismatch (Python-style gate)
-    rt = lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "cp313", "cp312")
-    _assert("lock runtime-mismatch fails", string.index_of(rt, "generated for cp312") >= 0)
-    // runtime match (gate satisfied)
-    _assert_eq("lock runtime-match ok",
-        lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "cp312", "cp312"),
-        "")
-    // Java-style: runtime_tag "" means no gate even if lock declares one
-    _assert_eq("lock no-gate when runtime_tag empty (Java orthogonal)",
-        lock_validate("deps.bom.ae", "sha256:aaa", "sha256:aaa", "", "maven-x"),
-        "")
+    spec.describe(fw, "lock_validate") {
+        // consistent: embedded == current, no runtime gate
+        spec.it("ok (hash match, no runtime gate)") callback {
+            spec.assert_str_eq(
+                lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "", ""),
+                "", "lock ok (hash match, no runtime gate)")
+        }
+        // missing source
+        spec.it("missing-source fails") callback {
+            miss = lock_validate("pip_versions.ae", "sha256:aaa", "", "", "")
+            spec.assert_true(string.index_of(miss, "missing or unreadable") >= 0, "lock missing-source fails")
+        }
+        // stale hash
+        spec.it("stale-hash fails") callback {
+            stale = lock_validate("pip_versions.ae", "sha256:aaa", "sha256:bbb", "", "")
+            spec.assert_true(string.index_of(stale, "stale vs") >= 0, "lock stale-hash fails")
+        }
+        // runtime mismatch (Python-style gate)
+        spec.it("runtime-mismatch fails") callback {
+            rt = lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "cp313", "cp312")
+            spec.assert_true(string.index_of(rt, "generated for cp312") >= 0, "lock runtime-mismatch fails")
+        }
+        // runtime match (gate satisfied)
+        spec.it("runtime-match ok") callback {
+            spec.assert_str_eq(
+                lock_validate("pip_versions.ae", "sha256:aaa", "sha256:aaa", "cp312", "cp312"),
+                "", "lock runtime-match ok")
+        }
+        // Java-style: runtime_tag "" means no gate even if lock declares one
+        spec.it("no-gate when runtime_tag empty (Java orthogonal)") callback {
+            spec.assert_str_eq(
+                lock_validate("deps.bom.ae", "sha256:aaa", "sha256:aaa", "", "maven-x"),
+                "", "lock no-gate when runtime_tag empty (Java orthogonal)")
+        }
+    }
 
-    println("toolchain selection + lock validation tests done")
+    spec.run_summary(fw)
 }

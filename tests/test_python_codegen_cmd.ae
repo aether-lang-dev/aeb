@@ -19,22 +19,12 @@
 // itests/fetch-upstream.sh, so it's a *fringe* test — the canonical
 // grammar test of record is this file.
 
+import std.spec
 import python (python_codegen_cmd, codegen_driver, codegen_script,
                codegen_input, codegen_input_dir, codegen_arg,
                codegen_output, codegen_cwd, codegen_python)
-import std.string
 import std.list
 import std.map
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
 
 _list_size_at(m: ptr, k: string) {
     if map.has(m, k) == 0 { return 0 }
@@ -55,48 +45,63 @@ _str_at(m: ptr, k: string) {
 }
 
 main() {
-    // --- Module-form driver, no args.
-    args0 = list.new()
-    cmd0 = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args0)
-    _assert("module form has -m flag",
-        string.equals(cmd0, "cd '/proj' && 'python3' -m torchgen.gen"))
+    fw = spec.init()
 
-    // --- Script-form driver, no args.
-    args1 = list.new()
-    cmd1 = python_codegen_cmd("python3", "/proj", "script", "tools/gen.py", args1)
-    _assert("script form omits -m and uses script path",
-        string.equals(cmd1, "cd '/proj' && 'python3' tools/gen.py"))
+    spec.describe(fw, "python_codegen_cmd") {
+        // --- Module-form driver, no args.
+        spec.it("module form has -m flag") callback {
+            args0 = list.new()
+            cmd0 = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args0)
+            spec.assert_str_eq(cmd0, "cd '/proj' && 'python3' -m torchgen.gen", "module form has -m flag")
+        }
 
-    // --- Args appended in order with single-space separation.
-    args2 = list.new()
-    list.add(args2, "--source-path=aten/src/ATen")
-    list.add(args2, "--install_dir=target/aten")
-    list.add(args2, "--per-operator-headers")
-    cmd2 = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args2)
-    _assert("three args appear in order",
-        string.equals(cmd2, "cd '/proj' && 'python3' -m torchgen.gen --source-path=aten/src/ATen --install_dir=target/aten --per-operator-headers"))
+        // --- Script-form driver, no args.
+        spec.it("script form omits -m and uses script path") callback {
+            args1 = list.new()
+            cmd1 = python_codegen_cmd("python3", "/proj", "script", "tools/gen.py", args1)
+            spec.assert_str_eq(cmd1, "cd '/proj' && 'python3' tools/gen.py",
+                "script form omits -m and uses script path")
+        }
 
-    // --- Custom python interpreter (e.g. venv path) is quoted in
-    // single quotes so spaces in venv paths survive.
-    args3 = list.new()
-    cmd3 = python_codegen_cmd("/proj/.aeb/venv/bin/python", "/proj", "module", "torchgen.gen", args3)
-    _assert("venv python is quoted",
-        string.equals(cmd3, "cd '/proj' && '/proj/.aeb/venv/bin/python' -m torchgen.gen"))
+        // --- Args appended in order with single-space separation.
+        spec.it("three args appear in order") callback {
+            args2 = list.new()
+            list.add(args2, "--source-path=aten/src/ATen")
+            list.add(args2, "--install_dir=target/aten")
+            list.add(args2, "--per-operator-headers")
+            cmd2 = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args2)
+            spec.assert_str_eq(cmd2,
+                "cd '/proj' && 'python3' -m torchgen.gen --source-path=aten/src/ATen --install_dir=target/aten --per-operator-headers",
+                "three args appear in order")
+        }
 
-    // --- Unknown driver_form yields no -m / script segment (defensive
-    // — the builder validates upstream, but the pure helper degrades
-    // to a bare interpreter invocation).
-    args4 = list.new()
-    cmd4 = python_codegen_cmd("python3", "/proj", "", "", args4)
-    _assert("missing driver_form → bare python invocation",
-        string.equals(cmd4, "cd '/proj' && 'python3'"))
+        // --- Custom python interpreter (e.g. venv path) is quoted in
+        // single quotes so spaces in venv paths survive.
+        spec.it("venv python is quoted") callback {
+            args3 = list.new()
+            cmd3 = python_codegen_cmd("/proj/.aeb/venv/bin/python", "/proj", "module", "torchgen.gen", args3)
+            spec.assert_str_eq(cmd3, "cd '/proj' && '/proj/.aeb/venv/bin/python' -m torchgen.gen",
+                "venv python is quoted")
+        }
 
-    // --- Working directory is single-quoted; absolute path passes through.
-    args5 = list.new()
-    list.add(args5, "--dry-run")
-    cmd5 = python_codegen_cmd("python3", "/path with spaces/repo", "script", "tools/gen.py", args5)
-    _assert("cwd with spaces is quoted",
-        string.equals(cmd5, "cd '/path with spaces/repo' && 'python3' tools/gen.py --dry-run"))
+        // --- Unknown driver_form yields no -m / script segment (defensive
+        // — the builder validates upstream, but the pure helper degrades
+        // to a bare interpreter invocation).
+        spec.it("missing driver_form → bare python invocation") callback {
+            args4 = list.new()
+            cmd4 = python_codegen_cmd("python3", "/proj", "", "", args4)
+            spec.assert_str_eq(cmd4, "cd '/proj' && 'python3'", "missing driver_form → bare python invocation")
+        }
+
+        // --- Working directory is single-quoted; absolute path passes through.
+        spec.it("cwd with spaces is quoted") callback {
+            args5 = list.new()
+            list.add(args5, "--dry-run")
+            cmd5 = python_codegen_cmd("python3", "/path with spaces/repo", "script", "tools/gen.py", args5)
+            spec.assert_str_eq(cmd5, "cd '/path with spaces/repo' && 'python3' tools/gen.py --dry-run",
+                "cwd with spaces is quoted")
+        }
+    }
 
     // === Setter accumulation tests ====================================
     //
@@ -106,109 +111,120 @@ main() {
     // codegen_driver / codegen_script / codegen_cwd / codegen_python
     // for the scalar setters). Drive each one against a fresh map and
     // assert the read-back is what a downstream builder would see.
+    spec.describe(fw, "grammar setters") {
+        // --- codegen_input: list accumulator, order preserved.
+        spec.it("codegen_input accumulates, order preserved") callback {
+            bm1 = map.new()
+            codegen_input(bm1, "a.yaml")
+            codegen_input(bm1, "b.yaml")
+            codegen_input(bm1, "c.yaml")
+            spec.assert_eq(_list_size_at(bm1, "codegen_inputs"), 3, "codegen_input accumulates 3 entries")
+            spec.assert_str_eq(_list_get_at(bm1, "codegen_inputs", 0), "a.yaml",
+                "codegen_input order: first is a.yaml")
+            spec.assert_str_eq(_list_get_at(bm1, "codegen_inputs", 2), "c.yaml",
+                "codegen_input order: third is c.yaml")
+        }
 
-    // --- codegen_input: list accumulator, order preserved.
-    bm1 = map.new()
-    codegen_input(bm1, "a.yaml")
-    codegen_input(bm1, "b.yaml")
-    codegen_input(bm1, "c.yaml")
-    _assert("codegen_input accumulates 3 entries", _list_size_at(bm1, "codegen_inputs") == 3)
-    _assert("codegen_input order: first is a.yaml",
-        string.equals(_list_get_at(bm1, "codegen_inputs", 0), "a.yaml"))
-    _assert("codegen_input order: third is c.yaml",
-        string.equals(_list_get_at(bm1, "codegen_inputs", 2), "c.yaml"))
+        // --- codegen_input_dir: separate list from codegen_input.
+        spec.it("codegen_input_dir stores in its own key, order preserved") callback {
+            bm2 = map.new()
+            codegen_input(bm2, "native_functions.yaml")
+            codegen_input_dir(bm2, "torchgen")
+            codegen_input_dir(bm2, "aten/src/ATen/templates")
+            spec.assert_eq(_list_size_at(bm2, "codegen_input_dirs"), 2, "codegen_input_dir stores in its own key")
+            spec.assert_eq(_list_size_at(bm2, "codegen_inputs"), 1,
+                "codegen_input and codegen_input_dir don't cross-contaminate")
+            spec.assert_str_eq(_list_get_at(bm2, "codegen_input_dirs", 0), "torchgen",
+                "codegen_input_dir entry 0 is torchgen")
+            spec.assert_str_eq(_list_get_at(bm2, "codegen_input_dirs", 1), "aten/src/ATen/templates",
+                "codegen_input_dir entry 1 preserves order")
+        }
 
-    // --- codegen_input_dir: separate list from codegen_input.
-    bm2 = map.new()
-    codegen_input(bm2, "native_functions.yaml")
-    codegen_input_dir(bm2, "torchgen")
-    codegen_input_dir(bm2, "aten/src/ATen/templates")
-    _assert("codegen_input_dir stores in its own key",
-        _list_size_at(bm2, "codegen_input_dirs") == 2)
-    _assert("codegen_input and codegen_input_dir don't cross-contaminate",
-        _list_size_at(bm2, "codegen_inputs") == 1)
-    _assert("codegen_input_dir entry 0 is torchgen",
-        string.equals(_list_get_at(bm2, "codegen_input_dirs", 0), "torchgen"))
-    _assert("codegen_input_dir entry 1 preserves order",
-        string.equals(_list_get_at(bm2, "codegen_input_dirs", 1), "aten/src/ATen/templates"))
+        // --- codegen_input_dir mixed-input-mode: matches the Selenium
+        // api-listing leaf's shape (single dir, no individual inputs).
+        spec.it("input_dir-only declaration has no codegen_inputs key") callback {
+            bm2b = map.new()
+            codegen_input_dir(bm2b, "selenium")
+            spec.assert_eq(_list_size_at(bm2b, "codegen_inputs"), 0,
+                "input_dir-only declarations have no codegen_inputs key")
+            spec.assert_eq(_list_size_at(bm2b, "codegen_input_dirs"), 1,
+                "input_dir-only declarations have 1 input_dirs entry")
+        }
 
-    // --- codegen_input_dir mixed-input-mode: matches the Selenium
-    // api-listing leaf's shape (single dir, no individual inputs).
-    bm2b = map.new()
-    codegen_input_dir(bm2b, "selenium")
-    _assert("input_dir-only declarations have no codegen_inputs key",
-        _list_size_at(bm2b, "codegen_inputs") == 0)
-    _assert("input_dir-only declarations have 1 input_dirs entry",
-        _list_size_at(bm2b, "codegen_input_dirs") == 1)
+        // --- codegen_input_dir + codegen_input interleaved: order is
+        // preserved *within* each list independently.
+        spec.it("interleaved input/input_dir preserve their own order") callback {
+            bm2c = map.new()
+            codegen_input(bm2c, "a.yaml")
+            codegen_input_dir(bm2c, "templates")
+            codegen_input(bm2c, "b.yaml")
+            codegen_input_dir(bm2c, "schemas")
+            codegen_input(bm2c, "c.yaml")
+            spec.assert_str_eq(_list_get_at(bm2c, "codegen_inputs", 1), "b.yaml",
+                "interleaved: inputs preserve their own order")
+            spec.assert_str_eq(_list_get_at(bm2c, "codegen_input_dirs", 1), "schemas",
+                "interleaved: input_dirs preserve their own order")
+        }
 
-    // --- codegen_input_dir + codegen_input interleaved: order is
-    // preserved *within* each list independently.
-    bm2c = map.new()
-    codegen_input(bm2c, "a.yaml")
-    codegen_input_dir(bm2c, "templates")
-    codegen_input(bm2c, "b.yaml")
-    codegen_input_dir(bm2c, "schemas")
-    codegen_input(bm2c, "c.yaml")
-    _assert("interleaved: inputs preserve their own order",
-        string.equals(_list_get_at(bm2c, "codegen_inputs", 1), "b.yaml"))
-    _assert("interleaved: input_dirs preserve their own order",
-        string.equals(_list_get_at(bm2c, "codegen_input_dirs", 1), "schemas"))
+        // --- codegen_arg: list accumulator, used to build the CLI tail.
+        // Drive the setters, then run python_codegen_cmd against the
+        // accumulated list — same shape as a real builder body.
+        spec.it("setter-accumulated args produce expected cmd") callback {
+            bm3 = map.new()
+            codegen_arg(bm3, "--source-path")
+            codegen_arg(bm3, "aten/src/ATen")
+            codegen_arg(bm3, "--install_dir")
+            codegen_arg(bm3, "target/aten")
+            args_acc, _ = map.get(bm3, "codegen_args")
+            cmd_acc = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args_acc)
+            spec.assert_str_eq(cmd_acc,
+                "cd '/proj' && 'python3' -m torchgen.gen --source-path aten/src/ATen --install_dir target/aten",
+                "setter-accumulated args produce expected cmd")
+        }
 
-    // --- codegen_arg: list accumulator, used to build the CLI tail.
-    // Drive the setters, then run python_codegen_cmd against the
-    // accumulated list — same shape as a real builder body.
-    bm3 = map.new()
-    codegen_arg(bm3, "--source-path")
-    codegen_arg(bm3, "aten/src/ATen")
-    codegen_arg(bm3, "--install_dir")
-    codegen_arg(bm3, "target/aten")
-    args_acc, _ = map.get(bm3, "codegen_args")
-    cmd_acc = python_codegen_cmd("python3", "/proj", "module", "torchgen.gen", args_acc)
-    _assert("setter-accumulated args produce expected cmd",
-        string.equals(cmd_acc,
-            "cd '/proj' && 'python3' -m torchgen.gen --source-path aten/src/ATen --install_dir target/aten"))
+        // --- codegen_output: list accumulator.
+        spec.it("codegen_output accumulates 2 entries") callback {
+            bm4 = map.new()
+            codegen_output(bm4, "Functions.cpp")
+            codegen_output(bm4, "Functions.h")
+            spec.assert_eq(_list_size_at(bm4, "codegen_outputs"), 2, "codegen_output accumulates 2 entries")
+        }
 
-    // --- codegen_output: list accumulator.
-    bm4 = map.new()
-    codegen_output(bm4, "Functions.cpp")
-    codegen_output(bm4, "Functions.h")
-    _assert("codegen_output accumulates 2 entries",
-        _list_size_at(bm4, "codegen_outputs") == 2)
+        // --- Scalar setters (codegen_cwd, codegen_driver, codegen_script,
+        // codegen_python) — each writes a single string key. Later calls
+        // overwrite earlier (map.put semantics; not list.add). The builder
+        // uses the last value seen.
+        spec.it("scalar setters store single keys") callback {
+            bm5 = map.new()
+            codegen_cwd(bm5, "../../..")
+            codegen_driver(bm5, "torchgen.gen")
+            codegen_python(bm5, "/venv/bin/python")
+            spec.assert_str_eq(_str_at(bm5, "codegen_cwd"), "../../..", "codegen_cwd stored as scalar")
+            spec.assert_str_eq(_str_at(bm5, "codegen_driver"), "torchgen.gen", "codegen_driver stored as scalar")
+            spec.assert_str_eq(_str_at(bm5, "codegen_python"), "/venv/bin/python", "codegen_python stored as scalar")
+        }
 
-    // --- Scalar setters (codegen_cwd, codegen_driver, codegen_script,
-    // codegen_python) — each writes a single string key. Later calls
-    // overwrite earlier (map.put semantics; not list.add). The builder
-    // uses the last value seen.
-    bm5 = map.new()
-    codegen_cwd(bm5, "../../..")
-    codegen_driver(bm5, "torchgen.gen")
-    codegen_python(bm5, "/venv/bin/python")
-    _assert("codegen_cwd stored as scalar",
-        string.equals(_str_at(bm5, "codegen_cwd"), "../../.."))
-    _assert("codegen_driver stored as scalar",
-        string.equals(_str_at(bm5, "codegen_driver"), "torchgen.gen"))
-    _assert("codegen_python stored as scalar",
-        string.equals(_str_at(bm5, "codegen_python"), "/venv/bin/python"))
+        // codegen_script is the alternative to codegen_driver. Calling
+        // both leaves both keys populated; the builder's resolution rule
+        // is "driver wins if both", but the storage is independent.
+        spec.it("codegen_driver and codegen_script coexist in the map") callback {
+            bm6 = map.new()
+            codegen_driver(bm6, "torchgen.gen")
+            codegen_script(bm6, "tools/gen.py")
+            spec.assert_str_eq(_str_at(bm6, "codegen_driver"), "torchgen.gen",
+                "codegen_driver and codegen_script coexist in the map")
+            spec.assert_str_eq(_str_at(bm6, "codegen_script"), "tools/gen.py", "codegen_script also stored")
+        }
 
-    // codegen_script is the alternative to codegen_driver. Calling
-    // both leaves both keys populated; the builder's resolution rule
-    // is "driver wins if both", but the storage is independent.
-    bm6 = map.new()
-    codegen_driver(bm6, "torchgen.gen")
-    codegen_script(bm6, "tools/gen.py")
-    _assert("codegen_driver and codegen_script coexist in the map",
-        string.equals(_str_at(bm6, "codegen_driver"), "torchgen.gen"))
-    _assert("codegen_script also stored",
-        string.equals(_str_at(bm6, "codegen_script"), "tools/gen.py"))
+        // --- Empty-list accumulation: a builder body that never calls
+        // a setter shouldn't see a zero-length list — the key is absent
+        // entirely (downstream uses `map.has` to gate).
+        spec.it("untouched map has no accumulators") callback {
+            bm7 = map.new()
+            spec.assert_eq(_list_size_at(bm7, "codegen_inputs"), 0, "untouched map has no codegen_inputs key")
+            spec.assert_str_eq(_str_at(bm7, "codegen_cwd"), "", "untouched map has empty scalar codegen_cwd")
+        }
+    }
 
-    // --- Empty-list accumulation: a builder body that never calls
-    // a setter shouldn't see a zero-length list — the key is absent
-    // entirely (downstream uses `map.has` to gate).
-    bm7 = map.new()
-    _assert("untouched map has no codegen_inputs key",
-        _list_size_at(bm7, "codegen_inputs") == 0)
-    _assert("untouched map has empty scalar codegen_cwd",
-        string.equals(_str_at(bm7, "codegen_cwd"), ""))
-
-    println("python.codegen_cmd + setter accumulation tests done")
+    spec.run_summary(fw)
 }

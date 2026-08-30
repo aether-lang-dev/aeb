@@ -1,50 +1,40 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
-import pnpm
 // Tests for jest.jest_cmd()
-
-import jest
+import std.spec
+import std.map
 import jest (jest_cmd)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    _assert_eq("jest_cmd basic 60s",
-        jest_cmd("/proj/.aeb/.bin/jest", "/proj/apps/web/jest.config.ts", "60", null),
-        "timeout 60 /proj/.aeb/.bin/jest --config '/proj/apps/web/jest.config.ts' --passWithNoTests")
+    fw = spec.init()
 
-    _assert_eq("jest_cmd 300s",
-        jest_cmd("/n/jest", "/p/jest.config.ts", "300", null),
-        "timeout 300 /n/jest --config '/p/jest.config.ts' --passWithNoTests")
+    spec.describe(fw, "jest_cmd") {
+        spec.it("basic 60s") callback {
+            spec.assert_str_eq(
+                jest_cmd("/proj/.aeb/.bin/jest", "/proj/apps/web/jest.config.ts", "60", null),
+                "timeout 60 /proj/.aeb/.bin/jest --config '/proj/apps/web/jest.config.ts' --passWithNoTests", "basic 60s")
+        }
 
-    opts3 = map_new()
-    map_put(opts3, "extra", "--coverage")
-    _assert_eq("jest_cmd extra coverage",
-        jest_cmd("/n/jest", "/p/cfg.ts", "60", opts3),
-        "timeout 60 /n/jest --config '/p/cfg.ts' --passWithNoTests --coverage")
+        spec.it("300s") callback {
+            spec.assert_str_eq(
+                jest_cmd("/n/jest", "/p/jest.config.ts", "300", null),
+                "timeout 300 /n/jest --config '/p/jest.config.ts' --passWithNoTests", "300s")
+        }
 
-    opts4 = map_new()
-    map_put(opts4, "extra", "--bail --maxWorkers=2")
-    _assert_eq("jest_cmd multiple extra flags",
-        jest_cmd("/n/jest", "/p/cfg.ts", "120", opts4),
-        "timeout 120 /n/jest --config '/p/cfg.ts' --passWithNoTests --bail --maxWorkers=2")
+        spec.it("extra coverage") callback {
+            opts3 = map_new()
+            map_put(opts3, "extra", "--coverage")
+            spec.assert_str_eq(
+                jest_cmd("/n/jest", "/p/cfg.ts", "60", opts3),
+                "timeout 60 /n/jest --config '/p/cfg.ts' --passWithNoTests --coverage", "extra coverage")
+        }
 
-    println("jest cmd tests done")
+        spec.it("multiple extra flags") callback {
+            opts4 = map_new()
+            map_put(opts4, "extra", "--bail --maxWorkers=2")
+            spec.assert_str_eq(
+                jest_cmd("/n/jest", "/p/cfg.ts", "120", opts4),
+                "timeout 120 /n/jest --config '/p/cfg.ts' --passWithNoTests --bail --maxWorkers=2", "multiple extra flags")
+        }
+    }
+
+    spec.run_summary(fw)
 }

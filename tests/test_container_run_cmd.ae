@@ -1,56 +1,42 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for container_run_cmd() — one-shot `<engine> run` command builder
-
-import container
+import std.spec
 import container (container_run_cmd)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    // Default engine podman, no command
-    _assert_eq("default engine, no command",
-        container_run_cmd("alpine", null),
-        "podman run --rm alpine")
+    fw = spec.init()
 
-    // With a command (appended as the container argv)
-    opts1 = map_new()
-    map_put(opts1, "command", "echo hi")
-    _assert_eq("with command",
-        container_run_cmd("ruby:alpine", opts1),
-        "podman run --rm ruby:alpine echo hi")
+    spec.describe(fw, "container_run_cmd") {
+        // Default engine podman, no command
+        spec.it("default engine, no command") callback {
+            spec.assert_str_eq(container_run_cmd("alpine", null),
+                "podman run --rm alpine", "default engine, no command")
+        }
 
-    // Explicit docker engine
-    opts2 = map_new()
-    map_put(opts2, "engine", "docker")
-    _assert_eq("docker engine",
-        container_run_cmd("alpine", opts2),
-        "docker run --rm alpine")
+        // With a command (appended as the container argv)
+        spec.it("with command") callback {
+            opts1 = map_new()
+            map_put(opts1, "command", "echo hi")
+            spec.assert_str_eq(container_run_cmd("ruby:alpine", opts1),
+                "podman run --rm ruby:alpine echo hi", "with command")
+        }
 
-    // engine + command together
-    opts3 = map_new()
-    map_put(opts3, "engine", "docker")
-    map_put(opts3, "command", "ls /")
-    _assert_eq("docker engine + command",
-        container_run_cmd("debian:slim", opts3),
-        "docker run --rm debian:slim ls /")
+        // Explicit docker engine
+        spec.it("docker engine") callback {
+            opts2 = map_new()
+            map_put(opts2, "engine", "docker")
+            spec.assert_str_eq(container_run_cmd("alpine", opts2),
+                "docker run --rm alpine", "docker engine")
+        }
 
-    println("container_run_cmd tests done")
+        // engine + command together
+        spec.it("docker engine + command") callback {
+            opts3 = map_new()
+            map_put(opts3, "engine", "docker")
+            map_put(opts3, "command", "ls /")
+            spec.assert_str_eq(container_run_cmd("debian:slim", opts3),
+                "docker run --rm debian:slim ls /", "docker engine + command")
+        }
+    }
+
+    spec.run_summary(fw)
 }

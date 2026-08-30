@@ -3,43 +3,69 @@
 // are passed in as data, so the evaluator is exercised directly with
 // no real environment probing.
 
-import std.string
+import std.spec
 import webhook (gate_passes)
 
-extern println(s: string)
-
-// gate_passes returns 1 (fire) / 0 (skip).
-_assert(label: string, actual: int, expected: int) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label} expected=${expected} actual=${actual}")
-    }
-}
-
 main() {
-    // ci / local
-    _assert("ci under CI",        gate_passes("ci", 1, "github", "main"), 1)
-    _assert("ci while local",     gate_passes("ci", 0, "local", "main"),  0)
-    _assert("local while local",  gate_passes("local", 0, "local", "x"),  1)
-    _assert("local under CI",     gate_passes("local", 1, "github", "x"), 0)
+    fw = spec.init()
 
-    // branch globs
-    _assert("branch exact hit",   gate_passes("branch:main", 0, "local", "main"), 1)
-    _assert("branch exact miss",  gate_passes("branch:main", 0, "local", "dev"),  0)
-    _assert("branch glob hit",    gate_passes("branch:rel-*", 0, "local", "rel-9"), 1)
-    _assert("branch glob miss",   gate_passes("branch:rel-*", 0, "local", "main"),  0)
+    // gate_passes returns 1 (fire) / 0 (skip).
+    spec.describe(fw, "ci / local") {
+        spec.it("ci under CI") callback {
+            spec.assert_eq(gate_passes("ci", 1, "github", "main"), 1, "ci under CI")
+        }
+        spec.it("ci while local") callback {
+            spec.assert_eq(gate_passes("ci", 0, "local", "main"), 0, "ci while local")
+        }
+        spec.it("local while local") callback {
+            spec.assert_eq(gate_passes("local", 0, "local", "x"), 1, "local while local")
+        }
+        spec.it("local under CI") callback {
+            spec.assert_eq(gate_passes("local", 1, "github", "x"), 0, "local under CI")
+        }
+    }
 
-    // CI-system match
-    _assert("ci-system hit",      gate_passes("github", 1, "github", "x"),  1)
-    _assert("ci-system miss",     gate_passes("github", 1, "jenkins", "x"), 0)
+    spec.describe(fw, "branch globs") {
+        spec.it("branch exact hit") callback {
+            spec.assert_eq(gate_passes("branch:main", 0, "local", "main"), 1, "branch exact hit")
+        }
+        spec.it("branch exact miss") callback {
+            spec.assert_eq(gate_passes("branch:main", 0, "local", "dev"), 0, "branch exact miss")
+        }
+        spec.it("branch glob hit") callback {
+            spec.assert_eq(gate_passes("branch:rel-*", 0, "local", "rel-9"), 1, "branch glob hit")
+        }
+        spec.it("branch glob miss") callback {
+            spec.assert_eq(gate_passes("branch:rel-*", 0, "local", "main"), 0, "branch glob miss")
+        }
+    }
 
-    // negation
-    _assert("!system hit",        gate_passes("!jenkins", 1, "github", "x"),  1)
-    _assert("!system miss",       gate_passes("!jenkins", 1, "jenkins", "x"), 0)
-    _assert("!branch excludes",   gate_passes("!branch:wip-*", 0, "local", "wip-7"), 0)
-    _assert("!branch allows",     gate_passes("!branch:wip-*", 0, "local", "main"),  1)
-    _assert("!local under CI",    gate_passes("!local", 1, "github", "x"), 1)
+    spec.describe(fw, "CI-system match") {
+        spec.it("ci-system hit") callback {
+            spec.assert_eq(gate_passes("github", 1, "github", "x"), 1, "ci-system hit")
+        }
+        spec.it("ci-system miss") callback {
+            spec.assert_eq(gate_passes("github", 1, "jenkins", "x"), 0, "ci-system miss")
+        }
+    }
 
-    println("webhook gate tests done")
+    spec.describe(fw, "negation") {
+        spec.it("!system hit") callback {
+            spec.assert_eq(gate_passes("!jenkins", 1, "github", "x"), 1, "!system hit")
+        }
+        spec.it("!system miss") callback {
+            spec.assert_eq(gate_passes("!jenkins", 1, "jenkins", "x"), 0, "!system miss")
+        }
+        spec.it("!branch excludes") callback {
+            spec.assert_eq(gate_passes("!branch:wip-*", 0, "local", "wip-7"), 0, "!branch excludes")
+        }
+        spec.it("!branch allows") callback {
+            spec.assert_eq(gate_passes("!branch:wip-*", 0, "local", "main"), 1, "!branch allows")
+        }
+        spec.it("!local under CI") callback {
+            spec.assert_eq(gate_passes("!local", 1, "github", "x"), 1, "!local under CI")
+        }
+    }
+
+    spec.run_summary(fw)
 }

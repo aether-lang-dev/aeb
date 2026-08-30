@@ -1,53 +1,71 @@
 // Tests for lib/php's pure command-string builders.
+import std.spec
 import php (phpunit_cmd, phar_runner, config_part, phar_fetch_cmd,
             ini, php_ini_part)
-import std.string
 import std.list
 import std.map
 
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
-
 main() {
-    // Bare phpunit, no config.
-    _eq("bare phpunit",
-        phpunit_cmd("/proj", "phpunit", config_part("")),
-        "cd '/proj' && phpunit")
+    fw = spec.init()
 
-    // phar runner + config — the servirtium shape (post-fetch). No ini
-    // directives → empty ini_part, so the runner is `php '<phar>'`.
-    _eq("phar runner string, no ini", phar_runner("phpunit.phar", ""), "php 'phpunit.phar'")
-    _eq("config part", config_part("phpunit.xml"), " --configuration 'phpunit.xml'")
-    _eq("php phar with config",
-        phpunit_cmd("/proj", phar_runner("phpunit.phar", ""), config_part("phpunit.xml")),
-        "cd '/proj' && php 'phpunit.phar' --configuration 'phpunit.xml'")
-
-    // Fetch command (curl) — runs only when Aether finds the phar missing.
-    _eq("phar fetch",
-        phar_fetch_cmd("/proj", "https://phar.phpunit.de/phpunit-11.phar", "phpunit.phar"),
-        "cd '/proj' && curl -fsSL 'https://phar.phpunit.de/phpunit-11.phar' -o 'phpunit.phar'")
+    spec.describe(fw, "phpunit / phar command builders") {
+        // Bare phpunit, no config.
+        spec.it("bare phpunit") callback {
+            spec.assert_str_eq(phpunit_cmd("/proj", "phpunit", config_part("")),
+                "cd '/proj' && phpunit", "bare phpunit")
+        }
+        // phar runner + config — the servirtium shape (post-fetch). No ini
+        // directives → empty ini_part, so the runner is `php '<phar>'`.
+        spec.it("phar runner string, no ini") callback {
+            spec.assert_str_eq(phar_runner("phpunit.phar", ""), "php 'phpunit.phar'",
+                "phar runner string, no ini")
+        }
+        spec.it("config part") callback {
+            spec.assert_str_eq(config_part("phpunit.xml"), " --configuration 'phpunit.xml'",
+                "config part")
+        }
+        spec.it("php phar with config") callback {
+            spec.assert_str_eq(
+                phpunit_cmd("/proj", phar_runner("phpunit.phar", ""), config_part("phpunit.xml")),
+                "cd '/proj' && php 'phpunit.phar' --configuration 'phpunit.xml'",
+                "php phar with config")
+        }
+        // Fetch command (curl) — runs only when Aether finds the phar missing.
+        spec.it("phar fetch") callback {
+            spec.assert_str_eq(
+                phar_fetch_cmd("/proj", "https://phar.phpunit.de/phpunit-11.phar", "phpunit.phar"),
+                "cd '/proj' && curl -fsSL 'https://phar.phpunit.de/phpunit-11.phar' -o 'phpunit.phar'",
+                "phar fetch")
+        }
+    }
 
     // --- ini(k,v) setter + php_ini_part (new) ---
+    spec.describe(fw, "ini directives") {
+        // No directives → empty part (byte-identical to the no-ini runner above).
+        spec.it("php_ini_part empty is ''") callback {
+            spec.assert_str_eq(php_ini_part(list_new()), "", "php_ini_part empty is ''")
+        }
+        // ini() accumulates "k=v" entries on the builder map's "php_ini" list.
+        spec.it("php_ini_part joins -d k=v per directive") callback {
+            bm = map_new()
+            ini(bm, "memory_limit", "512M")
+            ini(bm, "error_reporting", "E_ALL")
+            lst, _ = map_get(bm, "php_ini")
+            spec.assert_str_eq(php_ini_part(lst),
+                " -d memory_limit=512M -d error_reporting=E_ALL",
+                "php_ini_part joins -d k=v per directive")
+        }
+        // The composed runner carries the ini directives before the phar.
+        spec.it("phar runner with ini directives") callback {
+            bm = map_new()
+            ini(bm, "memory_limit", "512M")
+            ini(bm, "error_reporting", "E_ALL")
+            lst, _ = map_get(bm, "php_ini")
+            spec.assert_str_eq(phar_runner("phpunit.phar", php_ini_part(lst)),
+                "php -d memory_limit=512M -d error_reporting=E_ALL 'phpunit.phar'",
+                "phar runner with ini directives")
+        }
+    }
 
-    // No directives → empty part (byte-identical to the no-ini runner above).
-    _eq("php_ini_part empty is ''", php_ini_part(list_new()), "")
-
-    // ini() accumulates "k=v" entries on the builder map's "php_ini" list.
-    bm = map_new()
-    ini(bm, "memory_limit", "512M")
-    ini(bm, "error_reporting", "E_ALL")
-    lst, _ = map_get(bm, "php_ini")
-    _eq("php_ini_part joins -d k=v per directive",
-        php_ini_part(lst), " -d memory_limit=512M -d error_reporting=E_ALL")
-
-    // The composed runner carries the ini directives before the phar.
-    _eq("phar runner with ini directives",
-        phar_runner("phpunit.phar", php_ini_part(lst)),
-        "php -d memory_limit=512M -d error_reporting=E_ALL 'phpunit.phar'")
-
-    println("php command-string tests done")
+    spec.run_summary(fw)
 }

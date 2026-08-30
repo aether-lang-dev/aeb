@@ -1,103 +1,120 @@
 // Tests for the pure helpers in lib/aether/module.ae:
 //   _paired_generated_c   — .ae path → _generated.c sibling
 //   _detect_caps_from_content — `import std.X` → --with cap mapping
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
+import std.spec
 import aether (_paired_generated_c, _detect_caps_from_content, _regen_action)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 main() {
-    // --- _paired_generated_c ---
-    _assert_eq("paired: simple",
-        _paired_generated_c("foo.ae"), "foo_generated.c")
-    _assert_eq("paired: with dir",
-        _paired_generated_c("ae/svnserver/auth.ae"), "ae/svnserver/auth_generated.c")
-    _assert_eq("paired: relative-up path",
-        _paired_generated_c("../../ae/client/handlers.ae"),
-        "../../ae/client/handlers_generated.c")
-    _assert_eq("paired: not .ae returns empty",
-        _paired_generated_c("foo.txt"), "")
-    _assert_eq("paired: no extension returns empty",
-        _paired_generated_c("foo"), "")
-    _assert_eq("paired: too short returns empty",
-        _paired_generated_c("ae"), "")
-    _assert_eq("paired: empty input",
-        _paired_generated_c(""), "")
+    fw = spec.init()
 
-    // --- _detect_caps_from_content: empty / no caps ---
-    _assert_eq("caps: empty content", _detect_caps_from_content(""), "")
-    _assert_eq("caps: only std.io",
-        _detect_caps_from_content("import std.io\nmain() {}"), "")
-    _assert_eq("caps: only std.string",
-        _detect_caps_from_content("import std.string"), "")
+    spec.describe(fw, "_paired_generated_c") {
+        spec.it("simple") callback {
+            spec.assert_str_eq(_paired_generated_c("foo.ae"), "foo_generated.c", "simple")
+        }
+        spec.it("with dir") callback {
+            spec.assert_str_eq(_paired_generated_c("ae/svnserver/auth.ae"),
+                "ae/svnserver/auth_generated.c", "with dir")
+        }
+        spec.it("relative-up path") callback {
+            spec.assert_str_eq(_paired_generated_c("../../ae/client/handlers.ae"),
+                "../../ae/client/handlers_generated.c", "relative-up")
+        }
+        spec.it("not .ae returns empty") callback {
+            spec.assert_str_eq(_paired_generated_c("foo.txt"), "", "not .ae")
+        }
+        spec.it("no extension returns empty") callback {
+            spec.assert_str_eq(_paired_generated_c("foo"), "", "no extension")
+        }
+        spec.it("too short returns empty") callback {
+            spec.assert_str_eq(_paired_generated_c("ae"), "", "too short")
+        }
+        spec.it("empty input") callback {
+            spec.assert_str_eq(_paired_generated_c(""), "", "empty")
+        }
+    }
 
-    // --- _detect_caps_from_content: single caps ---
-    _assert_eq("caps: std.http → net",
-        _detect_caps_from_content("import std.http"), "net")
-    _assert_eq("caps: std.tcp → net",
-        _detect_caps_from_content("import std.tcp"), "net")
-    _assert_eq("caps: std.net → net",
-        _detect_caps_from_content("import std.net"), "net")
-    _assert_eq("caps: std.fs → fs",
-        _detect_caps_from_content("import std.fs"), "fs")
-    _assert_eq("caps: std.os → os",
-        _detect_caps_from_content("import std.os"), "os")
+    spec.describe(fw, "_detect_caps_from_content: empty / no caps") {
+        spec.it("empty content") callback {
+            spec.assert_str_eq(_detect_caps_from_content(""), "", "empty")
+        }
+        spec.it("only std.io") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.io\nmain() {}"), "", "std.io")
+        }
+        spec.it("only std.string") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.string"), "", "std.string")
+        }
+    }
 
-    // --- combinations: order is fixed (net,fs,os) ---
-    _assert_eq("caps: net+fs",
-        _detect_caps_from_content("import std.http\nimport std.fs"), "net,fs")
-    _assert_eq("caps: net+os",
-        _detect_caps_from_content("import std.http\nimport std.os"), "net,os")
-    _assert_eq("caps: fs+os",
-        _detect_caps_from_content("import std.fs\nimport std.os"), "fs,os")
-    _assert_eq("caps: all three",
-        _detect_caps_from_content("import std.http\nimport std.fs\nimport std.os"),
-        "net,fs,os")
-    _assert_eq("caps: order of imports doesn't change output order",
-        _detect_caps_from_content("import std.os\nimport std.http\nimport std.fs"),
-        "net,fs,os")
+    spec.describe(fw, "_detect_caps_from_content: single caps") {
+        spec.it("std.http → net") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.http"), "net", "http")
+        }
+        spec.it("std.tcp → net") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.tcp"), "net", "tcp")
+        }
+        spec.it("std.net → net") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.net"), "net", "net")
+        }
+        spec.it("std.fs → fs") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.fs"), "fs", "fs")
+        }
+        spec.it("std.os → os") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.os"), "os", "os")
+        }
+    }
 
-    // --- net dedup: multiple net-grant imports collapse to one "net" ---
-    _assert_eq("caps: http+tcp+net dedup",
-        _detect_caps_from_content("import std.http\nimport std.tcp\nimport std.net"),
-        "net")
+    spec.describe(fw, "_detect_caps_from_content: combinations (order fixed net,fs,os)") {
+        spec.it("net+fs") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.http\nimport std.fs"), "net,fs", "net+fs")
+        }
+        spec.it("net+os") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.http\nimport std.os"), "net,os", "net+os")
+        }
+        spec.it("fs+os") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.fs\nimport std.os"), "fs,os", "fs+os")
+        }
+        spec.it("all three") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.http\nimport std.fs\nimport std.os"),
+                "net,fs,os", "all three")
+        }
+        spec.it("order of imports doesn't change output order") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.os\nimport std.http\nimport std.fs"),
+                "net,fs,os", "import order")
+        }
+    }
 
-    // --- realistic source file ---
-    src = "import std.io\nimport std.http\nimport std.fs\nextern println(s: string)\n"
-    _assert_eq("caps: realistic mix",
-        _detect_caps_from_content(src), "net,fs")
+    spec.describe(fw, "_detect_caps_from_content: net dedup + realistic") {
+        // net dedup: multiple net-grant imports collapse to one "net"
+        spec.it("http+tcp+net dedup") callback {
+            spec.assert_str_eq(_detect_caps_from_content("import std.http\nimport std.tcp\nimport std.net"),
+                "net", "dedup")
+        }
+        spec.it("realistic mix") callback {
+            src = "import std.io\nimport std.http\nimport std.fs\nextern println(s: string)\n"
+            spec.assert_str_eq(_detect_caps_from_content(src), "net,fs", "realistic")
+        }
+    }
 
-    // --- _regen_action: mtime-driven dispatch ---
-    _assert_eq("regen: missing (c_mtime=0)",
-        _regen_action(1000, 0), "missing")
-    _assert_eq("regen: stale (c older than ae)",
-        _regen_action(2000, 1500), "stale")
-    _assert_eq("regen: stale by 1 second",
-        _regen_action(2000, 1999), "stale")
-    _assert_eq("regen: fresh (c newer)",
-        _regen_action(1000, 2000), "skip")
-    _assert_eq("regen: equal mtimes → skip (no work needed)",
-        _regen_action(1500, 1500), "skip")
-    _assert_eq("regen: very fresh c_mtime",
-        _regen_action(1, 9999999), "skip")
+    spec.describe(fw, "_regen_action: mtime-driven dispatch") {
+        spec.it("missing (c_mtime=0)") callback {
+            spec.assert_str_eq(_regen_action(1000, 0), "missing", "missing")
+        }
+        spec.it("stale (c older than ae)") callback {
+            spec.assert_str_eq(_regen_action(2000, 1500), "stale", "stale")
+        }
+        spec.it("stale by 1 second") callback {
+            spec.assert_str_eq(_regen_action(2000, 1999), "stale", "stale 1s")
+        }
+        spec.it("fresh (c newer)") callback {
+            spec.assert_str_eq(_regen_action(1000, 2000), "skip", "fresh")
+        }
+        spec.it("equal mtimes → skip (no work needed)") callback {
+            spec.assert_str_eq(_regen_action(1500, 1500), "skip", "equal")
+        }
+        spec.it("very fresh c_mtime") callback {
+            spec.assert_str_eq(_regen_action(1, 9999999), "skip", "very fresh")
+        }
+    }
 
-    println("aether helpers tests done")
+    spec.run_summary(fw)
 }

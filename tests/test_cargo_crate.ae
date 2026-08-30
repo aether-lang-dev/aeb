@@ -1,38 +1,7 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for cargo_crate_toml_content() — workspace member crate Cargo.toml generation
-
-import rust
+import std.spec
+import std.map
 import rust (cargo_crate_toml_content)
-
-_assert_contains(label: string, actual: string, substring: string) {
-    if string_contains(actual, substring) == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected to contain: ${substring}")
-        println("  actual: ${actual}")
-    }
-}
-
-_assert_not_contains(label: string, actual: string, substring: string) {
-    if string_contains(actual, substring) == 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected NOT to contain: ${substring}")
-        println("  actual: ${actual}")
-    }
-}
 
 _add_dep(opts: ptr, name: string, ver: string) {
     if map_has(opts, "_crate_deps") == 0 {
@@ -103,117 +72,134 @@ _add_feature(opts: ptr, name: string, deps_csv: string) {
 }
 
 main() {
-    // --- Test 1: minimal — name only ---
-    opts1 = map_new()
-    map_put(opts1, "crate_name", "core")
-    toml1 = cargo_crate_toml_content(opts1)
-    _assert_contains("minimal has [package]", toml1, "[package]")
-    _assert_contains("minimal has name", toml1, "name = \"core\"")
-    _assert_not_contains("minimal no [lib]", toml1, "[lib]")
-    _assert_not_contains("minimal no [dependencies]", toml1, "[dependencies]")
+    fw = spec.init()
 
-    // --- Test 2: edition.workspace = true ---
-    opts2 = map_new()
-    map_put(opts2, "crate_name", "lib")
-    map_put(opts2, "edition", "2021")
-    toml2 = cargo_crate_toml_content(opts2)
-    _assert_contains("edition workspace inherit", toml2, "edition.workspace = true")
+    spec.describe(fw, "cargo_crate_toml_content") {
+        spec.it("minimal — name only") callback {
+            opts1 = map_new()
+            map_put(opts1, "crate_name", "core")
+            toml1 = cargo_crate_toml_content(opts1)
+            spec.assert_contains(toml1, "[package]", "minimal has [package]")
+            spec.assert_contains(toml1, "name = \"core\"", "minimal has name")
+            spec.assert_false(string_contains(toml1, "[lib]") == 1, "minimal no [lib]")
+            spec.assert_false(string_contains(toml1, "[dependencies]") == 1, "minimal no [dependencies]")
+        }
 
-    // --- Test 3: explicit version ---
-    opts3 = map_new()
-    map_put(opts3, "crate_name", "app")
-    map_put(opts3, "version", "1.0.0")
-    toml3 = cargo_crate_toml_content(opts3)
-    _assert_contains("explicit version", toml3, "version = \"1.0.0\"")
+        spec.it("edition.workspace = true") callback {
+            opts2 = map_new()
+            map_put(opts2, "crate_name", "lib")
+            map_put(opts2, "edition", "2021")
+            toml2 = cargo_crate_toml_content(opts2)
+            spec.assert_contains(toml2, "edition.workspace = true", "edition workspace inherit")
+        }
 
-    // --- Test 4: [[bin]] section ---
-    opts4 = map_new()
-    map_put(opts4, "crate_name", "myapp")
-    _add_bin(opts4, "myapp", "src/main.rs")
-    toml4 = cargo_crate_toml_content(opts4)
-    _assert_contains("[[bin]] header", toml4, "[[bin]]")
-    _assert_contains("bin name", toml4, "name = \"myapp\"")
-    _assert_contains("bin path", toml4, "path = \"src/main.rs\"")
+        spec.it("explicit version") callback {
+            opts3 = map_new()
+            map_put(opts3, "crate_name", "app")
+            map_put(opts3, "version", "1.0.0")
+            toml3 = cargo_crate_toml_content(opts3)
+            spec.assert_contains(toml3, "version = \"1.0.0\"", "explicit version")
+        }
 
-    // --- Test 5: [lib] from crate_type ---
-    opts5 = map_new()
-    map_put(opts5, "crate_name", "shared")
-    map_put(opts5, "crate_type", "cdylib")
-    map_put(opts5, "lib_path", "src/lib.rs")
-    toml5 = cargo_crate_toml_content(opts5)
-    _assert_contains("[lib] header", toml5, "[lib]")
-    _assert_contains("lib path", toml5, "path = \"src/lib.rs\"")
-    _assert_contains("lib crate-type", toml5, "crate-type = [\"cdylib\"]")
+        spec.it("[[bin]] section") callback {
+            opts4 = map_new()
+            map_put(opts4, "crate_name", "myapp")
+            _add_bin(opts4, "myapp", "src/main.rs")
+            toml4 = cargo_crate_toml_content(opts4)
+            spec.assert_contains(toml4, "[[bin]]", "[[bin]] header")
+            spec.assert_contains(toml4, "name = \"myapp\"", "bin name")
+            spec.assert_contains(toml4, "path = \"src/main.rs\"", "bin path")
+        }
 
-    // --- Test 6: workspace ref dependency ---
-    opts6 = map_new()
-    map_put(opts6, "crate_name", "service")
-    _add_ws_ref(opts6, "tokio")
-    _add_ws_ref(opts6, "serde")
-    toml6 = cargo_crate_toml_content(opts6)
-    _assert_contains("[dependencies] header", toml6, "[dependencies]")
-    _assert_contains("ws ref tokio", toml6, "tokio.workspace = true")
-    _assert_contains("ws ref serde", toml6, "serde.workspace = true")
+        spec.it("[lib] from crate_type") callback {
+            opts5 = map_new()
+            map_put(opts5, "crate_name", "shared")
+            map_put(opts5, "crate_type", "cdylib")
+            map_put(opts5, "lib_path", "src/lib.rs")
+            toml5 = cargo_crate_toml_content(opts5)
+            spec.assert_contains(toml5, "[lib]", "[lib] header")
+            spec.assert_contains(toml5, "path = \"src/lib.rs\"", "lib path")
+            spec.assert_contains(toml5, "crate-type = [\"cdylib\"]", "lib crate-type")
+        }
 
-    // --- Test 7: direct version dep ---
-    opts7 = map_new()
-    map_put(opts7, "crate_name", "tool")
-    _add_dep(opts7, "log", "0.4")
-    toml7 = cargo_crate_toml_content(opts7)
-    _assert_contains("direct version", toml7, "log = \"0.4\"")
+        spec.it("workspace ref dependency") callback {
+            opts6 = map_new()
+            map_put(opts6, "crate_name", "service")
+            _add_ws_ref(opts6, "tokio")
+            _add_ws_ref(opts6, "serde")
+            toml6 = cargo_crate_toml_content(opts6)
+            spec.assert_contains(toml6, "[dependencies]", "[dependencies] header")
+            spec.assert_contains(toml6, "tokio.workspace = true", "ws ref tokio")
+            spec.assert_contains(toml6, "serde.workspace = true", "ws ref serde")
+        }
 
-    // --- Test 8: dep with features ---
-    opts8 = map_new()
-    map_put(opts8, "crate_name", "server")
-    _add_dep_features(opts8, "tokio", "1.0", "full,macros")
-    toml8 = cargo_crate_toml_content(opts8)
-    _assert_contains("features dep", toml8, "tokio = { version = \"1.0\", features = [\"full\", \"macros\"] }")
+        spec.it("direct version dep") callback {
+            opts7 = map_new()
+            map_put(opts7, "crate_name", "tool")
+            _add_dep(opts7, "log", "0.4")
+            toml7 = cargo_crate_toml_content(opts7)
+            spec.assert_contains(toml7, "log = \"0.4\"", "direct version")
+        }
 
-    // --- Test 9: path dep ---
-    opts9 = map_new()
-    map_put(opts9, "crate_name", "app")
-    _add_path_dep(opts9, "shared", "../shared")
-    toml9 = cargo_crate_toml_content(opts9)
-    _assert_contains("path dep", toml9, "shared = { path = \"../shared\" }")
+        spec.it("dep with features") callback {
+            opts8 = map_new()
+            map_put(opts8, "crate_name", "server")
+            _add_dep_features(opts8, "tokio", "1.0", "full,macros")
+            toml8 = cargo_crate_toml_content(opts8)
+            spec.assert_contains(toml8, "tokio = { version = \"1.0\", features = [\"full\", \"macros\"] }", "features dep")
+        }
 
-    // --- Test 10: dev-dependencies ---
-    opts10 = map_new()
-    map_put(opts10, "crate_name", "lib")
-    _add_dev_ws_ref(opts10, "proptest")
-    toml10 = cargo_crate_toml_content(opts10)
-    _assert_contains("dev-dependencies header", toml10, "[dev-dependencies]")
-    _assert_contains("dev ws ref", toml10, "proptest.workspace = true")
+        spec.it("path dep") callback {
+            opts9 = map_new()
+            map_put(opts9, "crate_name", "app")
+            _add_path_dep(opts9, "shared", "../shared")
+            toml9 = cargo_crate_toml_content(opts9)
+            spec.assert_contains(toml9, "shared = { path = \"../shared\" }", "path dep")
+        }
 
-    // --- Test 11: features section ---
-    opts11 = map_new()
-    map_put(opts11, "crate_name", "lib")
-    map_put(opts11, "_default_features", "std,tls")
-    _add_feature(opts11, "std", "")
-    _add_feature(opts11, "tls", "openssl")
-    toml11 = cargo_crate_toml_content(opts11)
-    _assert_contains("features header", toml11, "[features]")
-    _assert_contains("default features", toml11, "default = [\"std\", \"tls\"]")
-    _assert_contains("empty feature", toml11, "std = []")
-    _assert_contains("feature with deps", toml11, "tls = [\"openssl\"]")
+        spec.it("dev-dependencies") callback {
+            opts10 = map_new()
+            map_put(opts10, "crate_name", "lib")
+            _add_dev_ws_ref(opts10, "proptest")
+            toml10 = cargo_crate_toml_content(opts10)
+            spec.assert_contains(toml10, "[dev-dependencies]", "dev-dependencies header")
+            spec.assert_contains(toml10, "proptest.workspace = true", "dev ws ref")
+        }
 
-    // --- Test 12: full combo (workspace member with mixed dep types) ---
-    opts12 = map_new()
-    map_put(opts12, "crate_name", "server-core")
-    map_put(opts12, "edition", "2021")
-    _add_ws_ref(opts12, "tokio")
-    _add_dep(opts12, "log", "0.4")
-    _add_dep_features(opts12, "serde", "1.0", "derive")
-    _add_path_dep(opts12, "shared", "../shared")
-    _add_dev_ws_ref(opts12, "proptest")
-    toml12 = cargo_crate_toml_content(opts12)
-    _assert_contains("combo: name", toml12, "name = \"server-core\"")
-    _assert_contains("combo: ws inherit", toml12, "edition.workspace = true")
-    _assert_contains("combo: ws ref", toml12, "tokio.workspace = true")
-    _assert_contains("combo: direct dep", toml12, "log = \"0.4\"")
-    _assert_contains("combo: features dep", toml12, "serde = { version = \"1.0\", features = [\"derive\"] }")
-    _assert_contains("combo: path dep", toml12, "shared = { path = \"../shared\" }")
-    _assert_contains("combo: dev-deps", toml12, "[dev-dependencies]")
-    _assert_contains("combo: dev ws ref", toml12, "proptest.workspace = true")
+        spec.it("features section") callback {
+            opts11 = map_new()
+            map_put(opts11, "crate_name", "lib")
+            map_put(opts11, "_default_features", "std,tls")
+            _add_feature(opts11, "std", "")
+            _add_feature(opts11, "tls", "openssl")
+            toml11 = cargo_crate_toml_content(opts11)
+            spec.assert_contains(toml11, "[features]", "features header")
+            spec.assert_contains(toml11, "default = [\"std\", \"tls\"]", "default features")
+            spec.assert_contains(toml11, "std = []", "empty feature")
+            spec.assert_contains(toml11, "tls = [\"openssl\"]", "feature with deps")
+        }
 
-    println("cargo_crate_toml_content tests done")
+        // full combo (workspace member with mixed dep types)
+        spec.it("full combo (mixed dep types)") callback {
+            opts12 = map_new()
+            map_put(opts12, "crate_name", "server-core")
+            map_put(opts12, "edition", "2021")
+            _add_ws_ref(opts12, "tokio")
+            _add_dep(opts12, "log", "0.4")
+            _add_dep_features(opts12, "serde", "1.0", "derive")
+            _add_path_dep(opts12, "shared", "../shared")
+            _add_dev_ws_ref(opts12, "proptest")
+            toml12 = cargo_crate_toml_content(opts12)
+            spec.assert_contains(toml12, "name = \"server-core\"", "combo: name")
+            spec.assert_contains(toml12, "edition.workspace = true", "combo: ws inherit")
+            spec.assert_contains(toml12, "tokio.workspace = true", "combo: ws ref")
+            spec.assert_contains(toml12, "log = \"0.4\"", "combo: direct dep")
+            spec.assert_contains(toml12, "serde = { version = \"1.0\", features = [\"derive\"] }", "combo: features dep")
+            spec.assert_contains(toml12, "shared = { path = \"../shared\" }", "combo: path dep")
+            spec.assert_contains(toml12, "[dev-dependencies]", "combo: dev-deps")
+            spec.assert_contains(toml12, "proptest.workspace = true", "combo: dev ws ref")
+        }
+    }
+
+    spec.run_summary(fw)
 }

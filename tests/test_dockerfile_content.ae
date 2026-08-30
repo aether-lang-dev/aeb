@@ -1,100 +1,85 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for dockerfile_content() — Dockerfile string generation
+import std.spec
+import std.map
 
-import container
 import container (dockerfile_content)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
-// Check that a string contains a substring
-_assert_contains(label: string, haystack: string, needle: string) {
-    // os_exec is now a Go-style wrapper returning (output, err); the raw
-    // single-string extern is os_exec_raw. string_trim is already provided
-    // by std.string — no local extern needed.
-    result = os_exec_raw("echo '${haystack}' | grep -c '${needle}'")
-    result = string_trim(result)
-    if result != "0" {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label} — expected to contain: ${needle}")
-        println("  actual: ${haystack}")
-    }
-}
-
 main() {
-    // No config: default base + default workdir + artifact copy
-    df1 = dockerfile_content("target/bin/app.jar", null)
-    _assert_contains("default base", df1, "FROM debian:bookworm-slim")
-    _assert_contains("default workdir", df1, "WORKDIR /app")
-    _assert_contains("artifact copy", df1, "COPY target/bin/app.jar /app/")
+    fw = spec.init()
 
-    // Custom base
-    opts2 = map_new()
-    map_put(opts2, "base", "eclipse-temurin:21-jre-alpine")
-    df2 = dockerfile_content("app.jar", opts2)
-    _assert_contains("custom base", df2, "FROM eclipse-temurin:21-jre-alpine")
+    spec.describe(fw, "dockerfile_content") {
+        // No config: default base + default workdir + artifact copy
+        spec.it("defaults: base + workdir + artifact copy") callback {
+            df1 = dockerfile_content("target/bin/app.jar", null)
+            spec.assert_contains(df1, "FROM debian:bookworm-slim", "default base")
+            spec.assert_contains(df1, "WORKDIR /app", "default workdir")
+            spec.assert_contains(df1, "COPY target/bin/app.jar /app/", "artifact copy")
+        }
 
-    // Custom workdir
-    opts3 = map_new()
-    map_put(opts3, "workdir", "/opt/myapp")
-    df3 = dockerfile_content("app.jar", opts3)
-    _assert_contains("custom workdir", df3, "WORKDIR /opt/myapp")
+        // Custom base
+        spec.it("custom base") callback {
+            opts2 = map_new()
+            map_put(opts2, "base", "eclipse-temurin:21-jre-alpine")
+            df2 = dockerfile_content("app.jar", opts2)
+            spec.assert_contains(df2, "FROM eclipse-temurin:21-jre-alpine", "custom base")
+        }
 
-    // Entrypoint
-    opts4 = map_new()
-    map_put(opts4, "entrypoint", "[\"java\", \"-jar\", \"/app/app.jar\"]")
-    df4 = dockerfile_content("app.jar", opts4)
-    _assert_contains("entrypoint", df4, "ENTRYPOINT [\"java\", \"-jar\", \"/app/app.jar\"]")
+        // Custom workdir
+        spec.it("custom workdir") callback {
+            opts3 = map_new()
+            map_put(opts3, "workdir", "/opt/myapp")
+            df3 = dockerfile_content("app.jar", opts3)
+            spec.assert_contains(df3, "WORKDIR /opt/myapp", "custom workdir")
+        }
 
-    // Port
-    opts5 = map_new()
-    map_put(opts5, "ports", "8080")
-    df5 = dockerfile_content("app.jar", opts5)
-    _assert_contains("single port", df5, "EXPOSE 8080")
+        // Entrypoint
+        spec.it("entrypoint") callback {
+            opts4 = map_new()
+            map_put(opts4, "entrypoint", "[\"java\", \"-jar\", \"/app/app.jar\"]")
+            df4 = dockerfile_content("app.jar", opts4)
+            spec.assert_contains(df4, "ENTRYPOINT [\"java\", \"-jar\", \"/app/app.jar\"]", "entrypoint")
+        }
 
-    // Multiple ports
-    opts6 = map_new()
-    map_put(opts6, "ports", "8080 9090")
-    df6 = dockerfile_content("app.jar", opts6)
-    _assert_contains("port 8080", df6, "EXPOSE 8080")
-    _assert_contains("port 9090", df6, "EXPOSE 9090")
+        // Port
+        spec.it("single port") callback {
+            opts5 = map_new()
+            map_put(opts5, "ports", "8080")
+            df5 = dockerfile_content("app.jar", opts5)
+            spec.assert_contains(df5, "EXPOSE 8080", "single port")
+        }
 
-    // Env var
-    opts7 = map_new()
-    map_put(opts7, "env_vars", "JAVA_OPTS=-Xmx512m")
-    df7 = dockerfile_content("app.jar", opts7)
-    _assert_contains("env var", df7, "ENV JAVA_OPTS=-Xmx512m")
+        // Multiple ports
+        spec.it("multiple ports") callback {
+            opts6 = map_new()
+            map_put(opts6, "ports", "8080 9090")
+            df6 = dockerfile_content("app.jar", opts6)
+            spec.assert_contains(df6, "EXPOSE 8080", "port 8080")
+            spec.assert_contains(df6, "EXPOSE 9090", "port 9090")
+        }
 
-    // Full combo
-    opts8 = map_new()
-    map_put(opts8, "base", "node:22-alpine")
-    map_put(opts8, "workdir", "/srv")
-    map_put(opts8, "ports", "3000")
-    map_put(opts8, "entrypoint", "[\"node\", \"index.js\"]")
-    df8 = dockerfile_content("dist/index.js", opts8)
-    _assert_contains("combo base", df8, "FROM node:22-alpine")
-    _assert_contains("combo workdir", df8, "WORKDIR /srv")
-    _assert_contains("combo port", df8, "EXPOSE 3000")
-    _assert_contains("combo entrypoint", df8, "ENTRYPOINT [\"node\", \"index.js\"]")
-    _assert_contains("combo artifact", df8, "COPY dist/index.js /srv/")
+        // Env var
+        spec.it("env var") callback {
+            opts7 = map_new()
+            map_put(opts7, "env_vars", "JAVA_OPTS=-Xmx512m")
+            df7 = dockerfile_content("app.jar", opts7)
+            spec.assert_contains(df7, "ENV JAVA_OPTS=-Xmx512m", "env var")
+        }
 
-    println("dockerfile_content tests done")
+        // Full combo
+        spec.it("full combo") callback {
+            opts8 = map_new()
+            map_put(opts8, "base", "node:22-alpine")
+            map_put(opts8, "workdir", "/srv")
+            map_put(opts8, "ports", "3000")
+            map_put(opts8, "entrypoint", "[\"node\", \"index.js\"]")
+            df8 = dockerfile_content("dist/index.js", opts8)
+            spec.assert_contains(df8, "FROM node:22-alpine", "combo base")
+            spec.assert_contains(df8, "WORKDIR /srv", "combo workdir")
+            spec.assert_contains(df8, "EXPOSE 3000", "combo port")
+            spec.assert_contains(df8, "ENTRYPOINT [\"node\", \"index.js\"]", "combo entrypoint")
+            spec.assert_contains(df8, "COPY dist/index.js /srv/", "combo artifact")
+        }
+    }
+
+    spec.run_summary(fw)
 }

@@ -3,27 +3,13 @@
 //   render_telemetry(records, total_ms) → full summary block
 //
 // Both pure (no I/O); fixtures are synthetic record maps.
+import std.spec
 import std.string
-import std.io
 import std.os
-import std.file
-import std.fs
 import std.list
 import std.map
-import std.path
-import std.dir
 
 import bldr (_format_telemetry_line, render_telemetry, render_telemetry_json, render_tests_json)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
 
 _record(lbl: string, type_word: string, wall_ms: int, cache: string) {
     r = map.new()
@@ -35,261 +21,362 @@ _record(lbl: string, type_word: string, wall_ms: int, cache: string) {
 }
 
 main() {
-    // --- _format_telemetry_line: column widths + decimal seconds ---
-    // type column is 8 chars (compile: + 1 pad), label column is 32.
-    _assert_eq("line: compile / short label / 1.21s / miss",
-        _format_telemetry_line("ae/svnserver", "compile", 1210, "miss", 0, 0, 0, ""),
-        "  compile: ae/svnserver                     1.21s [miss]")
+    fw = spec.init()
 
-    _assert_eq("line: test / short label / 0.01s / hit",
-        _format_telemetry_line("ae/wc", "test", 10, "hit", 0, 0, 0, ""),
-        "  test:    ae/wc                            0.01s [hit]")
+    spec.describe(fw, "_format_telemetry_line: column widths + decimal seconds") {
+        // type column is 8 chars (compile: + 1 pad), label column is 32.
+        spec.it("compile / short label / 1.21s / miss") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("ae/svnserver", "compile", 1210, "miss", 0, 0, 0, ""),
+                "  compile: ae/svnserver                     1.21s [miss]",
+                "line: compile / short label / 1.21s / miss")
+        }
 
-    _assert_eq("line: dist / 0.00s / n/a",
-        _format_telemetry_line("dist:foo", "dist", 0, "n/a", 0, 0, 0, ""),
-        "  dist:    dist:foo                         0.00s [n/a]")
+        spec.it("test / short label / 0.01s / hit") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("ae/wc", "test", 10, "hit", 0, 0, 0, ""),
+                "  test:    ae/wc                            0.01s [hit]",
+                "line: test / short label / 0.01s / hit")
+        }
 
-    // --- decimal-seconds rounding (cs = round(ms/10)) ---
-    _assert_eq("line: 999ms rounds to 1.00s",
-        _format_telemetry_line("x", "compile", 999, "miss", 0, 0, 0, ""),
-        "  compile: x                                1.00s [miss]")
+        spec.it("dist / 0.00s / n/a") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("dist:foo", "dist", 0, "n/a", 0, 0, 0, ""),
+                "  dist:    dist:foo                         0.00s [n/a]",
+                "line: dist / 0.00s / n/a")
+        }
 
-    _assert_eq("line: 1000ms = 1.00s",
-        _format_telemetry_line("x", "compile", 1000, "miss", 0, 0, 0, ""),
-        "  compile: x                                1.00s [miss]")
+        // --- decimal-seconds rounding (cs = round(ms/10)) ---
+        spec.it("999ms rounds to 1.00s") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("x", "compile", 999, "miss", 0, 0, 0, ""),
+                "  compile: x                                1.00s [miss]",
+                "line: 999ms rounds to 1.00s")
+        }
+        spec.it("1000ms = 1.00s") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("x", "compile", 1000, "miss", 0, 0, 0, ""),
+                "  compile: x                                1.00s [miss]",
+                "line: 1000ms = 1.00s")
+        }
+        spec.it("1234ms = 1.23s") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("x", "compile", 1234, "miss", 0, 0, 0, ""),
+                "  compile: x                                1.23s [miss]",
+                "line: 1234ms = 1.23s")
+        }
+        spec.it("1235ms rounds to 1.24s") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("x", "compile", 1235, "miss", 0, 0, 0, ""),
+                "  compile: x                                1.24s [miss]",
+                "line: 1235ms rounds to 1.24s")
+        }
+        spec.it("5ms = 0.01s (rounds up)") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("x", "compile", 5, "miss", 0, 0, 0, ""),
+                "  compile: x                                0.01s [miss]",
+                "line: 5ms = 0.01s (rounds up)")
+        }
+        spec.it("4ms = 0.00s (rounds down)") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("x", "compile", 4, "miss", 0, 0, 0, ""),
+                "  compile: x                                0.00s [miss]",
+                "line: 4ms = 0.00s (rounds down)")
+        }
 
-    _assert_eq("line: 1234ms = 1.23s",
-        _format_telemetry_line("x", "compile", 1234, "miss", 0, 0, 0, ""),
-        "  compile: x                                1.23s [miss]")
+        // --- long label exceeds padding column → no truncation, just no padding ---
+        spec.it("long label flows past the 32-col pad") callback {
+            long_label = "ae/path/to/some/very/deep/module:with-tag"
+            spec.assert_str_eq(
+                _format_telemetry_line(long_label, "compile", 100, "miss", 0, 0, 0, ""),
+                "  compile: ae/path/to/some/very/deep/module:with-tag 0.10s [miss]",
+                "line: long label flows past the 32-col pad")
+        }
+    }
 
-    _assert_eq("line: 1235ms rounds to 1.24s",
-        _format_telemetry_line("x", "compile", 1235, "miss", 0, 0, 0, ""),
-        "  compile: x                                1.24s [miss]")
+    spec.describe(fw, "render_telemetry: full block") {
+        // --- render_telemetry: full block. Types are LITERAL now (build/seed/test);
+        //     no tags — co-located variants are different-named types. The label
+        //     column shows the dir with any "<type>:" prefix stripped (_label_display).
+        spec.it("3-record session") callback {
+            records = list.new()
+            list.add(records, _record("ae/svnserver",      "build", 1210, "miss"))
+            list.add(records, _record("seed:ae/svnserver", "seed",  10,   "hit"))
+            list.add(records, _record("ae/wc",             "test",  3030, "n/a"))
+            expected_block = "[telemetry]\n  build:   ae/svnserver                     1.21s [miss]\n  seed:    ae/svnserver                     0.01s [hit]\n  test:    ae/wc                            3.03s [n/a]\ntotal: 4.25s wall"
+            spec.assert_str_eq(render_telemetry(records, 4250), expected_block, "render: 3-record session")
+        }
 
-    _assert_eq("line: 5ms = 0.01s (rounds up)",
-        _format_telemetry_line("x", "compile", 5, "miss", 0, 0, 0, ""),
-        "  compile: x                                0.01s [miss]")
+        // --- empty records list (build with no targets) ---
+        spec.it("empty records") callback {
+            empty = list.new()
+            spec.assert_str_eq(render_telemetry(empty, 0), "[telemetry]\ntotal: 0.00s wall", "render: empty records")
+        }
 
-    _assert_eq("line: 4ms = 0.00s (rounds down)",
-        _format_telemetry_line("x", "compile", 4, "miss", 0, 0, 0, ""),
-        "  compile: x                                0.00s [miss]")
+        // --- single record ---
+        spec.it("single record") callback {
+            one = list.new()
+            list.add(one, _record("only", "compile", 500, "miss"))
+            spec.assert_str_eq(render_telemetry(one, 510),
+                "[telemetry]\n  compile: only                             0.50s [miss]\ntotal: 0.51s wall",
+                "render: single record")
+        }
+    }
 
-    // --- long label exceeds padding column → no truncation, just no padding ---
-    long_label = "ae/path/to/some/very/deep/module:with-tag"
-    _assert_eq("line: long label flows past the 32-col pad",
-        _format_telemetry_line(long_label, "compile", 100, "miss", 0, 0, 0, ""),
-        "  compile: ae/path/to/some/very/deep/module:with-tag 0.10s [miss]")
+    spec.describe(fw, "_format_telemetry_line: test-result trailer") {
+        spec.it("test row with PASS trailer") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("ae/wc", "test", 3030, "n/a", 17, 0, 1, ""),
+                "  test:    ae/wc                            3.03s [n/a] 17/17 PASS",
+                "line: test row with PASS trailer")
+        }
+        spec.it("test row with FAIL trailer (any failures → FAIL verdict)") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("ae/svn", "test", 5400, "n/a", 28, 2, 1, ""),
+                "  test:    ae/svn                           5.40s [n/a] 28/30 FAIL",
+                "line: test row with FAIL trailer (any failures → FAIL verdict)")
+        }
+        spec.it("test row with all-fail trailer") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("flaky", "test", 100, "miss", 0, 5, 1, ""),
+                "  test:    flaky                            0.10s [miss] 0/5 FAIL",
+                "line: test row with all-fail trailer")
+        }
+        spec.it("test row with cache hit AND results") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("cached", "test", 50, "hit", 14, 0, 1, ""),
+                "  test:    cached                           0.05s [hit] 14/14 PASS",
+                "line: test row with cache hit AND results")
+        }
+        // has_test_result=0 → no trailer (fallback to no-results shape).
+        spec.it("has_test_result=0 → no trailer") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("legacy", "test", 100, "n/a", 99, 99, 0, ""),
+                "  test:    legacy                           0.10s [n/a]",
+                "line: has_test_result=0 → no trailer")
+        }
+    }
 
-    // --- render_telemetry: full block. Types are LITERAL now (build/seed/test);
-    //     no tags — co-located variants are different-named types. The label
-    //     column shows the dir with any "<type>:" prefix stripped (_label_display).
-    records = list.new()
-    list.add(records, _record("ae/svnserver",      "build", 1210, "miss"))
-    list.add(records, _record("seed:ae/svnserver", "seed",  10,   "hit"))
-    list.add(records, _record("ae/wc",             "test",  3030, "n/a"))
+    spec.describe(fw, "render_telemetry: mixed records, some with results") {
+        spec.it("mixed compile + 2 test records (one PASS, one FAIL)") callback {
+            mixed = list.new()
+            list.add(mixed, _record("ae/svnserver", "compile", 1210, "miss"))
+            test_rec = _record("ae/wc", "test", 3030, "n/a")
+            map.put(test_rec, "test_passed", "17")
+            map.put(test_rec, "test_failed", "0")
+            list.add(mixed, test_rec)
+            fail_rec = _record("ae/svn", "test", 5400, "n/a")
+            map.put(fail_rec, "test_passed", "28")
+            map.put(fail_rec, "test_failed", "2")
+            list.add(mixed, fail_rec)
+            expected_mixed = "[telemetry]\n  compile: ae/svnserver                     1.21s [miss]\n  test:    ae/wc                            3.03s [n/a] 17/17 PASS\n  test:    ae/svn                           5.40s [n/a] 28/30 FAIL\ntotal: 9.64s wall"
+            spec.assert_str_eq(render_telemetry(mixed, 9640), expected_mixed,
+                "render: mixed compile + 2 test records (one PASS, one FAIL)")
+        }
 
-    expected_block = "[telemetry]\n  build:   ae/svnserver                     1.21s [miss]\n  seed:    ae/svnserver                     0.01s [hit]\n  test:    ae/wc                            3.03s [n/a]\ntotal: 4.25s wall"
-    _assert_eq("render: 3-record session", render_telemetry(records, 4250), expected_block)
+        // --- render_telemetry: FAIL row with test_failed_names → indented detail ---
+        spec.it("FAIL row with detailed names indented") callback {
+            detailed = list.new()
+            detail_rec = _record("ae/wc", "test", 5400, "n/a")
+            map.put(detail_rec, "test_passed", "28")
+            map.put(detail_rec, "test_failed", "2")
+            map.put(detail_rec, "test_failed_names",
+                    "blame against demo\texpected 'alice' got 'bob'\nlog shows three commits\texit 1")
+            list.add(detailed, detail_rec)
+            expected_detail = "[telemetry]\n  test:    ae/wc                            5.40s [n/a] 28/30 FAIL\n          - blame against demo\texpected 'alice' got 'bob'\n          - log shows three commits\texit 1\ntotal: 5.40s wall"
+            spec.assert_str_eq(render_telemetry(detailed, 5400), expected_detail,
+                "render: FAIL row with detailed names indented")
+        }
 
-    // --- empty records list (build with no targets) ---
-    empty = list.new()
-    _assert_eq("render: empty records",
-        render_telemetry(empty, 0), "[telemetry]\ntotal: 0.00s wall")
+        // --- render_telemetry: PASS row with test_failed_names is unusual but
+        // shouldn't render anything (failed=0 gates the detail block). ---
+        spec.it("failed=0 gates detail block (no indented lines)") callback {
+            paranoid = list.new()
+            paranoid_rec = _record("ae/wc", "test", 100, "n/a")
+            map.put(paranoid_rec, "test_passed", "5")
+            map.put(paranoid_rec, "test_failed", "0")
+            map.put(paranoid_rec, "test_failed_names", "stale data\nfrom previous run")
+            list.add(paranoid, paranoid_rec)
+            expected_paranoid = "[telemetry]\n  test:    ae/wc                            0.10s [n/a] 5/5 PASS\ntotal: 0.10s wall"
+            spec.assert_str_eq(render_telemetry(paranoid, 100), expected_paranoid,
+                "render: failed=0 gates detail block (no indented lines)")
+        }
 
-    // --- single record ---
-    one = list.new()
-    list.add(one, _record("only", "compile", 500, "miss"))
-    _assert_eq("render: single record",
-        render_telemetry(one, 510),
-        "[telemetry]\n  compile: only                             0.50s [miss]\ntotal: 0.51s wall")
+        // --- render_telemetry: FAIL row WITHOUT test_failed_names → no detail block ---
+        spec.it("FAIL row without names → no detail block") callback {
+            nodetail = list.new()
+            nodetail_rec = _record("ae/jest", "test", 200, "n/a")
+            map.put(nodetail_rec, "test_passed", "3")
+            map.put(nodetail_rec, "test_failed", "1")
+            list.add(nodetail, nodetail_rec)
+            expected_nodetail = "[telemetry]\n  test:    ae/jest                          0.20s [n/a] 3/4 FAIL\ntotal: 0.20s wall"
+            spec.assert_str_eq(render_telemetry(nodetail, 200), expected_nodetail,
+                "render: FAIL row without names → no detail block")
+        }
 
-    // --- _format_telemetry_line: with test-result trailer ---
-    _assert_eq("line: test row with PASS trailer",
-        _format_telemetry_line("ae/wc", "test", 3030, "n/a", 17, 0, 1, ""),
-        "  test:    ae/wc                            3.03s [n/a] 17/17 PASS")
+        // --- render_telemetry: single failed name (no embedded message, no newline) ---
+        spec.it("single failed name, no message") callback {
+            single = list.new()
+            single_rec = _record("ae/x", "test", 1000, "n/a")
+            map.put(single_rec, "test_passed", "0")
+            map.put(single_rec, "test_failed", "1")
+            map.put(single_rec, "test_failed_names", "the only test")
+            list.add(single, single_rec)
+            expected_single = "[telemetry]\n  test:    ae/x                             1.00s [n/a] 0/1 FAIL\n          - the only test\ntotal: 1.00s wall"
+            spec.assert_str_eq(render_telemetry(single, 1000), expected_single,
+                "render: single failed name, no message")
+        }
+    }
 
-    _assert_eq("line: test row with FAIL trailer (any failures → FAIL verdict)",
-        _format_telemetry_line("ae/svn", "test", 5400, "n/a", 28, 2, 1, ""),
-        "  test:    ae/svn                           5.40s [n/a] 28/30 FAIL")
+    spec.describe(fw, "issue #13: FAILED build row must not render success-shaped") {
+        // Before this, a gcc/link failure produced the byte-identical line a
+        // green build produces, so `aeb | tail` read as success while no
+        // binary existed. Both status vocabularies are exercised: the
+        // in-process orchestrator writes "failed", aeb-driver writes "fail".
+        spec.it("failed build row gets FAILED (orchestrator vocab)") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("examples/icons_demo", "build", 5380, "miss", 0, 0, 0, "failed"),
+                "  build:   examples/icons_demo              5.38s [miss] FAILED",
+                "line: failed build row gets FAILED (orchestrator vocab)")
+        }
+        spec.it("failed build row gets FAILED (driver vocab)") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("examples/icons_demo", "build", 5380, "miss", 0, 0, 0, "fail"),
+                "  build:   examples/icons_demo              5.38s [miss] FAILED",
+                "line: failed build row gets FAILED (driver vocab)")
+        }
+        spec.it("passed status renders unchanged (no trailer)") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("x", "build", 100, "miss", 0, 0, 0, "passed"),
+                "  build:   x                                0.10s [miss]",
+                "line: passed status renders unchanged (no trailer)")
+        }
+        spec.it("skipped status renders unchanged (not a failure)") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("x", "build", 0, "n/a", 0, 0, 0, "skipped"),
+                "  build:   x                                0.00s [n/a]",
+                "line: skipped status renders unchanged (not a failure)")
+        }
+        // A test node that fails BEFORE its tests run (gcc/link) has no counts
+        // marker → has_test_result=0 → the same bare FAILED.
+        spec.it("test node that failed to build gets FAILED") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("ae/wc", "test", 200, "miss", 0, 0, 0, "failed"),
+                "  test:    ae/wc                            0.20s [miss] FAILED",
+                "line: test node that failed to build gets FAILED")
+        }
+        // Green counts + failed status (post-build hook, dep pin mismatch):
+        // the session status is the authority, so the verdict is FAIL.
+        spec.it("green counts but failed status → FAIL verdict") callback {
+            spec.assert_str_eq(
+                _format_telemetry_line("ae/wc", "test", 3030, "n/a", 17, 0, 1, "failed"),
+                "  test:    ae/wc                            3.03s [n/a] 17/17 FAIL",
+                "line: green counts but failed status → FAIL verdict")
+        }
+    }
 
-    _assert_eq("line: test row with all-fail trailer",
-        _format_telemetry_line("flaky", "test", 100, "miss", 0, 5, 1, ""),
-        "  test:    flaky                            0.10s [miss] 0/5 FAIL")
+    spec.describe(fw, "render_telemetry: roll-up after total (survives | tail)") {
+        spec.it("single failure names itself on the last lines") callback {
+            failing = list.new()
+            fr = _record("examples/icons_demo", "build", 5380, "miss")
+            map.put(fr, "status", "failed")
+            list.add(failing, fr)
+            spec.assert_str_eq(
+                render_telemetry(failing, 5410),
+                "[telemetry]\n  build:   examples/icons_demo              5.38s [miss] FAILED\ntotal: 5.41s wall\nFAILED: 1 target\n  build: examples/icons_demo",
+                "render: single failure names itself on the last lines")
+        }
 
-    _assert_eq("line: test row with cache hit AND results",
-        _format_telemetry_line("cached", "test", 50, "hit", 14, 0, 1, ""),
-        "  test:    cached                           0.05s [hit] 14/14 PASS")
+        spec.it("two failures, plural + type-qualified labels") callback {
+            two_bad = list.new()
+            ok_rec = _record("ae/ok", "build", 100, "hit")
+            map.put(ok_rec, "status", "passed")
+            list.add(two_bad, ok_rec)
+            b1 = _record("ae/bad1", "build", 200, "miss")
+            map.put(b1, "status", "failed")
+            list.add(two_bad, b1)
+            b2 = _record("test:ae/bad2", "test", 300, "miss")
+            map.put(b2, "status", "fail")
+            list.add(two_bad, b2)
+            spec.assert_str_eq(
+                render_telemetry(two_bad, 600),
+                "[telemetry]\n  build:   ae/ok                            0.10s [hit]\n  build:   ae/bad1                          0.20s [miss] FAILED\n  test:    ae/bad2                          0.30s [miss] FAILED\ntotal: 0.60s wall\nFAILED: 2 targets\n  build: ae/bad1\n  test: ae/bad2",
+                "render: two failures, plural + type-qualified labels")
+        }
 
-    // has_test_result=0 → no trailer (fallback to no-results shape).
-    _assert_eq("line: has_test_result=0 → no trailer",
-        _format_telemetry_line("legacy", "test", 100, "n/a", 99, 99, 0, ""),
-        "  test:    legacy                           0.10s [n/a]")
+        // An all-green run must be byte-identical to before — silence is the
+        // success signal, and every existing green assertion depends on it.
+        spec.it("green run emits no roll-up") callback {
+            all_green = list.new()
+            g1 = _record("ae/a", "build", 100, "miss")
+            map.put(g1, "status", "passed")
+            list.add(all_green, g1)
+            spec.assert_str_eq(
+                render_telemetry(all_green, 100),
+                "[telemetry]\n  build:   ae/a                             0.10s [miss]\ntotal: 0.10s wall",
+                "render: green run emits no roll-up")
+        }
+    }
 
-    // --- render_telemetry: mixed records, some with results ---
-    mixed = list.new()
-    list.add(mixed, _record("ae/svnserver", "compile", 1210, "miss"))
-    test_rec = _record("ae/wc", "test", 3030, "n/a")
-    map.put(test_rec, "test_passed", "17")
-    map.put(test_rec, "test_failed", "0")
-    list.add(mixed, test_rec)
-    fail_rec = _record("ae/svn", "test", 5400, "n/a")
-    map.put(fail_rec, "test_passed", "28")
-    map.put(fail_rec, "test_failed", "2")
-    list.add(mixed, fail_rec)
+    spec.describe(fw, "JSON renderers") {
+        // --- JSON renderers: telemetry records ---
+        spec.it("telemetry json") callback {
+            json_records = list.new()
+            json_compile = _record("ae/quote\"slash\\", "compile", 12, "hit")
+            map.put(json_compile, "rc", "0")
+            map.put(json_compile, "status", "passed")
+            list.add(json_records, json_compile)
+            json_test = _record("test:ae/wc", "test", 3400, "n/a")
+            map.put(json_test, "rc", "1")
+            map.put(json_test, "status", "failed")
+            map.put(json_test, "test_passed", "2")
+            map.put(json_test, "test_failed", "1")
+            map.put(json_test, "test_failed_names", "bad \"case\"\tnope\nnext\\case")
+            list.add(json_records, json_test)
+            os.setenv("AEB_VERSION", "aeb test-version")
+            os.setenv("AEB_SINCE_REF", "main")
+            expected_json = "{\"version\":1,\"aeb_version\":\"aeb test-version\",\"since_ref\":\"main\",\"targets\":[{\"label\":\"ae/quote\\\"slash\\\\\",\"type\":\"compile\",\"status\":\"cache-hit\",\"duration_ms\":12,\"cache\":\"hit\",\"rc\":0,\"tests\":null},{\"label\":\"ae/wc\",\"type\":\"test\",\"status\":\"fail\",\"duration_ms\":3400,\"cache\":\"n/a\",\"rc\":1,\"tests\":{\"total\":3,\"passed\":2,\"failed\":1,\"skipped\":0,\"errored\":0}}],\"summary\":{\"built\":2,\"failed\":1,\"skipped\":0,\"duration_ms\":3412}}"
+            spec.assert_str_eq(render_telemetry_json(json_records, 3412), expected_json, "render: telemetry json")
+        }
 
-    expected_mixed = "[telemetry]\n  compile: ae/svnserver                     1.21s [miss]\n  test:    ae/wc                            3.03s [n/a] 17/17 PASS\n  test:    ae/svn                           5.40s [n/a] 28/30 FAIL\ntotal: 9.64s wall"
-    _assert_eq("render: mixed compile + 2 test records (one PASS, one FAIL)",
-        render_telemetry(mixed, 9640), expected_mixed)
+        // Exit-code-mapped test row: has test_passed/test_failed counts BUT
+        // test_has_report="0" (synthesised from a process exit code, not a
+        // per-test report). Per for_ci_use.md the JSON must emit tests:null —
+        // exit-code targets carry rc only, not a fake 1/0 tests object.
+        spec.it("telemetry json — exit-code target has tests:null") callback {
+            ec_records = list.new()
+            ec_row = _record("ae/exitcode", "test", 250, "n/a")
+            map.put(ec_row, "rc", "0")
+            map.put(ec_row, "status", "passed")
+            map.put(ec_row, "test_passed", "1")
+            map.put(ec_row, "test_failed", "0")
+            map.put(ec_row, "test_has_report", "0")
+            list.add(ec_records, ec_row)
+            os.setenv("AEB_VERSION", "aeb test-version")
+            os.setenv("AEB_SINCE_REF", "")
+            expected_ec_json = "{\"version\":1,\"aeb_version\":\"aeb test-version\",\"since_ref\":null,\"targets\":[{\"label\":\"ae/exitcode\",\"type\":\"test\",\"status\":\"pass\",\"duration_ms\":250,\"cache\":\"n/a\",\"rc\":0,\"tests\":null}],\"summary\":{\"built\":1,\"failed\":0,\"skipped\":0,\"duration_ms\":250}}"
+            spec.assert_str_eq(render_telemetry_json(ec_records, 250), expected_ec_json,
+                "render: telemetry json — exit-code target has tests:null")
+            os.setenv("AEB_SINCE_REF", "main")
+        }
 
-    // --- render_telemetry: FAIL row with test_failed_names → indented detail ---
-    detailed = list.new()
-    detail_rec = _record("ae/wc", "test", 5400, "n/a")
-    map.put(detail_rec, "test_passed", "28")
-    map.put(detail_rec, "test_failed", "2")
-    map.put(detail_rec, "test_failed_names",
-            "blame against demo\texpected 'alice' got 'bob'\nlog shows three commits\texit 1")
-    list.add(detailed, detail_rec)
-    expected_detail = "[telemetry]\n  test:    ae/wc                            5.40s [n/a] 28/30 FAIL\n          - blame against demo\texpected 'alice' got 'bob'\n          - log shows three commits\texit 1\ntotal: 5.40s wall"
-    _assert_eq("render: FAIL row with detailed names indented",
-        render_telemetry(detailed, 5400), expected_detail)
+        spec.it("tests json") callback {
+            json_records = list.new()
+            json_compile = _record("ae/quote\"slash\\", "compile", 12, "hit")
+            map.put(json_compile, "rc", "0")
+            map.put(json_compile, "status", "passed")
+            list.add(json_records, json_compile)
+            json_test = _record("test:ae/wc", "test", 3400, "n/a")
+            map.put(json_test, "rc", "1")
+            map.put(json_test, "status", "failed")
+            map.put(json_test, "test_passed", "2")
+            map.put(json_test, "test_failed", "1")
+            map.put(json_test, "test_failed_names", "bad \"case\"\tnope\nnext\\case")
+            list.add(json_records, json_test)
+            expected_tests_json = "{\"tests\":[{\"label\":\"test:ae/wc\",\"wall_ms\":3400,\"cache\":\"n/a\",\"has_results\":true,\"passed\":2,\"failed\":1,\"skipped\":0,\"verdict\":\"FAIL\",\"failed_names\":\"bad \\\"case\\\"\\tnope\\nnext\\\\case\"}]}"
+            spec.assert_str_eq(render_tests_json(json_records), expected_tests_json, "render: tests json")
+        }
+    }
 
-    // --- render_telemetry: PASS row with test_failed_names is unusual but
-    // shouldn't render anything (failed=0 gates the detail block). ---
-    paranoid = list.new()
-    paranoid_rec = _record("ae/wc", "test", 100, "n/a")
-    map.put(paranoid_rec, "test_passed", "5")
-    map.put(paranoid_rec, "test_failed", "0")
-    map.put(paranoid_rec, "test_failed_names", "stale data\nfrom previous run")
-    list.add(paranoid, paranoid_rec)
-    expected_paranoid = "[telemetry]\n  test:    ae/wc                            0.10s [n/a] 5/5 PASS\ntotal: 0.10s wall"
-    _assert_eq("render: failed=0 gates detail block (no indented lines)",
-        render_telemetry(paranoid, 100), expected_paranoid)
-
-    // --- render_telemetry: FAIL row WITHOUT test_failed_names → no detail block ---
-    nodetail = list.new()
-    nodetail_rec = _record("ae/jest", "test", 200, "n/a")
-    map.put(nodetail_rec, "test_passed", "3")
-    map.put(nodetail_rec, "test_failed", "1")
-    list.add(nodetail, nodetail_rec)
-    expected_nodetail = "[telemetry]\n  test:    ae/jest                          0.20s [n/a] 3/4 FAIL\ntotal: 0.20s wall"
-    _assert_eq("render: FAIL row without names → no detail block",
-        render_telemetry(nodetail, 200), expected_nodetail)
-
-    // --- render_telemetry: single failed name (no embedded message, no newline) ---
-    single = list.new()
-    single_rec = _record("ae/x", "test", 1000, "n/a")
-    map.put(single_rec, "test_passed", "0")
-    map.put(single_rec, "test_failed", "1")
-    map.put(single_rec, "test_failed_names", "the only test")
-    list.add(single, single_rec)
-    expected_single = "[telemetry]\n  test:    ae/x                             1.00s [n/a] 0/1 FAIL\n          - the only test\ntotal: 1.00s wall"
-    _assert_eq("render: single failed name, no message",
-        render_telemetry(single, 1000), expected_single)
-
-    // --- issue #13: a FAILED build row must not render success-shaped ---
-    // Before this, a gcc/link failure produced the byte-identical line a
-    // green build produces, so `aeb | tail` read as success while no
-    // binary existed. Both status vocabularies are exercised: the
-    // in-process orchestrator writes "failed", aeb-driver writes "fail".
-    _assert_eq("line: failed build row gets FAILED (orchestrator vocab)",
-        _format_telemetry_line("examples/icons_demo", "build", 5380, "miss", 0, 0, 0, "failed"),
-        "  build:   examples/icons_demo              5.38s [miss] FAILED")
-
-    _assert_eq("line: failed build row gets FAILED (driver vocab)",
-        _format_telemetry_line("examples/icons_demo", "build", 5380, "miss", 0, 0, 0, "fail"),
-        "  build:   examples/icons_demo              5.38s [miss] FAILED")
-
-    _assert_eq("line: passed status renders unchanged (no trailer)",
-        _format_telemetry_line("x", "build", 100, "miss", 0, 0, 0, "passed"),
-        "  build:   x                                0.10s [miss]")
-
-    _assert_eq("line: skipped status renders unchanged (not a failure)",
-        _format_telemetry_line("x", "build", 0, "n/a", 0, 0, 0, "skipped"),
-        "  build:   x                                0.00s [n/a]")
-
-    // A test node that fails BEFORE its tests run (gcc/link) has no counts
-    // marker → has_test_result=0 → the same bare FAILED.
-    _assert_eq("line: test node that failed to build gets FAILED",
-        _format_telemetry_line("ae/wc", "test", 200, "miss", 0, 0, 0, "failed"),
-        "  test:    ae/wc                            0.20s [miss] FAILED")
-
-    // Green counts + failed status (post-build hook, dep pin mismatch):
-    // the session status is the authority, so the verdict is FAIL.
-    _assert_eq("line: green counts but failed status → FAIL verdict",
-        _format_telemetry_line("ae/wc", "test", 3030, "n/a", 17, 0, 1, "failed"),
-        "  test:    ae/wc                            3.03s [n/a] 17/17 FAIL")
-
-    // --- render_telemetry: the roll-up after `total:` (survives `| tail`) ---
-    failing = list.new()
-    fr = _record("examples/icons_demo", "build", 5380, "miss")
-    map.put(fr, "status", "failed")
-    list.add(failing, fr)
-    _assert_eq("render: single failure names itself on the last lines",
-        render_telemetry(failing, 5410),
-        "[telemetry]\n  build:   examples/icons_demo              5.38s [miss] FAILED\ntotal: 5.41s wall\nFAILED: 1 target\n  build: examples/icons_demo")
-
-    two_bad = list.new()
-    ok_rec = _record("ae/ok", "build", 100, "hit")
-    map.put(ok_rec, "status", "passed")
-    list.add(two_bad, ok_rec)
-    b1 = _record("ae/bad1", "build", 200, "miss")
-    map.put(b1, "status", "failed")
-    list.add(two_bad, b1)
-    b2 = _record("test:ae/bad2", "test", 300, "miss")
-    map.put(b2, "status", "fail")
-    list.add(two_bad, b2)
-    _assert_eq("render: two failures, plural + type-qualified labels",
-        render_telemetry(two_bad, 600),
-        "[telemetry]\n  build:   ae/ok                            0.10s [hit]\n  build:   ae/bad1                          0.20s [miss] FAILED\n  test:    ae/bad2                          0.30s [miss] FAILED\ntotal: 0.60s wall\nFAILED: 2 targets\n  build: ae/bad1\n  test: ae/bad2")
-
-    // An all-green run must be byte-identical to before — silence is the
-    // success signal, and every existing green assertion depends on it.
-    all_green = list.new()
-    g1 = _record("ae/a", "build", 100, "miss")
-    map.put(g1, "status", "passed")
-    list.add(all_green, g1)
-    _assert_eq("render: green run emits no roll-up",
-        render_telemetry(all_green, 100),
-        "[telemetry]\n  build:   ae/a                             0.10s [miss]\ntotal: 0.10s wall")
-
-    // --- JSON renderers: telemetry records ---
-    json_records = list.new()
-    json_compile = _record("ae/quote\"slash\\", "compile", 12, "hit")
-    map.put(json_compile, "rc", "0")
-    map.put(json_compile, "status", "passed")
-    list.add(json_records, json_compile)
-    json_test = _record("test:ae/wc", "test", 3400, "n/a")
-    map.put(json_test, "rc", "1")
-    map.put(json_test, "status", "failed")
-    map.put(json_test, "test_passed", "2")
-    map.put(json_test, "test_failed", "1")
-    map.put(json_test, "test_failed_names", "bad \"case\"\tnope\nnext\\case")
-    list.add(json_records, json_test)
-    os.setenv("AEB_VERSION", "aeb test-version")
-    os.setenv("AEB_SINCE_REF", "main")
-    expected_json = "{\"version\":1,\"aeb_version\":\"aeb test-version\",\"since_ref\":\"main\",\"targets\":[{\"label\":\"ae/quote\\\"slash\\\\\",\"type\":\"compile\",\"status\":\"cache-hit\",\"duration_ms\":12,\"cache\":\"hit\",\"rc\":0,\"tests\":null},{\"label\":\"ae/wc\",\"type\":\"test\",\"status\":\"fail\",\"duration_ms\":3400,\"cache\":\"n/a\",\"rc\":1,\"tests\":{\"total\":3,\"passed\":2,\"failed\":1,\"skipped\":0,\"errored\":0}}],\"summary\":{\"built\":2,\"failed\":1,\"skipped\":0,\"duration_ms\":3412}}"
-    _assert_eq("render: telemetry json", render_telemetry_json(json_records, 3412), expected_json)
-
-    // Exit-code-mapped test row: has test_passed/test_failed counts BUT
-    // test_has_report="0" (synthesised from a process exit code, not a
-    // per-test report). Per for_ci_use.md the JSON must emit tests:null —
-    // exit-code targets carry rc only, not a fake 1/0 tests object.
-    ec_records = list.new()
-    ec_row = _record("ae/exitcode", "test", 250, "n/a")
-    map.put(ec_row, "rc", "0")
-    map.put(ec_row, "status", "passed")
-    map.put(ec_row, "test_passed", "1")
-    map.put(ec_row, "test_failed", "0")
-    map.put(ec_row, "test_has_report", "0")
-    list.add(ec_records, ec_row)
-    os.setenv("AEB_SINCE_REF", "")
-    expected_ec_json = "{\"version\":1,\"aeb_version\":\"aeb test-version\",\"since_ref\":null,\"targets\":[{\"label\":\"ae/exitcode\",\"type\":\"test\",\"status\":\"pass\",\"duration_ms\":250,\"cache\":\"n/a\",\"rc\":0,\"tests\":null}],\"summary\":{\"built\":1,\"failed\":0,\"skipped\":0,\"duration_ms\":250}}"
-    _assert_eq("render: telemetry json — exit-code target has tests:null",
-        render_telemetry_json(ec_records, 250), expected_ec_json)
-    os.setenv("AEB_SINCE_REF", "main")
-
-    expected_tests_json = "{\"tests\":[{\"label\":\"test:ae/wc\",\"wall_ms\":3400,\"cache\":\"n/a\",\"has_results\":true,\"passed\":2,\"failed\":1,\"skipped\":0,\"verdict\":\"FAIL\",\"failed_names\":\"bad \\\"case\\\"\\tnope\\nnext\\\\case\"}]}"
-    _assert_eq("render: tests json", render_tests_json(json_records), expected_tests_json)
-
-    println("telemetry render tests done")
+    spec.run_summary(fw)
 }

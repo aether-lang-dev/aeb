@@ -4,136 +4,143 @@
 // has_report) from the structured report Aeocha writes through
 // std.ipc. Format reference: aeocha-aeb-ipc-reporting.md upstream ask.
 
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
+import std.spec
 import bldr (_parse_aeocha_report)
 
-extern println(s: string)
-
-_assert_eq_int(label: string, actual: int, expected: int) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 main() {
-    // --- Empty input → no report ---
-    p, f, e, sk, names, h = _parse_aeocha_report("")
-    _assert_eq_int("empty: passed", p, 0)
-    _assert_eq_int("empty: failed", f, 0)
-    _assert_eq_int("empty: errored", e, 0)
-    _assert_eq("empty: failed_names", names, "")
-    _assert_eq_int("empty: has_report", h, 0)
+    fw = spec.init()
 
-    // --- Hand-rolled-driver text (no version line) → no report ---
-    junk = "this is not an aeocha report\nrandom output\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(junk)
-    _assert_eq_int("junk: has_report", h, 0)
-    _assert_eq("junk: failed_names empty", names, "")
+    spec.describe(fw, "empty input → no report") {
+        spec.it("all-zero counts, no report") callback {
+            p, f, e, sk, names, h = _parse_aeocha_report("")
+            spec.assert_eq(p, 0, "passed")
+            spec.assert_eq(f, 0, "failed")
+            spec.assert_eq(e, 0, "errored")
+            spec.assert_str_eq(names, "", "failed_names")
+            spec.assert_eq(h, 0, "has_report")
+        }
+    }
 
-    // --- Canonical v1 report (header + rows) ---
-    full = "version=1\ntotal=3\npassed=2\nfailed=1\nerrored=0\nduration_ms=42\n---\nPASS\t1\t\"first\"\t10\nFAIL\t2\t\"second\"\t20\texpected 1 got 2\nPASS\t3\t\"third\"\t5\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(full)
-    _assert_eq_int("full: passed",     p, 2)
-    _assert_eq_int("full: failed",     f, 1)
-    _assert_eq_int("full: errored",    e, 0)
-    _assert_eq_int("full: has_report", h, 1)
-    _assert_eq("full: failed_names with message", names, "second\texpected 1 got 2")
+    spec.describe(fw, "hand-rolled-driver text (no version line) → no report") {
+        spec.it("no report, no names") callback {
+            junk = "this is not an aeocha report\nrandom output\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(junk)
+            spec.assert_eq(h, 0, "has_report")
+            spec.assert_str_eq(names, "", "failed_names empty")
+        }
+    }
 
-    // --- Header-only (no separator) — Aeocha's truncation fallback ---
-    header_only = "version=1\ntotal=500\npassed=499\nfailed=1\nerrored=0\nduration_ms=99999\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(header_only)
-    _assert_eq_int("header-only: passed",     p, 499)
-    _assert_eq_int("header-only: failed",     f, 1)
-    _assert_eq_int("header-only: has_report", h, 1)
-    _assert_eq("header-only: failed_names empty (no rows)", names, "")
+    spec.describe(fw, "canonical v1 report (header + rows)") {
+        spec.it("counts + failed name with message") callback {
+            full = "version=1\ntotal=3\npassed=2\nfailed=1\nerrored=0\nduration_ms=42\n---\nPASS\t1\t\"first\"\t10\nFAIL\t2\t\"second\"\t20\texpected 1 got 2\nPASS\t3\t\"third\"\t5\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(full)
+            spec.assert_eq(p, 2, "passed")
+            spec.assert_eq(f, 1, "failed")
+            spec.assert_eq(e, 0, "errored")
+            spec.assert_eq(h, 1, "has_report")
+            spec.assert_str_eq(names, "second\texpected 1 got 2", "failed_names")
+        }
+    }
 
-    // --- Header with errored count + ERROR row ---
-    with_err = "version=1\ntotal=5\npassed=3\nfailed=1\nerrored=1\nduration_ms=100\n---\nPASS\t1\t\"a\"\t10\nFAIL\t2\t\"b\"\t20\tboom\nERROR\t3\t\"c\"\t30\tcrash\nPASS\t4\t\"d\"\t40\nPASS\t5\t\"e\"\t50\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(with_err)
-    _assert_eq_int("with-err: passed",     p, 3)
-    _assert_eq_int("with-err: failed",     f, 1)
-    _assert_eq_int("with-err: errored",    e, 1)
-    _assert_eq_int("with-err: has_report", h, 1)
-    _assert_eq("with-err: both FAIL and ERROR collected", names,
-        "b\tboom\nc\tcrash")
+    spec.describe(fw, "header-only (no separator) — Aeocha's truncation fallback") {
+        spec.it("header counts parsed, no rows → empty names") callback {
+            header_only = "version=1\ntotal=500\npassed=499\nfailed=1\nerrored=0\nduration_ms=99999\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(header_only)
+            spec.assert_eq(p, 499, "passed")
+            spec.assert_eq(f, 1, "failed")
+            spec.assert_eq(h, 1, "has_report")
+            spec.assert_str_eq(names, "", "failed_names empty")
+        }
+    }
 
-    // --- skipped= header + SKIP rows (std.spec 0.545 skip verbs, #1610) ---
-    // skipped is parsed; a SKIP row is neither pass nor fail so it contributes
-    // no failed_name and doesn't disturb the FAIL collection.
-    with_skip = "version=1\ntotal=2\npassed=1\nfailed=1\nskipped=1\nerrored=0\nduration_ms=60\n---\nPASS\t1\t\"a\"\t10\nSKIP\t2\t\"b\"\t0\nFAIL\t3\t\"c\"\t20\tboom\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(with_skip)
-    _assert_eq_int("with-skip: passed",  p, 1)
-    _assert_eq_int("with-skip: failed",  f, 1)
-    _assert_eq_int("with-skip: skipped", sk, 1)
-    _assert_eq_int("with-skip: has_report", h, 1)
-    _assert_eq("with-skip: SKIP row not a failed_name", names, "c\tboom")
+    spec.describe(fw, "header with errored count + ERROR row") {
+        spec.it("both FAIL and ERROR collected") callback {
+            with_err = "version=1\ntotal=5\npassed=3\nfailed=1\nerrored=1\nduration_ms=100\n---\nPASS\t1\t\"a\"\t10\nFAIL\t2\t\"b\"\t20\tboom\nERROR\t3\t\"c\"\t30\tcrash\nPASS\t4\t\"d\"\t40\nPASS\t5\t\"e\"\t50\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(with_err)
+            spec.assert_eq(p, 3, "passed")
+            spec.assert_eq(f, 1, "failed")
+            spec.assert_eq(e, 1, "errored")
+            spec.assert_eq(h, 1, "has_report")
+            spec.assert_str_eq(names, "b\tboom\nc\tcrash", "FAIL+ERROR names")
+        }
+    }
 
-    // --- No skipped= line (older report) → skipped defaults 0 ---
-    p, f, e, sk, names, h = _parse_aeocha_report(full)
-    _assert_eq_int("no-skipped-key: skipped defaults 0", sk, 0)
+    spec.describe(fw, "skipped= header + SKIP rows (std.spec 0.545 skip verbs, #1610)") {
+        // skipped is parsed; a SKIP row is neither pass nor fail so it contributes
+        // no failed_name and doesn't disturb the FAIL collection.
+        spec.it("SKIP row not a failed_name") callback {
+            with_skip = "version=1\ntotal=2\npassed=1\nfailed=1\nskipped=1\nerrored=0\nduration_ms=60\n---\nPASS\t1\t\"a\"\t10\nSKIP\t2\t\"b\"\t0\nFAIL\t3\t\"c\"\t20\tboom\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(with_skip)
+            spec.assert_eq(p, 1, "passed")
+            spec.assert_eq(f, 1, "failed")
+            spec.assert_eq(sk, 1, "skipped")
+            spec.assert_eq(h, 1, "has_report")
+            spec.assert_str_eq(names, "c\tboom", "SKIP not a name")
+        }
+        // No skipped= line (older report) → skipped defaults 0
+        spec.it("no skipped= line → skipped defaults 0") callback {
+            full = "version=1\ntotal=3\npassed=2\nfailed=1\nerrored=0\nduration_ms=42\n---\nPASS\t1\t\"first\"\t10\nFAIL\t2\t\"second\"\t20\texpected 1 got 2\nPASS\t3\t\"third\"\t5\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(full)
+            spec.assert_eq(sk, 0, "skipped defaults 0")
+        }
+    }
 
-    // --- All passed → no failed_names ---
-    all_pass = "version=1\ntotal=3\npassed=3\nfailed=0\nerrored=0\nduration_ms=200\n---\nPASS\t1\t\"a\"\t10\nPASS\t2\t\"b\"\t20\nPASS\t3\t\"c\"\t30\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(all_pass)
-    _assert_eq_int("all-pass: passed",     p, 3)
-    _assert_eq_int("all-pass: failed",     f, 0)
-    _assert_eq_int("all-pass: has_report", h, 1)
-    _assert_eq("all-pass: failed_names empty", names, "")
+    spec.describe(fw, "all passed → no failed_names") {
+        spec.it("no names collected") callback {
+            all_pass = "version=1\ntotal=3\npassed=3\nfailed=0\nerrored=0\nduration_ms=200\n---\nPASS\t1\t\"a\"\t10\nPASS\t2\t\"b\"\t20\nPASS\t3\t\"c\"\t30\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(all_pass)
+            spec.assert_eq(p, 3, "passed")
+            spec.assert_eq(f, 0, "failed")
+            spec.assert_eq(h, 1, "has_report")
+            spec.assert_str_eq(names, "", "failed_names empty")
+        }
+    }
 
-    // --- Multiple failures, some with messages, some without ---
-    multi = "version=1\ntotal=4\npassed=1\nfailed=3\nerrored=0\nduration_ms=400\n---\nFAIL\t1\t\"alpha\"\t10\tfirst failure\nFAIL\t2\t\"beta\"\t20\nPASS\t3\t\"gamma\"\t30\nFAIL\t4\t\"delta\"\t40\tlast failure\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(multi)
-    _assert_eq_int("multi: failed",     f, 3)
-    _assert_eq("multi: 3 failed names, 2 with messages", names,
-        "alpha\tfirst failure\nbeta\ndelta\tlast failure")
+    spec.describe(fw, "multiple failures, some with messages, some without") {
+        spec.it("3 failed names, 2 with messages") callback {
+            multi = "version=1\ntotal=4\npassed=1\nfailed=3\nerrored=0\nduration_ms=400\n---\nFAIL\t1\t\"alpha\"\t10\tfirst failure\nFAIL\t2\t\"beta\"\t20\nPASS\t3\t\"gamma\"\t30\nFAIL\t4\t\"delta\"\t40\tlast failure\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(multi)
+            spec.assert_eq(f, 3, "failed")
+            spec.assert_str_eq(names, "alpha\tfirst failure\nbeta\ndelta\tlast failure", "mixed names")
+        }
+    }
 
-    // --- Unknown header keys ignored (forward compat) ---
-    fwd = "version=1\nfuture_key=ignored\npassed=2\nfailed=0\nerrored=0\ntotal=2\nduration_ms=50\nnew_field=42\n---\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(fwd)
-    _assert_eq_int("fwd-compat: passed",     p, 2)
-    _assert_eq_int("fwd-compat: has_report", h, 1)
+    spec.describe(fw, "unknown header keys ignored (forward compat)") {
+        spec.it("unknown keys skipped") callback {
+            fwd = "version=1\nfuture_key=ignored\npassed=2\nfailed=0\nerrored=0\ntotal=2\nduration_ms=50\nnew_field=42\n---\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(fwd)
+            spec.assert_eq(p, 2, "passed")
+            spec.assert_eq(h, 1, "has_report")
+        }
+    }
 
-    // --- Missing version still gates: no version → no report ---
-    no_ver = "passed=5\nfailed=0\nerrored=0\ntotal=5\n---\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(no_ver)
-    _assert_eq_int("no-version: has_report", h, 0)
-    _assert_eq("no-version: failed_names empty", names, "")
+    spec.describe(fw, "missing version still gates: no version → no report") {
+        spec.it("no report, no names") callback {
+            no_ver = "passed=5\nfailed=0\nerrored=0\ntotal=5\n---\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(no_ver)
+            spec.assert_eq(h, 0, "has_report")
+            spec.assert_str_eq(names, "", "failed_names empty")
+        }
+    }
 
-    // --- Trailing whitespace tolerated by string.to_int via trim ---
-    ws = "version=1\npassed=  3  \nfailed=0\nerrored=0\ntotal=3\n---\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(ws)
-    _assert_eq_int("whitespace: passed", p, 3)
+    spec.describe(fw, "trailing whitespace tolerated by string.to_int via trim") {
+        spec.it("whitespace around count parses") callback {
+            ws = "version=1\npassed=  3  \nfailed=0\nerrored=0\ntotal=3\n---\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(ws)
+            spec.assert_eq(p, 3, "passed")
+        }
+    }
 
-    // --- Failure with embedded tabs in message: only first tab is the
-    // duration→message separator; remainder of the line stays in the
-    // message verbatim. (Aeocha doesn't currently embed tabs, but we
-    // shouldn't truncate if it ever does.)
-    embedded = "version=1\ntotal=1\npassed=0\nfailed=1\nerrored=0\nduration_ms=10\n---\nFAIL\t1\t\"x\"\t10\tfoo\tbar\n"
-    p, f, e, sk, names, h = _parse_aeocha_report(embedded)
-    _assert_eq("embedded-tab: message keeps tabs", names, "x\tfoo\tbar")
+    spec.describe(fw, "failure with embedded tabs in message") {
+        // Only the first tab is the duration→message separator; remainder of the
+        // line stays in the message verbatim. (Aeocha doesn't currently embed
+        // tabs, but we shouldn't truncate if it ever does.)
+        spec.it("message keeps tabs") callback {
+            embedded = "version=1\ntotal=1\npassed=0\nfailed=1\nerrored=0\nduration_ms=10\n---\nFAIL\t1\t\"x\"\t10\tfoo\tbar\n"
+            p, f, e, sk, names, h = _parse_aeocha_report(embedded)
+            spec.assert_str_eq(names, "x\tfoo\tbar", "tabs kept")
+        }
+    }
 
-    println("aeocha report parser tests done")
+    spec.run_summary(fw)
 }

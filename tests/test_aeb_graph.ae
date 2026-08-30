@@ -7,17 +7,10 @@
 //
 // Inlines the helpers because tests/run.sh builds with --lib lib/,
 // and tools/ isn't on that path. Same pattern as test_file_to_label.
+import std.spec
 import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
 import std.list
 import std.map
-import std.path
-import std.dir
-
-extern println(s: string)
 
 // --- helpers under test (kept in lockstep with tools/aeb-graph.ae) ---
 
@@ -201,88 +194,89 @@ mermaid_render(edges_text: string) {
     return out
 }
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 main() {
-    // --- node_id ---
-    _assert_eq("node_id: simple",
-        node_id("foo.ae"), "\"foo.ae\"")
-    _assert_eq("node_id: with dir",
-        node_id("ae/svnserver/.build.ae"), "\"ae/svnserver/.build.ae\"")
-    _assert_eq("node_id: with dash and tag",
-        node_id("ae/svnserver/.build-seed.ae"), "\"ae/svnserver/.build-seed.ae\"")
-    _assert_eq("node_id: empty",
-        node_id(""), "\"\"")
+    fw = spec.init()
 
-    // --- mermaid_id: punctuation gets munged to _ ---
-    _assert_eq("mermaid_id: simple .ae",
-        mermaid_id("foo.ae"), "foo_ae")
-    _assert_eq("mermaid_id: nested path",
-        mermaid_id("ae/svnserver/.build.ae"), "ae_svnserver__build_ae")
-    _assert_eq("mermaid_id: dash in tag",
-        mermaid_id("ae/x/.build-seed.ae"), "ae_x__build_seed_ae")
-    _assert_eq("mermaid_id: empty",
-        mermaid_id(""), "")
-    _assert_eq("mermaid_id: alphanumerics survive",
-        mermaid_id("abc123XYZ"), "abc123XYZ")
+    spec.describe(fw, "node_id") {
+        spec.it("simple") callback {
+            spec.assert_str_eq(node_id("foo.ae"), "\"foo.ae\"", "simple")
+        }
+        spec.it("with dir") callback {
+            spec.assert_str_eq(node_id("ae/svnserver/.build.ae"), "\"ae/svnserver/.build.ae\"", "with dir")
+        }
+        spec.it("with dash and tag") callback {
+            spec.assert_str_eq(node_id("ae/svnserver/.build-seed.ae"),
+                "\"ae/svnserver/.build-seed.ae\"", "dash and tag")
+        }
+        spec.it("empty") callback {
+            spec.assert_str_eq(node_id(""), "\"\"", "empty")
+        }
+    }
 
-    // --- dot_render: empty edges → just the wrapper ---
-    _assert_eq("dot: empty",
-        dot_render(""),
-        "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n}\n")
+    spec.describe(fw, "mermaid_id: punctuation munged to _") {
+        spec.it("simple .ae") callback {
+            spec.assert_str_eq(mermaid_id("foo.ae"), "foo_ae", "simple")
+        }
+        spec.it("nested path") callback {
+            spec.assert_str_eq(mermaid_id("ae/svnserver/.build.ae"), "ae_svnserver__build_ae", "nested")
+        }
+        spec.it("dash in tag") callback {
+            spec.assert_str_eq(mermaid_id("ae/x/.build-seed.ae"), "ae_x__build_seed_ae", "dash")
+        }
+        spec.it("empty") callback {
+            spec.assert_str_eq(mermaid_id(""), "", "empty")
+        }
+        spec.it("alphanumerics survive") callback {
+            spec.assert_str_eq(mermaid_id("abc123XYZ"), "abc123XYZ", "alnum")
+        }
+    }
 
-    // --- dot_render: single isolated target (no deps) ---
-    _assert_eq("dot: single isolated target",
-        dot_render("lib/.build.ae\n"),
-        "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"lib/.build.ae\";\n}\n")
+    spec.describe(fw, "dot_render") {
+        spec.it("empty edges → just the wrapper") callback {
+            spec.assert_str_eq(dot_render(""),
+                "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n}\n", "empty")
+        }
+        spec.it("single isolated target (no deps)") callback {
+            spec.assert_str_eq(dot_render("lib/.build.ae\n"),
+                "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"lib/.build.ae\";\n}\n", "isolated")
+        }
+        spec.it("two-node edge") callback {
+            spec.assert_str_eq(dot_render("app/.build.ae lib/.build.ae\n"),
+                "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib/.build.ae\";\n  \"app/.build.ae\" -> \"lib/.build.ae\";\n}\n", "one edge")
+        }
+        spec.it("realistic 3-node fan (lib<-app<-tests)") callback {
+            edges3 = "app/.build.ae lib/.build.ae\ntests/.tests.ae app/.build.ae\n"
+            spec.assert_str_eq(dot_render(edges3),
+                "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib/.build.ae\";\n  \"tests/.tests.ae\";\n  \"app/.build.ae\" -> \"lib/.build.ae\";\n  \"tests/.tests.ae\" -> \"app/.build.ae\";\n}\n", "3-node fan")
+        }
+        spec.it("multi-dep target") callback {
+            spec.assert_str_eq(dot_render("app/.build.ae lib1/.build.ae lib2/.build.ae\n"),
+                "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib1/.build.ae\";\n  \"lib2/.build.ae\";\n  \"app/.build.ae\" -> \"lib1/.build.ae\";\n  \"app/.build.ae\" -> \"lib2/.build.ae\";\n}\n", "two deps")
+        }
+    }
 
-    // --- dot_render: two-node edge ---
-    _assert_eq("dot: one edge",
-        dot_render("app/.build.ae lib/.build.ae\n"),
-        "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib/.build.ae\";\n  \"app/.build.ae\" -> \"lib/.build.ae\";\n}\n")
+    spec.describe(fw, "mermaid_render") {
+        spec.it("empty") callback {
+            spec.assert_str_eq(mermaid_render(""), "graph TD\n", "empty")
+        }
+        spec.it("single isolated target") callback {
+            spec.assert_str_eq(mermaid_render("lib/.build.ae\n"),
+                "graph TD\n    lib__build_ae[\"lib/.build.ae\"]\n", "isolated")
+        }
+        spec.it("two-node edge") callback {
+            spec.assert_str_eq(mermaid_render("app/.build.ae lib/.build.ae\n"),
+                "graph TD\n    app__build_ae[\"app/.build.ae\"]\n    lib__build_ae[\"lib/.build.ae\"]\n    app__build_ae --> lib__build_ae\n", "one edge")
+        }
+        spec.it("realistic 3-node fan (lib<-app<-tests)") callback {
+            edges3 = "app/.build.ae lib/.build.ae\ntests/.tests.ae app/.build.ae\n"
+            spec.assert_str_eq(mermaid_render(edges3),
+                "graph TD\n    app__build_ae[\"app/.build.ae\"]\n    lib__build_ae[\"lib/.build.ae\"]\n    tests__tests_ae[\"tests/.tests.ae\"]\n    app__build_ae --> lib__build_ae\n    tests__tests_ae --> app__build_ae\n", "3-node fan")
+        }
+        spec.it("tag-disambiguated .build-seed.ae node") callback {
+            spec.assert_str_eq(mermaid_render("ae/svnserver/.build-seed.ae\n"),
+                "graph TD\n    ae_svnserver__build_seed_ae[\"ae/svnserver/.build-seed.ae\"]\n", "tagged node")
+        }
+    }
 
-    // --- dot_render: realistic 3-node fan ---
-    edges3 = "app/.build.ae lib/.build.ae\ntests/.tests.ae app/.build.ae\n"
-    _assert_eq("dot: 3-node fan (lib<-app<-tests)",
-        dot_render(edges3),
-        "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib/.build.ae\";\n  \"tests/.tests.ae\";\n  \"app/.build.ae\" -> \"lib/.build.ae\";\n  \"tests/.tests.ae\" -> \"app/.build.ae\";\n}\n")
-
-    // --- dot_render: multi-dep target ---
-    _assert_eq("dot: target with two deps",
-        dot_render("app/.build.ae lib1/.build.ae lib2/.build.ae\n"),
-        "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib1/.build.ae\";\n  \"lib2/.build.ae\";\n  \"app/.build.ae\" -> \"lib1/.build.ae\";\n  \"app/.build.ae\" -> \"lib2/.build.ae\";\n}\n")
-
-    // --- mermaid_render: empty ---
-    _assert_eq("mermaid: empty",
-        mermaid_render(""), "graph TD\n")
-
-    // --- mermaid_render: single isolated target ---
-    _assert_eq("mermaid: single isolated target",
-        mermaid_render("lib/.build.ae\n"),
-        "graph TD\n    lib__build_ae[\"lib/.build.ae\"]\n")
-
-    // --- mermaid_render: two-node edge ---
-    _assert_eq("mermaid: one edge",
-        mermaid_render("app/.build.ae lib/.build.ae\n"),
-        "graph TD\n    app__build_ae[\"app/.build.ae\"]\n    lib__build_ae[\"lib/.build.ae\"]\n    app__build_ae --> lib__build_ae\n")
-
-    // --- mermaid_render: realistic 3-node fan ---
-    _assert_eq("mermaid: 3-node fan (lib<-app<-tests)",
-        mermaid_render(edges3),
-        "graph TD\n    app__build_ae[\"app/.build.ae\"]\n    lib__build_ae[\"lib/.build.ae\"]\n    tests__tests_ae[\"tests/.tests.ae\"]\n    app__build_ae --> lib__build_ae\n    tests__tests_ae --> app__build_ae\n")
-
-    // --- mermaid_render: tag-disambiguated build files ---
-    _assert_eq("mermaid: tagged .build-seed.ae node",
-        mermaid_render("ae/svnserver/.build-seed.ae\n"),
-        "graph TD\n    ae_svnserver__build_seed_ae[\"ae/svnserver/.build-seed.ae\"]\n")
-
-    println("aeb-graph render tests done")
+    spec.run_summary(fw)
 }

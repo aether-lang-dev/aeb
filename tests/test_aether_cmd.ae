@@ -1,48 +1,10 @@
 // Tests for the command-string builders in lib/aether/module.ae:
 //   aetherc_emit_lib_cmd  — `aetherc --emit=lib [--with=...] X.ae X.c`
 //   aether_link_cmd       — full gcc link command
+import std.spec
 import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
 
-import bldr
 import aether (aetherc_emit_lib_cmd, aether_link_cmd)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
-_assert_contains(label: string, haystack: string, needle: string) {
-    if string.index_of(haystack, needle) >= 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected to contain: '${needle}'")
-        println("  actual:              '${haystack}'")
-    }
-}
-
-_assert_not_contains(label: string, haystack: string, needle: string) {
-    if string.index_of(haystack, needle) < 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected NOT to contain: '${needle}'")
-        println("  actual:                  '${haystack}'")
-    }
-}
 
 _link_opts(c_path: string, bin_path: string, lib_dir: string, inc_flags: string,
            extras_str: string, extra_link: string, rpath_link: string,
@@ -69,137 +31,186 @@ _link_opts(c_path: string, bin_path: string, lib_dir: string, inc_flags: string,
 }
 
 main() {
-    // --- aetherc_emit_lib_cmd: no caps ---
-    _assert_eq("aetherc: no caps",
-        aetherc_emit_lib_cmd("/usr/bin/aetherc", "lib.ae", "lib_generated.c", ""),
-        "/usr/bin/aetherc --emit=lib lib.ae lib_generated.c")
+    fw = spec.init()
 
-    // --- aetherc_emit_lib_cmd: single cap ---
-    _assert_eq("aetherc: --with=net",
-        aetherc_emit_lib_cmd("aetherc", "auth.ae", "auth_generated.c", "net"),
-        "aetherc --emit=lib --with=net auth.ae auth_generated.c")
-    _assert_eq("aetherc: --with=fs",
-        aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "fs"),
-        "aetherc --emit=lib --with=fs x.ae x.c")
+    spec.describe(fw, "aetherc_emit_lib_cmd") {
+        // no caps
+        spec.it("no caps") callback {
+            spec.assert_str_eq(
+                aetherc_emit_lib_cmd("/usr/bin/aetherc", "lib.ae", "lib_generated.c", ""),
+                "/usr/bin/aetherc --emit=lib lib.ae lib_generated.c", "no caps")
+        }
+        // single cap
+        spec.it("--with=net") callback {
+            spec.assert_str_eq(
+                aetherc_emit_lib_cmd("aetherc", "auth.ae", "auth_generated.c", "net"),
+                "aetherc --emit=lib --with=net auth.ae auth_generated.c", "net")
+        }
+        spec.it("--with=fs") callback {
+            spec.assert_str_eq(
+                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "fs"),
+                "aetherc --emit=lib --with=fs x.ae x.c", "fs")
+        }
+        // multi-cap
+        spec.it("--with=net,fs") callback {
+            spec.assert_str_eq(
+                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "net,fs"),
+                "aetherc --emit=lib --with=net,fs x.ae x.c", "net,fs")
+        }
+        spec.it("all three caps") callback {
+            spec.assert_str_eq(
+                aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "net,fs,os"),
+                "aetherc --emit=lib --with=net,fs,os x.ae x.c", "net,fs,os")
+        }
+        // absolute paths
+        spec.it("absolute paths") callback {
+            spec.assert_str_eq(
+                aetherc_emit_lib_cmd("/home/u/.local/bin/aetherc",
+                                     "/repo/ae/svnserver/auth.ae",
+                                     "/repo/ae/svnserver/auth_generated.c", "net"),
+                "/home/u/.local/bin/aetherc --emit=lib --with=net /repo/ae/svnserver/auth.ae /repo/ae/svnserver/auth_generated.c",
+                "absolute")
+        }
+    }
 
-    // --- aetherc_emit_lib_cmd: multi-cap ---
-    _assert_eq("aetherc: --with=net,fs",
-        aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "net,fs"),
-        "aetherc --emit=lib --with=net,fs x.ae x.c")
-    _assert_eq("aetherc: all three caps",
-        aetherc_emit_lib_cmd("aetherc", "x.ae", "x.c", "net,fs,os"),
-        "aetherc --emit=lib --with=net,fs,os x.ae x.c")
+    spec.describe(fw, "aether_link_cmd") {
+        // minimal (no extras, no inc, no shared libs)
+        spec.it("minimal") callback {
+            o1 = _link_opts(
+                "target/_aeb/main.c", "target/hello/bin/hello",
+                "/usr/lib/aether",
+                "", "", "", "", "",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_str_eq(aether_link_cmd(o1),
+                "gcc -O2 -pipe -w target/_aeb/main.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "minimal")
+        }
 
-    // --- aetherc_emit_lib_cmd: absolute paths ---
-    _assert_eq("aetherc: absolute paths",
-        aetherc_emit_lib_cmd("/home/u/.local/bin/aetherc",
-                             "/repo/ae/svnserver/auth.ae",
-                             "/repo/ae/svnserver/auth_generated.c", "net"),
-        "/home/u/.local/bin/aetherc --emit=lib --with=net /repo/ae/svnserver/auth.ae /repo/ae/svnserver/auth_generated.c")
+        // sysdeps: NO SHELL SUBSTITUTION on the command line.
+        // The link line must carry LITERAL flags. `$(pkg-config …)` is only
+        // expanded if a POSIX shell runs the string; on MSYS2 it reached cmd.exe,
+        // which cannot perform `$(...)` or honour `2>/dev/null`, so the flags came
+        // out ABSENT rather than wrong and the link died on undefined
+        // deflate/EVP_*/pcre2_* with pkg-config's stderr swallowed by a redirect
+        // cmd.exe never interpreted. Pinning the SHAPE, not the flag values:
+        // whatever _resolve_sysdeps returns, nothing shell-evaluated may reach
+        // the emitted command. (asks/windows-pkg-config-substitution-runs-in-cmd.md)
+        spec.it("no $( ) substitution in the link line") callback {
+            o1 = _link_opts(
+                "target/_aeb/main.c", "target/hello/bin/hello",
+                "/usr/lib/aether",
+                "", "", "", "", "",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_false(string.contains(aether_link_cmd(o1), "$("), "no $( )")
+        }
+        spec.it("no pkg-config call left on the line") callback {
+            o1 = _link_opts(
+                "target/_aeb/main.c", "target/hello/bin/hello",
+                "/usr/lib/aether",
+                "", "", "", "", "",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_false(string.contains(aether_link_cmd(o1), "pkg-config"), "no pkg-config")
+        }
+        spec.it("literal sysdeps flags spliced in") callback {
+            o1 = _link_opts(
+                "target/_aeb/main.c", "target/hello/bin/hello",
+                "/usr/lib/aether",
+                "", "", "", "", "",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_contains(aether_link_cmd(o1), "-lz -lssl -lcrypto -lpcre2-8", "literal flags")
+        }
 
-    // --- aether_link_cmd: minimal (no extras, no inc, no shared libs) ---
-    o1 = _link_opts(
-        "target/_aeb/main.c", "target/hello/bin/hello",
-        "/usr/lib/aether",
-        "", "", "", "", "",
-        "-Wl,--allow-multiple-definition")
-    _assert_eq("link: minimal",
-        aether_link_cmd(o1),
-        "gcc -O2 -pipe -w target/_aeb/main.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition")
+        // with one extra source (relative)
+        spec.it("one extra_source") callback {
+            o2 = _link_opts(
+                "target/_aeb/main.c", "target/hello/bin/hello",
+                "/usr/lib/aether",
+                "", " /repo/contrib/extra.c", "", "", "",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_str_eq(aether_link_cmd(o2),
+                "gcc -O2 -pipe -w target/_aeb/main.c /repo/contrib/extra.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "one extra")
+        }
 
-    // --- sysdeps: NO SHELL SUBSTITUTION on the command line -----------
-    // The link line must carry LITERAL flags. `$(pkg-config …)` is only
-    // expanded if a POSIX shell runs the string; on MSYS2 it reached cmd.exe,
-    // which cannot perform `$(...)` or honour `2>/dev/null`, so the flags came
-    // out ABSENT rather than wrong and the link died on undefined
-    // deflate/EVP_*/pcre2_* with pkg-config's stderr swallowed by a redirect
-    // cmd.exe never interpreted.
-    //
-    // Pinning the SHAPE, not the flag values: whatever _resolve_sysdeps
-    // returns, nothing shell-evaluated may reach the emitted command.
-    // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
-    link_min = aether_link_cmd(o1)
-    _assert_not_contains("sysdeps: no $( ) substitution in the link line",
-        link_min, "$(")
-    _assert_not_contains("sysdeps: no pkg-config call left on the line",
-        link_min, "pkg-config")
-    _assert_contains("sysdeps: literal flags spliced in",
-        link_min, "-lz -lssl -lcrypto -lpcre2-8")
+        // with user link_flags
+        spec.it("user link_flags") callback {
+            o3 = _link_opts(
+                "main.c", "out/bin",
+                "/lib", "", "", "", "", " -pthread -lm",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_str_eq(aether_link_cmd(o3),
+                "gcc -O2 -pipe -w main.c -L/lib -laether   -pthread -lm -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "user flags")
+        }
 
-    // --- aether_link_cmd: with one extra source (relative) ---
-    o2 = _link_opts(
-        "target/_aeb/main.c", "target/hello/bin/hello",
-        "/usr/lib/aether",
-        "", " /repo/contrib/extra.c", "", "", "",
-        "-Wl,--allow-multiple-definition")
-    _assert_eq("link: one extra_source",
-        aether_link_cmd(o2),
-        "gcc -O2 -pipe -w target/_aeb/main.c /repo/contrib/extra.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition")
+        // macOS dup_flag (empty)
+        spec.it("macOS (no dup_flag)") callback {
+            o4 = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            spec.assert_str_eq(aether_link_cmd(o4),
+                "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
+                "macOS")
+        }
 
-    // --- aether_link_cmd: with user link_flags ---
-    o3 = _link_opts(
-        "main.c", "out/bin",
-        "/lib", "", "", "", "", " -pthread -lm",
-        "-Wl,--allow-multiple-definition")
-    _assert_eq("link: user link_flags",
-        aether_link_cmd(o3),
-        "gcc -O2 -pipe -w main.c -L/lib -laether   -pthread -lm -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition")
+        // with shared-lib deps + rpath
+        spec.it("shared lib + rpath") callback {
+            o5 = _link_opts(
+                "main.c", "out/bin", "/lib", "",
+                "", "/repo/target/rust/libfoo.so", "-Wl,-rpath,/repo/target/rust", "",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_str_eq(aether_link_cmd(o5),
+                "gcc -O2 -pipe -w main.c -L/lib -laether /repo/target/rust/libfoo.so -Wl,-rpath,/repo/target/rust -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "shared lib")
+        }
 
-    // --- aether_link_cmd: macOS dup_flag (empty) ---
-    o4 = _link_opts(
-        "main.c", "out/bin", "/lib", "", "", "", "", "", "")
-    _assert_eq("link: macOS (no dup_flag)",
-        aether_link_cmd(o4),
-        "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ")
+        // with -I include block (FHS install)
+        spec.it("nested -I block") callback {
+            o6 = _link_opts(
+                "main.c", "out/bin", "/lib",
+                " -I/inc/runtime -I/inc/runtime/actors -I/inc/std",
+                "", "", "", "",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_str_eq(aether_link_cmd(o6),
+                "gcc -O2 -pipe -w -I/inc/runtime -I/inc/runtime/actors -I/inc/std main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "-I block")
+        }
 
-    // --- aether_link_cmd: with shared-lib deps + rpath ---
-    o5 = _link_opts(
-        "main.c", "out/bin", "/lib", "",
-        "", "/repo/target/rust/libfoo.so", "-Wl,-rpath,/repo/target/rust", "",
-        "-Wl,--allow-multiple-definition")
-    _assert_eq("link: shared lib + rpath",
-        aether_link_cmd(o5),
-        "gcc -O2 -pipe -w main.c -L/lib -laether /repo/target/rust/libfoo.so -Wl,-rpath,/repo/target/rust -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition")
+        // kitchen sink
+        spec.it("kitchen sink") callback {
+            o7 = _link_opts(
+                "target/_aeb/main.c", "target/hello/bin/svn",
+                "/home/u/.local/lib/aether",
+                " $(find /home/u/.local/include/aether -type d -print | sed 's|^|-I|')",
+                " /repo/contrib/sqlite.c /repo/ae/svn/auth_generated.c",
+                "/repo/target/rust/libnative.so",
+                "-Wl,-rpath,/repo/target/rust",
+                " -pthread",
+                "-Wl,--allow-multiple-definition")
+            spec.assert_str_eq(aether_link_cmd(o7),
+                "gcc -O2 -pipe -w $(find /home/u/.local/include/aether -type d -print | sed 's|^|-I|') target/_aeb/main.c /repo/contrib/sqlite.c /repo/ae/svn/auth_generated.c -L/home/u/.local/lib/aether -laether /repo/target/rust/libnative.so -Wl,-rpath,/repo/target/rust -pthread -o target/hello/bin/svn -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "kitchen sink")
+        }
 
-    // --- aether_link_cmd: with -I include block (FHS install) ---
-    o6 = _link_opts(
-        "main.c", "out/bin", "/lib",
-        " -I/inc/runtime -I/inc/runtime/actors -I/inc/std",
-        "", "", "", "",
-        "-Wl,--allow-multiple-definition")
-    _assert_eq("link: nested -I block",
-        aether_link_cmd(o6),
-        "gcc -O2 -pipe -w -I/inc/runtime -I/inc/runtime/actors -I/inc/std main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition")
+        // --coverage flag swaps -O2 → -O0 -g and inserts --coverage
+        spec.it("coverage replaces -O2 with -O0 -g and inserts --coverage") callback {
+            o_cov = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            map_put(o_cov, "coverage", "1")
+            spec.assert_str_eq(aether_link_cmd(o_cov),
+                "gcc -O0 -g -pipe -w --coverage main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
+                "coverage on")
+        }
 
-    // --- aether_link_cmd: kitchen sink ---
-    o7 = _link_opts(
-        "target/_aeb/main.c", "target/hello/bin/svn",
-        "/home/u/.local/lib/aether",
-        " $(find /home/u/.local/include/aether -type d -print | sed 's|^|-I|')",
-        " /repo/contrib/sqlite.c /repo/ae/svn/auth_generated.c",
-        "/repo/target/rust/libnative.so",
-        "-Wl,-rpath,/repo/target/rust",
-        " -pthread",
-        "-Wl,--allow-multiple-definition")
-    _assert_eq("link: kitchen sink",
-        aether_link_cmd(o7),
-        "gcc -O2 -pipe -w $(find /home/u/.local/include/aether -type d -print | sed 's|^|-I|') target/_aeb/main.c /repo/contrib/sqlite.c /repo/ae/svn/auth_generated.c -L/home/u/.local/lib/aether -laether /repo/target/rust/libnative.so -Wl,-rpath,/repo/target/rust -pthread -o target/hello/bin/svn -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition")
+        // Coverage="" (or missing) → default -O2, no --coverage.
+        spec.it("coverage=\"\" → default -O2, no --coverage") callback {
+            o_nocov = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            map_put(o_nocov, "coverage", "")
+            spec.assert_str_eq(aether_link_cmd(o_nocov),
+                "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
+                "coverage off")
+        }
+    }
 
-    // --- aether_link_cmd: --coverage flag swaps -O2 → -O0 -g and inserts --coverage ---
-    o_cov = _link_opts(
-        "main.c", "out/bin", "/lib", "", "", "", "", "", "")
-    map_put(o_cov, "coverage", "1")
-    _assert_eq("link: coverage replaces -O2 with -O0 -g and inserts --coverage",
-        aether_link_cmd(o_cov),
-        "gcc -O0 -g -pipe -w --coverage main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ")
-
-    // Coverage="" (or missing) → default -O2, no --coverage.
-    o_nocov = _link_opts(
-        "main.c", "out/bin", "/lib", "", "", "", "", "", "")
-    map_put(o_nocov, "coverage", "")
-    _assert_eq("link: coverage=\"\" → default -O2, no --coverage",
-        aether_link_cmd(o_nocov),
-        "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ")
-
-    println("aether cmd tests done")
+    spec.run_summary(fw)
 }

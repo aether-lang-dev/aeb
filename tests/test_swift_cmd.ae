@@ -1,60 +1,75 @@
 // Tests for lib/swift's pure command-string builders + XCTest parser.
-
+import std.spec
 import swift (resolve_cmd, build_cmd, test_cmd, _config_flag,
              _parse_xctest_counts)
-import std.string
-import std.list
-import std.map
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
-}
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
 
 main() {
-    // --- _config_flag
-    _eq("config debug → ''", _config_flag(0), "")
-    _eq("config release", _config_flag(1), " -c release")
+    fw = spec.init()
 
-    // --- resolve / build / test commands.
-    _eq("resolve", resolve_cmd("swift", "/proj"),
-        "cd '/proj' && 'swift' package resolve")
-    _eq("build debug", build_cmd("swift", "/proj", ""),
-        "cd '/proj' && 'swift' build")
-    _eq("build release", build_cmd("swift", "/proj", " -c release"),
-        "cd '/proj' && 'swift' build -c release")
-    _eq("test debug", test_cmd("swift", "/proj", ""),
-        "cd '/proj' && 'swift' test")
-    _eq("custom swift bin quoted", build_cmd("/opt/swift/bin/swift", "/proj", ""),
-        "cd '/proj' && '/opt/swift/bin/swift' build")
+    spec.describe(fw, "_config_flag") {
+        spec.it("config debug → ''") callback {
+            spec.assert_str_eq(_config_flag(0), "", "config debug → ''")
+        }
+        spec.it("config release") callback {
+            spec.assert_str_eq(_config_flag(1), " -c release", "config release")
+        }
+    }
+
+    spec.describe(fw, "resolve / build / test commands") {
+        spec.it("resolve") callback {
+            spec.assert_str_eq(resolve_cmd("swift", "/proj"),
+                "cd '/proj' && 'swift' package resolve", "resolve")
+        }
+        spec.it("build debug") callback {
+            spec.assert_str_eq(build_cmd("swift", "/proj", ""),
+                "cd '/proj' && 'swift' build", "build debug")
+        }
+        spec.it("build release") callback {
+            spec.assert_str_eq(build_cmd("swift", "/proj", " -c release"),
+                "cd '/proj' && 'swift' build -c release", "build release")
+        }
+        spec.it("test debug") callback {
+            spec.assert_str_eq(test_cmd("swift", "/proj", ""),
+                "cd '/proj' && 'swift' test", "test debug")
+        }
+        spec.it("custom swift bin quoted") callback {
+            spec.assert_str_eq(build_cmd("/opt/swift/bin/swift", "/proj", ""),
+                "cd '/proj' && '/opt/swift/bin/swift' build", "custom swift bin quoted")
+        }
+    }
 
     // --- _parse_xctest_counts: "Executed N tests, with M failures ..."
-    s0 = "Test Suite 'All tests' passed.\nExecuted 7 tests, with 0 failures (0 unexpected) in 0.123 seconds"
-    pp0, pf0 = _parse_xctest_counts(s0)
-    _assert("all-pass: 7 passed", pp0 == 7)
-    _assert("all-pass: 0 failed", pf0 == 0)
+    spec.describe(fw, "_parse_xctest_counts") {
+        spec.it("all-pass: 7 passed, 0 failed") callback {
+            s0 = "Test Suite 'All tests' passed.\nExecuted 7 tests, with 0 failures (0 unexpected) in 0.123 seconds"
+            pp0, pf0 = _parse_xctest_counts(s0)
+            spec.assert_eq(pp0, 7, "all-pass: 7 passed")
+            spec.assert_eq(pf0, 0, "all-pass: 0 failed")
+        }
 
-    s1 = "Executed 9 tests, with 2 failures (0 unexpected) in 0.456 seconds"
-    pp1, pf1 = _parse_xctest_counts(s1)
-    _assert("mixed: 7 passed (9-2)", pp1 == 7)
-    _assert("mixed: 2 failed", pf1 == 2)
+        spec.it("mixed: 7 passed (9-2), 2 failed") callback {
+            s1 = "Executed 9 tests, with 2 failures (0 unexpected) in 0.456 seconds"
+            pp1, pf1 = _parse_xctest_counts(s1)
+            spec.assert_eq(pp1, 7, "mixed: 7 passed (9-2)")
+            spec.assert_eq(pf1, 2, "mixed: 2 failed")
+        }
 
-    // Per-suite lines precede the overall total; the LAST "Executed"
-    // line is authoritative. Here suite=4/1, overall=10/3.
-    multi = "Executed 4 tests, with 1 failure (0 unexpected) in 0.1 seconds\nExecuted 10 tests, with 3 failures (0 unexpected) in 0.5 seconds"
-    pp2, pf2 = _parse_xctest_counts(multi)
-    _assert("multi: overall 7 passed (10-3)", pp2 == 7)
-    _assert("multi: overall 3 failed", pf2 == 3)
+        // Per-suite lines precede the overall total; the LAST "Executed"
+        // line is authoritative. Here suite=4/1, overall=10/3.
+        spec.it("multi: last Executed line authoritative") callback {
+            multi = "Executed 4 tests, with 1 failure (0 unexpected) in 0.1 seconds\nExecuted 10 tests, with 3 failures (0 unexpected) in 0.5 seconds"
+            pp2, pf2 = _parse_xctest_counts(multi)
+            spec.assert_eq(pp2, 7, "multi: overall 7 passed (10-3)")
+            spec.assert_eq(pf2, 3, "multi: overall 3 failed")
+        }
 
-    // No summary → (0, 0), no crash.
-    pp3, pf3 = _parse_xctest_counts("Compiling...\nlinking")
-    _assert("no summary → 0 passed", pp3 == 0)
-    _assert("no summary → 0 failed", pf3 == 0)
+        // No summary → (0, 0), no crash.
+        spec.it("no summary → 0/0") callback {
+            pp3, pf3 = _parse_xctest_counts("Compiling...\nlinking")
+            spec.assert_eq(pp3, 0, "no summary → 0 passed")
+            spec.assert_eq(pf3, 0, "no summary → 0 failed")
+        }
+    }
 
-    println("swift command-string + XCTest parser tests done")
+    spec.run_summary(fw)
 }

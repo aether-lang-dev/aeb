@@ -2,28 +2,11 @@
 // `bash -c '...'` invocation that runs zero-or-more pre commands,
 // the script, then zero-or-more post commands, preserving the
 // script's exit code.
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
+import std.spec
 import std.list
-import std.map
-import std.path
-import std.dir
 
 import bldr (_exec_chain_cmd)
 import bash (bash_chain_cmd)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
 
 _lst() {
     return list.new()
@@ -51,84 +34,101 @@ _lst3(a: string, b: string, c: string) {
 }
 
 main() {
-    // --- fast path: no hooks → plain `bash <script>` ---
-    _assert_eq("no hooks (both null)",
-        bash_chain_cmd(null, "/tmp/x.sh", null),
-        "bash /tmp/x.sh")
-    _assert_eq("no hooks (empty lists)",
-        bash_chain_cmd(_lst(), "/tmp/x.sh", _lst()),
-        "bash /tmp/x.sh")
-    _assert_eq("no hooks: paths with spaces (caller's problem)",
-        bash_chain_cmd(null, "/tmp/foo bar.sh", null),
-        "bash /tmp/foo bar.sh")
+    fw = spec.init()
 
-    // --- pre only ---
-    _assert_eq("one pre",
-        bash_chain_cmd(_lst1("source setup.sh"), "/tmp/test.sh", null),
-        "bash -c 'source setup.sh; bash /tmp/test.sh; rc=$?; exit $rc'")
-    _assert_eq("two pres in order",
-        bash_chain_cmd(_lst2("export X=1", "echo starting"), "/tmp/t.sh", null),
-        "bash -c 'export X=1; echo starting; bash /tmp/t.sh; rc=$?; exit $rc'")
+    spec.describe(fw, "bash_chain_cmd") {
+        // --- fast path: no hooks → plain `bash <script>` ---
+        spec.it("no hooks (both null)") callback {
+            spec.assert_str_eq(bash_chain_cmd(null, "/tmp/x.sh", null),
+                "bash /tmp/x.sh", "both null")
+        }
+        spec.it("no hooks (empty lists)") callback {
+            spec.assert_str_eq(bash_chain_cmd(_lst(), "/tmp/x.sh", _lst()),
+                "bash /tmp/x.sh", "empty lists")
+        }
+        spec.it("no hooks: paths with spaces (caller's problem)") callback {
+            spec.assert_str_eq(bash_chain_cmd(null, "/tmp/foo bar.sh", null),
+                "bash /tmp/foo bar.sh", "spaces")
+        }
 
-    // --- post only ---
-    _assert_eq("one post",
-        bash_chain_cmd(null, "/tmp/test.sh", _lst1("rm -f /tmp/lockfile")),
-        "bash -c 'bash /tmp/test.sh; rc=$?; rm -f /tmp/lockfile; exit $rc'")
-    _assert_eq("two posts in order",
-        bash_chain_cmd(null, "/tmp/t.sh",
-                       _lst2("kill $SRV_PID", "rm -rf /tmp/work")),
-        "bash -c 'bash /tmp/t.sh; rc=$?; kill $SRV_PID; rm -rf /tmp/work; exit $rc'")
+        // --- pre only ---
+        spec.it("one pre") callback {
+            spec.assert_str_eq(bash_chain_cmd(_lst1("source setup.sh"), "/tmp/test.sh", null),
+                "bash -c 'source setup.sh; bash /tmp/test.sh; rc=$?; exit $rc'", "one pre")
+        }
+        spec.it("two pres in order") callback {
+            spec.assert_str_eq(bash_chain_cmd(_lst2("export X=1", "echo starting"), "/tmp/t.sh", null),
+                "bash -c 'export X=1; echo starting; bash /tmp/t.sh; rc=$?; exit $rc'", "two pres")
+        }
 
-    // --- pre + post (the canonical fixture-shaped case) ---
-    _assert_eq("pre+post",
-        bash_chain_cmd(_lst1("source setup.sh"),
-                       "/tmp/test_acl.sh",
-                       _lst1("source teardown.sh")),
-        "bash -c 'source setup.sh; bash /tmp/test_acl.sh; rc=$?; source teardown.sh; exit $rc'")
+        // --- post only ---
+        spec.it("one post") callback {
+            spec.assert_str_eq(bash_chain_cmd(null, "/tmp/test.sh", _lst1("rm -f /tmp/lockfile")),
+                "bash -c 'bash /tmp/test.sh; rc=$?; rm -f /tmp/lockfile; exit $rc'", "one post")
+        }
+        spec.it("two posts in order") callback {
+            spec.assert_str_eq(bash_chain_cmd(null, "/tmp/t.sh",
+                    _lst2("kill $SRV_PID", "rm -rf /tmp/work")),
+                "bash -c 'bash /tmp/t.sh; rc=$?; kill $SRV_PID; rm -rf /tmp/work; exit $rc'", "two posts")
+        }
 
-    // --- multiple of each ---
-    _assert_eq("3 pres, 2 posts",
-        bash_chain_cmd(_lst3("a", "b", "c"), "/tmp/t.sh", _lst2("d", "e")),
-        "bash -c 'a; b; c; bash /tmp/t.sh; rc=$?; d; e; exit $rc'")
+        // --- pre + post (the canonical fixture-shaped case) ---
+        spec.it("pre+post") callback {
+            spec.assert_str_eq(bash_chain_cmd(_lst1("source setup.sh"),
+                    "/tmp/test_acl.sh",
+                    _lst1("source teardown.sh")),
+                "bash -c 'source setup.sh; bash /tmp/test_acl.sh; rc=$?; source teardown.sh; exit $rc'", "pre+post")
+        }
 
-    // --- empty pre list with non-empty post (defensive) ---
-    _assert_eq("empty pre list + non-empty post",
-        bash_chain_cmd(_lst(), "/tmp/t.sh", _lst1("cleanup")),
-        "bash -c 'bash /tmp/t.sh; rc=$?; cleanup; exit $rc'")
+        // --- multiple of each ---
+        spec.it("3 pres, 2 posts") callback {
+            spec.assert_str_eq(bash_chain_cmd(_lst3("a", "b", "c"), "/tmp/t.sh", _lst2("d", "e")),
+                "bash -c 'a; b; c; bash /tmp/t.sh; rc=$?; d; e; exit $rc'", "3 pres 2 posts")
+        }
 
-    // --- realistic fixture-style invocation ---
-    pres = _lst2(
-        "rm -rf /tmp/svnae_repo",
-        "/repo/target/.../svnae-seed /tmp/svnae_repo")
-    posts = _lst2(
-        "kill $SRV 2>/dev/null || true",
-        "rm -rf /tmp/svnae_repo")
-    _assert_eq("realistic svn-shaped fixture",
-        bash_chain_cmd(pres, "/repo/ae/svn/test_acl.sh", posts),
-        "bash -c 'rm -rf /tmp/svnae_repo; /repo/target/.../svnae-seed /tmp/svnae_repo; bash /repo/ae/svn/test_acl.sh; rc=$?; kill $SRV 2>/dev/null || true; rm -rf /tmp/svnae_repo; exit $rc'")
+        // --- empty pre list with non-empty post (defensive) ---
+        spec.it("empty pre list + non-empty post") callback {
+            spec.assert_str_eq(bash_chain_cmd(_lst(), "/tmp/t.sh", _lst1("cleanup")),
+                "bash -c 'bash /tmp/t.sh; rc=$?; cleanup; exit $rc'", "empty pre + post")
+        }
+
+        // --- realistic fixture-style invocation ---
+        spec.it("realistic svn-shaped fixture") callback {
+            pres = _lst2(
+                "rm -rf /tmp/svnae_repo",
+                "/repo/target/.../svnae-seed /tmp/svnae_repo")
+            posts = _lst2(
+                "kill $SRV 2>/dev/null || true",
+                "rm -rf /tmp/svnae_repo")
+            spec.assert_str_eq(bash_chain_cmd(pres, "/repo/ae/svn/test_acl.sh", posts),
+                "bash -c 'rm -rf /tmp/svnae_repo; /repo/target/.../svnae-seed /tmp/svnae_repo; bash /repo/ae/svn/test_acl.sh; rc=$?; kill $SRV 2>/dev/null || true; rm -rf /tmp/svnae_repo; exit $rc'", "svn fixture")
+        }
+    }
 
     // --- _exec_chain_cmd (the lifted, bash-agnostic helper) ---
     // Same shape as bash_chain_cmd but the middle slot is an
     // arbitrary command, not "bash <script>". Used by
     // aether.driver_test which invokes a compiled binary directly.
+    spec.describe(fw, "_exec_chain_cmd") {
+        spec.it("no hooks → exec_cmd verbatim") callback {
+            spec.assert_str_eq(_exec_chain_cmd(null, "\"/path/to/driver\"", null),
+                "\"/path/to/driver\"", "verbatim")
+        }
+        spec.it("pre+post wraps exec_cmd") callback {
+            spec.assert_str_eq(_exec_chain_cmd(_lst1("export FOO=bar"),
+                    "\"/path/to/driver\"",
+                    _lst1("kill $PID")),
+                "bash -c 'export FOO=bar; \"/path/to/driver\"; rc=$?; kill $PID; exit $rc'", "pre+post")
+        }
+        // exec_cmd with embedded LD_LIBRARY_PATH=... prefix (the
+        // shared-libs case for aether.driver_test).
+        spec.it("dyld-prefixed exec") callback {
+            spec.assert_str_eq(_exec_chain_cmd(null,
+                    "LD_LIBRARY_PATH=\"/lib:/lib2\" \"/bin/d\"",
+                    null),
+                "LD_LIBRARY_PATH=\"/lib:/lib2\" \"/bin/d\"", "dyld prefix")
+        }
+    }
 
-    _assert_eq("exec_chain: no hooks → exec_cmd verbatim",
-        _exec_chain_cmd(null, "\"/path/to/driver\"", null),
-        "\"/path/to/driver\"")
-
-    _assert_eq("exec_chain: pre+post wraps exec_cmd",
-        _exec_chain_cmd(_lst1("export FOO=bar"),
-                        "\"/path/to/driver\"",
-                        _lst1("kill $PID")),
-        "bash -c 'export FOO=bar; \"/path/to/driver\"; rc=$?; kill $PID; exit $rc'")
-
-    // exec_cmd with embedded LD_LIBRARY_PATH=... prefix (the
-    // shared-libs case for aether.driver_test).
-    _assert_eq("exec_chain: dyld-prefixed exec",
-        _exec_chain_cmd(null,
-                        "LD_LIBRARY_PATH=\"/lib:/lib2\" \"/bin/d\"",
-                        null),
-        "LD_LIBRARY_PATH=\"/lib:/lib2\" \"/bin/d\"")
-
-    println("bash_chain_cmd tests done")
+    spec.run_summary(fw)
 }

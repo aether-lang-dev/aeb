@@ -10,18 +10,12 @@
 //      codegen_input_dir, codegen_arg, codegen_output, codegen_cwd) —
 //      each accumulates into the builder map.
 
+import std.spec
 import moonbit (moonbit_codegen_cmd, codegen_program, codegen_script,
                 codegen_input, codegen_input_dir, codegen_arg,
                 codegen_output, codegen_cwd)
-import std.string
 import std.list
 import std.map
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
-}
 
 _list_size_at(m: ptr, k: string) {
     if map.has(m, k) == 0 { return 0 }
@@ -40,102 +34,122 @@ _str_at(m: ptr, k: string) {
 }
 
 main() {
-    // --- prog-form driver, no args: the program is run directly.
-    args0 = list.new()
-    cmd0 = moonbit_codegen_cmd("moon", "/proj", "prog", "protoc-gen-mbt", args0)
-    _assert("prog form runs the program directly (quoted)",
-        string.equals(cmd0, "cd '/proj' && 'protoc-gen-mbt'"))
+    fw = spec.init()
 
-    // --- script-form driver, no args: `moon run <name> --`.
-    args1 = list.new()
-    cmd1 = moonbit_codegen_cmd("moon", "/proj", "script", "gen", args1)
-    _assert("script form runs via moon run <name> --",
-        string.equals(cmd1, "cd '/proj' && 'moon' run gen --"))
-
-    // --- prog form with args appended in order.
-    args2 = list.new()
-    list.add(args2, "--schema=api.mbti")
-    list.add(args2, "--out-dir=src/gen")
-    cmd2 = moonbit_codegen_cmd("moon", "/proj", "prog", "protoc-gen-mbt", args2)
-    _assert("prog form args in order",
-        string.equals(cmd2, "cd '/proj' && 'protoc-gen-mbt' --schema=api.mbti --out-dir=src/gen"))
-
-    // --- script form with args after the `--` separator.
-    args3 = list.new()
-    list.add(args3, "--out-dir=src/gen")
-    cmd3 = moonbit_codegen_cmd("moon", "/proj", "script", "gen", args3)
-    _assert("script form args after --",
-        string.equals(cmd3, "cd '/proj' && 'moon' run gen -- --out-dir=src/gen"))
-
-    // --- custom moon bin only matters for the script form.
-    args4 = list.new()
-    cmd4 = moonbit_codegen_cmd("/opt/moon/bin/moon", "/proj", "script", "gen", args4)
-    _assert("script form uses custom moon bin",
-        string.equals(cmd4, "cd '/proj' && '/opt/moon/bin/moon' run gen --"))
-
-    // --- unknown driver_form → bare cd (defensive; builder validates).
-    args5 = list.new()
-    cmd5 = moonbit_codegen_cmd("moon", "/proj", "", "", args5)
-    _assert("missing driver_form → bare cd",
-        string.equals(cmd5, "cd '/proj' &&"))
-
-    // --- cwd with spaces is single-quoted.
-    args6 = list.new()
-    cmd6 = moonbit_codegen_cmd("moon", "/path with spaces/repo", "prog", "gen", args6)
-    _assert("cwd with spaces is quoted",
-        string.equals(cmd6, "cd '/path with spaces/repo' && 'gen'"))
+    spec.describe(fw, "moonbit_codegen_cmd") {
+        // prog-form driver, no args: the program is run directly.
+        spec.it("prog form runs the program directly (quoted)") callback {
+            args0 = list.new()
+            cmd0 = moonbit_codegen_cmd("moon", "/proj", "prog", "protoc-gen-mbt", args0)
+            spec.assert_str_eq(cmd0, "cd '/proj' && 'protoc-gen-mbt'",
+                "prog form runs the program directly (quoted)")
+        }
+        // script-form driver, no args: `moon run <name> --`.
+        spec.it("script form runs via moon run <name> --") callback {
+            args1 = list.new()
+            cmd1 = moonbit_codegen_cmd("moon", "/proj", "script", "gen", args1)
+            spec.assert_str_eq(cmd1, "cd '/proj' && 'moon' run gen --",
+                "script form runs via moon run <name> --")
+        }
+        // prog form with args appended in order.
+        spec.it("prog form args in order") callback {
+            args2 = list.new()
+            list.add(args2, "--schema=api.mbti")
+            list.add(args2, "--out-dir=src/gen")
+            cmd2 = moonbit_codegen_cmd("moon", "/proj", "prog", "protoc-gen-mbt", args2)
+            spec.assert_str_eq(cmd2, "cd '/proj' && 'protoc-gen-mbt' --schema=api.mbti --out-dir=src/gen",
+                "prog form args in order")
+        }
+        // script form with args after the `--` separator.
+        spec.it("script form args after --") callback {
+            args3 = list.new()
+            list.add(args3, "--out-dir=src/gen")
+            cmd3 = moonbit_codegen_cmd("moon", "/proj", "script", "gen", args3)
+            spec.assert_str_eq(cmd3, "cd '/proj' && 'moon' run gen -- --out-dir=src/gen",
+                "script form args after --")
+        }
+        // custom moon bin only matters for the script form.
+        spec.it("script form uses custom moon bin") callback {
+            args4 = list.new()
+            cmd4 = moonbit_codegen_cmd("/opt/moon/bin/moon", "/proj", "script", "gen", args4)
+            spec.assert_str_eq(cmd4, "cd '/proj' && '/opt/moon/bin/moon' run gen --",
+                "script form uses custom moon bin")
+        }
+        // unknown driver_form → bare cd (defensive; builder validates).
+        spec.it("missing driver_form → bare cd") callback {
+            args5 = list.new()
+            cmd5 = moonbit_codegen_cmd("moon", "/proj", "", "", args5)
+            spec.assert_str_eq(cmd5, "cd '/proj' &&",
+                "missing driver_form → bare cd")
+        }
+        // cwd with spaces is single-quoted.
+        spec.it("cwd with spaces is quoted") callback {
+            args6 = list.new()
+            cmd6 = moonbit_codegen_cmd("moon", "/path with spaces/repo", "prog", "gen", args6)
+            spec.assert_str_eq(cmd6, "cd '/path with spaces/repo' && 'gen'",
+                "cwd with spaces is quoted")
+        }
+    }
 
     // === Setter accumulation tests ====================================
+    spec.describe(fw, "moonbit.codegen setters") {
+        // codegen_input: list accumulator, order preserved.
+        spec.it("codegen_input accumulates + preserves order") callback {
+            bm1 = map.new()
+            codegen_input(bm1, "schema/a.mbti")
+            codegen_input(bm1, "schema/b.mbti")
+            spec.assert_eq(_list_size_at(bm1, "codegen_inputs"), 2, "codegen_input accumulates 2")
+            spec.assert_str_eq(_list_get_at(bm1, "codegen_inputs", 0), "schema/a.mbti",
+                "codegen_input order: first")
+        }
+        // codegen_input_dir: separate list.
+        spec.it("codegen_input_dir is a separate key") callback {
+            bm2 = map.new()
+            codegen_input(bm2, "schema/api.mbti")
+            codegen_input_dir(bm2, "schema")
+            spec.assert_eq(_list_size_at(bm2, "codegen_input_dirs"), 1, "input_dir own key")
+            spec.assert_eq(_list_size_at(bm2, "codegen_inputs"), 1, "no cross-contamination")
+        }
+        // codegen_arg: list accumulator → CLI tail.
+        spec.it("setter-accumulated args produce expected cmd") callback {
+            bm3 = map.new()
+            codegen_arg(bm3, "--out-dir=src/gen")
+            args_acc, _ = map.get(bm3, "codegen_args")
+            cmd_acc = moonbit_codegen_cmd("moon", "/proj", "prog", "gen", args_acc)
+            spec.assert_str_eq(cmd_acc, "cd '/proj' && 'gen' --out-dir=src/gen",
+                "setter-accumulated args produce expected cmd")
+        }
+        // codegen_output: list accumulator.
+        spec.it("codegen_output accumulates 2") callback {
+            bm4 = map.new()
+            codegen_output(bm4, "src/gen/api.mbt")
+            codegen_output(bm4, "src/gen/types.mbt")
+            spec.assert_eq(_list_size_at(bm4, "codegen_outputs"), 2, "codegen_output accumulates 2")
+        }
+        // scalar setters: codegen_cwd, and prog/script coexistence.
+        spec.it("codegen_cwd + codegen_program scalars") callback {
+            bm5 = map.new()
+            codegen_cwd(bm5, "..")
+            codegen_program(bm5, "protoc-gen-mbt")
+            spec.assert_str_eq(_str_at(bm5, "codegen_cwd"), "..", "codegen_cwd scalar")
+            spec.assert_str_eq(_str_at(bm5, "codegen_cmd_prog"), "protoc-gen-mbt",
+                "codegen_program stored as codegen_cmd_prog")
+        }
+        spec.it("prog and script coexist in the map") callback {
+            bm6 = map.new()
+            codegen_program(bm6, "protoc-gen-mbt")
+            codegen_script(bm6, "gen")
+            spec.assert_str_eq(_str_at(bm6, "codegen_cmd_prog"), "protoc-gen-mbt",
+                "prog and script coexist in the map")
+            spec.assert_str_eq(_str_at(bm6, "codegen_script"), "gen", "script also stored")
+        }
+        // untouched map.
+        spec.it("untouched map has no accumulators") callback {
+            bm7 = map.new()
+            spec.assert_eq(_list_size_at(bm7, "codegen_inputs"), 0, "untouched: no codegen_inputs")
+            spec.assert_str_eq(_str_at(bm7, "codegen_cwd"), "", "untouched: empty codegen_cwd")
+        }
+    }
 
-    // --- codegen_input: list accumulator, order preserved.
-    bm1 = map.new()
-    codegen_input(bm1, "schema/a.mbti")
-    codegen_input(bm1, "schema/b.mbti")
-    _assert("codegen_input accumulates 2", _list_size_at(bm1, "codegen_inputs") == 2)
-    _assert("codegen_input order: first",
-        string.equals(_list_get_at(bm1, "codegen_inputs", 0), "schema/a.mbti"))
-
-    // --- codegen_input_dir: separate list.
-    bm2 = map.new()
-    codegen_input(bm2, "schema/api.mbti")
-    codegen_input_dir(bm2, "schema")
-    _assert("input_dir own key", _list_size_at(bm2, "codegen_input_dirs") == 1)
-    _assert("no cross-contamination", _list_size_at(bm2, "codegen_inputs") == 1)
-
-    // --- codegen_arg: list accumulator → CLI tail.
-    bm3 = map.new()
-    codegen_arg(bm3, "--out-dir=src/gen")
-    args_acc, _ = map.get(bm3, "codegen_args")
-    cmd_acc = moonbit_codegen_cmd("moon", "/proj", "prog", "gen", args_acc)
-    _assert("setter-accumulated args produce expected cmd",
-        string.equals(cmd_acc, "cd '/proj' && 'gen' --out-dir=src/gen"))
-
-    // --- codegen_output: list accumulator.
-    bm4 = map.new()
-    codegen_output(bm4, "src/gen/api.mbt")
-    codegen_output(bm4, "src/gen/types.mbt")
-    _assert("codegen_output accumulates 2", _list_size_at(bm4, "codegen_outputs") == 2)
-
-    // --- scalar setters: codegen_cwd, and prog/script coexistence.
-    bm5 = map.new()
-    codegen_cwd(bm5, "..")
-    codegen_program(bm5, "protoc-gen-mbt")
-    _assert("codegen_cwd scalar", string.equals(_str_at(bm5, "codegen_cwd"), ".."))
-    _assert("codegen_program stored as codegen_cmd_prog",
-        string.equals(_str_at(bm5, "codegen_cmd_prog"), "protoc-gen-mbt"))
-
-    bm6 = map.new()
-    codegen_program(bm6, "protoc-gen-mbt")
-    codegen_script(bm6, "gen")
-    _assert("prog and script coexist in the map",
-        string.equals(_str_at(bm6, "codegen_cmd_prog"), "protoc-gen-mbt"))
-    _assert("script also stored",
-        string.equals(_str_at(bm6, "codegen_script"), "gen"))
-
-    // --- untouched map.
-    bm7 = map.new()
-    _assert("untouched: no codegen_inputs", _list_size_at(bm7, "codegen_inputs") == 0)
-    _assert("untouched: empty codegen_cwd", string.equals(_str_at(bm7, "codegen_cwd"), ""))
-
-    println("moonbit.codegen_cmd + setter accumulation tests done")
+    spec.run_summary(fw)
 }

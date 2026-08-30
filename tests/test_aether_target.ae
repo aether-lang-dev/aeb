@@ -8,25 +8,12 @@
 // (target() cross-compiles via the `ae build` shell-out; these helpers
 // decide the flag spliced into that command and the output extension.)
 
-import aether (_node_target, _target_flag, _program_out_suffix, target)
-import bldr (_exe_suffix)
+import std.spec
 import std.string
 import std.map
 
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
-_eqs(label: string, a: string, b: string) {
-    if string.equals(a, b) == 1 { println("PASS: ${label}") }
-    else {
-        println("FAIL: ${label}")
-        println("  expected: '${b}'")
-        println("  actual:   '${a}'")
-    }
-}
+import aether (_node_target, _target_flag, _program_out_suffix, target)
+import bldr (_exe_suffix)
 
 // A builder map carrying a declared target(), the way the closure DSL
 // populates it: target(b, triple) writes map key "target".
@@ -37,38 +24,59 @@ _with_target(triple: string) {
 }
 
 main() {
-    // --- _node_target ---
-    _eqs("node_target: empty builder → \"\"", _node_target(map.new()), "")
-    _eqs("node_target: null builder → \"\"", _node_target(null), "")
-    _eqs("node_target: reads declared triple",
-         _node_target(_with_target("wasm32-wasi")), "wasm32-wasi")
-    // last call wins
-    b_lw = _with_target("aarch64-linux")
-    target(b_lw, "wasm32-wasi")
-    _eqs("node_target: last target() wins", _node_target(b_lw), "wasm32-wasi")
+    fw = spec.init()
 
-    // --- _target_flag ---
-    _eqs("target_flag: host build → \"\"", _target_flag(map.new()), "")
-    _eqs("target_flag: wasm32-wasi",
-         _target_flag(_with_target("wasm32-wasi")), " --target=wasm32-wasi")
-    _eqs("target_flag: aarch64-linux",
-         _target_flag(_with_target("aarch64-linux")), " --target=aarch64-linux")
+    spec.describe(fw, "_node_target") {
+        spec.it("empty builder → \"\"") callback {
+            spec.assert_str_eq(_node_target(map.new()), "", "empty builder")
+        }
+        spec.it("null builder → \"\"") callback {
+            spec.assert_str_eq(_node_target(null), "", "null builder")
+        }
+        spec.it("reads declared triple") callback {
+            spec.assert_str_eq(_node_target(_with_target("wasm32-wasi")), "wasm32-wasi", "declared triple")
+        }
+        spec.it("last target() wins") callback {
+            b_lw = _with_target("aarch64-linux")
+            target(b_lw, "wasm32-wasi")
+            spec.assert_str_eq(_node_target(b_lw), "wasm32-wasi", "last wins")
+        }
+    }
 
-    // --- _program_out_suffix ---
-    // Host (no target): whatever the host default is — assert it MATCHES
-    // _exe_suffix() rather than hardcoding, so the test is host-agnostic.
-    _assert("out_suffix: host build → host _exe_suffix()",
-        string.equals(_program_out_suffix(map.new()), _exe_suffix()))
-    _eqs("out_suffix: wasm32-wasi → .wasm",
-         _program_out_suffix(_with_target("wasm32-wasi")), ".wasm")
-    _eqs("out_suffix: wasm (emcc) → .wasm",
-         _program_out_suffix(_with_target("wasm")), ".wasm")
-    _eqs("out_suffix: x86_64-windows cross → .exe",
-         _program_out_suffix(_with_target("x86_64-windows")), ".exe")
-    _eqs("out_suffix: aarch64-linux cross → \"\"",
-         _program_out_suffix(_with_target("aarch64-linux")), "")
-    _eqs("out_suffix: x86_64-macos cross → \"\"",
-         _program_out_suffix(_with_target("x86_64-macos")), "")
+    spec.describe(fw, "_target_flag") {
+        spec.it("host build → \"\"") callback {
+            spec.assert_str_eq(_target_flag(map.new()), "", "host build")
+        }
+        spec.it("wasm32-wasi") callback {
+            spec.assert_str_eq(_target_flag(_with_target("wasm32-wasi")), " --target=wasm32-wasi", "wasm32-wasi")
+        }
+        spec.it("aarch64-linux") callback {
+            spec.assert_str_eq(_target_flag(_with_target("aarch64-linux")), " --target=aarch64-linux", "aarch64-linux")
+        }
+    }
 
-    println("aether target() tests done")
+    spec.describe(fw, "_program_out_suffix") {
+        // Host (no target): whatever the host default is — assert it MATCHES
+        // _exe_suffix() rather than hardcoding, so the test is host-agnostic.
+        spec.it("host build → host _exe_suffix()") callback {
+            spec.assert_true(string.equals(_program_out_suffix(map.new()), _exe_suffix()), "host suffix")
+        }
+        spec.it("wasm32-wasi → .wasm") callback {
+            spec.assert_str_eq(_program_out_suffix(_with_target("wasm32-wasi")), ".wasm", "wasm32-wasi")
+        }
+        spec.it("wasm (emcc) → .wasm") callback {
+            spec.assert_str_eq(_program_out_suffix(_with_target("wasm")), ".wasm", "wasm emcc")
+        }
+        spec.it("x86_64-windows cross → .exe") callback {
+            spec.assert_str_eq(_program_out_suffix(_with_target("x86_64-windows")), ".exe", "windows")
+        }
+        spec.it("aarch64-linux cross → \"\"") callback {
+            spec.assert_str_eq(_program_out_suffix(_with_target("aarch64-linux")), "", "aarch64-linux")
+        }
+        spec.it("x86_64-macos cross → \"\"") callback {
+            spec.assert_str_eq(_program_out_suffix(_with_target("x86_64-macos")), "", "macos")
+        }
+    }
+
+    spec.run_summary(fw)
 }

@@ -1,56 +1,47 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for image_build_cmd() — OCI container build command builder
-
-import container
+import std.spec
+import std.map
 import container (image_build_cmd)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    // Default engine is podman
-    _assert_eq("default engine",
-        image_build_cmd("myapp:latest", "/workspace", "/tmp/Dockerfile", null),
-        "podman build -t myapp:latest -f /tmp/Dockerfile /workspace")
+    fw = spec.init()
 
-    // Explicit docker
-    opts2 = map_new()
-    map_put(opts2, "engine", "docker")
-    _assert_eq("docker engine",
-        image_build_cmd("myapp:v1", "/ws", "/tmp/df", opts2),
-        "docker build -t myapp:v1 -f /tmp/df /ws")
+    spec.describe(fw, "image_build_cmd") {
+        // Default engine is podman
+        spec.it("default engine") callback {
+            spec.assert_str_eq(
+                image_build_cmd("myapp:latest", "/workspace", "/tmp/Dockerfile", null),
+                "podman build -t myapp:latest -f /tmp/Dockerfile /workspace", "default engine")
+        }
 
-    // With extra flags
-    opts3 = map_new()
-    map_put(opts3, "extra", "--no-cache --squash")
-    _assert_eq("extra flags",
-        image_build_cmd("web:latest", ".", "/tmp/Dockerfile", opts3),
-        "podman build -t web:latest -f /tmp/Dockerfile --no-cache --squash .")
+        // Explicit docker
+        spec.it("docker engine") callback {
+            opts2 = map_new()
+            map_put(opts2, "engine", "docker")
+            spec.assert_str_eq(
+                image_build_cmd("myapp:v1", "/ws", "/tmp/df", opts2),
+                "docker build -t myapp:v1 -f /tmp/df /ws", "docker engine")
+        }
 
-    // Docker with extra
-    opts4 = map_new()
-    map_put(opts4, "engine", "docker")
-    map_put(opts4, "extra", "--build-arg VERSION=1.0")
-    _assert_eq("docker + extra",
-        image_build_cmd("app:1.0", "/root", "/root/Dockerfile", opts4),
-        "docker build -t app:1.0 -f /root/Dockerfile --build-arg VERSION=1.0 /root")
+        // With extra flags
+        spec.it("extra flags") callback {
+            opts3 = map_new()
+            map_put(opts3, "extra", "--no-cache --squash")
+            spec.assert_str_eq(
+                image_build_cmd("web:latest", ".", "/tmp/Dockerfile", opts3),
+                "podman build -t web:latest -f /tmp/Dockerfile --no-cache --squash .", "extra flags")
+        }
 
-    println("image_build_cmd tests done")
+        // Docker with extra
+        spec.it("docker + extra") callback {
+            opts4 = map_new()
+            map_put(opts4, "engine", "docker")
+            map_put(opts4, "extra", "--build-arg VERSION=1.0")
+            spec.assert_str_eq(
+                image_build_cmd("app:1.0", "/root", "/root/Dockerfile", opts4),
+                "docker build -t app:1.0 -f /root/Dockerfile --build-arg VERSION=1.0 /root", "docker + extra")
+        }
+    }
+
+    spec.run_summary(fw)
 }

@@ -1,61 +1,46 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
-import pnpm
 // Tests for angular.ngc_cmd, angular.ng_build_cmd
-
-import angular
+import std.spec
 import angular (ngc_cmd, ng_build_cmd)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    _assert_eq("ngc_cmd basic",
-        ngc_cmd("/n/.bin/ngc", "/proj/tsconfig.lib.json", null),
-        "/n/.bin/ngc -p '/proj/tsconfig.lib.json'")
+    fw = spec.init()
 
-    opts2 = map_new()
-    map_put(opts2, "skip_lib_check", "true")
-    _assert_eq("ngc_cmd skip_lib_check",
-        ngc_cmd("/n/ngc", "/p/tsconfig.json", opts2),
-        "/n/ngc -p '/p/tsconfig.json' --skipLibCheck")
+    spec.describe(fw, "ngc_cmd") {
+        spec.it("basic") callback {
+            spec.assert_str_eq(ngc_cmd("/n/.bin/ngc", "/proj/tsconfig.lib.json", null),
+                "/n/.bin/ngc -p '/proj/tsconfig.lib.json'", "basic")
+        }
+        spec.it("skip_lib_check") callback {
+            opts2 = map_new()
+            map_put(opts2, "skip_lib_check", "true")
+            spec.assert_str_eq(ngc_cmd("/n/ngc", "/p/tsconfig.json", opts2),
+                "/n/ngc -p '/p/tsconfig.json' --skipLibCheck", "skip_lib_check")
+        }
+        spec.it("extra") callback {
+            opts3 = map_new()
+            map_put(opts3, "extra", "--strictTemplates")
+            spec.assert_str_eq(ngc_cmd("/n/ngc", "/p/tsconfig.json", opts3),
+                "/n/ngc -p '/p/tsconfig.json' --strictTemplates", "extra")
+        }
+        spec.it("combined") callback {
+            opts4 = map_new()
+            map_put(opts4, "skip_lib_check", "true")
+            map_put(opts4, "extra", "--strictTemplates")
+            spec.assert_str_eq(ngc_cmd("/n/ngc", "/p/tsconfig.json", opts4),
+                "/n/ngc -p '/p/tsconfig.json' --skipLibCheck --strictTemplates", "combined")
+        }
+    }
 
-    opts3 = map_new()
-    map_put(opts3, "extra", "--strictTemplates")
-    _assert_eq("ngc_cmd extra",
-        ngc_cmd("/n/ngc", "/p/tsconfig.json", opts3),
-        "/n/ngc -p '/p/tsconfig.json' --strictTemplates")
+    spec.describe(fw, "ng_build_cmd") {
+        spec.it("production") callback {
+            spec.assert_str_eq(ng_build_cmd("/n/.bin/ng", "products", "production"),
+                "/n/.bin/ng build products --configuration production", "production")
+        }
+        spec.it("development") callback {
+            spec.assert_str_eq(ng_build_cmd("/n/ng", "ui", "development"),
+                "/n/ng build ui --configuration development", "development")
+        }
+    }
 
-    opts4 = map_new()
-    map_put(opts4, "skip_lib_check", "true")
-    map_put(opts4, "extra", "--strictTemplates")
-    _assert_eq("ngc_cmd combined",
-        ngc_cmd("/n/ngc", "/p/tsconfig.json", opts4),
-        "/n/ngc -p '/p/tsconfig.json' --skipLibCheck --strictTemplates")
-
-    _assert_eq("ng_build_cmd production",
-        ng_build_cmd("/n/.bin/ng", "products", "production"),
-        "/n/.bin/ng build products --configuration production")
-
-    _assert_eq("ng_build_cmd development",
-        ng_build_cmd("/n/ng", "ui", "development"),
-        "/n/ng build ui --configuration development")
-
-    println("angular cmd tests done")
+    spec.run_summary(fw)
 }

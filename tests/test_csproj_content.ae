@@ -1,138 +1,136 @@
+// Tests for dotnet.csproj_content() — .csproj XML generation
+import std.spec
 import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
 import std.list
 import std.map
-import std.path
-import std.dir
 
-import bldr
-// Tests for dotnet.csproj_content() — .csproj XML generation
-
-import dotnet
 import dotnet (csproj_content)
 
-_assert_contains(label: string, actual: string, substring: string) {
-    if string_contains(actual, substring) == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected to contain: ${substring}")
-        println("  actual: ${actual}")
-    }
-}
-
-_assert_not_contains(label: string, actual: string, substring: string) {
-    if string_contains(actual, substring) == 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected NOT to contain: ${substring}")
-        println("  actual: ${actual}")
-    }
-}
-
 main() {
-    // --- Test 1: minimal defaults ---
-    xml1 = csproj_content(null, null, null, null)
-    _assert_contains("minimal default Sdk", xml1, "<Project Sdk=\"Microsoft.NET.Sdk\">")
-    _assert_contains("minimal has PropertyGroup", xml1, "<PropertyGroup>")
-    _assert_contains("minimal closes Project", xml1, "</Project>")
-    _assert_not_contains("minimal no TargetFramework", xml1, "<TargetFramework>")
-    _assert_not_contains("minimal no PackageReference", xml1, "<PackageReference")
-    _assert_not_contains("minimal no Reference", xml1, "<Reference ")
-    _assert_not_contains("minimal no ProjectReference", xml1, "<ProjectReference")
+    fw = spec.init()
 
-    // --- Test 2: custom SDK ---
-    opts2 = map_new()
-    map_put(opts2, "sdk", "Microsoft.NET.Sdk.Web")
-    xml2 = csproj_content(opts2, null, null, null)
-    _assert_contains("web sdk", xml2, "<Project Sdk=\"Microsoft.NET.Sdk.Web\">")
+    spec.describe(fw, "csproj_content") {
+        // --- Test 1: minimal defaults ---
+        spec.it("minimal defaults") callback {
+            xml1 = csproj_content(null, null, null, null)
+            spec.assert_contains(xml1, "<Project Sdk=\"Microsoft.NET.Sdk\">", "minimal default Sdk")
+            spec.assert_contains(xml1, "<PropertyGroup>", "minimal has PropertyGroup")
+            spec.assert_contains(xml1, "</Project>", "minimal closes Project")
+            spec.assert_false(string.contains(xml1, "<TargetFramework>"), "minimal no TargetFramework")
+            spec.assert_false(string.contains(xml1, "<PackageReference"), "minimal no PackageReference")
+            spec.assert_false(string.contains(xml1, "<Reference "), "minimal no Reference")
+            spec.assert_false(string.contains(xml1, "<ProjectReference"), "minimal no ProjectReference")
+        }
 
-    // --- Test 3: TargetFramework + RootNamespace + AssemblyName ---
-    opts3 = map_new()
-    map_put(opts3, "target_framework", "net8.0")
-    map_put(opts3, "root_namespace", "MyApp.Core")
-    map_put(opts3, "assembly_name", "MyApp.Core")
-    xml3 = csproj_content(opts3, null, null, null)
-    _assert_contains("target framework", xml3, "<TargetFramework>net8.0</TargetFramework>")
-    _assert_contains("root namespace", xml3, "<RootNamespace>MyApp.Core</RootNamespace>")
-    _assert_contains("assembly name", xml3, "<AssemblyName>MyApp.Core</AssemblyName>")
+        // --- Test 2: custom SDK ---
+        spec.it("custom SDK") callback {
+            opts2 = map_new()
+            map_put(opts2, "sdk", "Microsoft.NET.Sdk.Web")
+            xml2 = csproj_content(opts2, null, null, null)
+            spec.assert_contains(xml2, "<Project Sdk=\"Microsoft.NET.Sdk.Web\">", "web sdk")
+        }
 
-    // --- Test 4: nullable + implicit_usings + output_type ---
-    opts4 = map_new()
-    map_put(opts4, "nullable", "true")
-    map_put(opts4, "implicit_usings", "true")
-    map_put(opts4, "output_type", "Exe")
-    xml4 = csproj_content(opts4, null, null, null)
-    _assert_contains("nullable enable", xml4, "<Nullable>enable</Nullable>")
-    _assert_contains("implicit usings", xml4, "<ImplicitUsings>enable</ImplicitUsings>")
-    _assert_contains("output type", xml4, "<OutputType>Exe</OutputType>")
+        // --- Test 3: TargetFramework + RootNamespace + AssemblyName ---
+        spec.it("target framework + namespaces") callback {
+            opts3 = map_new()
+            map_put(opts3, "target_framework", "net8.0")
+            map_put(opts3, "root_namespace", "MyApp.Core")
+            map_put(opts3, "assembly_name", "MyApp.Core")
+            xml3 = csproj_content(opts3, null, null, null)
+            spec.assert_contains(xml3, "<TargetFramework>net8.0</TargetFramework>", "target framework")
+            spec.assert_contains(xml3, "<RootNamespace>MyApp.Core</RootNamespace>", "root namespace")
+            spec.assert_contains(xml3, "<AssemblyName>MyApp.Core</AssemblyName>", "assembly name")
+        }
 
-    // --- Test 5: test project ---
-    opts5 = map_new()
-    map_put(opts5, "is_test_project", "true")
-    xml5 = csproj_content(opts5, null, null, null)
-    _assert_contains("test IsPackable false", xml5, "<IsPackable>false</IsPackable>")
+        // --- Test 4: nullable + implicit_usings + output_type ---
+        spec.it("nullable + implicit usings + output type") callback {
+            opts4 = map_new()
+            map_put(opts4, "nullable", "true")
+            map_put(opts4, "implicit_usings", "true")
+            map_put(opts4, "output_type", "Exe")
+            xml4 = csproj_content(opts4, null, null, null)
+            spec.assert_contains(xml4, "<Nullable>enable</Nullable>", "nullable enable")
+            spec.assert_contains(xml4, "<ImplicitUsings>enable</ImplicitUsings>", "implicit usings")
+            spec.assert_contains(xml4, "<OutputType>Exe</OutputType>", "output type")
+        }
 
-    // --- Test 6: PackageReferences (versioned) ---
-    pkgrefs6 = list_new()
-    list_add(pkgrefs6, "Newtonsoft.Json~13.0.3")
-    list_add(pkgrefs6, "Serilog~3.1.1")
-    xml6 = csproj_content(null, pkgrefs6, null, null)
-    _assert_contains("Newtonsoft pkgref", xml6, "<PackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.3\" />")
-    _assert_contains("Serilog pkgref", xml6, "<PackageReference Include=\"Serilog\" Version=\"3.1.1\" />")
-    _assert_contains("ItemGroup wraps pkgrefs", xml6, "<ItemGroup>")
+        // --- Test 5: test project ---
+        spec.it("test project IsPackable false") callback {
+            opts5 = map_new()
+            map_put(opts5, "is_test_project", "true")
+            xml5 = csproj_content(opts5, null, null, null)
+            spec.assert_contains(xml5, "<IsPackable>false</IsPackable>", "test IsPackable false")
+        }
 
-    // --- Test 7: PackageReference unversioned ---
-    pkgrefs7 = list_new()
-    list_add(pkgrefs7, "Microsoft.AspNetCore~")
-    xml7 = csproj_content(null, pkgrefs7, null, null)
-    _assert_contains("unversioned pkgref", xml7, "<PackageReference Include=\"Microsoft.AspNetCore\" />")
-    _assert_not_contains("no Version attribute", xml7, "Microsoft.AspNetCore\" Version=")
+        // --- Test 6: PackageReferences (versioned) ---
+        spec.it("versioned PackageReferences") callback {
+            pkgrefs6 = list_new()
+            list_add(pkgrefs6, "Newtonsoft.Json~13.0.3")
+            list_add(pkgrefs6, "Serilog~3.1.1")
+            xml6 = csproj_content(null, pkgrefs6, null, null)
+            spec.assert_contains(xml6, "<PackageReference Include=\"Newtonsoft.Json\" Version=\"13.0.3\" />", "Newtonsoft pkgref")
+            spec.assert_contains(xml6, "<PackageReference Include=\"Serilog\" Version=\"3.1.1\" />", "Serilog pkgref")
+            spec.assert_contains(xml6, "<ItemGroup>", "ItemGroup wraps pkgrefs")
+        }
 
-    // --- Test 8: PackageReference no separator ---
-    pkgrefs8 = list_new()
-    list_add(pkgrefs8, "PlainName")
-    xml8 = csproj_content(null, pkgrefs8, null, null)
-    _assert_contains("plain pkgref", xml8, "<PackageReference Include=\"PlainName\" />")
+        // --- Test 7: PackageReference unversioned ---
+        spec.it("unversioned PackageReference") callback {
+            pkgrefs7 = list_new()
+            list_add(pkgrefs7, "Microsoft.AspNetCore~")
+            xml7 = csproj_content(null, pkgrefs7, null, null)
+            spec.assert_contains(xml7, "<PackageReference Include=\"Microsoft.AspNetCore\" />", "unversioned pkgref")
+            spec.assert_false(string.contains(xml7, "Microsoft.AspNetCore\" Version="), "no Version attribute")
+        }
 
-    // --- Test 9: vendored Reference with HintPath ---
-    vrefs9 = list_new()
-    list_add(vrefs9, "Custom.Lib~../../libs/dotnet/Custom.Lib.dll")
-    xml9 = csproj_content(null, null, vrefs9, null)
-    _assert_contains("vendored Reference", xml9, "<Reference Include=\"Custom.Lib\"><HintPath>../../libs/dotnet/Custom.Lib.dll</HintPath></Reference>")
+        // --- Test 8: PackageReference no separator ---
+        spec.it("PackageReference no separator") callback {
+            pkgrefs8 = list_new()
+            list_add(pkgrefs8, "PlainName")
+            xml8 = csproj_content(null, pkgrefs8, null, null)
+            spec.assert_contains(xml8, "<PackageReference Include=\"PlainName\" />", "plain pkgref")
+        }
 
-    // --- Test 10: ProjectReferences ---
-    prefs10 = list_new()
-    list_add(prefs10, "../Core/.Core.generated.csproj")
-    list_add(prefs10, "../Domain/.Domain.generated.csproj")
-    xml10 = csproj_content(null, null, null, prefs10)
-    _assert_contains("Core project ref", xml10, "<ProjectReference Include=\"../Core/.Core.generated.csproj\" />")
-    _assert_contains("Domain project ref", xml10, "<ProjectReference Include=\"../Domain/.Domain.generated.csproj\" />")
+        // --- Test 9: vendored Reference with HintPath ---
+        spec.it("vendored Reference with HintPath") callback {
+            vrefs9 = list_new()
+            list_add(vrefs9, "Custom.Lib~../../libs/dotnet/Custom.Lib.dll")
+            xml9 = csproj_content(null, null, vrefs9, null)
+            spec.assert_contains(xml9, "<Reference Include=\"Custom.Lib\"><HintPath>../../libs/dotnet/Custom.Lib.dll</HintPath></Reference>", "vendored Reference")
+        }
 
-    // --- Test 11: full combo (matches eShopOnWeb shape) ---
-    opts11 = map_new()
-    map_put(opts11, "sdk", "Microsoft.NET.Sdk.Web")
-    map_put(opts11, "target_framework", "net8.0")
-    map_put(opts11, "root_namespace", "Microsoft.eShopWeb")
-    map_put(opts11, "nullable", "true")
-    map_put(opts11, "implicit_usings", "true")
-    pkgrefs11 = list_new()
-    list_add(pkgrefs11, "Microsoft.AspNetCore.Identity~9.0.0")
-    list_add(pkgrefs11, "Serilog~3.1.1")
-    prefs11 = list_new()
-    list_add(prefs11, "../ApplicationCore/.ApplicationCore.generated.csproj")
-    xml11 = csproj_content(opts11, pkgrefs11, null, prefs11)
-    _assert_contains("combo: web sdk", xml11, "Sdk=\"Microsoft.NET.Sdk.Web\"")
-    _assert_contains("combo: target", xml11, "<TargetFramework>net8.0</TargetFramework>")
-    _assert_contains("combo: namespace", xml11, "<RootNamespace>Microsoft.eShopWeb</RootNamespace>")
-    _assert_contains("combo: nullable", xml11, "<Nullable>enable</Nullable>")
-    _assert_contains("combo: usings", xml11, "<ImplicitUsings>enable</ImplicitUsings>")
-    _assert_contains("combo: identity pkg", xml11, "<PackageReference Include=\"Microsoft.AspNetCore.Identity\" Version=\"9.0.0\" />")
-    _assert_contains("combo: project ref", xml11, "ApplicationCore.generated.csproj")
+        // --- Test 10: ProjectReferences ---
+        spec.it("ProjectReferences") callback {
+            prefs10 = list_new()
+            list_add(prefs10, "../Core/.Core.generated.csproj")
+            list_add(prefs10, "../Domain/.Domain.generated.csproj")
+            xml10 = csproj_content(null, null, null, prefs10)
+            spec.assert_contains(xml10, "<ProjectReference Include=\"../Core/.Core.generated.csproj\" />", "Core project ref")
+            spec.assert_contains(xml10, "<ProjectReference Include=\"../Domain/.Domain.generated.csproj\" />", "Domain project ref")
+        }
 
-    println("csproj_content tests done")
+        // --- Test 11: full combo (matches eShopOnWeb shape) ---
+        spec.it("full combo (eShopOnWeb shape)") callback {
+            opts11 = map_new()
+            map_put(opts11, "sdk", "Microsoft.NET.Sdk.Web")
+            map_put(opts11, "target_framework", "net8.0")
+            map_put(opts11, "root_namespace", "Microsoft.eShopWeb")
+            map_put(opts11, "nullable", "true")
+            map_put(opts11, "implicit_usings", "true")
+            pkgrefs11 = list_new()
+            list_add(pkgrefs11, "Microsoft.AspNetCore.Identity~9.0.0")
+            list_add(pkgrefs11, "Serilog~3.1.1")
+            prefs11 = list_new()
+            list_add(prefs11, "../ApplicationCore/.ApplicationCore.generated.csproj")
+            xml11 = csproj_content(opts11, pkgrefs11, null, prefs11)
+            spec.assert_contains(xml11, "Sdk=\"Microsoft.NET.Sdk.Web\"", "combo: web sdk")
+            spec.assert_contains(xml11, "<TargetFramework>net8.0</TargetFramework>", "combo: target")
+            spec.assert_contains(xml11, "<RootNamespace>Microsoft.eShopWeb</RootNamespace>", "combo: namespace")
+            spec.assert_contains(xml11, "<Nullable>enable</Nullable>", "combo: nullable")
+            spec.assert_contains(xml11, "<ImplicitUsings>enable</ImplicitUsings>", "combo: usings")
+            spec.assert_contains(xml11, "<PackageReference Include=\"Microsoft.AspNetCore.Identity\" Version=\"9.0.0\" />", "combo: identity pkg")
+            spec.assert_contains(xml11, "ApplicationCore.generated.csproj", "combo: project ref")
+        }
+    }
+
+    spec.run_summary(fw)
 }

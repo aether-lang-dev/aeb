@@ -1,95 +1,115 @@
-import std.string
-import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
-import std.map
-import std.path
-import std.dir
-
-import bldr
 // Tests for go_build_cmd() and go_test_cmd()
-
-import go
+import std.spec
+import std.map
+import bldr
 import go (go_build_cmd, go_test_cmd, _cgo_ldflags_from_ldpath)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
+    fw = spec.init()
+
     // The dynamic-library env var is host-specific (DYLD_LIBRARY_PATH on
     // macOS, LD_LIBRARY_PATH on Linux) — go_test_cmd emits whatever the
     // host uses via bldr._dyld_env_var(). Mirror that here so the
     // expectation is correct on both platforms.
     dyld = bldr._dyld_env_var()
-    cmd1 = go_build_cmd("/src/mymod", "/out/lib/mymod.so", null)
-    _assert_eq("build: no-config", cmd1,
-        "cd /src/mymod && go build -o /out/lib/mymod.so")
 
-    opts2 = map_new()
-    map_put(opts2, "mode", "c-shared")
-    map_put(opts2, "tags", "netgo")
-    _assert_eq("build: mode+tags", go_build_cmd("/src", "/out/lib.so", opts2),
-        "cd /src && go build -buildmode=c-shared -tags netgo -o /out/lib.so")
+    spec.describe(fw, "go_build_cmd") {
+        spec.it("no-config") callback {
+            spec.assert_str_eq(
+                go_build_cmd("/src/mymod", "/out/lib/mymod.so", null),
+                "cd /src/mymod && go build -o /out/lib/mymod.so", "build: no-config")
+        }
 
-    opts3 = map_new()
-    map_put(opts3, "ldflags", "-s -w")
-    map_put(opts3, "race", "true")
-    _assert_eq("build: ldflags+race", go_build_cmd("/src", "/out/bin", opts3),
-        "cd /src && go build -ldflags \"-s -w\" -race -o /out/bin")
+        spec.it("mode+tags") callback {
+            opts2 = map_new()
+            map_put(opts2, "mode", "c-shared")
+            map_put(opts2, "tags", "netgo")
+            spec.assert_str_eq(
+                go_build_cmd("/src", "/out/lib.so", opts2),
+                "cd /src && go build -buildmode=c-shared -tags netgo -o /out/lib.so", "build: mode+tags")
+        }
 
-    opts4 = map_new()
-    map_put(opts4, "env", "CGO_ENABLED=1")
-    map_put(opts4, "mode", "c-shared")
-    _assert_eq("build: env+mode", go_build_cmd("/src", "/out/lib.so", opts4),
-        "cd /src && CGO_ENABLED=1 go build -buildmode=c-shared -o /out/lib.so")
+        spec.it("ldflags+race") callback {
+            opts3 = map_new()
+            map_put(opts3, "ldflags", "-s -w")
+            map_put(opts3, "race", "true")
+            spec.assert_str_eq(
+                go_build_cmd("/src", "/out/bin", opts3),
+                "cd /src && go build -ldflags \"-s -w\" -race -o /out/bin", "build: ldflags+race")
+        }
 
-    opts5 = map_new()
-    map_put(opts5, "env", "CGO_ENABLED=1")
-    map_put(opts5, "mode", "c-shared")
-    map_put(opts5, "tags", "netgo")
-    map_put(opts5, "ldflags", "-s -w")
-    map_put(opts5, "race", "true")
-    map_put(opts5, "extra", "-trimpath")
-    _assert_eq("build: all combined", go_build_cmd("/src", "/out/lib.so", opts5),
-        "cd /src && CGO_ENABLED=1 go build -buildmode=c-shared -tags netgo -ldflags \"-s -w\" -race -trimpath -o /out/lib.so")
+        spec.it("env+mode") callback {
+            opts4 = map_new()
+            map_put(opts4, "env", "CGO_ENABLED=1")
+            map_put(opts4, "mode", "c-shared")
+            spec.assert_str_eq(
+                go_build_cmd("/src", "/out/lib.so", opts4),
+                "cd /src && CGO_ENABLED=1 go build -buildmode=c-shared -o /out/lib.so", "build: env+mode")
+        }
 
-    _assert_eq("test: no-config", go_test_cmd("/src", "", null),
-        "cd /src && go test -v .")
+        spec.it("all combined") callback {
+            opts5 = map_new()
+            map_put(opts5, "env", "CGO_ENABLED=1")
+            map_put(opts5, "mode", "c-shared")
+            map_put(opts5, "tags", "netgo")
+            map_put(opts5, "ldflags", "-s -w")
+            map_put(opts5, "race", "true")
+            map_put(opts5, "extra", "-trimpath")
+            spec.assert_str_eq(
+                go_build_cmd("/src", "/out/lib.so", opts5),
+                "cd /src && CGO_ENABLED=1 go build -buildmode=c-shared -tags netgo -ldflags \"-s -w\" -race -trimpath -o /out/lib.so", "build: all combined")
+        }
+    }
 
-    // A non-empty ld_path sets the dyld var AND threads each dir into
-    // CGO_LDFLAGS (-L + -Wl,-rpath) so a cgo binding links + self-locates a
-    // dep-provided .so without a hardcoded path.
-    _assert_eq("test: ld_path (dyld var + CGO_LDFLAGS)", go_test_cmd("/src", "/lib/path", null),
-        "cd /src && ${dyld}=/lib/path CGO_LDFLAGS='-L/lib/path -Wl,-rpath,/lib/path' go test -v .")
+    spec.describe(fw, "go_test_cmd") {
+        spec.it("no-config") callback {
+            spec.assert_str_eq(
+                go_test_cmd("/src", "", null),
+                "cd /src && go test -v .", "test: no-config")
+        }
 
-    _assert_eq("test: ld_path multi-dir → -L/-rpath per dir",
-        go_test_cmd("/src", "/a:/b", null),
-        "cd /src && ${dyld}=/a:/b CGO_LDFLAGS='-L/a -Wl,-rpath,/a -L/b -Wl,-rpath,/b' go test -v .")
+        // A non-empty ld_path sets the dyld var AND threads each dir into
+        // CGO_LDFLAGS (-L + -Wl,-rpath) so a cgo binding links + self-locates a
+        // dep-provided .so without a hardcoded path.
+        spec.it("ld_path (dyld var + CGO_LDFLAGS)") callback {
+            spec.assert_str_eq(
+                go_test_cmd("/src", "/lib/path", null),
+                "cd /src && ${dyld}=/lib/path CGO_LDFLAGS='-L/lib/path -Wl,-rpath,/lib/path' go test -v .", "test: ld_path (dyld var + CGO_LDFLAGS)")
+        }
 
-    // The pure helper behind it.
-    _assert_eq("cgo_ldflags: single dir",
-        _cgo_ldflags_from_ldpath("/a"), "-L/a -Wl,-rpath,/a")
-    _assert_eq("cgo_ldflags: two dirs colon-joined",
-        _cgo_ldflags_from_ldpath("/a:/b"), "-L/a -Wl,-rpath,/a -L/b -Wl,-rpath,/b")
-    _assert_eq("cgo_ldflags: empty → empty",
-        _cgo_ldflags_from_ldpath(""), "")
+        spec.it("ld_path multi-dir → -L/-rpath per dir") callback {
+            spec.assert_str_eq(
+                go_test_cmd("/src", "/a:/b", null),
+                "cd /src && ${dyld}=/a:/b CGO_LDFLAGS='-L/a -Wl,-rpath,/a -L/b -Wl,-rpath,/b' go test -v .", "test: ld_path multi-dir → -L/-rpath per dir")
+        }
 
-    opts8 = map_new()
-    map_put(opts8, "verbose", "true")
-    map_put(opts8, "race", "true")
-    map_put(opts8, "run", "TestFoo")
-    map_put(opts8, "timeout", "30s")
-    _assert_eq("test: verbose+race+run+timeout", go_test_cmd("/src", "", opts8),
-        "cd /src && go test -v -race -run TestFoo -timeout 30s .")
+        spec.it("verbose+race+run+timeout") callback {
+            opts8 = map_new()
+            map_put(opts8, "verbose", "true")
+            map_put(opts8, "race", "true")
+            map_put(opts8, "run", "TestFoo")
+            map_put(opts8, "timeout", "30s")
+            spec.assert_str_eq(
+                go_test_cmd("/src", "", opts8),
+                "cd /src && go test -v -race -run TestFoo -timeout 30s .", "test: verbose+race+run+timeout")
+        }
+    }
 
-    println("go cmd tests done")
+    spec.describe(fw, "_cgo_ldflags_from_ldpath") {
+        // The pure helper behind the ld_path threading.
+        spec.it("single dir") callback {
+            spec.assert_str_eq(
+                _cgo_ldflags_from_ldpath("/a"), "-L/a -Wl,-rpath,/a", "cgo_ldflags: single dir")
+        }
+        spec.it("two dirs colon-joined") callback {
+            spec.assert_str_eq(
+                _cgo_ldflags_from_ldpath("/a:/b"), "-L/a -Wl,-rpath,/a -L/b -Wl,-rpath,/b", "cgo_ldflags: two dirs colon-joined")
+        }
+        spec.it("empty → empty") callback {
+            spec.assert_str_eq(
+                _cgo_ldflags_from_ldpath(""), "", "cgo_ldflags: empty → empty")
+        }
+    }
+
+    spec.run_summary(fw)
 }

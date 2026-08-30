@@ -3,55 +3,75 @@
 // (percent-encoding). Both are I/O-free, so they are exercised here
 // directly with hand-built context maps.
 
-import std.string
+import std.spec
 import std.map
 import webhook (interpolate, _url_encode)
 
-extern println(s: string)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 main() {
-    // --- _url_encode ---
-    _assert_eq("encode: unreserved untouched", _url_encode("abc-1.0_x~"), "abc-1.0_x~")
-    _assert_eq("encode: slash",                _url_encode("feature/foo"), "feature%2Ffoo")
-    _assert_eq("encode: space",                _url_encode("a b"),         "a%20b")
-    _assert_eq("encode: ampersand + equals",   _url_encode("a&b=c"),       "a%26b%3Dc")
-    _assert_eq("encode: empty",                _url_encode(""),            "")
+    fw = spec.init()
 
-    // --- interpolate ---
-    m = map.new()
-    _e1 = map.put(m, "branch", "main")
-    _e2 = map.put(m, "commit", "a1b2c3d")
-    _e3 = map.put(m, "ci", "github")
+    spec.describe(fw, "_url_encode") {
+        spec.it("unreserved untouched") callback {
+            spec.assert_str_eq(_url_encode("abc-1.0_x~"), "abc-1.0_x~", "encode: unreserved untouched")
+        }
+        spec.it("slash") callback {
+            spec.assert_str_eq(_url_encode("feature/foo"), "feature%2Ffoo", "encode: slash")
+        }
+        spec.it("space") callback {
+            spec.assert_str_eq(_url_encode("a b"), "a%20b", "encode: space")
+        }
+        spec.it("ampersand + equals") callback {
+            spec.assert_str_eq(_url_encode("a&b=c"), "a%26b%3Dc", "encode: ampersand + equals")
+        }
+        spec.it("empty") callback {
+            spec.assert_str_eq(_url_encode(""), "", "encode: empty")
+        }
+    }
 
-    _assert_eq("interp: no tokens",
-        interpolate("https://x/hook", m, 0), "https://x/hook")
-    _assert_eq("interp: single token",
-        interpolate("b={{branch}}", m, 0), "b=main")
-    _assert_eq("interp: multiple + repeated",
-        interpolate("{{branch}}-{{commit}}-{{branch}}", m, 0),
-        "main-a1b2c3d-main")
-    _assert_eq("interp: unknown token left literal",
-        interpolate("x={{nope}}", m, 0), "x={{nope}}")
-    _assert_eq("interp: adjacent tokens",
-        interpolate("{{ci}}{{branch}}", m, 0), "githubmain")
+    spec.describe(fw, "interpolate") {
+        spec.it("no tokens") callback {
+            m = map.new()
+            _e1 = map.put(m, "branch", "main")
+            _e2 = map.put(m, "commit", "a1b2c3d")
+            _e3 = map.put(m, "ci", "github")
+            spec.assert_str_eq(interpolate("https://x/hook", m, 0), "https://x/hook", "interp: no tokens")
+        }
+        spec.it("single token") callback {
+            m = map.new()
+            _e1 = map.put(m, "branch", "main")
+            spec.assert_str_eq(interpolate("b={{branch}}", m, 0), "b=main", "interp: single token")
+        }
+        spec.it("multiple + repeated") callback {
+            m = map.new()
+            _e1 = map.put(m, "branch", "main")
+            _e2 = map.put(m, "commit", "a1b2c3d")
+            spec.assert_str_eq(
+                interpolate("{{branch}}-{{commit}}-{{branch}}", m, 0),
+                "main-a1b2c3d-main", "interp: multiple + repeated")
+        }
+        spec.it("unknown token left literal") callback {
+            m = map.new()
+            _e1 = map.put(m, "branch", "main")
+            spec.assert_str_eq(interpolate("x={{nope}}", m, 0), "x={{nope}}", "interp: unknown token left literal")
+        }
+        spec.it("adjacent tokens") callback {
+            m = map.new()
+            _e1 = map.put(m, "branch", "main")
+            _e3 = map.put(m, "ci", "github")
+            spec.assert_str_eq(interpolate("{{ci}}{{branch}}", m, 0), "githubmain", "interp: adjacent tokens")
+        }
+        // url_encode=1 percent-encodes substituted values
+        spec.it("url-encoded value") callback {
+            me = map.new()
+            _e4 = map.put(me, "branch", "feature/x y")
+            spec.assert_str_eq(interpolate("b={{branch}}", me, 1), "b=feature%2Fx%20y", "interp: url-encoded value")
+        }
+        spec.it("url-encode off keeps verbatim") callback {
+            me = map.new()
+            _e4 = map.put(me, "branch", "feature/x y")
+            spec.assert_str_eq(interpolate("b={{branch}}", me, 0), "b=feature/x y", "interp: url-encode off keeps verbatim")
+        }
+    }
 
-    // url_encode=1 percent-encodes substituted values
-    me = map.new()
-    _e4 = map.put(me, "branch", "feature/x y")
-    _assert_eq("interp: url-encoded value",
-        interpolate("b={{branch}}", me, 1), "b=feature%2Fx%20y")
-    _assert_eq("interp: url-encode off keeps verbatim",
-        interpolate("b={{branch}}", me, 0), "b=feature/x y")
-
-    println("webhook interp tests done")
+    spec.run_summary(fw)
 }

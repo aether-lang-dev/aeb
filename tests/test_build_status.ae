@@ -5,87 +5,100 @@
 // Exercised against a synthetic session + ctx built by hand, so this
 // is offline and orchestrator-free (the canonical test of record;
 // real orchestrated builds auto-record via record_status).
-//
-// Queryable failure *reason text* (reason_of) is included: the aetherc
-// heap-ownership bug that originally blocked storing the heap-string
-// reason was fixed in ae 0.184.0 (map-value-storing-wrapper UAF).
 
+import std.spec
 import bldr
 import bldr (session, begin, fail, record_status, session_handle,
               status_of, any_failed, failures, reason_of)
 import std.string
 import std.list
-import std.map
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
 
 main() {
+    fw = spec.init()
+
     s = bldr.session("/proj")
 
-    // Fresh session: nothing failed, unknown labels read "".
-    _assert("fresh session: any_failed == 0", bldr.any_failed(s) == 0)
-    _assert("unknown label status is empty",
-        string.equals(bldr.status_of(s, "a/.build.ae"), ""))
+    spec.describe(fw, "fresh session") {
+        // Fresh session: nothing failed, unknown labels read "".
+        spec.it("any_failed == 0") callback {
+            spec.assert_true(bldr.any_failed(s) == 0, "fresh session: any_failed == 0")
+        }
+        spec.it("unknown label status is empty") callback {
+            spec.assert_true(string.equals(bldr.status_of(s, "a/.build.ae"), ""),
+                "unknown label status is empty")
+        }
+        spec.it("unknown label reason is empty") callback {
+            spec.assert_true(string.equals(bldr.reason_of(s, "a/.build.ae"), ""),
+                "unknown label reason is empty")
+        }
+    }
 
-    _assert("unknown label reason is empty",
-        string.equals(bldr.reason_of(s, "a/.build.ae"), ""))
+    spec.describe(fw, "record_status from a return code") {
+        // record_status from a return code: 0 -> passed, non-zero -> failed.
+        spec.it("rc 0 -> passed, rc 1 -> failed") callback {
+            bldr.record_status(s, "a/.build.ae", 0)
+            bldr.record_status(s, "b/.build.ae", 1)
+            spec.assert_true(string.equals(bldr.status_of(s, "a/.build.ae"), "passed"),
+                "rc 0 -> passed")
+            spec.assert_true(string.equals(bldr.status_of(s, "b/.build.ae"), "failed"),
+                "rc 1 -> failed")
+            spec.assert_true(bldr.any_failed(s) == 1, "any_failed == 1 after a failure")
+            spec.assert_true(string.equals(bldr.reason_of(s, "b/.build.ae"), "builder returned exit 1"),
+                "rc-based failure records a reason")
+            spec.assert_true(string.equals(bldr.reason_of(s, "a/.build.ae"), ""),
+                "a passed -> no reason")
+        }
 
-    // record_status from a return code: 0 -> passed, non-zero -> failed.
-    bldr.record_status(s, "a/.build.ae", 0)
-    bldr.record_status(s, "b/.build.ae", 1)
-    _assert("rc 0 -> passed",
-        string.equals(bldr.status_of(s, "a/.build.ae"), "passed"))
-    _assert("rc 1 -> failed",
-        string.equals(bldr.status_of(s, "b/.build.ae"), "failed"))
-    _assert("any_failed == 1 after a failure", bldr.any_failed(s) == 1)
-    _assert("rc-based failure records a reason",
-        string.equals(bldr.reason_of(s, "b/.build.ae"), "builder returned exit 1"))
-    _assert("a passed -> no reason", string.equals(bldr.reason_of(s, "a/.build.ae"), ""))
+        // failures() lists failed labels exactly once.
+        spec.it("failures lists failed labels once") callback {
+            f = bldr.failures(s)
+            spec.assert_true(list.size(f) == 1, "failures has 1 entry")
+            f0, _ = list.get(f, 0)
+            spec.assert_true(string.equals(f0, "b/.build.ae"), "failures[0] is b")
+        }
 
-    // failures() lists failed labels exactly once.
-    f = bldr.failures(s)
-    _assert("failures has 1 entry", list.size(f) == 1)
-    f0, _ = list.get(f, 0)
-    _assert("failures[0] is b", string.equals(f0, "b/.build.ae"))
+        // record_status is idempotent on the failed list (re-recording the
+        // same failure doesn't double-add).
+        spec.it("re-record failed is idempotent") callback {
+            bldr.record_status(s, "b/.build.ae", 1)
+            spec.assert_true(list.size(bldr.failures(s)) == 1, "re-record failed: still 1 entry")
+        }
 
-    // record_status is idempotent on the failed list (re-recording the
-    // same failure doesn't double-add).
-    bldr.record_status(s, "b/.build.ae", 1)
-    _assert("re-record failed: still 1 entry", list.size(bldr.failures(s)) == 1)
+        // An explicit failed is NOT downgraded to passed by a later rc==0.
+        spec.it("rc 0 does not clobber an existing failure") callback {
+            bldr.record_status(s, "b/.build.ae", 0)
+            spec.assert_true(string.equals(bldr.status_of(s, "b/.build.ae"), "failed"),
+                "rc 0 does not clobber an existing failure")
+        }
+    }
 
-    // An explicit failed is NOT downgraded to passed by a later rc==0.
-    bldr.record_status(s, "b/.build.ae", 0)
-    _assert("rc 0 does not clobber an existing failure",
-        string.equals(bldr.status_of(s, "b/.build.ae"), "failed"))
+    spec.describe(fw, "fail() from inside a node") {
+        // fail(ctx, reason): explicit, from inside a node. begin() stashes
+        // the session back-ref so fail() can find it.
+        spec.it("fail() marks the node failed and stores the reason") callback {
+            cb = bldr.begin(s, "c/.build.ae")
+            bldr.fail(cb, "curl got HTTP 500")
+            spec.assert_true(string.equals(bldr.status_of(s, "c/.build.ae"), "failed"),
+                "fail() marks the node failed")
+            spec.assert_true(list.size(bldr.failures(s)) == 2, "two distinct failures now")
+            spec.assert_true(string.equals(bldr.reason_of(s, "c/.build.ae"), "curl got HTTP 500"),
+                "fail() stores the reason verbatim")
 
-    // fail(ctx, reason): explicit, from inside a node. begin() stashes
-    // the session back-ref so fail() can find it.
-    cb = bldr.begin(s, "c/.build.ae")
-    bldr.fail(cb, "curl got HTTP 500")
-    _assert("fail() marks the node failed",
-        string.equals(bldr.status_of(s, "c/.build.ae"), "failed"))
-    _assert("two distinct failures now", list.size(bldr.failures(s)) == 2)
-    _assert("fail() stores the reason verbatim",
-        string.equals(bldr.reason_of(s, "c/.build.ae"), "curl got HTTP 500"))
+            // session_handle(ctx) returns the same session for cross-node query.
+            sh = bldr.session_handle(cb)
+            spec.assert_true(string.equals(bldr.status_of(sh, "a/.build.ae"), "passed"),
+                "session_handle finds the session")
+        }
+    }
 
-    // session_handle(ctx) returns the same session for cross-node query.
-    sh = bldr.session_handle(cb)
-    _assert("session_handle finds the session",
-        string.equals(bldr.status_of(sh, "a/.build.ae"), "passed"))
+    spec.describe(fw, "later rc-based pass") {
+        // A later rc-based pass for a still-unrecorded label works.
+        spec.it("d passed, failure count unchanged") callback {
+            bldr.record_status(s, "d/.build.ae", 0)
+            spec.assert_true(string.equals(bldr.status_of(s, "d/.build.ae"), "passed"), "d passed")
+            spec.assert_true(list.size(bldr.failures(s)) == 2, "passing d didn't change failure count")
+        }
+    }
 
-    // A later rc-based pass for a still-unrecorded label works.
-    bldr.record_status(s, "d/.build.ae", 0)
-    _assert("d passed", string.equals(bldr.status_of(s, "d/.build.ae"), "passed"))
-    _assert("passing d didn't change failure count",
-        list.size(bldr.failures(s)) == 2)
-
-    println("build status-machine tests done")
+    spec.run_summary(fw)
 }

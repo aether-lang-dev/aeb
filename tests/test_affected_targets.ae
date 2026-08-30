@@ -8,17 +8,11 @@
 // Inlines the helpers because tests/run.sh builds with --lib lib/
 // and tools/ isn't on that path. Same pattern as
 // test_file_to_label.ae and test_aeb_graph.ae.
+import std.spec
 import std.string
-import std.io
 import std.os
-import std.file
-import std.fs
 import std.list
 import std.map
-import std.path
-import std.dir
-
-extern println(s: string)
 
 // --- helpers under test ---
 
@@ -245,19 +239,15 @@ _assert_set_eq(label: string, actual: ptr, expected_csv: string) {
     }
     e_sorted_raw, _ee = os.exec("printf '%s' '${e_buf}' | sort -u")
     e_sorted = string.trim(e_sorted_raw)
-    if a_sorted == e_sorted {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected (sorted): '${e_sorted}'")
-        println("  actual   (sorted): '${a_sorted}'")
-    }
+    spec.assert_str_eq(a_sorted, e_sorted, label)
 }
 
 _lst1(a: string) { l = list.new() list.add(l, a) return l }
 _lst2(a: string, b: string) { l = list.new() list.add(l, a) list.add(l, b) return l }
 
 main() {
+    fw = spec.init()
+
     // The graph used across most tests:
     //   app/.build.ae          deps: lib/.build.ae
     //   tests/.tests.ae        deps: app/.build.ae
@@ -265,85 +255,105 @@ main() {
     edges = "app/.build.ae lib/.build.ae\ntests/.tests.ae app/.build.ae\n"
     indices = _build_indices(edges)
 
-    // --- owning_targets: source under a target dir ---
-    _assert_set_eq("owning: lib/main.ae → lib/.build.ae",
-        owning_targets("lib/main.ae", indices),
-        "lib/.build.ae")
+    spec.describe(fw, "owning_targets") {
+        // source under a target dir
+        spec.it("lib/main.ae → lib/.build.ae") callback {
+            _assert_set_eq("lib/main.ae → lib/.build.ae",
+                owning_targets("lib/main.ae", indices), "lib/.build.ae")
+        }
+        spec.it("app/main.ae → app/.build.ae") callback {
+            _assert_set_eq("app/main.ae → app/.build.ae",
+                owning_targets("app/main.ae", indices), "app/.build.ae")
+        }
+        spec.it("tests/test_a.sh → tests/.tests.ae") callback {
+            _assert_set_eq("tests/test_a.sh → tests/.tests.ae",
+                owning_targets("tests/test_a.sh", indices), "tests/.tests.ae")
+        }
+        // build-file itself is its own owner
+        spec.it("lib/.build.ae → lib/.build.ae") callback {
+            _assert_set_eq("lib/.build.ae → lib/.build.ae",
+                owning_targets("lib/.build.ae", indices), "lib/.build.ae")
+        }
+        // nested source under target dir
+        spec.it("nested src walks up to target") callback {
+            _assert_set_eq("nested src walks up to target",
+                owning_targets("lib/sub/dir/deep.ae", indices), "lib/.build.ae")
+        }
+        // file outside any target → empty
+        spec.it("file outside all targets → empty") callback {
+            _assert_set_eq("file outside all targets → empty",
+                owning_targets("README.md", indices), "")
+        }
+    }
 
-    _assert_set_eq("owning: app/main.ae → app/.build.ae",
-        owning_targets("app/main.ae", indices),
-        "app/.build.ae")
+    spec.describe(fw, "affected_set") {
+        // change in lib transitively impacts app + tests
+        spec.it("lib/main.ae → lib + app + tests") callback {
+            _assert_set_eq("lib/main.ae → lib + app + tests",
+                affected_set(_lst1("lib/main.ae"), indices),
+                "lib/.build.ae,app/.build.ae,tests/.tests.ae")
+        }
+        // change in app impacts app + tests, not lib
+        spec.it("app/main.ae → app + tests") callback {
+            _assert_set_eq("app/main.ae → app + tests",
+                affected_set(_lst1("app/main.ae"), indices),
+                "app/.build.ae,tests/.tests.ae")
+        }
+        // change in tests impacts only tests
+        spec.it("tests/test_a.sh → tests only") callback {
+            _assert_set_eq("tests/test_a.sh → tests only",
+                affected_set(_lst1("tests/test_a.sh"), indices), "tests/.tests.ae")
+        }
+        // union across multiple changed files
+        spec.it("lib/x.ae + tests/test_b.sh union") callback {
+            _assert_set_eq("lib/x.ae + tests/test_b.sh union",
+                affected_set(_lst2("lib/main.ae", "tests/test_b.sh"), indices),
+                "lib/.build.ae,app/.build.ae,tests/.tests.ae")
+        }
+        // file outside all targets contributes nothing
+        spec.it("README.md only → empty") callback {
+            _assert_set_eq("README.md only → empty",
+                affected_set(_lst1("README.md"), indices), "")
+        }
+        // empty input → empty
+        spec.it("no changed paths → empty") callback {
+            _assert_set_eq("no changed paths → empty",
+                affected_set(list.new(), indices), "")
+        }
+        // change to a build-file itself
+        spec.it("lib/.build.ae touched → lib + app + tests") callback {
+            _assert_set_eq("lib/.build.ae touched → lib + app + tests",
+                affected_set(_lst1("lib/.build.ae"), indices),
+                "lib/.build.ae,app/.build.ae,tests/.tests.ae")
+        }
+    }
 
-    _assert_set_eq("owning: tests/test_a.sh → tests/.tests.ae",
-        owning_targets("tests/test_a.sh", indices),
-        "tests/.tests.ae")
+    spec.describe(fw, "arbitrary dot-prefixed names work uniformly") {
+        spec.it("worker/x.c → worker + driver") callback {
+            edges_arbitrary = "driver/.bar-step.ae worker/.foo.ae\n"
+            indices2 = _build_indices(edges_arbitrary)
+            _assert_set_eq("worker/x.c → worker + driver",
+                affected_set(_lst1("worker/something.c"), indices2),
+                "worker/.foo.ae,driver/.bar-step.ae")
+        }
+        spec.it("driver/x.c → driver only") callback {
+            edges_arbitrary = "driver/.bar-step.ae worker/.foo.ae\n"
+            indices2 = _build_indices(edges_arbitrary)
+            _assert_set_eq("driver/x.c → driver only",
+                affected_set(_lst1("driver/something.c"), indices2),
+                "driver/.bar-step.ae")
+        }
+    }
 
-    // --- owning: build-file itself is its own owner ---
-    _assert_set_eq("owning: lib/.build.ae → lib/.build.ae",
-        owning_targets("lib/.build.ae", indices),
-        "lib/.build.ae")
+    spec.describe(fw, "multiple targets in same dir share ownership") {
+        spec.it("src in dir → both targets") callback {
+            edges_multi = "ae/svnserver/.build.ae\nae/svnserver/.build-seed.ae\n"
+            indices3 = _build_indices(edges_multi)
+            _assert_set_eq("src in dir → both targets",
+                owning_targets("ae/svnserver/main.ae", indices3),
+                "ae/svnserver/.build.ae,ae/svnserver/.build-seed.ae")
+        }
+    }
 
-    // --- owning: nested source under target dir ---
-    _assert_set_eq("owning: nested src walks up to target",
-        owning_targets("lib/sub/dir/deep.ae", indices),
-        "lib/.build.ae")
-
-    // --- owning: file outside any target → empty ---
-    _assert_set_eq("owning: file outside all targets → empty",
-        owning_targets("README.md", indices),
-        "")
-
-    // --- affected_set: change in lib transitively impacts app + tests ---
-    _assert_set_eq("affected: lib/main.ae → lib + app + tests",
-        affected_set(_lst1("lib/main.ae"), indices),
-        "lib/.build.ae,app/.build.ae,tests/.tests.ae")
-
-    // --- affected_set: change in app impacts app + tests, not lib ---
-    _assert_set_eq("affected: app/main.ae → app + tests",
-        affected_set(_lst1("app/main.ae"), indices),
-        "app/.build.ae,tests/.tests.ae")
-
-    // --- affected_set: change in tests impacts only tests ---
-    _assert_set_eq("affected: tests/test_a.sh → tests only",
-        affected_set(_lst1("tests/test_a.sh"), indices),
-        "tests/.tests.ae")
-
-    // --- affected_set: union across multiple changed files ---
-    _assert_set_eq("affected: lib/x.ae + tests/test_b.sh union",
-        affected_set(_lst2("lib/main.ae", "tests/test_b.sh"), indices),
-        "lib/.build.ae,app/.build.ae,tests/.tests.ae")
-
-    // --- affected_set: file outside all targets contributes nothing ---
-    _assert_set_eq("affected: README.md only → empty",
-        affected_set(_lst1("README.md"), indices),
-        "")
-
-    // --- affected_set: empty input → empty ---
-    _assert_set_eq("affected: no changed paths → empty",
-        affected_set(list.new(), indices),
-        "")
-
-    // --- affected_set: change to a build-file itself ---
-    _assert_set_eq("affected: lib/.build.ae touched → lib + app + tests",
-        affected_set(_lst1("lib/.build.ae"), indices),
-        "lib/.build.ae,app/.build.ae,tests/.tests.ae")
-
-    // --- arbitrary dot-prefixed names work uniformly ---
-    edges_arbitrary = "driver/.bar-step.ae worker/.foo.ae\n"
-    indices2 = _build_indices(edges_arbitrary)
-    _assert_set_eq("arbitrary names: worker/x.ae → worker + driver",
-        affected_set(_lst1("worker/something.c"), indices2),
-        "worker/.foo.ae,driver/.bar-step.ae")
-    _assert_set_eq("arbitrary names: driver/x.ae → driver only",
-        affected_set(_lst1("driver/something.c"), indices2),
-        "driver/.bar-step.ae")
-
-    // --- multiple targets in same dir share ownership ---
-    edges_multi = "ae/svnserver/.build.ae\nae/svnserver/.build-seed.ae\n"
-    indices3 = _build_indices(edges_multi)
-    _assert_set_eq("multi-target dir: src in dir → both targets",
-        owning_targets("ae/svnserver/main.ae", indices3),
-        "ae/svnserver/.build.ae,ae/svnserver/.build-seed.ae")
-
-    println("affected-targets tests done")
+    spec.run_summary(fw)
 }
