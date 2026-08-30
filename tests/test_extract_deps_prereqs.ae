@@ -14,6 +14,7 @@
 //
 // See docs/build-prerequisites-and-provisioning.md.
 
+import std.spec
 import std.string
 import std.io
 import std.os
@@ -25,18 +26,6 @@ import std.path
 import std.dir
 
 import bldr (_sh, _sh_capture)
-
-extern println(s: string)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
@@ -98,41 +87,37 @@ _ensure_built() {
 }
 
 main() {
-    _ensure_built()
-    root = _mktempdir()
+    fw = spec.init()
 
-    // A leaf with two distinct prereqs + a dep + a duplicate prereq.
-    leaf = "import bldr\nimport bldr (prereq)\nmain() {\n    b = bldr.start()\n    dep(\"shared/.build.ae\")\n    prereq(\"zig:0.13\")\n    prereq(\"python:3.14\")\n    prereq(\"zig:0.13\")\n}\n"
-    fs.write_atomic("${root}/.build.ae", leaf, string.length(leaf))
+    spec.describe(fw, "extract-deps --prereqs") {
+        spec.it("emits deduped prereq tokens, kept separate from dep paths") callback {
+            _ensure_built()
+            root = _mktempdir()
 
-    // --- tokens emitted, deduped, sorted ---
-    out_pq = _run_prereqs(root, ".build.ae")
-    _assert_eq("prereqs: distinct tokens deduped",
-        _normalise(out_pq), "python:3.14 zig:0.13")
+            // A leaf with two distinct prereqs + a dep + a duplicate prereq.
+            leaf = "import bldr\nimport bldr (prereq)\nmain() {\n    b = bldr.start()\n    dep(\"shared/.build.ae\")\n    prereq(\"zig:0.13\")\n    prereq(\"python:3.14\")\n    prereq(\"zig:0.13\")\n}\n"
+            fs.write_atomic("${root}/.build.ae", leaf, string.length(leaf))
 
-    // --- prereq tokens do NOT appear in normal dep output ---
-    out_dep = _run_deps(root, ".build.ae")
-    has_tok = string.index_of(out_dep, "zig:0.13")
-    if has_tok < 0 {
-        println("PASS: prereq tokens absent from dep output")
-    } else {
-        println("FAIL: prereq token leaked into dep output: '${out_dep}'")
+            // --- tokens emitted, deduped, sorted ---
+            out_pq = _run_prereqs(root, ".build.ae")
+            spec.assert_str_eq(_normalise(out_pq), "python:3.14 zig:0.13", "prereqs: distinct tokens deduped")
+
+            // --- prereq tokens do NOT appear in normal dep output ---
+            out_dep = _run_deps(root, ".build.ae")
+            spec.assert_false(string.index_of(out_dep, "zig:0.13") >= 0, "prereq tokens absent from dep output")
+
+            // --- dep paths do NOT appear in --prereqs output ---
+            spec.assert_false(string.index_of(out_pq, "shared/.build.ae") >= 0, "dep paths absent from prereqs output")
+
+            // --- a file with no prereq() emits nothing ---
+            noprq = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"x/.build.ae\")\n}\n"
+            fs.write_atomic("${root}/.noprq.ae", noprq, string.length(noprq))
+            out_none = _run_prereqs(root, ".noprq.ae")
+            spec.assert_str_eq(out_none, "", "prereqs: none declared -> empty")
+
+            _sh("rm -rf '${root}'")
+        }
     }
 
-    // --- dep paths do NOT appear in --prereqs output ---
-    has_dep = string.index_of(out_pq, "shared/.build.ae")
-    if has_dep < 0 {
-        println("PASS: dep paths absent from prereqs output")
-    } else {
-        println("FAIL: dep path leaked into prereqs output: '${out_pq}'")
-    }
-
-    // --- a file with no prereq() emits nothing ---
-    noprq = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"x/.build.ae\")\n}\n"
-    fs.write_atomic("${root}/.noprq.ae", noprq, string.length(noprq))
-    out_none = _run_prereqs(root, ".noprq.ae")
-    _assert_eq("prereqs: none declared -> empty", out_none, "")
-
-    _sh("rm -rf '${root}'")
-    println("extract-deps prereqs tests done")
+    spec.run_summary(fw)
 }

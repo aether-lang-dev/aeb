@@ -3,6 +3,7 @@
 //
 // Design: docs/run-policy-class-and-cloud-leverage.md
 
+import std.spec
 import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
               _decision, dispatch_request_json, dispatch_request_json_ex, dispatch_reply_json,
               _json_field, run_on, max_jobs, accept_scope,
@@ -20,444 +21,487 @@ import std.list
 import std.map
 import std.fs
 
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
-}
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
-
 main() {
-    // --- _scope_glob_match ---
-    _assert("glob * matches anything", _scope_glob_match("*", "ci/aether/main"))
-    _assert("preint/* matches preint/x", _scope_glob_match("preint/*", "preint/phammant/feat"))
-    _assert("preint/* matches bare preint", _scope_glob_match("preint/*", "preint"))
-    _assert("preint/* rejects ci/x", 1 - _scope_glob_match("preint/*", "ci/aether/main"))
-    _assert("preint/* rejects preintXYZ (prefix not boundary)",
-        1 - _scope_glob_match("preint/*", "preintXYZ"))
-    _assert("exact match", _scope_glob_match("preint", "preint"))
-    _assert("exact mismatch", 1 - _scope_glob_match("preint", "ci"))
+    fw = spec.init()
 
-    // --- _image_match: per-dispatch image vs --allow-image glob (run_on=podman) ---
-    _assert("image * allows anything", _image_match("*", "aeb-tc:rust"))
-    _assert("aeb-tc:* allows aeb-tc:rust", _image_match("aeb-tc:*", "aeb-tc:rust"))
-    _assert("aeb-tc:* allows aeb-tc:jdk21", _image_match("aeb-tc:*", "aeb-tc:jdk21"))
-    _assert("aeb-tc:* allows bare prefix aeb-tc:", _image_match("aeb-tc:*", "aeb-tc:"))
-    _assert("aeb-tc:* rejects other-registry image",
-        1 - _image_match("aeb-tc:*", "evil/exfil:latest"))
-    _assert("exact image allowed", _image_match("aeb-tc:jdk21", "aeb-tc:jdk21"))
-    _assert("exact image mismatch rejected",
-        1 - _image_match("aeb-tc:jdk21", "aeb-tc:rust"))
-    _assert("prefix shorter than glob rejected (aeb not aeb-tc:)",
-        1 - _image_match("aeb-tc:*", "aeb"))
+    spec.describe(fw, "_scope_glob_match") {
+        spec.it("glob / prefix / exact matching") callback {
+            spec.assert_true(_scope_glob_match("*", "ci/aether/main"), "glob * matches anything")
+            spec.assert_true(_scope_glob_match("preint/*", "preint/phammant/feat"), "preint/* matches preint/x")
+            spec.assert_true(_scope_glob_match("preint/*", "preint"), "preint/* matches bare preint")
+            spec.assert_true(1 - _scope_glob_match("preint/*", "ci/aether/main"), "preint/* rejects ci/x")
+            spec.assert_true(1 - _scope_glob_match("preint/*", "preintXYZ"),
+                "preint/* rejects preintXYZ (prefix not boundary)")
+            spec.assert_true(_scope_glob_match("preint", "preint"), "exact match")
+            spec.assert_true(1 - _scope_glob_match("preint", "ci"), "exact mismatch")
+        }
+    }
 
-    // --- _scope_accepts: no accept_scope => open ---
-    open_scope = map.new()
-    _assert("scope with no accept_scope accepts all",
-        _scope_accepts(open_scope, "anything/goes"))
+    spec.describe(fw, "_image_match: per-dispatch image vs --allow-image glob (run_on=podman)") {
+        spec.it("glob / exact / prefix-boundary") callback {
+            spec.assert_true(_image_match("*", "aeb-tc:rust"), "image * allows anything")
+            spec.assert_true(_image_match("aeb-tc:*", "aeb-tc:rust"), "aeb-tc:* allows aeb-tc:rust")
+            spec.assert_true(_image_match("aeb-tc:*", "aeb-tc:jdk21"), "aeb-tc:* allows aeb-tc:jdk21")
+            spec.assert_true(_image_match("aeb-tc:*", "aeb-tc:"), "aeb-tc:* allows bare prefix aeb-tc:")
+            spec.assert_true(1 - _image_match("aeb-tc:*", "evil/exfil:latest"),
+                "aeb-tc:* rejects other-registry image")
+            spec.assert_true(_image_match("aeb-tc:jdk21", "aeb-tc:jdk21"), "exact image allowed")
+            spec.assert_true(1 - _image_match("aeb-tc:jdk21", "aeb-tc:rust"),
+                "exact image mismatch rejected")
+            spec.assert_true(1 - _image_match("aeb-tc:*", "aeb"),
+                "prefix shorter than glob rejected (aeb not aeb-tc:)")
+        }
+    }
 
-    // --- _scope_accepts: with globs ---
-    s = map.new()
-    accept_scope(s, "preint/*")
-    accept_scope(s, "adhoc/phammant/*")
-    _assert("accepts preint/x", _scope_accepts(s, "preint/x"))
-    _assert("accepts adhoc/phammant/exp7", _scope_accepts(s, "adhoc/phammant/exp7"))
-    _assert("rejects ci/main", 1 - _scope_accepts(s, "ci/aether/main"))
+    spec.describe(fw, "_scope_accepts") {
+        spec.it("no accept_scope => open") callback {
+            open_scope = map.new()
+            spec.assert_true(_scope_accepts(open_scope, "anything/goes"),
+                "scope with no accept_scope accepts all")
+        }
+        spec.it("with globs") callback {
+            s = map.new()
+            accept_scope(s, "preint/*")
+            accept_scope(s, "adhoc/phammant/*")
+            spec.assert_true(_scope_accepts(s, "preint/x"), "accepts preint/x")
+            spec.assert_true(_scope_accepts(s, "adhoc/phammant/exp7"), "accepts adhoc/phammant/exp7")
+            spec.assert_true(1 - _scope_accepts(s, "ci/aether/main"), "rejects ci/main")
+        }
+    }
 
-    // --- _has_free_slot ---
-    _assert("unbounded ('') always free", _has_free_slot(99, ""))
-    _assert("cap 0 = unbounded", _has_free_slot(99, "0"))
-    _assert("2/2 busy", 1 - _has_free_slot(2, "2"))
-    _assert("1/2 free", _has_free_slot(1, "2"))
+    spec.describe(fw, "_has_free_slot") {
+        spec.it("bounded / unbounded slots") callback {
+            spec.assert_true(_has_free_slot(99, ""), "unbounded ('') always free")
+            spec.assert_true(_has_free_slot(99, "0"), "cap 0 = unbounded")
+            spec.assert_true(1 - _has_free_slot(2, "2"), "2/2 busy")
+            spec.assert_true(_has_free_slot(1, "2"), "1/2 free")
+        }
+    }
 
-    // --- _decision: accept / busy / reject ---
-    sc = map.new()
-    accept_scope(sc, "preint/*")
-    max_jobs(sc, 2)
-    _eq("in-scope + slot => accept", _decision(sc, "preint/x", 1), "accept")
-    _eq("in-scope + no slot => busy", _decision(sc, "preint/x", 2), "busy")
-    _eq("out-of-scope => reject", _decision(sc, "ci/main", 0), "reject")
-    // reject takes precedence over busy: out-of-scope AND full => reject
-    _eq("out-of-scope + full => reject (not busy)", _decision(sc, "ci/main", 9), "reject")
+    spec.describe(fw, "_decision: accept / busy / reject") {
+        spec.it("scope + slot combine, reject beats busy") callback {
+            sc = map.new()
+            accept_scope(sc, "preint/*")
+            max_jobs(sc, 2)
+            spec.assert_str_eq(_decision(sc, "preint/x", 1), "accept", "in-scope + slot => accept")
+            spec.assert_str_eq(_decision(sc, "preint/x", 2), "busy", "in-scope + no slot => busy")
+            spec.assert_str_eq(_decision(sc, "ci/main", 0), "reject", "out-of-scope => reject")
+            // reject takes precedence over busy: out-of-scope AND full => reject
+            spec.assert_str_eq(_decision(sc, "ci/main", 9), "reject", "out-of-scope + full => reject (not busy)")
+        }
+    }
 
-    // --- wire payloads round-trip through the skeleton extractor ---
-    req = dispatch_request_json("G123", "app/.tests.ae", "preint/x", "main", "abc123", "")
-    _eq("req guid", _json_field(req, "guid"), "G123")
-    _eq("req target", _json_field(req, "target"), "app/.tests.ae")
-    _eq("req purpose", _json_field(req, "purpose"), "preint/x")
-    _eq("req ref", _json_field(req, "ref"), "main")
-    _eq("req hash", _json_field(req, "hash"), "abc123")
-    _eq("req patch_b64 empty", _json_field(req, "patch_b64"), "")
-    req2 = dispatch_request_json("G2", "t.ae", "p", "", "", "YmFzZTY0")
-    _eq("req2 patch_b64", _json_field(req2, "patch_b64"), "YmFzZTY0")
-    // 6-field form omits the optional image/command (agent sees "").
-    _eq("req omits image when unset", _json_field(req, "image"), "")
-    _eq("req omits command when unset", _json_field(req, "command"), "")
+    spec.describe(fw, "wire payloads round-trip through the skeleton extractor") {
+        spec.it("dispatch_request_json fields") callback {
+            req = dispatch_request_json("G123", "app/.tests.ae", "preint/x", "main", "abc123", "")
+            spec.assert_str_eq(_json_field(req, "guid"), "G123", "req guid")
+            spec.assert_str_eq(_json_field(req, "target"), "app/.tests.ae", "req target")
+            spec.assert_str_eq(_json_field(req, "purpose"), "preint/x", "req purpose")
+            spec.assert_str_eq(_json_field(req, "ref"), "main", "req ref")
+            spec.assert_str_eq(_json_field(req, "hash"), "abc123", "req hash")
+            spec.assert_str_eq(_json_field(req, "patch_b64"), "", "req patch_b64 empty")
+            req2 = dispatch_request_json("G2", "t.ae", "p", "", "", "YmFzZTY0")
+            spec.assert_str_eq(_json_field(req2, "patch_b64"), "YmFzZTY0", "req2 patch_b64")
+            // 6-field form omits the optional image/command (agent sees "").
+            spec.assert_str_eq(_json_field(req, "image"), "", "req omits image when unset")
+            spec.assert_str_eq(_json_field(req, "command"), "", "req omits command when unset")
+        }
 
-    // --- _ex form: optional image (podman) + command (vm raw build) ---
-    reqi = dispatch_request_json_ex("G3", "t.ae", "preint", "", "", "", "aeb-tc:rust", "")
-    _eq("ex image present", _json_field(reqi, "image"), "aeb-tc:rust")
-    _eq("ex command absent when empty", _json_field(reqi, "command"), "")
-    reqc = dispatch_request_json_ex("G4", "t.ae", "preint", "", "", "", "", "./build.sh ex.ae build/ex")
-    _eq("ex command present", _json_field(reqc, "command"), "./build.sh ex.ae build/ex")
-    _eq("ex image absent when empty", _json_field(reqc, "image"), "")
-    _eq("ex still carries guid", _json_field(reqc, "guid"), "G4")
+        spec.it("_ex form: optional image (podman) + command (vm raw build)") callback {
+            reqi = dispatch_request_json_ex("G3", "t.ae", "preint", "", "", "", "aeb-tc:rust", "")
+            spec.assert_str_eq(_json_field(reqi, "image"), "aeb-tc:rust", "ex image present")
+            spec.assert_str_eq(_json_field(reqi, "command"), "", "ex command absent when empty")
+            reqc = dispatch_request_json_ex("G4", "t.ae", "preint", "", "", "", "", "./build.sh ex.ae build/ex")
+            spec.assert_str_eq(_json_field(reqc, "command"), "./build.sh ex.ae build/ex", "ex command present")
+            spec.assert_str_eq(_json_field(reqc, "image"), "", "ex image absent when empty")
+            spec.assert_str_eq(_json_field(reqc, "guid"), "G4", "ex still carries guid")
+        }
 
-    rep = dispatch_reply_json("G123", "done", "fail")
-    _eq("reply guid", _json_field(rep, "guid"), "G123")
-    _eq("reply status", _json_field(rep, "status"), "done")
-    _eq("reply result", _json_field(rep, "result"), "fail")
+        spec.it("dispatch_reply_json + missing field") callback {
+            rep = dispatch_reply_json("G123", "done", "fail")
+            spec.assert_str_eq(_json_field(rep, "guid"), "G123", "reply guid")
+            spec.assert_str_eq(_json_field(rep, "status"), "done", "reply status")
+            spec.assert_str_eq(_json_field(rep, "result"), "fail", "reply result")
+            spec.assert_str_eq(_json_field(rep, "nope"), "", "missing field => empty")
+        }
+    }
 
-    _eq("missing field => empty", _json_field(rep, "nope"), "")
+    spec.describe(fw, "_parse_tokens + _bearer_strip") {
+        spec.it("_parse_tokens: generic line-set parser (used to count --lease-secrets)") callback {
+            tf = "# comment line\nsecret-alpha\n\nsecret-bravo\n  trimmed-secret  \n"
+            toks = _parse_tokens(tf)
+            spec.assert_true(map.size(toks) == 3, "parse: 3 non-comment/blank lines")
+            spec.assert_true(map.has(toks, "secret-alpha") == 1, "parse: keeps secret-alpha")
+            spec.assert_true(map.has(toks, "trimmed-secret") == 1, "parse: trims surrounding whitespace")
+            spec.assert_true(1 - map.has(toks, "# comment line"), "parse: drops the comment line")
+        }
+        spec.it("_bearer_strip: handles both 'Bearer X' and a raw value") callback {
+            spec.assert_str_eq(_bearer_strip("Bearer s3cr3t-alice"), "s3cr3t-alice", "bearer strip prefix")
+            spec.assert_str_eq(_bearer_strip("s3cr3t-ci"), "s3cr3t-ci", "bearer strip raw value")
+            spec.assert_str_eq(_bearer_strip("  Bearer  s3cr3t-ci  "), "s3cr3t-ci", "bearer strip trims")
+        }
+    }
 
-    // --- _parse_tokens: generic line-set parser (used to count --lease-secrets) ---
-    tf = "# comment line\nsecret-alpha\n\nsecret-bravo\n  trimmed-secret  \n"
-    toks = _parse_tokens(tf)
-    _assert("parse: 3 non-comment/blank lines", map.size(toks) == 3)
-    _assert("parse: keeps secret-alpha", map.has(toks, "secret-alpha") == 1)
-    _assert("parse: trims surrounding whitespace", map.has(toks, "trimmed-secret") == 1)
-    _assert("parse: drops the comment line", 1 - map.has(toks, "# comment line"))
+    spec.describe(fw, "ping_json identity + capability descriptor") {
+        spec.it("base ping_json fields") callback {
+            pj = ping_json("linux", "preint/*", "false", "2", "required")
+            spec.assert_str_eq(_json_field(pj, "agent"), "aeb-agent", "ping agent field")
+            spec.assert_str_eq(_json_field(pj, "platform"), "linux", "ping platform")
+            spec.assert_str_eq(_json_field(pj, "accept"), "preint/*", "ping accept")
+            spec.assert_str_eq(_json_field(pj, "auth"), "required", "ping auth")
+            spec.assert_true(string.index_of(pj, "\"busy\":false") >= 0, "ping carries busy:false")
+            spec.assert_true(string.index_of(pj, "\"max_jobs\":2") >= 0, "ping carries max_jobs:2")
+            // empty max_jobs renders 0 (unbounded)
+            pj0 = ping_json("linux", "*", "false", "", "open")
+            spec.assert_true(string.index_of(pj0, "\"max_jobs\":0") >= 0, "ping empty max_jobs -> 0")
+            // base ping_json omits the optional version fields
+            spec.assert_str_eq(_json_field(pj, "aeb_version"), "", "ping omits aeb_version when base form")
+            spec.assert_str_eq(_json_field(pj, "aether_version"), "", "ping omits aether_version when base form")
+        }
+        spec.it("ping_json_ex: toolchain versions for the originator") callback {
+            pjv = ping_json_ex("macos", "preint/*", "false", "1", "required",
+                               "aeb 0.0.0-dev+abc123 (git v0.160)", "Aether Compiler v0.256.0")
+            spec.assert_str_eq(_json_field(pjv, "aeb_version"), "aeb 0.0.0-dev+abc123 (git v0.160)", "ex aeb_version")
+            spec.assert_str_eq(_json_field(pjv, "aether_version"), "Aether Compiler v0.256.0", "ex aether_version")
+            spec.assert_str_eq(_json_field(pjv, "platform"), "macos", "ex still carries platform")
+            // empty versions are omitted (probe-failure degrades cleanly)
+            pjv0 = ping_json_ex("linux", "*", "false", "", "open", "", "")
+            spec.assert_str_eq(_json_field(pjv0, "aeb_version"), "", "ex omits empty aeb_version")
+            spec.assert_str_eq(_json_field(pjv0, "aether_version"), "", "ex omits empty aether_version")
+        }
+    }
 
-    // _bearer_strip: handles both "Bearer X" and a raw value (token extraction).
-    _eq("bearer strip prefix", _bearer_strip("Bearer s3cr3t-alice"), "s3cr3t-alice")
-    _eq("bearer strip raw value", _bearer_strip("s3cr3t-ci"), "s3cr3t-ci")
-    _eq("bearer strip trims", _bearer_strip("  Bearer  s3cr3t-ci  "), "s3cr3t-ci")
+    spec.describe(fw, "agent pool parsing (the --agents file)") {
+        spec.it("dash-separated pool lines") callback {
+            pool = "# my agents\nhttp://192.168.0.57:9440 - ping-secret-123\n\nhttp://mac.local:9440 - mac-tok\nhttp://nostoken:9440\n"
+            lines = _parse_pool(pool)
+            spec.assert_true(list.size(lines) == 3, "pool: 3 non-comment lines")
+            l0, _ = list.get(lines, 0)
+            spec.assert_str_eq(_pool_url_of(l0), "http://192.168.0.57:9440", "pool line0 url")
+            spec.assert_str_eq(_pool_token_of(l0), "ping-secret-123", "pool line0 token")
+            l1, _ = list.get(lines, 1)
+            spec.assert_str_eq(_pool_url_of(l1), "http://mac.local:9440", "pool line1 url")
+            spec.assert_str_eq(_pool_token_of(l1), "mac-tok", "pool line1 token")
+            l2, _ = list.get(lines, 2)
+            spec.assert_str_eq(_pool_url_of(l2), "http://nostoken:9440", "pool line2 url (no token)")
+            spec.assert_str_eq(_pool_token_of(l2), "", "pool line2 token empty")
+            spec.assert_true(1, "pool skips comments + blanks")
+        }
+        spec.it("TAB separator (scripted printf form)") callback {
+            // TAB separator (the natural scripted form: printf '%s\t%s'). The historic
+            // bug: only " - " was accepted, so a tab-separated line returned the WHOLE
+            // line as the URL (token mashed in) + an empty token → silent lease failure.
+            tpool = "http://192.168.0.57:9440\tae1.preint.123.deadbeef\nhttp://mac.local:9440\tmac-tok\n"
+            tlines = _parse_pool(tpool)
+            spec.assert_true(list.size(tlines) == 2, "tab pool: 2 lines")
+            tl0, _ = list.get(tlines, 0)
+            spec.assert_str_eq(_pool_url_of(tl0), "http://192.168.0.57:9440", "tab line0 url")
+            spec.assert_str_eq(_pool_token_of(tl0), "ae1.preint.123.deadbeef", "tab line0 token")
+            tl1, _ = list.get(tlines, 1)
+            spec.assert_str_eq(_pool_url_of(tl1), "http://mac.local:9440", "tab line1 url")
+            spec.assert_str_eq(_pool_token_of(tl1), "mac-tok", "tab line1 token")
+            // A token containing " - " is NOT mis-split when a tab is present (tab wins).
+            mixed = "http://h:9440\tab1 - cd"
+            spec.assert_str_eq(_pool_url_of(mixed), "http://h:9440", "tab beats dash url")
+            spec.assert_str_eq(_pool_token_of(mixed), "ab1 - cd", "tab beats dash token")
+        }
+    }
 
-    // --- ping_json identity + capability descriptor ---
-    pj = ping_json("linux", "preint/*", "false", "2", "required")
-    _eq("ping agent field", _json_field(pj, "agent"), "aeb-agent")
-    _eq("ping platform", _json_field(pj, "platform"), "linux")
-    _eq("ping accept", _json_field(pj, "accept"), "preint/*")
-    _eq("ping auth", _json_field(pj, "auth"), "required")
-    _assert("ping carries busy:false", string.index_of(pj, "\"busy\":false") >= 0)
-    _assert("ping carries max_jobs:2", string.index_of(pj, "\"max_jobs\":2") >= 0)
-    // empty max_jobs renders 0 (unbounded)
-    pj0 = ping_json("linux", "*", "false", "", "open")
-    _assert("ping empty max_jobs -> 0", string.index_of(pj0, "\"max_jobs\":0") >= 0)
-    // base ping_json omits the optional version fields
-    _eq("ping omits aeb_version when base form", _json_field(pj, "aeb_version"), "")
-    _eq("ping omits aether_version when base form", _json_field(pj, "aether_version"), "")
+    spec.describe(fw, "Tier-A veto: pure rule helpers (docs/build-veto-and-sandbox.md)") {
+        spec.it("_veto_rule_field: tab-split field extraction") callback {
+            row = "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id"
+            spec.assert_str_eq(_veto_rule_field(row, 0), "aws-akid", "veto field id")
+            spec.assert_str_eq(_veto_rule_field(row, 1), "patch", "veto field scope")
+            spec.assert_str_eq(_veto_rule_field(row, 3), "patch introduces an AWS access-key id", "veto field reason")
+            spec.assert_str_eq(_veto_rule_field(row, 9), "", "veto field out-of-range empty")
+        }
+        spec.it("_veto_scan_cmd: scope → scan command") callback {
+            // tree-scope → recursive grep over repo.
+            spec.assert_str_eq(_veto_scan_cmd("tree", "BEGIN RSA PRIVATE KEY", "/srv/repo", ""),
+                "grep -rqI -e 'BEGIN RSA PRIVATE KEY' '/srv/repo' 2>/dev/null", "veto cmd tree-scope")
+            // patch-scope → grep the patch file only.
+            spec.assert_str_eq(_veto_scan_cmd("patch", "AKIA", "/srv/repo", "/tmp/p.diff"),
+                "grep -qI -e 'AKIA' '/tmp/p.diff' 2>/dev/null", "veto cmd patch-scope")
+            // patch-scope with NO patch → "" (caller skips the rule).
+            spec.assert_str_eq(_veto_scan_cmd("patch", "AKIA", "/srv/repo", ""), "", "veto cmd patch-scope no patch")
+            // file-scope → find-by-name existence check (exit 0 = file present).
+            spec.assert_str_eq(_veto_scan_cmd("file", "binding.gyp", "/srv/repo", ""),
+                "find '/srv/repo' -name 'binding.gyp' 2>/dev/null | grep -q .", "veto cmd file-scope")
+            // patchpath-scope → grep the diff's file headers for the path pattern.
+            spec.assert_str_eq(_veto_scan_cmd("patchpath", "\\.github/", "/srv/repo", "/tmp/p.diff"),
+                "grep -qE '^(\\+\\+\\+ |diff --git ).*\\.github/' '/tmp/p.diff' 2>/dev/null", "veto cmd patchpath-scope")
+            // patchpath with NO patch → "" (skip).
+            spec.assert_str_eq(_veto_scan_cmd("patchpath", "x", "/srv/repo", ""), "", "veto cmd patchpath no patch")
+        }
+        spec.it("_veto_scan_root: narrow tree/file scans to target subtree") callback {
+            // Pure-logic branches return `repo` (no filesystem narrowing) for the
+            // cases where narrowing isn't safe/meaningful:
+            spec.assert_str_eq(_veto_scan_root("/srv/repo", ""), "/srv/repo", "scan-root empty target → repo")
+            spec.assert_str_eq(_veto_scan_root("/srv/repo", "rust/components"), "/srv/repo", "scan-root non-.ae target → repo")
+            spec.assert_str_eq(_veto_scan_root("/srv/repo", ".build.ae"), "/srv/repo", "scan-root bare .build.ae → repo")
+            spec.assert_str_eq(_veto_scan_root("/srv/repo", "./.build.ae"), "/srv/repo", "scan-root ./.build.ae → repo")
+            // Positive: a real existing dir narrows to repo/<dir>. /tmp always exists, so
+            // repo="/" + target="tmp/x/.build.ae" → "/tmp/x" IF it exists; build it.
+            _mk = fs.mkdir_p("/tmp/aeb_veto_scope_test/sub")
+            spec.assert_str_eq(_veto_scan_root("/tmp/aeb_veto_scope_test", "sub/.build.ae"),
+                "/tmp/aeb_veto_scope_test/sub", "scan-root real dir narrows")
+            // Nonexistent target dir → fail-safe back to repo (never narrow to a path
+            // that isn't there, which would scan nothing).
+            spec.assert_str_eq(_veto_scan_root("/tmp/aeb_veto_scope_test", "nope/.build.ae"),
+                "/tmp/aeb_veto_scope_test", "scan-root missing dir → repo")
+            _cl = fs.delete("/tmp/aeb_veto_scope_test/sub")
+        }
+        spec.it("_veto_default_rules: built-in list is non-empty + well-formed") callback {
+            drules = _veto_default_rules()
+            spec.assert_true(1 - _lt(list.size(drules), 1), "veto default rules present")
+            r0, _ = list.get(drules, 0)
+            spec.assert_str_eq(_veto_rule_field(r0, 0), "secret-rsa", "veto default rule0 id")
+            spec.assert_true(1 - _streq(_veto_rule_field(r0, 3), ""), "veto default rule0 has reason")
 
-    // --- ping_json_ex: toolchain versions for the originator ---
-    pjv = ping_json_ex("macos", "preint/*", "false", "1", "required",
-                       "aeb 0.0.0-dev+abc123 (git v0.160)", "Aether Compiler v0.256.0")
-    _eq("ex aeb_version", _json_field(pjv, "aeb_version"), "aeb 0.0.0-dev+abc123 (git v0.160)")
-    _eq("ex aether_version", _json_field(pjv, "aether_version"), "Aether Compiler v0.256.0")
-    _eq("ex still carries platform", _json_field(pjv, "platform"), "macos")
-    // empty versions are omitted (probe-failure degrades cleanly)
-    pjv0 = ping_json_ex("linux", "*", "false", "", "open", "", "")
-    _eq("ex omits empty aeb_version", _json_field(pjv0, "aeb_version"), "")
-    _eq("ex omits empty aether_version", _json_field(pjv0, "aether_version"), "")
+            // June-2026 supply-chain rules are present + well-formed. Find them by id
+            // and assert their scope/reason are set (scan the list).
+            spec.assert_true(1 - _lt(list.size(drules), 8),
+                "default rules include the June-2026 install-script class (>= 8 rules)")
+            spec.assert_true(_has_rule_with_scope(drules, "npm-binding-gyp", "file"), "binding.gyp rule is file-scope")
+            spec.assert_true(_has_rule_with_scope(drules, "npm-install-hook", "tree"), "install-hook rule is tree-scope")
+            spec.assert_true(_has_rule_with_scope(drules, "curl-pipe-sh", "tree"), "curl-pipe-sh rule is tree-scope")
+            spec.assert_true(_has_rule_with_scope(drules, "patch-extern", "patch"), "patch-extern rule is patch-scope")
+        }
+    }
 
-    // --- agent pool parsing (the --agents file) ---
-    pool = "# my agents\nhttp://192.168.0.57:9440 - ping-secret-123\n\nhttp://mac.local:9440 - mac-tok\nhttp://nostoken:9440\n"
-    lines = _parse_pool(pool)
-    _assert("pool: 3 non-comment lines", list.size(lines) == 3)
-    l0, _ = list.get(lines, 0)
-    _eq("pool line0 url", _pool_url_of(l0), "http://192.168.0.57:9440")
-    _eq("pool line0 token", _pool_token_of(l0), "ping-secret-123")
-    l1, _ = list.get(lines, 1)
-    _eq("pool line1 url", _pool_url_of(l1), "http://mac.local:9440")
-    _eq("pool line1 token", _pool_token_of(l1), "mac-tok")
-    l2, _ = list.get(lines, 2)
-    _eq("pool line2 url (no token)", _pool_url_of(l2), "http://nostoken:9440")
-    _eq("pool line2 token empty", _pool_token_of(l2), "")
-    _assert("pool skips comments + blanks", 1)
+    spec.describe(fw, "Lease tokens: HMAC-signed, purpose-bound, expiring") {
+        spec.it("mint/verify, tamper, expiry, purpose binding") callback {
+            // Fixed clock + fixed secret so tests are deterministic (no wall clock).
+            // `secret` is the ENVELOPE (what the agent verifies with); `mat` is the key
+            // material (what the lessor mints with) — mirrors the real tools.
+            secret = "aeb-secret-v1:shhh-lessor-secret-material-xyz-32+"
+            mat = _secret_key_material(secret)
+            now = 1000000000000  // a fixed "now" in unix-ms
+            future = "1000000600000"  // now + 10 min
+            past   = "999999990000"   // now - ~10s
 
-    // TAB separator (the natural scripted form: printf '%s\t%s'). The historic
-    // bug: only " - " was accepted, so a tab-separated line returned the WHOLE
-    // line as the URL (token mashed in) + an empty token → silent lease failure.
-    tpool = "http://192.168.0.57:9440\tae1.preint.123.deadbeef\nhttp://mac.local:9440\tmac-tok\n"
-    tlines = _parse_pool(tpool)
-    _assert("tab pool: 2 lines", list.size(tlines) == 2)
-    tl0, _ = list.get(tlines, 0)
-    _eq("tab line0 url",   _pool_url_of(tl0),   "http://192.168.0.57:9440")
-    _eq("tab line0 token", _pool_token_of(tl0), "ae1.preint.123.deadbeef")
-    tl1, _ = list.get(tlines, 1)
-    _eq("tab line1 url",   _pool_url_of(tl1),   "http://mac.local:9440")
-    _eq("tab line1 token", _pool_token_of(tl1), "mac-tok")
-    // A token containing " - " is NOT mis-split when a tab is present (tab wins).
-    mixed = "http://h:9440\tab1 - cd"
-    _eq("tab beats dash url",   _pool_url_of(mixed),   "http://h:9440")
-    _eq("tab beats dash token", _pool_token_of(mixed), "ab1 - cd")
+            // A well-formed lease for preint/phammant/rust, not expired, verifies ("").
+            good = _lease_mint(mat, "preint/phammant/rust", future)
+            spec.assert_str_eq(_lease_verify(secret, good, now, "preint/phammant/rust"), "", "valid lease verifies")
 
-    // --- Tier-A veto: pure rule helpers (docs/build-veto-and-sandbox.md) ---
-    // _veto_rule_field: tab-split field extraction.
-    row = "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id"
-    _eq("veto field id", _veto_rule_field(row, 0), "aws-akid")
-    _eq("veto field scope", _veto_rule_field(row, 1), "patch")
-    _eq("veto field reason", _veto_rule_field(row, 3), "patch introduces an AWS access-key id")
-    _eq("veto field out-of-range empty", _veto_rule_field(row, 9), "")
+            // Tamper: flip the purpose in the token but keep the old signature => bad sig.
+            forged = _lease_mint(mat, "preint/phammant/rust", future)
+            // rebuild with a DIFFERENT purpose but splice the ORIGINAL sig back on.
+            orig_sig = _lease_field(good, 3)
+            tampered = "ae1.ci/aether/main.${future}.${orig_sig}"
+            spec.assert_true(1 - _streq(_lease_verify(secret, tampered, now, "ci/aether/main"), ""),
+                "tampered purpose => bad signature (rejected)")
 
-    // _veto_scan_cmd: tree-scope → recursive grep over repo.
-    _eq("veto cmd tree-scope",
-        _veto_scan_cmd("tree", "BEGIN RSA PRIVATE KEY", "/srv/repo", ""),
-        "grep -rqI -e 'BEGIN RSA PRIVATE KEY' '/srv/repo' 2>/dev/null")
-    // patch-scope → grep the patch file only.
-    _eq("veto cmd patch-scope",
-        _veto_scan_cmd("patch", "AKIA", "/srv/repo", "/tmp/p.diff"),
-        "grep -qI -e 'AKIA' '/tmp/p.diff' 2>/dev/null")
-    // patch-scope with NO patch → "" (caller skips the rule).
-    _eq("veto cmd patch-scope no patch", _veto_scan_cmd("patch", "AKIA", "/srv/repo", ""), "")
+            // Wrong secret => bad signature.
+            spec.assert_true(1 - _streq(_lease_verify("not-the-secret", good, now, "preint/phammant/rust"), ""),
+                "wrong secret => rejected")
 
-    // file-scope → find-by-name existence check (exit 0 = file present).
-    _eq("veto cmd file-scope",
-        _veto_scan_cmd("file", "binding.gyp", "/srv/repo", ""),
-        "find '/srv/repo' -name 'binding.gyp' 2>/dev/null | grep -q .")
-    // patchpath-scope → grep the diff's file headers for the path pattern.
-    _eq("veto cmd patchpath-scope",
-        _veto_scan_cmd("patchpath", "\\.github/", "/srv/repo", "/tmp/p.diff"),
-        "grep -qE '^(\\+\\+\\+ |diff --git ).*\\.github/' '/tmp/p.diff' 2>/dev/null")
-    // patchpath with NO patch → "" (skip).
-    _eq("veto cmd patchpath no patch", _veto_scan_cmd("patchpath", "x", "/srv/repo", ""), "")
+            // Expired lease => rejected (even though signature is valid).
+            expired = _lease_mint(mat, "preint/phammant/rust", past)
+            spec.assert_true(1 - _streq(_lease_verify(secret, expired, now, "preint/phammant/rust"), ""),
+                "expired lease => rejected")
 
-    // _veto_scan_root: narrow tree/file scans to the target's dir subtree, so an
-    // unrelated sibling subtree (libs/javascript binding.gyp) doesn't veto a rust
-    // build. Pure-logic branches return `repo` (no filesystem narrowing) for the
-    // cases where narrowing isn't safe/meaningful:
-    _eq("scan-root empty target → repo",   _veto_scan_root("/srv/repo", ""), "/srv/repo")
-    _eq("scan-root non-.ae target → repo", _veto_scan_root("/srv/repo", "rust/components"), "/srv/repo")
-    _eq("scan-root bare .build.ae → repo", _veto_scan_root("/srv/repo", ".build.ae"), "/srv/repo")
-    _eq("scan-root ./.build.ae → repo",    _veto_scan_root("/srv/repo", "./.build.ae"), "/srv/repo")
-    // Positive: a real existing dir narrows to repo/<dir>. /tmp always exists, so
-    // repo="/" + target="tmp/x/.build.ae" → "/tmp/x" IF it exists; build it.
-    _mk = fs.mkdir_p("/tmp/aeb_veto_scope_test/sub")
-    _eq("scan-root real dir narrows",
-        _veto_scan_root("/tmp/aeb_veto_scope_test", "sub/.build.ae"),
-        "/tmp/aeb_veto_scope_test/sub")
-    // Nonexistent target dir → fail-safe back to repo (never narrow to a path
-    // that isn't there, which would scan nothing).
-    _eq("scan-root missing dir → repo",
-        _veto_scan_root("/tmp/aeb_veto_scope_test", "nope/.build.ae"),
-        "/tmp/aeb_veto_scope_test")
-    _cl = fs.delete("/tmp/aeb_veto_scope_test/sub")
+            // Purpose binding: a token for preint/* COVERS preint/rust (glob).
+            broad = _lease_mint(mat, "preint/*", future)
+            spec.assert_str_eq(_lease_verify(secret, broad, now, "preint/rust"), "", "preint/* token covers preint/rust")
+            // ...but a token for preint/rust does NOT cover a different purpose.
+            narrow = _lease_mint(mat, "preint/rust", future)
+            spec.assert_true(1 - _streq(_lease_verify(secret, narrow, now, "ci/main"), ""),
+                "preint/rust token does NOT cover ci/main (purpose-bound)")
 
-    // _veto_default_rules: the built-in list is non-empty and well-formed
-    // (every row has the 4 tab fields).
-    drules = _veto_default_rules()
-    _assert("veto default rules present", 1 - _lt(list.size(drules), 1))
-    r0, _ = list.get(drules, 0)
-    _eq("veto default rule0 id", _veto_rule_field(r0, 0), "secret-rsa")
-    _assert("veto default rule0 has reason", 1 - _streq(_veto_rule_field(r0, 3), ""))
+            // DEFENSE-IN-DEPTH: a VALIDLY-SIGNED but NON-CANONICAL purpose (as a rogue/
+            // patched minter could produce) is rejected at VERIFY, not just at mint. The
+            // verifier re-applies the grammar at the trust boundary.
+            rogue_upper = _lease_mint(mat, "preint/Rust", future)   // uppercase R
+            spec.assert_true(1 - _streq(_lease_verify(secret, rogue_upper, now, "preint/Rust"), ""),
+                "verify rejects signed non-canonical purpose (uppercase)")
+            rogue_space = _lease_mint(mat, "preint/my rust", future)  // space
+            spec.assert_true(1 - _streq(_lease_verify(secret, rogue_space, now, "preint/my rust"), ""),
+                "verify rejects signed non-canonical purpose (space)")
+            // a canonical purpose with a trailing /* scope still verifies fine.
+            scoped = _lease_mint(mat, "preint/macos/*", future)
+            spec.assert_str_eq(_lease_verify(secret, scoped, now, "preint/macos/x"), "", "verify accepts canonical /* scope")
 
-    // June-2026 supply-chain rules are present + well-formed. Find them by id
-    // and assert their scope/reason are set (scan the list).
-    _assert("default rules include the June-2026 install-script class (>= 8 rules)",
-        1 - _lt(list.size(drules), 8))
-    _assert("binding.gyp rule is file-scope", _has_rule_with_scope(drules, "npm-binding-gyp", "file"))
-    _assert("install-hook rule is tree-scope", _has_rule_with_scope(drules, "npm-install-hook", "tree"))
-    _assert("curl-pipe-sh rule is tree-scope", _has_rule_with_scope(drules, "curl-pipe-sh", "tree"))
-    _assert("patch-extern rule is patch-scope", _has_rule_with_scope(drules, "patch-extern", "patch"))
+            // No secret configured => fail-closed.
+            spec.assert_true(1 - _streq(_lease_verify("", good, now, "preint/phammant/rust"), ""),
+                "empty secret => fail-closed")
+            // Empty/garbage token => rejected.
+            spec.assert_true(1 - _streq(_lease_verify(secret, "", now, "preint/rust"), ""),
+                "empty token => rejected")
+            spec.assert_true(1 - _streq(_lease_verify(secret, "garbage.foo.bar.baz", now, "preint/rust"), ""),
+                "non-ae1 token => rejected")
 
-    // --- Lease tokens: HMAC-signed, purpose-bound, expiring -------------
-    // Fixed clock + fixed secret so tests are deterministic (no wall clock).
-    // `secret` is the ENVELOPE (what the agent verifies with); `mat` is the key
-    // material (what the lessor mints with) — mirrors the real tools.
-    secret = "aeb-secret-v1:shhh-lessor-secret-material-xyz-32+"
-    mat = _secret_key_material(secret)
-    now = 1000000000000  // a fixed "now" in unix-ms
-    future = "1000000600000"  // now + 10 min
-    past   = "999999990000"   // now - ~10s
+            // Field accessor + signing are stable (mint is deterministic for fixed inputs).
+            spec.assert_str_eq(_lease_field(good, 0), "ae1", "lease field 0 is the ae1 tag")
+            spec.assert_str_eq(_lease_field(good, 1), "preint/phammant/rust", "lease field 1 is the purpose")
+            spec.assert_str_eq(_lease_sign(secret, "preint/rust", future),
+                _lease_sign(secret, "preint/rust", future), "sign is deterministic")
+        }
 
-    // A well-formed lease for preint/phammant/rust, not expired, verifies ("").
-    good = _lease_mint(mat, "preint/phammant/rust", future)
-    _eq("valid lease verifies", _lease_verify(secret, good, now, "preint/phammant/rust"), "")
+        spec.it("_lease_purpose_valid: canonical purpose grammar (mint-time gate)") callback {
+            // Valid canonical slash-paths return "".
+            spec.assert_str_eq(_lease_purpose_valid("preint/phammant/rust"), "", "valid: preint/phammant/rust")
+            spec.assert_str_eq(_lease_purpose_valid("ci/aether/main"), "", "valid: ci/aether/main")
+            spec.assert_str_eq(_lease_purpose_valid("preint"), "", "valid: single segment")
+            spec.assert_str_eq(_lease_purpose_valid("preint/phammant/*"), "", "valid: trailing /* scope")
+            spec.assert_str_eq(_lease_purpose_valid("preint/feature-x9"), "", "valid: feature-x (hyphen+digit)")
+            spec.assert_str_eq(_lease_purpose_valid("ci/v1_builds"), "", "valid: under_score")
+            // Rejections (non-empty reason).
+            spec.assert_true(string.length(_lease_purpose_valid("")) > 0, "reject: empty purpose")
+            spec.assert_true(string.length(_lease_purpose_valid("*")) > 0, "reject: bare '*' too broad")
+            spec.assert_true(string.length(_lease_purpose_valid("preint/my build")) > 0, "reject: a space")
+            spec.assert_true(string.length(_lease_purpose_valid("preint/Rust")) > 0, "reject: uppercase")
+            spec.assert_true(string.length(_lease_purpose_valid("ci/aether/main.0")) > 0, "reject: a dot")
+            spec.assert_true(string.length(_lease_purpose_valid("preint//rust")) > 0, "reject: empty middle segment")
+            spec.assert_true(string.length(_lease_purpose_valid("preint/rust/")) > 0, "reject: trailing slash")
+            spec.assert_true(string.length(_lease_purpose_valid("/preint")) > 0, "reject: leading slash")
+            spec.assert_true(string.length(_lease_purpose_valid("preint/café")) > 0, "reject: unicode é")
+            spec.assert_true(string.length(_lease_purpose_valid("preint/*/rust")) > 0, "reject: '*' mid-path (only trailing /* allowed)")
+            // The rejection names the offending character where applicable.
+            spec.assert_true(string.index_of(_lease_purpose_valid("a b"), "' '") >= 0, "reject reason names the space")
+        }
 
-    // Tamper: flip the purpose in the token but keep the old signature => bad sig.
-    forged = _lease_mint(mat, "preint/phammant/rust", future)
-    // rebuild with a DIFFERENT purpose but splice the ORIGINAL sig back on.
-    orig_sig = _lease_field(good, 3)
-    tampered = "ae1.ci/aether/main.${future}.${orig_sig}"
-    _assert("tampered purpose => bad signature (rejected)",
-        1 - _streq(_lease_verify(secret, tampered, now, "ci/aether/main"), ""))
+        spec.it("_lease_verify_any: a SET of secrets (rotation)") callback {
+            // mint with key MATERIAL; the set lines are ENVELOPES (agent-side form).
+            now = 1000000000000
+            future = "1000000600000"
+            past   = "999999990000"
+            sA = "secret-alpha-material-long-enough"
+            sB = "secret-bravo-material-long-enough"
+            tokA = _lease_mint(sA, "preint/*", future)   // signed by alpha
+            tokB = _lease_mint(sB, "preint/*", future)   // signed by bravo
+            twoset = "aeb-secret-v1:secret-alpha-material-long-enough\naeb-secret-v1:secret-bravo-material-long-enough\n"
+            // a token signed by EITHER listed secret verifies under the set
+            spec.assert_str_eq(_lease_verify_any(twoset, tokA, now, "preint/x"), "", "verify_any accepts alpha-signed")
+            spec.assert_str_eq(_lease_verify_any(twoset, tokB, now, "preint/x"), "", "verify_any accepts bravo-signed")
+            // a token signed by a secret NOT in the set is rejected (bad signature)
+            tokC = _lease_mint("secret-charlie-material-long-enough", "preint/*", future)
+            spec.assert_true(string.length(_lease_verify_any(twoset, tokC, now, "preint/x")) > 0,
+                "verify_any rejects unknown-key token")
+            // comments + blank lines in the set are ignored; alpha still works
+            setcmt = "# rotation: old then new\n\naeb-secret-v1:secret-alpha-material-long-enough\n# bravo retired\n"
+            spec.assert_str_eq(_lease_verify_any(setcmt, tokA, now, "preint/x"), "", "verify_any ignores comments/blanks")
+            // an effectively-empty set fails closed
+            spec.assert_true(string.length(_lease_verify_any("# only a comment\n", tokA, now, "preint/x")) > 0,
+                "verify_any empty set => fail-closed")
+            // REASON SELECTION: a token correctly signed (alpha) but EXPIRED reports
+            // 'expired', not the bad-signature noise from the other (bravo) secret.
+            tokAexp = _lease_mint(sA, "preint/*", past)
+            rexp = _lease_verify_any(twoset, tokAexp, now, "preint/x")
+            spec.assert_true(string.index_of(rexp, "expired") >= 0,
+                "verify_any: signed-but-expired reports expiry, not bad-sig")
+            // single-secret set behaves exactly like _lease_verify
+            spec.assert_str_eq(_lease_verify_any("aeb-secret-v1:secret-alpha-material-long-enough\n", tokA, now, "preint/x"),
+                "", "verify_any single-secret == verify")
+        }
+    }
 
-    // Wrong secret => bad signature.
-    _assert("wrong secret => rejected",
-        1 - _streq(_lease_verify("not-the-secret", good, now, "preint/phammant/rust"), ""))
+    spec.describe(fw, "provisioning-mode helpers") {
+        spec.it("csv_contains / mode_offered / branch_allowed / autoclone_allowed") callback {
+            spec.assert_true(_csv_contains("patch,advance", "advance") == 1, "csv_contains hit")
+            spec.assert_true(_csv_contains("patch,advance", "autoclone") == 0, "csv_contains miss")
+            spec.assert_true(_csv_contains("patch , advance", "advance") == 1, "csv_contains trims")
+            // _mode_offered: empty offered defaults to patch only
+            spec.assert_true(_mode_offered("", "patch") == 1, "mode_offered default patch")
+            spec.assert_true(_mode_offered("", "advance") == 0, "mode_offered default rejects advance")
+            spec.assert_true(_mode_offered("patch,autoclone", "autoclone") == 1, "mode_offered explicit set")
+            spec.assert_true(_mode_offered("patch", "advance") == 0, "mode_offered not in set")
+            // _branch_allowed: glob over branch names, empty allow-list = fail-closed
+            spec.assert_true(_branch_allowed("main", "main") == 1, "branch_allowed exact")
+            spec.assert_true(_branch_allowed("release/*", "release/1.2") == 1, "branch_allowed glob")
+            spec.assert_true(_branch_allowed("main", "feature/x") == 0, "branch_allowed reject")
+            spec.assert_true(_branch_allowed("", "main") == 0, "branch_allowed empty list fail-closed")
+            spec.assert_true(_branch_allowed("main", "") == 0, "branch_allowed empty branch fail-closed")
+            // _autoclone_allowed: <repo> (any branch) or <repo>#<branchglob>
+            spec.assert_true(_autoclone_allowed("https://x/r.git", "https://x/r.git", "anything") == 1,
+                "autoclone repo-only any branch")
+            spec.assert_true(_autoclone_allowed("https://x/r.git#main", "https://x/r.git", "main") == 1,
+                "autoclone repo#branch match")
+            spec.assert_true(_autoclone_allowed("https://x/r.git#release/*", "https://x/r.git", "release/9") == 1,
+                "autoclone repo#branchglob match")
+            spec.assert_true(_autoclone_allowed("https://x/r.git#main", "https://x/r.git", "dev") == 0,
+                "autoclone wrong branch rejected")
+            spec.assert_true(_autoclone_allowed("https://x/r.git", "https://evil/r.git", "main") == 0,
+                "autoclone wrong repo rejected")
+            spec.assert_true(_autoclone_allowed("", "https://x/r.git", "main") == 0,
+                "autoclone empty allow fail-closed")
+        }
+    }
 
-    // Expired lease => rejected (even though signature is valid).
-    expired = _lease_mint(mat, "preint/phammant/rust", past)
-    _assert("expired lease => rejected",
-        1 - _streq(_lease_verify(secret, expired, now, "preint/phammant/rust"), ""))
+    spec.describe(fw, "token-in-secret-slot footgun guard") {
+        spec.it("_looks_like_token") callback {
+            spec.assert_true(_looks_like_token("ae1.preint/macos.1781.df1f") == 1, "looks_like_token: a real token")
+            spec.assert_true(_looks_like_token("  ae1.x.1.y") == 1, "looks_like_token: trims leading ws")
+            spec.assert_true(_looks_like_token("df1f18759213d6bc566314ec33c114ee") == 0,
+                "looks_like_token: opaque secret is NOT a token")
+            spec.assert_true(_looks_like_token("a3f9c0e1b2d4") == 0, "looks_like_token: hex-only secret")
+            spec.assert_true(_looks_like_token("") == 0, "looks_like_token: empty")
+            spec.assert_true(_looks_like_token("ae1secretish") == 0, "looks_like_token: 'ae1' without dot is not a token")
+        }
+        spec.it("_secrets_have_token") callback {
+            spec.assert_true(_secrets_have_token("# rotation\nsecret-alpha\nsecret-bravo\n") == 0,
+                "secrets_have_token: good multi-line set is clean")
+            spec.assert_true(_secrets_have_token("secret-alpha\nae1.preint/x.1.sig\n") == 1,
+                "secrets_have_token: a token line is caught")
+            spec.assert_true(_secrets_have_token("# ae1.example.1.x\nreal-secret\n") == 0,
+                "secrets_have_token: comment-only token ignored (it's a comment)")
+        }
+    }
 
-    // Purpose binding: a token for preint/* COVERS preint/rust (glob).
-    broad = _lease_mint(mat, "preint/*", future)
-    _eq("preint/* token covers preint/rust", _lease_verify(secret, broad, now, "preint/rust"), "")
-    // ...but a token for preint/rust does NOT cover a different purpose.
-    narrow = _lease_mint(mat, "preint/rust", future)
-    _assert("preint/rust token does NOT cover ci/main (purpose-bound)",
-        1 - _streq(_lease_verify(secret, narrow, now, "ci/main"), ""))
+    spec.describe(fw, "secret strength (entropy floor; length >= 32)") {
+        spec.it("_secret_strength_ok") callback {
+            spec.assert_true(_secret_strength_ok("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae") == 1,
+                "strength: openssl rand -hex 32 (64 chars) ok")
+            spec.assert_true(_secret_strength_ok("7J0B3XoMFljVw52kSQjLwfUmJ86vFuNi") == 1,
+                "strength: rand -base64 24 (32 chars) ok")
+            spec.assert_true(_secret_strength_ok("St4ndrdT1ngTh3yC4nRmbr") == 0,
+                "strength: lazy 'St4ndrdT1ngTh3yC4nRmbr' (22) too weak")
+            spec.assert_true(_secret_strength_ok("password123") == 0, "strength: 'password123' too weak")
+            spec.assert_true(_secret_strength_ok("") == 0, "strength: empty too weak")
+            spec.assert_true(_secret_strength_ok("01234567890123456789012345678901") == 1, "strength: exactly 32 chars ok")
+            spec.assert_true(_secret_strength_ok("0123456789012345678901234567890") == 0, "strength: 31 chars too weak")
+        }
+        spec.it("_secrets_weak_line: checks the key MATERIAL, names first weak line") callback {
+            spec.assert_str_eq(
+                _secrets_weak_line("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\naeb-secret-v1:7J0B3XoMFljVw52kSQjLwfUmJ86vFuNi\n"),
+                "", "weak_line: all strong → empty")
+            spec.assert_str_eq(
+                _secrets_weak_line("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\naeb-secret-v1:password123\n"),
+                "aeb-secret-v1:password123", "weak_line: catches the weak material")
+            spec.assert_str_eq(
+                _secrets_weak_line("# short comment\naeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\n"),
+                "", "weak_line: comments skipped")
+        }
+    }
 
-    // DEFENSE-IN-DEPTH: a VALIDLY-SIGNED but NON-CANONICAL purpose (as a rogue/
-    // patched minter could produce) is rejected at VERIFY, not just at mint. The
-    // verifier re-applies the grammar at the trust boundary.
-    rogue_upper = _lease_mint(mat, "preint/Rust", future)   // uppercase R
-    _assert("verify rejects signed non-canonical purpose (uppercase)",
-        1 - _streq(_lease_verify(secret, rogue_upper, now, "preint/Rust"), ""))
-    rogue_space = _lease_mint(mat, "preint/my rust", future)  // space
-    _assert("verify rejects signed non-canonical purpose (space)",
-        1 - _streq(_lease_verify(secret, rogue_space, now, "preint/my rust"), ""))
-    // a canonical purpose with a trailing /* scope still verifies fine.
-    scoped = _lease_mint(mat, "preint/macos/*", future)
-    _eq("verify accepts canonical /* scope", _lease_verify(secret, scoped, now, "preint/macos/x"), "")
+    spec.describe(fw, "secret envelope: marker + key-material extraction") {
+        spec.it("marker / key_material / envelope-required verify / no_marker_line") callback {
+            now = 1000000000000
+            future = "1000000600000"
+            spec.assert_str_eq(_secret_marker(), "aeb-secret-v1:", "marker is aeb-secret-v1:")
+            spec.assert_str_eq(
+                _secret_key_material("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae"),
+                "99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae", "key_material strips the marker")
+            spec.assert_str_eq(
+                _secret_key_material("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae"),
+                "", "key_material: no marker → empty (not an aeb secret)")
+            spec.assert_str_eq(_secret_key_material("  aeb-secret-v1:abcd  "), "abcd", "key_material: trims surrounding ws")
+            // a verify with a markerless secret is refused (envelope required)
+            enveloped = string.concat("aeb-secret-v1:", "supersecret-256bit-key-material-xyz")
+            tok = _lease_mint(_secret_key_material(enveloped), "preint/x", future)
+            spec.assert_str_eq(_lease_verify(enveloped, tok, now, "preint/x"), "", "verify keys on material under the envelope")
+            spec.assert_true(1 - _streq(_lease_verify("supersecret-256bit-key-material-xyz", tok, now, "preint/x"), ""),
+                "verify refuses a markerless secret")
+            // _secrets_no_marker_line: flags a line lacking the marker
+            spec.assert_str_eq(_secrets_no_marker_line("aeb-secret-v1:keymat-one-long-enough-32chars-yes\n"),
+                "", "no_marker_line: all enveloped → empty")
+            spec.assert_str_eq(
+                _secrets_no_marker_line("aeb-secret-v1:good-material-long-enough-32chars\nbare-blob-no-marker\n"),
+                "bare-blob-no-marker", "no_marker_line: catches a bare line")
+        }
+    }
 
-    // No secret configured => fail-closed.
-    _assert("empty secret => fail-closed",
-        1 - _streq(_lease_verify("", good, now, "preint/phammant/rust"), ""))
-    // Empty/garbage token => rejected.
-    _assert("empty token => rejected",
-        1 - _streq(_lease_verify(secret, "", now, "preint/rust"), ""))
-    _assert("non-ae1 token => rejected",
-        1 - _streq(_lease_verify(secret, "garbage.foo.bar.baz", now, "preint/rust"), ""))
-
-    // Field accessor + signing are stable (mint is deterministic for fixed inputs).
-    _eq("lease field 0 is the ae1 tag", _lease_field(good, 0), "ae1")
-    _eq("lease field 1 is the purpose", _lease_field(good, 1), "preint/phammant/rust")
-    _eq("sign is deterministic",
-        _lease_sign(secret, "preint/rust", future),
-        _lease_sign(secret, "preint/rust", future))
-
-    // --- _lease_purpose_valid: canonical purpose grammar (mint-time gate) ---
-    // Valid canonical slash-paths return "".
-    _eq("valid: preint/phammant/rust", _lease_purpose_valid("preint/phammant/rust"), "")
-    _eq("valid: ci/aether/main", _lease_purpose_valid("ci/aether/main"), "")
-    _eq("valid: single segment", _lease_purpose_valid("preint"), "")
-    _eq("valid: trailing /* scope", _lease_purpose_valid("preint/phammant/*"), "")
-    _eq("valid: feature-x (hyphen+digit)", _lease_purpose_valid("preint/feature-x9"), "")
-    _eq("valid: under_score", _lease_purpose_valid("ci/v1_builds"), "")
-    // Rejections (non-empty reason).
-    _assert("reject: empty purpose", string.length(_lease_purpose_valid("")) > 0)
-    _assert("reject: bare '*' too broad", string.length(_lease_purpose_valid("*")) > 0)
-    _assert("reject: a space", string.length(_lease_purpose_valid("preint/my build")) > 0)
-    _assert("reject: uppercase", string.length(_lease_purpose_valid("preint/Rust")) > 0)
-    _assert("reject: a dot", string.length(_lease_purpose_valid("ci/aether/main.0")) > 0)
-    _assert("reject: empty middle segment", string.length(_lease_purpose_valid("preint//rust")) > 0)
-    _assert("reject: trailing slash", string.length(_lease_purpose_valid("preint/rust/")) > 0)
-    _assert("reject: leading slash", string.length(_lease_purpose_valid("/preint")) > 0)
-    _assert("reject: unicode é", string.length(_lease_purpose_valid("preint/café")) > 0)
-    _assert("reject: '*' mid-path (only trailing /* allowed)", string.length(_lease_purpose_valid("preint/*/rust")) > 0)
-    // The rejection names the offending character where applicable.
-    _assert("reject reason names the space", string.index_of(_lease_purpose_valid("a b"), "' '") >= 0)
-
-    // --- _lease_verify_any: a SET of secrets (rotation) ---
-    // mint with key MATERIAL; the set lines are ENVELOPES (agent-side form).
-    sA = "secret-alpha-material-long-enough"
-    sB = "secret-bravo-material-long-enough"
-    tokA = _lease_mint(sA, "preint/*", future)   // signed by alpha
-    tokB = _lease_mint(sB, "preint/*", future)   // signed by bravo
-    twoset = "aeb-secret-v1:secret-alpha-material-long-enough\naeb-secret-v1:secret-bravo-material-long-enough\n"
-    // a token signed by EITHER listed secret verifies under the set
-    _eq("verify_any accepts alpha-signed", _lease_verify_any(twoset, tokA, now, "preint/x"), "")
-    _eq("verify_any accepts bravo-signed", _lease_verify_any(twoset, tokB, now, "preint/x"), "")
-    // a token signed by a secret NOT in the set is rejected (bad signature)
-    tokC = _lease_mint("secret-charlie-material-long-enough", "preint/*", future)
-    _assert("verify_any rejects unknown-key token",
-        string.length(_lease_verify_any(twoset, tokC, now, "preint/x")) > 0)
-    // comments + blank lines in the set are ignored; alpha still works
-    setcmt = "# rotation: old then new\n\naeb-secret-v1:secret-alpha-material-long-enough\n# bravo retired\n"
-    _eq("verify_any ignores comments/blanks", _lease_verify_any(setcmt, tokA, now, "preint/x"), "")
-    // an effectively-empty set fails closed
-    _assert("verify_any empty set => fail-closed",
-        string.length(_lease_verify_any("# only a comment\n", tokA, now, "preint/x")) > 0)
-    // REASON SELECTION: a token correctly signed (alpha) but EXPIRED reports
-    // 'expired', not the bad-signature noise from the other (bravo) secret.
-    tokAexp = _lease_mint(sA, "preint/*", past)
-    rexp = _lease_verify_any(twoset, tokAexp, now, "preint/x")
-    _assert("verify_any: signed-but-expired reports expiry, not bad-sig",
-        string.index_of(rexp, "expired") >= 0)
-    // single-secret set behaves exactly like _lease_verify
-    _eq("verify_any single-secret == verify",
-        _lease_verify_any("aeb-secret-v1:secret-alpha-material-long-enough\n", tokA, now, "preint/x"), "")
-
-    // --- provisioning-mode helpers ---
-    _assert("csv_contains hit", _csv_contains("patch,advance", "advance") == 1)
-    _assert("csv_contains miss", _csv_contains("patch,advance", "autoclone") == 0)
-    _assert("csv_contains trims", _csv_contains("patch , advance", "advance") == 1)
-    // _mode_offered: empty offered defaults to patch only
-    _assert("mode_offered default patch", _mode_offered("", "patch") == 1)
-    _assert("mode_offered default rejects advance", _mode_offered("", "advance") == 0)
-    _assert("mode_offered explicit set", _mode_offered("patch,autoclone", "autoclone") == 1)
-    _assert("mode_offered not in set", _mode_offered("patch", "advance") == 0)
-    // _branch_allowed: glob over branch names, empty allow-list = fail-closed
-    _assert("branch_allowed exact", _branch_allowed("main", "main") == 1)
-    _assert("branch_allowed glob", _branch_allowed("release/*", "release/1.2") == 1)
-    _assert("branch_allowed reject", _branch_allowed("main", "feature/x") == 0)
-    _assert("branch_allowed empty list fail-closed", _branch_allowed("", "main") == 0)
-    _assert("branch_allowed empty branch fail-closed", _branch_allowed("main", "") == 0)
-    // _autoclone_allowed: <repo> (any branch) or <repo>#<branchglob>
-    _assert("autoclone repo-only any branch",
-        _autoclone_allowed("https://x/r.git", "https://x/r.git", "anything") == 1)
-    _assert("autoclone repo#branch match",
-        _autoclone_allowed("https://x/r.git#main", "https://x/r.git", "main") == 1)
-    _assert("autoclone repo#branchglob match",
-        _autoclone_allowed("https://x/r.git#release/*", "https://x/r.git", "release/9") == 1)
-    _assert("autoclone wrong branch rejected",
-        _autoclone_allowed("https://x/r.git#main", "https://x/r.git", "dev") == 0)
-    _assert("autoclone wrong repo rejected",
-        _autoclone_allowed("https://x/r.git", "https://evil/r.git", "main") == 0)
-    _assert("autoclone empty allow fail-closed",
-        _autoclone_allowed("", "https://x/r.git", "main") == 0)
-
-    // --- token-in-secret-slot footgun guard ---
-    _assert("looks_like_token: a real token", _looks_like_token("ae1.preint/macos.1781.df1f") == 1)
-    _assert("looks_like_token: trims leading ws", _looks_like_token("  ae1.x.1.y") == 1)
-    _assert("looks_like_token: opaque secret is NOT a token", _looks_like_token("df1f18759213d6bc566314ec33c114ee") == 0)
-    _assert("looks_like_token: hex-only secret", _looks_like_token("a3f9c0e1b2d4") == 0)
-    _assert("looks_like_token: empty", _looks_like_token("") == 0)
-    _assert("looks_like_token: 'ae1' without dot is not a token", _looks_like_token("ae1secretish") == 0)
-    // _secrets_have_token: any non-comment line that's a token
-    _assert("secrets_have_token: good multi-line set is clean",
-        _secrets_have_token("# rotation\nsecret-alpha\nsecret-bravo\n") == 0)
-    _assert("secrets_have_token: a token line is caught",
-        _secrets_have_token("secret-alpha\nae1.preint/x.1.sig\n") == 1)
-    _assert("secrets_have_token: comment-only token ignored (it's a comment)",
-        _secrets_have_token("# ae1.example.1.x\nreal-secret\n") == 0)
-
-    // --- secret strength (entropy floor; swappable best-effort = length >= 32) ---
-    _assert("strength: openssl rand -hex 32 (64 chars) ok",
-        _secret_strength_ok("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae") == 1)
-    _assert("strength: rand -base64 24 (32 chars) ok",
-        _secret_strength_ok("7J0B3XoMFljVw52kSQjLwfUmJ86vFuNi") == 1)
-    _assert("strength: lazy 'St4ndrdT1ngTh3yC4nRmbr' (22) too weak",
-        _secret_strength_ok("St4ndrdT1ngTh3yC4nRmbr") == 0)
-    _assert("strength: 'password123' too weak", _secret_strength_ok("password123") == 0)
-    _assert("strength: empty too weak", _secret_strength_ok("") == 0)
-    _assert("strength: exactly 32 chars ok", _secret_strength_ok("01234567890123456789012345678901") == 1)
-    _assert("strength: 31 chars too weak", _secret_strength_ok("0123456789012345678901234567890") == 0)
-    // _secrets_weak_line: checks the key MATERIAL (after the marker); names the
-    // first weak line, "" if all strong.
-    _eq("weak_line: all strong → empty",
-        _secrets_weak_line("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\naeb-secret-v1:7J0B3XoMFljVw52kSQjLwfUmJ86vFuNi\n"), "")
-    _eq("weak_line: catches the weak material",
-        _secrets_weak_line("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\naeb-secret-v1:password123\n"), "aeb-secret-v1:password123")
-    _eq("weak_line: comments skipped",
-        _secrets_weak_line("# short comment\naeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae\n"), "")
-
-    // --- secret envelope: marker + key-material extraction ---
-    _eq("marker is aeb-secret-v1:", _secret_marker(), "aeb-secret-v1:")
-    _eq("key_material strips the marker",
-        _secret_key_material("aeb-secret-v1:99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae"),
-        "99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae")
-    _eq("key_material: no marker → empty (not an aeb secret)",
-        _secret_key_material("99b9ef77f006f7d69ce338e92e7e26d5816267b78d37de4c468b011f748f73ae"), "")
-    _eq("key_material: trims surrounding ws", _secret_key_material("  aeb-secret-v1:abcd  "), "abcd")
-    // a verify with a markerless secret is refused (envelope required)
-    enveloped = string.concat("aeb-secret-v1:", "supersecret-256bit-key-material-xyz")
-    tok = _lease_mint(_secret_key_material(enveloped), "preint/x", future)
-    _eq("verify keys on material under the envelope",
-        _lease_verify(enveloped, tok, now, "preint/x"), "")
-    _assert("verify refuses a markerless secret",
-        1 - _streq(_lease_verify("supersecret-256bit-key-material-xyz", tok, now, "preint/x"), ""))
-    // _secrets_no_marker_line: flags a line lacking the marker
-    _eq("no_marker_line: all enveloped → empty",
-        _secrets_no_marker_line("aeb-secret-v1:keymat-one-long-enough-32chars-yes\n"), "")
-    _eq("no_marker_line: catches a bare line",
-        _secrets_no_marker_line("aeb-secret-v1:good-material-long-enough-32chars\nbare-blob-no-marker\n"), "bare-blob-no-marker")
-
-    println("agent scope + wire + token + ping + pool + veto + lease + provision tests done")
+    spec.run_summary(fw)
 }
 
 // tiny local helpers (the test file is self-contained)

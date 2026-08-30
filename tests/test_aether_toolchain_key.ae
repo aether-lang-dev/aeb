@@ -13,20 +13,11 @@
 // the aetherc-binary component is the identical cache.hash_file
 // mechanism (the avn doc's manual procedure covers it end to end).
 
+import std.spec
 import aether (_cache_key_for_aether_link, _toolchain_version)
 import bldr (_sh, _sh_capture)
 import std.string
 import std.os
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
 
 // Native-form tmpdir via the _sh chokepoint (see e.g. test_aether_resolvers):
 // mktemp answers in MSYS form, but the fixtures are read/run through paths that
@@ -45,7 +36,7 @@ _mktempdir() {
 // sentinel version; with $AETHER pointed at it, _toolchain_version must return
 // that sentinel — proving it does not consult whatever `ae` happens to be on
 // PATH (which historically gave a wrong or empty version into the cache key).
-_test_toolchain_version_uses_aether() {
+_test_toolchain_version_uses_aether(fw: ptr) {
     dir = _mktempdir()
     // A fake `ae` (with the host exe suffix so a bare `ae` name resolves on
     // Windows too) that prints a distinctive --version line.
@@ -68,46 +59,54 @@ _test_toolchain_version_uses_aether() {
     if string.length(prev) > 0 { _r = os.setenv("AETHER", prev) }
     else { _r = os.unsetenv("AETHER") }
 
-    _assert("_toolchain_version() reads $AETHER, not PATH `ae`",
-        string.equals(got, "ae 9.9.9-sentinel (fake)"))
+    spec.assert_true(string.equals(got, "ae 9.9.9-sentinel (fake)"),
+        "_toolchain_version() reads $AETHER, not PATH `ae`")
     _sh("rm -rf '${dir}'")
 }
 
 main() {
-    _test_toolchain_version_uses_aether()
+    fw = spec.init()
 
-    base = _mktempdir()
-    _sh("mkdir -p '${base}/src' '${base}/libdir'")
-    srcdir = "${base}/src"
-    src = "${base}/src/main.ae"
-    libdir = "${base}/libdir"
-    _sh("printf 'main() {}\\n' > '${src}'")
-    _sh("printf 'fake-libaether-content-v1\\n' > '${libdir}/libaether.a'")
+    spec.describe(fw, "aether toolchain cache key") {
+        spec.it("_toolchain_version() reads $AETHER, not PATH `ae`") callback {
+            _test_toolchain_version_uses_aether(fw)
+        }
 
-    k1, e1 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
-    // _cache_key_for_aether_link returns ("", err) when hashing is
-    // unavailable (no OpenSSL/zlib) — skip cleanly in that case.
-    if string.equals(e1, "") == 0 {
-        println("PASS: toolchain-key test skipped — ${e1}")
-        _sh("rm -rf '${base}'")
-        println("toolchain key tests done")
-        return 0
+        spec.it("cache key is content-addressed over libaether.a") callback {
+            base = _mktempdir()
+            _sh("mkdir -p '${base}/src' '${base}/libdir'")
+            srcdir = "${base}/src"
+            src = "${base}/src/main.ae"
+            libdir = "${base}/libdir"
+            _sh("printf 'main() {}\\n' > '${src}'")
+            _sh("printf 'fake-libaether-content-v1\\n' > '${libdir}/libaether.a'")
+
+            k1, e1 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
+            // _cache_key_for_aether_link returns ("", err) when hashing is
+            // unavailable (no OpenSSL/zlib) — skip cleanly in that case.
+            if string.equals(e1, "") == 0 {
+                spec.assert_true(1, "toolchain-key test skipped — ${e1}")
+                _sh("rm -rf '${base}'")
+                return 0
+            }
+
+            k1b, _eb = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
+            spec.assert_true(string.equals(k1, k1b), "key is stable across recomputation")
+
+            // Simulate a toolchain rebuild: libaether.a content changes.
+            _sh("printf 'fake-libaether-content-v2-rebuilt\\n' > '${libdir}/libaether.a'")
+            k2, _e2 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
+            spec.assert_true(1 - string.equals(k1, k2), "a rebuilt libaether.a busts the cache key")
+
+            // Restore the original content — key must return (content-addressed,
+            // SHA256, not mtime: same bytes → same key despite a newer mtime).
+            _sh("printf 'fake-libaether-content-v1\\n' > '${libdir}/libaether.a'")
+            k3, _e3 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
+            spec.assert_true(string.equals(k1, k3), "restoring libaether.a content restores the key")
+
+            _sh("rm -rf '${base}'")
+        }
     }
 
-    k1b, _eb = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
-    _assert("key is stable across recomputation", string.equals(k1, k1b))
-
-    // Simulate a toolchain rebuild: libaether.a content changes.
-    _sh("printf 'fake-libaether-content-v2-rebuilt\\n' > '${libdir}/libaether.a'")
-    k2, _e2 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
-    _assert("a rebuilt libaether.a busts the cache key", 1 - string.equals(k1, k2))
-
-    // Restore the original content — key must return (content-addressed,
-    // SHA256, not mtime: same bytes → same key despite a newer mtime).
-    _sh("printf 'fake-libaether-content-v1\\n' > '${libdir}/libaether.a'")
-    k3, _e3 = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")
-    _assert("restoring libaether.a content restores the key", string.equals(k1, k3))
-
-    _sh("rm -rf '${base}'")
-    println("toolchain key tests done")
+    spec.run_summary(fw)
 }

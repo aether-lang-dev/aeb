@@ -12,6 +12,7 @@
 //
 // Needs podman + the nickblah/lua image; skips cleanly without podman.
 
+import std.spec
 import bldr
 import container
 import container (image_ref, command)
@@ -19,40 +20,33 @@ import std.string
 import std.os
 import std.file
 
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
-
 main() {
+    fw = spec.init()
+
     pchk, _ = os.exec("command -v podman >/dev/null 2>&1 && echo y || echo n")
-    if string.equals(string.trim(pchk), "y") == 0 {
-        println("PASS: container.run/lua e2e skipped — podman not available")
-        println("container lua tests done")
-        return 0
-    }
 
-    os.system("rm -rf ./target/m_container_lua")
+    spec.describe(fw, "container.run/lua e2e") {
+        spec.it("container.run captures Lua pid-1 stdout") callback {
+            if spec.skip_all_if(fw, string.equals(string.trim(pchk), "y") == 0, "container.run/lua e2e skipped — podman not available") == 1 {
+                return 0
+            }
 
-    s = bldr.session(".")
-    out = ""
-    bldr.build(s, "m_container_lua") {
-        out = container.run() {
-            image_ref("docker.io/nickblah/lua:5.4-alpine")
-            command("lua -e 'print(\"hello-from-container-lua\")'")
+            os.system("rm -rf ./target/m_container_lua")
+
+            s = bldr.session(".")
+            out = ""
+            bldr.build(s, "m_container_lua") {
+                out = container.run() {
+                    image_ref("docker.io/nickblah/lua:5.4-alpine")
+                    command("lua -e 'print(\"hello-from-container-lua\")'")
+                }
+            }
+
+            spec.assert_contains(out, "hello-from-container-lua", "container.run captured Lua pid-1 stdout")
+
+            os.system("rm -rf ./target/m_container_lua")
         }
     }
 
-    ok = 0
-    if string.index_of(out, "hello-from-container-lua") >= 0 { ok = 1 }
-    _assert("container.run captured Lua pid-1 stdout", ok)
-
-    os.system("rm -rf ./target/m_container_lua")
-    println("container lua tests done")
-    return 0
+    spec.run_summary(fw)
 }

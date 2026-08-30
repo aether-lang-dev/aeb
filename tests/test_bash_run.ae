@@ -16,6 +16,7 @@
 // builder, a codegen regression — the marker file is absent and
 // this fails loudly.
 
+import std.spec
 import bldr
 import bldr (_sh, _sh_capture)
 import bash
@@ -23,16 +24,6 @@ import bash (script)
 import std.string
 import std.os
 import std.file
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
 
 // Native-form tmpdir via the _sh chokepoint. On Windows the raw
 // os.system("mkdir -p ...") routes through cmd.exe (which cannot run POSIX
@@ -49,35 +40,42 @@ _mktempdir() {
 }
 
 main() {
-    base = _mktempdir()
-    _sh("rm -rf '${base}'; mkdir -p '${base}'")
+    fw = spec.init()
 
-    marker = "${base}/marker"
-    scr = "${base}/probe.sh"
-    // probe.sh just touches the marker — an absolute path, so
-    // bash's _resolve_script_path uses it verbatim.
-    _sh("printf 'touch ${marker}\\n' > '${scr}'")
+    spec.describe(fw, "bash SDK builder dispatch") {
+        spec.it("bash.run and bash.test dispatch and run their scripts") callback {
+            base = _mktempdir()
+            _sh("rm -rf '${base}'; mkdir -p '${base}'")
 
-    // --- bash.run dispatches (Shape A: bldr.build(s,label){ bash.run(){…} }) ---
-    _sh("rm -f '${marker}'")
-    s1 = bldr.session(".")
-    bldr.build(s1, "m_run") {
-        bash.run() {
-            script("${scr}")
+            marker = "${base}/marker"
+            scr = "${base}/probe.sh"
+            // probe.sh just touches the marker — an absolute path, so
+            // bash's _resolve_script_path uses it verbatim.
+            _sh("printf 'touch ${marker}\\n' > '${scr}'")
+
+            // --- bash.run dispatches (Shape A: bldr.build(s,label){ bash.run(){…} }) ---
+            _sh("rm -f '${marker}'")
+            s1 = bldr.session(".")
+            bldr.build(s1, "m_run") {
+                bash.run() {
+                    script("${scr}")
+                }
+            }
+            spec.assert_true(file.exists(marker), "bash.run dispatched and ran its script")
+
+            // --- bash.test dispatches ---
+            _sh("rm -f '${marker}'")
+            s2 = bldr.session(".")
+            bldr.build(s2, "m_test") {
+                bash.test() {
+                    script("${scr}")
+                }
+            }
+            spec.assert_true(file.exists(marker), "bash.test dispatched and ran its script")
+
+            _sh("rm -rf '${base}'")
         }
     }
-    _assert("bash.run dispatched and ran its script", file.exists(marker))
 
-    // --- bash.test dispatches ---
-    _sh("rm -f '${marker}'")
-    s2 = bldr.session(".")
-    bldr.build(s2, "m_test") {
-        bash.test() {
-            script("${scr}")
-        }
-    }
-    _assert("bash.test dispatched and ran its script", file.exists(marker))
-
-    _sh("rm -rf '${base}'")
-    println("bash builder dispatch tests done")
+    spec.run_summary(fw)
 }

@@ -31,26 +31,8 @@ import std.map
 import std.path
 import std.dir
 
+import std.spec
 import bldr (_record_cache, _read_cache_outcome, _format_telemetry_line)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
-_assert_neq(label: string, a: string, b: string) {
-    if a == b {
-        println("FAIL: ${label}")
-        println("  both were: '${a}'")
-    } else {
-        println("PASS: ${label}")
-    }
-}
 
 // A minimal ctx: _record_cache only reads "target_dir" off it.
 _ctx_for(td: string) {
@@ -60,69 +42,77 @@ _ctx_for(td: string) {
 }
 
 main() {
-    raw, _err = os.exec("mktemp -d")
-    tdir = string.trim(raw)
+    fw = spec.init()
 
-    // --- absent marker reads "n/a", NOT "miss" ---------------------------
-    // Load-bearing: a node that never recorded an outcome has made no cache
-    // decision. Defaulting that to "miss" would assert a rebuild happened.
-    empty_td = path.join(tdir, "never-written")
-    _assert_eq("absent marker reads n/a",
-               _read_cache_outcome(empty_td), "n/a")
+    spec.describe(fw, "cache-outcome marker lifecycle") {
+        spec.it("round-trips the vocabulary, keeps key-error distinct, last-writer-wins") callback {
+            raw, _err = os.exec("mktemp -d")
+            tdir = string.trim(raw)
 
-    // --- round-trip for every word in the vocabulary ---------------------
-    td_hit = path.join(tdir, "m-hit")
-    _record_cache(_ctx_for(td_hit), "hit")
-    _assert_eq("round-trip: hit", _read_cache_outcome(td_hit), "hit")
+            // --- absent marker reads "n/a", NOT "miss" ---------------------------
+            // Load-bearing: a node that never recorded an outcome has made no cache
+            // decision. Defaulting that to "miss" would assert a rebuild happened.
+            empty_td = path.join(tdir, "never-written")
+            spec.assert_str_eq(_read_cache_outcome(empty_td), "n/a",
+                "absent marker reads n/a")
 
-    td_miss = path.join(tdir, "m-miss")
-    _record_cache(_ctx_for(td_miss), "miss")
-    _assert_eq("round-trip: miss", _read_cache_outcome(td_miss), "miss")
+            // --- round-trip for every word in the vocabulary ---------------------
+            td_hit = path.join(tdir, "m-hit")
+            _record_cache(_ctx_for(td_hit), "hit")
+            spec.assert_str_eq(_read_cache_outcome(td_hit), "hit", "round-trip: hit")
 
-    td_ke = path.join(tdir, "m-keyerror")
-    _record_cache(_ctx_for(td_ke), "key-error")
-    _assert_eq("round-trip: key-error", _read_cache_outcome(td_ke), "key-error")
+            td_miss = path.join(tdir, "m-miss")
+            _record_cache(_ctx_for(td_miss), "miss")
+            spec.assert_str_eq(_read_cache_outcome(td_miss), "miss", "round-trip: miss")
 
-    td_un = path.join(tdir, "m-unavail")
-    _record_cache(_ctx_for(td_un), "unavailable")
-    _assert_eq("round-trip: unavailable", _read_cache_outcome(td_un), "unavailable")
+            td_ke = path.join(tdir, "m-keyerror")
+            _record_cache(_ctx_for(td_ke), "key-error")
+            spec.assert_str_eq(_read_cache_outcome(td_ke), "key-error", "round-trip: key-error")
 
-    td_na = path.join(tdir, "m-na")
-    _record_cache(_ctx_for(td_na), "n/a")
-    _assert_eq("round-trip: n/a", _read_cache_outcome(td_na), "n/a")
+            td_un = path.join(tdir, "m-unavail")
+            _record_cache(_ctx_for(td_un), "unavailable")
+            spec.assert_str_eq(_read_cache_outcome(td_un), "unavailable", "round-trip: unavailable")
 
-    // --- key-error is DISTINCT from miss ---------------------------------
-    // The bug this file exists for: an unhashable input made the key
-    // computation fail, and that was silently folded into "miss". The two
-    // must stay separable, at the marker AND in the rendered row.
-    _assert_neq("key-error is not miss",
-                _read_cache_outcome(td_ke), _read_cache_outcome(td_miss))
+            td_na = path.join(tdir, "m-na")
+            _record_cache(_ctx_for(td_na), "n/a")
+            spec.assert_str_eq(_read_cache_outcome(td_na), "n/a", "round-trip: n/a")
 
-    line_ke = _format_telemetry_line("apps/sketchpad", "build", 30,
-                                     "key-error", 0, 0, 0, "passed")
-    line_miss = _format_telemetry_line("apps/sketchpad", "build", 30,
-                                       "miss", 0, 0, 0, "passed")
-    _assert_neq("rendered rows differ: key-error vs miss", line_ke, line_miss)
-    _assert_eq("key-error renders its own marker",
-               line_ke,
-               "  build:   apps/sketchpad                   0.03s [key-error]")
+            // --- key-error is DISTINCT from miss ---------------------------------
+            // The bug this file exists for: an unhashable input made the key
+            // computation fail, and that was silently folded into "miss". The two
+            // must stay separable, at the marker AND in the rendered row.
+            spec.assert_false(string.equals(_read_cache_outcome(td_ke), _read_cache_outcome(td_miss)),
+                "key-error is not miss")
 
-    // --- last-writer-wins ------------------------------------------------
-    // _compile_and_link records a provisional outcome before the build and
-    // the authoritative one after it; that overwrite has to stick.
-    td_seq = path.join(tdir, "m-seq")
-    ctx_seq = _ctx_for(td_seq)
-    _record_cache(ctx_seq, "unavailable")
-    _record_cache(ctx_seq, "miss")
-    _assert_eq("last writer wins", _read_cache_outcome(td_seq), "miss")
+            line_ke = _format_telemetry_line("apps/sketchpad", "build", 30,
+                                             "key-error", 0, 0, 0, "passed")
+            line_miss = _format_telemetry_line("apps/sketchpad", "build", 30,
+                                               "miss", 0, 0, 0, "passed")
+            spec.assert_false(string.equals(line_ke, line_miss),
+                "rendered rows differ: key-error vs miss")
+            spec.assert_str_eq(line_ke,
+                "  build:   apps/sketchpad                   0.03s [key-error]",
+                "key-error renders its own marker")
 
-    // --- a blank marker degrades to n/a ----------------------------------
-    // A truncated/interrupted write must not read as a decision.
-    td_blank = path.join(tdir, "m-blank")
-    bldr._mkdirs(td_blank)
-    _e = io.write_file(path.join(td_blank, ".aeb_cache"), "")
-    _assert_eq("blank marker reads n/a", _read_cache_outcome(td_blank), "n/a")
+            // --- last-writer-wins ------------------------------------------------
+            // _compile_and_link records a provisional outcome before the build and
+            // the authoritative one after it; that overwrite has to stick.
+            td_seq = path.join(tdir, "m-seq")
+            ctx_seq = _ctx_for(td_seq)
+            _record_cache(ctx_seq, "unavailable")
+            _record_cache(ctx_seq, "miss")
+            spec.assert_str_eq(_read_cache_outcome(td_seq), "miss", "last writer wins")
 
-    os.system("rm -rf '${tdir}'")
-    println("cache marker lifecycle tests done")
+            // --- a blank marker degrades to n/a ----------------------------------
+            // A truncated/interrupted write must not read as a decision.
+            td_blank = path.join(tdir, "m-blank")
+            bldr._mkdirs(td_blank)
+            _e = io.write_file(path.join(td_blank, ".aeb_cache"), "")
+            spec.assert_str_eq(_read_cache_outcome(td_blank), "n/a", "blank marker reads n/a")
+
+            os.system("rm -rf '${tdir}'")
+        }
+    }
+
+    spec.run_summary(fw)
 }

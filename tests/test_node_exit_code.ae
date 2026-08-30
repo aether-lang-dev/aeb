@@ -12,24 +12,15 @@
 //
 // End-to-end: writes throwaway nodes in a temp dir, runs the INSTALLED aeb on
 // each, asserts the process exit code. Uses `aeb` from PATH (the just-installed
-// build). Self-skips cleanly if no aeb is on PATH. run.sh counts PASS:/FAIL:.
+// build). Self-skips cleanly if no aeb is on PATH.
 
+import std.spec
 import bldr
 import std.string
 import std.os
 import std.file
 import std.io
 import std.path
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
 
 // Run `aeb <node>` in dir, return its exit code.
 _run_aeb(dir: string, node: string): int {
@@ -38,41 +29,44 @@ _run_aeb(dir: string, node: string): int {
 }
 
 main() {
+    fw = spec.init()
+
     achk, _ = os.exec("command -v aeb >/dev/null 2>&1 && echo y || echo n")
-    if string.equals(string.trim(achk), "y") == 0 {
-        println("PASS: node-exit-code e2e skipped — aeb not on PATH")
-        println("node exit code tests done")
-        return 0
+    have_aeb = string.equals(string.trim(achk), "y")
+
+    spec.describe(fw, "node non-zero return reddens the build (e2e)") {
+        spec.it_when(have_aeb, "return-code propagation over installed aeb",
+                     "aeb not on PATH") callback {
+            tmp, _ = os.exec("mktemp -d")
+            dir = string.trim(tmp)
+
+            // Node 1: bare `return 1`, no bldr.fail() — the bug case.
+            fail_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    return 1\n}\n"
+            _w1 = io.write_file(path.join(dir, ".fail.ae"), fail_body)
+            rc_fail = _run_aeb(dir, ".fail.ae")
+            cond1 = 0
+            if rc_fail != 0 { cond1 = 1 }
+            spec.assert_true(cond1, "bare `return 1` node reddens the build (exit non-zero)")
+
+            // Node 2: `return 0` — must stay green.
+            ok_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    return 0\n}\n"
+            _w2 = io.write_file(path.join(dir, ".ok.ae"), ok_body)
+            rc_ok = _run_aeb(dir, ".ok.ae")
+            cond2 = 0
+            if rc_ok == 0 { cond2 = 1 }
+            spec.assert_true(cond2, "`return 0` node stays green (exit 0)")
+
+            // Node 3: explicit bldr.fail() — the pre-existing channel must still redden.
+            ef_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    bldr.fail(b, \"gate rejected\")\n    return 1\n}\n"
+            _w3 = io.write_file(path.join(dir, ".efail.ae"), ef_body)
+            rc_ef = _run_aeb(dir, ".efail.ae")
+            cond3 = 0
+            if rc_ef != 0 { cond3 = 1 }
+            spec.assert_true(cond3, "explicit bldr.fail() node reddens the build (exit non-zero)")
+
+            os.system("rm -rf '${dir}'")
+        }
     }
 
-    tmp, _ = os.exec("mktemp -d")
-    dir = string.trim(tmp)
-
-    // Node 1: bare `return 1`, no bldr.fail() — the bug case.
-    fail_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    return 1\n}\n"
-    _w1 = io.write_file(path.join(dir, ".fail.ae"), fail_body)
-    rc_fail = _run_aeb(dir, ".fail.ae")
-    cond1 = 0
-    if rc_fail != 0 { cond1 = 1 }
-    _assert("bare `return 1` node reddens the build (exit non-zero)", cond1)
-
-    // Node 2: `return 0` — must stay green.
-    ok_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    return 0\n}\n"
-    _w2 = io.write_file(path.join(dir, ".ok.ae"), ok_body)
-    rc_ok = _run_aeb(dir, ".ok.ae")
-    cond2 = 0
-    if rc_ok == 0 { cond2 = 1 }
-    _assert("`return 0` node stays green (exit 0)", cond2)
-
-    // Node 3: explicit bldr.fail() — the pre-existing channel must still redden.
-    ef_body = "import bldr\naeb(cap) {\n    b = bldr.start()\n    bldr.fail(b, \"gate rejected\")\n    return 1\n}\n"
-    _w3 = io.write_file(path.join(dir, ".efail.ae"), ef_body)
-    rc_ef = _run_aeb(dir, ".efail.ae")
-    cond3 = 0
-    if rc_ef != 0 { cond3 = 1 }
-    _assert("explicit bldr.fail() node reddens the build (exit non-zero)", cond3)
-
-    os.system("rm -rf '${dir}'")
-    println("node exit code tests done")
-    return 0
+    spec.run_summary(fw)
 }

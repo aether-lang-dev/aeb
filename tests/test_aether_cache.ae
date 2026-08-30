@@ -8,6 +8,7 @@
 // inputs that go into the hash. If the contract changes (e.g. a
 // new compiler flag is added that affects output) the key shape
 // must change too, or stale cache hits will mask the difference.
+import std.spec
 import std.string
 import std.io
 import std.os
@@ -20,33 +21,6 @@ import std.dir
 
 import bldr
 import aether (_cache_key_for_aether_link, _toolchain_version)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
-_assert_neq(label: string, a: string, b: string) {
-    if a == b {
-        println("FAIL: ${label}")
-        println("  unexpected match: '${a}'")
-    } else {
-        println("PASS: ${label}")
-    }
-}
-
-_assert_nonempty(label: string, s: string) {
-    if string.length(s) > 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label} (empty)")
-    }
-}
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
@@ -92,142 +66,150 @@ _builder_with_extra(path: string) {
 }
 
 main() {
-    // --- _toolchain_version is non-empty (sanity) ---
-    _assert_nonempty("toolchain_version: non-empty", _toolchain_version())
+    fw = spec.init()
 
-    // --- key derivation: same inputs → same key ---
-    tdir = _mktempdir()
-    src = path.join(tdir, "main.ae")
-    _write(src, "main() { println(\"hi\") }\n")
-    b1 = _empty_builder()
+    spec.describe(fw, "_cache_key_for_aether_link") {
+        spec.it("toolchain_version is non-empty") callback {
+            spec.assert_true(string.length(_toolchain_version()) > 0, "toolchain_version: non-empty")
+        }
 
-    k1, e1 = _cache_key_for_aether_link(b1, tdir, src,
-                                         "/lib/aether",
-                                         "-Wl,--allow-multiple-definition",
-                                         "")
-    _assert_eq("key: no error on fresh inputs", e1, "")
-    _assert_nonempty("key: non-empty hash", k1)
+        spec.it("key derivation, invalidation, and content-addressing") callback {
+            // --- key derivation: same inputs → same key ---
+            tdir = _mktempdir()
+            src = path.join(tdir, "main.ae")
+            _write(src, "main() { println(\"hi\") }\n")
+            b1 = _empty_builder()
 
-    k2, _e2 = _cache_key_for_aether_link(b1, tdir, src,
-                                          "/lib/aether",
-                                          "-Wl,--allow-multiple-definition",
-                                          "")
-    _assert_eq("determinism: same inputs → same key", k1, k2)
+            k1, e1 = _cache_key_for_aether_link(b1, tdir, src,
+                                                 "/lib/aether",
+                                                 "-Wl,--allow-multiple-definition",
+                                                 "")
+            spec.assert_str_eq(e1, "", "key: no error on fresh inputs")
+            spec.assert_true(string.length(k1) > 0, "key: non-empty hash")
 
-    // --- source content change → different key ---
-    _write(src, "main() { println(\"goodbye\") }\n")
-    k3, _e3 = _cache_key_for_aether_link(b1, tdir, src,
-                                          "/lib/aether",
-                                          "-Wl,--allow-multiple-definition",
-                                          "")
-    _assert_neq("invalidation: src content change → different key", k1, k3)
+            k2, _e2 = _cache_key_for_aether_link(b1, tdir, src,
+                                                  "/lib/aether",
+                                                  "-Wl,--allow-multiple-definition",
+                                                  "")
+            spec.assert_str_eq(k1, k2, "determinism: same inputs → same key")
 
-    // --- restore content → key restored ---
-    _write(src, "main() { println(\"hi\") }\n")
-    k4, _e4 = _cache_key_for_aether_link(b1, tdir, src,
-                                          "/lib/aether",
-                                          "-Wl,--allow-multiple-definition",
-                                          "")
-    _assert_eq("content-addressed: same content → same key", k1, k4)
+            // --- source content change → different key ---
+            _write(src, "main() { println(\"goodbye\") }\n")
+            k3, _e3 = _cache_key_for_aether_link(b1, tdir, src,
+                                                  "/lib/aether",
+                                                  "-Wl,--allow-multiple-definition",
+                                                  "")
+            spec.assert_false(string.equals(k1, k3), "invalidation: src content change → different key")
 
-    // --- link_flag change → different key ---
-    b_flag = _builder_with_flag("-Wl,-O3")
-    k_flag, _e5 = _cache_key_for_aether_link(b_flag, tdir, src,
-                                              "/lib/aether",
-                                              "-Wl,--allow-multiple-definition",
-                                              "")
-    _assert_neq("invalidation: added link_flag → different key", k1, k_flag)
+            // --- restore content → key restored ---
+            _write(src, "main() { println(\"hi\") }\n")
+            k4, _e4 = _cache_key_for_aether_link(b1, tdir, src,
+                                                  "/lib/aether",
+                                                  "-Wl,--allow-multiple-definition",
+                                                  "")
+            spec.assert_str_eq(k1, k4, "content-addressed: same content → same key")
 
-    // --- lib_dir change → different key ---
-    k_lib, _e6 = _cache_key_for_aether_link(b1, tdir, src,
-                                             "/different/lib",
-                                             "-Wl,--allow-multiple-definition",
-                                             "")
-    _assert_neq("invalidation: lib_dir change → different key", k1, k_lib)
+            // --- link_flag change → different key ---
+            b_flag = _builder_with_flag("-Wl,-O3")
+            k_flag, _e5 = _cache_key_for_aether_link(b_flag, tdir, src,
+                                                      "/lib/aether",
+                                                      "-Wl,--allow-multiple-definition",
+                                                      "")
+            spec.assert_false(string.equals(k1, k_flag), "invalidation: added link_flag → different key")
 
-    // --- dup_flag change → different key (platform-discriminator) ---
-    k_dup, _e7 = _cache_key_for_aether_link(b1, tdir, src,
-                                             "/lib/aether",
-                                             "",
-                                             "")
-    _assert_neq("invalidation: dup_flag change → different key", k1, k_dup)
+            // --- lib_dir change → different key ---
+            k_lib, _e6 = _cache_key_for_aether_link(b1, tdir, src,
+                                                     "/different/lib",
+                                                     "-Wl,--allow-multiple-definition",
+                                                     "")
+            spec.assert_false(string.equals(k1, k_lib), "invalidation: lib_dir change → different key")
 
-    // --- extra_source content change → different key ---
-    extra_path = path.join(tdir, "extra.c")
-    _write(extra_path, "void f(void) {}\n")
-    b_extra = _builder_with_extra(extra_path)
-    k_extra1, _e8 = _cache_key_for_aether_link(b_extra, tdir, src,
-                                                "/lib/aether",
-                                                "-Wl,--allow-multiple-definition",
-                                                "")
-    _write(extra_path, "void g(void) {}\n")
-    k_extra2, _e9 = _cache_key_for_aether_link(b_extra, tdir, src,
-                                                "/lib/aether",
-                                                "-Wl,--allow-multiple-definition",
-                                                "")
-    _assert_neq("invalidation: extra_source content change → different key",
-                k_extra1, k_extra2)
+            // --- dup_flag change → different key (platform-discriminator) ---
+            k_dup, _e7 = _cache_key_for_aether_link(b1, tdir, src,
+                                                     "/lib/aether",
+                                                     "",
+                                                     "")
+            spec.assert_false(string.equals(k1, k_dup), "invalidation: dup_flag change → different key")
 
-    // --- adding extra_source changes key ---
-    _assert_neq("invalidation: extra_source presence → different key",
-                k1, k_extra1)
+            // --- extra_source content change → different key ---
+            extra_path = path.join(tdir, "extra.c")
+            _write(extra_path, "void f(void) {}\n")
+            b_extra = _builder_with_extra(extra_path)
+            k_extra1, _e8 = _cache_key_for_aether_link(b_extra, tdir, src,
+                                                        "/lib/aether",
+                                                        "-Wl,--allow-multiple-definition",
+                                                        "")
+            _write(extra_path, "void g(void) {}\n")
+            k_extra2, _e9 = _cache_key_for_aether_link(b_extra, tdir, src,
+                                                        "/lib/aether",
+                                                        "-Wl,--allow-multiple-definition",
+                                                        "")
+            spec.assert_false(string.equals(k_extra1, k_extra2),
+                        "invalidation: extra_source content change → different key")
 
-    // --- CONTENT behind -L/-l link_flag change → different key -----------
-    // The regression this whole change closes: an external archive named
-    // by `-L<dir>` + `-l<name>` must contribute its CONTENT to the key, not
-    // just the two flag STRINGS. A toolchain/library swapped at the same
-    // path (the /usr/local 0.545→0.551 case) previously left the key
-    // unchanged and served a stale, differently-linked binary.
-    // (asks/cache-key-omits-external-include-and-lib-contents.md)
-    libdir = path.join(tdir, "extlib")
-    os.system("mkdir -p '${libdir}'")
-    arch = path.join(libdir, "libfoo.a")
-    _write(arch, "!<arch>\nvintage-A payload\n")
-    b_ext = _empty_builder()
-    ext_flags, _ = map.get(b_ext, "link_flag")
-    list.add(ext_flags, string.concat("-L", libdir))
-    list.add(ext_flags, "-lfoo")
-    k_lib_a, _el1 = _cache_key_for_aether_link(b_ext, tdir, src,
-                                               "/lib/aether",
-                                               "-Wl,--allow-multiple-definition",
-                                               "")
-    _assert_nonempty("linklib: resolves archive, key non-empty", k_lib_a)
-    // Swap the archive content at the SAME path — the flag strings are
-    // byte-identical, so only content-hashing can move the key.
-    _write(arch, "!<arch>\nvintage-B different payload\n")
-    k_lib_b, _el2 = _cache_key_for_aether_link(b_ext, tdir, src,
-                                               "/lib/aether",
-                                               "-Wl,--allow-multiple-definition",
-                                               "")
-    _assert_neq("invalidation: -l archive content change → different key",
-                k_lib_a, k_lib_b)
-    // Restore → key restored (content-addressed, not path-addressed).
-    _write(arch, "!<arch>\nvintage-A payload\n")
-    k_lib_a2, _el3 = _cache_key_for_aether_link(b_ext, tdir, src,
-                                                "/lib/aether",
-                                                "-Wl,--allow-multiple-definition",
-                                                "")
-    _assert_eq("content-addressed: restored -l archive → key restored",
-               k_lib_a, k_lib_a2)
-    // A -l that resolves to no file (system lib) must not error — the flag
-    // string still discriminates it.
-    b_sys = _builder_with_flag("-lm")
-    k_sys, e_sys = _cache_key_for_aether_link(b_sys, tdir, src,
-                                              "/lib/aether",
-                                              "-Wl,--allow-multiple-definition",
-                                              "")
-    _assert_eq("unresolved -l (system lib) does not error", e_sys, "")
-    _assert_nonempty("unresolved -l still yields a key", k_sys)
+            // --- adding extra_source changes key ---
+            spec.assert_false(string.equals(k1, k_extra1),
+                        "invalidation: extra_source presence → different key")
 
-    // --- missing src returns error, empty key ---
-    bad_src = path.join(tdir, "nonexistent.ae")
-    k_bad, e_bad = _cache_key_for_aether_link(b1, tdir, bad_src,
-                                                "/lib/aether",
-                                                "-Wl,--allow-multiple-definition",
-                                                "")
-    _assert_eq("error path: missing src returns empty key", k_bad, "")
-    _assert_nonempty("error path: missing src reports error", e_bad)
+            // --- CONTENT behind -L/-l link_flag change → different key -----------
+            // The regression this whole change closes: an external archive named
+            // by `-L<dir>` + `-l<name>` must contribute its CONTENT to the key, not
+            // just the two flag STRINGS. A toolchain/library swapped at the same
+            // path (the /usr/local 0.545→0.551 case) previously left the key
+            // unchanged and served a stale, differently-linked binary.
+            // (asks/cache-key-omits-external-include-and-lib-contents.md)
+            libdir = path.join(tdir, "extlib")
+            os.system("mkdir -p '${libdir}'")
+            arch = path.join(libdir, "libfoo.a")
+            _write(arch, "!<arch>\nvintage-A payload\n")
+            b_ext = _empty_builder()
+            ext_flags, _ = map.get(b_ext, "link_flag")
+            list.add(ext_flags, string.concat("-L", libdir))
+            list.add(ext_flags, "-lfoo")
+            k_lib_a, _el1 = _cache_key_for_aether_link(b_ext, tdir, src,
+                                                       "/lib/aether",
+                                                       "-Wl,--allow-multiple-definition",
+                                                       "")
+            spec.assert_true(string.length(k_lib_a) > 0, "linklib: resolves archive, key non-empty")
+            // Swap the archive content at the SAME path — the flag strings are
+            // byte-identical, so only content-hashing can move the key.
+            _write(arch, "!<arch>\nvintage-B different payload\n")
+            k_lib_b, _el2 = _cache_key_for_aether_link(b_ext, tdir, src,
+                                                       "/lib/aether",
+                                                       "-Wl,--allow-multiple-definition",
+                                                       "")
+            spec.assert_false(string.equals(k_lib_a, k_lib_b),
+                        "invalidation: -l archive content change → different key")
+            // Restore → key restored (content-addressed, not path-addressed).
+            _write(arch, "!<arch>\nvintage-A payload\n")
+            k_lib_a2, _el3 = _cache_key_for_aether_link(b_ext, tdir, src,
+                                                        "/lib/aether",
+                                                        "-Wl,--allow-multiple-definition",
+                                                        "")
+            spec.assert_str_eq(k_lib_a, k_lib_a2,
+                       "content-addressed: restored -l archive → key restored")
+            // A -l that resolves to no file (system lib) must not error — the flag
+            // string still discriminates it.
+            b_sys = _builder_with_flag("-lm")
+            k_sys, e_sys = _cache_key_for_aether_link(b_sys, tdir, src,
+                                                      "/lib/aether",
+                                                      "-Wl,--allow-multiple-definition",
+                                                      "")
+            spec.assert_str_eq(e_sys, "", "unresolved -l (system lib) does not error")
+            spec.assert_true(string.length(k_sys) > 0, "unresolved -l still yields a key")
 
-    os.system("rm -rf '${tdir}'")
-    println("aether cache-key tests done")
+            // --- missing src returns error, empty key ---
+            bad_src = path.join(tdir, "nonexistent.ae")
+            k_bad, e_bad = _cache_key_for_aether_link(b1, tdir, bad_src,
+                                                        "/lib/aether",
+                                                        "-Wl,--allow-multiple-definition",
+                                                        "")
+            spec.assert_str_eq(k_bad, "", "error path: missing src returns empty key")
+            spec.assert_true(string.length(e_bad) > 0, "error path: missing src reports error")
+
+            os.system("rm -rf '${tdir}'")
+        }
+    }
+
+    spec.run_summary(fw)
 }

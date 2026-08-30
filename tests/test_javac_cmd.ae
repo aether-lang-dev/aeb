@@ -1,27 +1,12 @@
+import std.spec
 import std.string
 import std.io
-import std.os
-import std.file
-import std.fs
-import std.list
 import std.map
-import std.path
-import std.dir
 
 import bldr (_sh, _sh_capture, _path_sep)
 // Tests for javac_cmd() — command string builder
 
 import java (javac_cmd, classpath_file, _read_classpath_files)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
 
 // Native-form tmpdir. `mktemp -d` speaks the SHELL's vocabulary
 // ("/tmp/tmp.XXXX" under MSYS), but std.file/std.io are native Win32 calls
@@ -38,145 +23,192 @@ _mktempdir() {
 }
 
 main() {
-    cmd1 = javac_cmd("out/classes", "out/classes", "Foo.java Bar.java", null)
-    _assert_eq("no-config baseline", cmd1,
-        "javac -d out/classes -cp out/classes Foo.java Bar.java")
+    fw = spec.init()
 
-    opts2 = map_new()
-    map_put(opts2, "release", "21")
-    map_put(opts2, "lint", "all")
-    cmd2 = javac_cmd("out/classes", "out/classes", "Main.java", opts2)
-    _assert_eq("release + lint", cmd2,
-        "javac -d out/classes --release 21 -Xlint:all -cp out/classes Main.java")
+    spec.describe(fw, "javac_cmd: command string builder") {
+        spec.it("no-config baseline") callback {
+            cmd1 = javac_cmd("out/classes", "out/classes", "Foo.java Bar.java", null)
+            spec.assert_str_eq(cmd1,
+                "javac -d out/classes -cp out/classes Foo.java Bar.java", "no-config baseline")
+        }
 
-    opts3 = map_new()
-    map_put(opts3, "source", "17")
-    map_put(opts3, "target", "17")
-    cmd3 = javac_cmd("out/classes", "out/classes", "Main.java", opts3)
-    _assert_eq("source + target", cmd3,
-        "javac -d out/classes -source 17 -target 17 -cp out/classes Main.java")
+        spec.it("release + lint") callback {
+            opts2 = map_new()
+            map_put(opts2, "release", "21")
+            map_put(opts2, "lint", "all")
+            cmd2 = javac_cmd("out/classes", "out/classes", "Main.java", opts2)
+            spec.assert_str_eq(cmd2,
+                "javac -d out/classes --release 21 -Xlint:all -cp out/classes Main.java", "release + lint")
+        }
 
-    opts4 = map_new()
-    map_put(opts4, "release", "21")
-    map_put(opts4, "source", "17")
-    map_put(opts4, "target", "17")
-    cmd4 = javac_cmd("out/classes", "out/classes", "Main.java", opts4)
-    _assert_eq("release precedence", cmd4,
-        "javac -d out/classes --release 21 -cp out/classes Main.java")
+        spec.it("source + target") callback {
+            opts3 = map_new()
+            map_put(opts3, "source", "17")
+            map_put(opts3, "target", "17")
+            cmd3 = javac_cmd("out/classes", "out/classes", "Main.java", opts3)
+            spec.assert_str_eq(cmd3,
+                "javac -d out/classes -source 17 -target 17 -cp out/classes Main.java", "source + target")
+        }
 
-    opts5 = map_new()
-    map_put(opts5, "werror", "true")
-    map_put(opts5, "deprecation", "true")
-    map_put(opts5, "parameters", "true")
-    cmd5 = javac_cmd("out/classes", "cp", "A.java", opts5)
-    _assert_eq("boolean flags", cmd5,
-        "javac -d out/classes -Werror -deprecation -parameters -cp cp A.java")
+        spec.it("release precedence over source/target") callback {
+            opts4 = map_new()
+            map_put(opts4, "release", "21")
+            map_put(opts4, "source", "17")
+            map_put(opts4, "target", "17")
+            cmd4 = javac_cmd("out/classes", "out/classes", "Main.java", opts4)
+            spec.assert_str_eq(cmd4,
+                "javac -d out/classes --release 21 -cp out/classes Main.java", "release precedence")
+        }
 
-    opts6a = map_new()
-    map_put(opts6a, "debug", "vars,lines")
-    _assert_eq("debug vars,lines", javac_cmd("out", "cp", "A.java", opts6a),
-        "javac -d out -g:vars,lines -cp cp A.java")
+        spec.it("boolean flags") callback {
+            opts5 = map_new()
+            map_put(opts5, "werror", "true")
+            map_put(opts5, "deprecation", "true")
+            map_put(opts5, "parameters", "true")
+            cmd5 = javac_cmd("out/classes", "cp", "A.java", opts5)
+            spec.assert_str_eq(cmd5,
+                "javac -d out/classes -Werror -deprecation -parameters -cp cp A.java", "boolean flags")
+        }
 
-    opts6b = map_new()
-    map_put(opts6b, "debug", "none")
-    _assert_eq("debug none", javac_cmd("out", "cp", "A.java", opts6b),
-        "javac -d out -g:none -cp cp A.java")
+        spec.it("debug vars,lines") callback {
+            opts6a = map_new()
+            map_put(opts6a, "debug", "vars,lines")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts6a),
+                "javac -d out -g:vars,lines -cp cp A.java", "debug vars,lines")
+        }
 
-    opts6c = map_new()
-    map_put(opts6c, "debug", "all")
-    _assert_eq("debug all", javac_cmd("out", "cp", "A.java", opts6c),
-        "javac -d out -g -cp cp A.java")
+        spec.it("debug none") callback {
+            opts6b = map_new()
+            map_put(opts6b, "debug", "none")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts6b),
+                "javac -d out -g:none -cp cp A.java", "debug none")
+        }
 
-    opts7 = map_new()
-    map_put(opts7, "extra", "-XprintRounds -Akey=val")
-    _assert_eq("extra", javac_cmd("out", "cp", "A.java", opts7),
-        "javac -d out -XprintRounds -Akey=val -cp cp A.java")
+        spec.it("debug all") callback {
+            opts6c = map_new()
+            map_put(opts6c, "debug", "all")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts6c),
+                "javac -d out -g -cp cp A.java", "debug all")
+        }
 
-    opts8 = map_new()
-    map_put(opts8, "encoding", "UTF-8")
-    map_put(opts8, "enable_preview", "true")
-    map_put(opts8, "module_path", "mods")
-    map_put(opts8, "processor", "com.example.MyProcessor")
-    _assert_eq("encoding+preview+modpath+proc", javac_cmd("out", "cp", "A.java", opts8),
-        "javac -d out -encoding UTF-8 --enable-preview --module-path mods -processor com.example.MyProcessor -cp cp A.java")
+        spec.it("extra passthrough") callback {
+            opts7 = map_new()
+            map_put(opts7, "extra", "-XprintRounds -Akey=val")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts7),
+                "javac -d out -XprintRounds -Akey=val -cp cp A.java", "extra")
+        }
 
-    // modular: resolved deps go on --module-path instead of -cp (JPMS)
-    opts8m = map_new()
-    map_put(opts8m, "modular", "1")
-    _assert_eq("modular routes deps to --module-path", javac_cmd("out", "deps.jar:b.jar", "module-info.java A.java", opts8m),
-        "javac -d out --module-path deps.jar:b.jar module-info.java A.java")
+        spec.it("encoding+preview+modpath+proc") callback {
+            opts8 = map_new()
+            map_put(opts8, "encoding", "UTF-8")
+            map_put(opts8, "enable_preview", "true")
+            map_put(opts8, "module_path", "mods")
+            map_put(opts8, "processor", "com.example.MyProcessor")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts8),
+                "javac -d out -encoding UTF-8 --enable-preview --module-path mods -processor com.example.MyProcessor -cp cp A.java",
+                "encoding+preview+modpath+proc")
+        }
 
-    opts8n = map_new()
-    map_put(opts8n, "release", "21")
-    map_put(opts8n, "modular", "1")
-    _assert_eq("modular + release", javac_cmd("out", "cp", "A.java", opts8n),
-        "javac -d out --release 21 --module-path cp A.java")
+        spec.it("modular routes deps to --module-path") callback {
+            // modular: resolved deps go on --module-path instead of -cp (JPMS)
+            opts8m = map_new()
+            map_put(opts8m, "modular", "1")
+            spec.assert_str_eq(javac_cmd("out", "deps.jar:b.jar", "module-info.java A.java", opts8m),
+                "javac -d out --module-path deps.jar:b.jar module-info.java A.java",
+                "modular routes deps to --module-path")
+        }
 
-    opts9 = map_new()
-    map_put(opts9, "release", "21")
-    map_put(opts9, "encoding", "UTF-8")
-    map_put(opts9, "debug", "vars")
-    map_put(opts9, "lint", "all")
-    map_put(opts9, "werror", "true")
-    map_put(opts9, "deprecation", "true")
-    map_put(opts9, "parameters", "true")
-    map_put(opts9, "nowarn", "true")
-    map_put(opts9, "verbose", "true")
-    map_put(opts9, "enable_preview", "true")
-    map_put(opts9, "module_path", "mods")
-    map_put(opts9, "processor", "com.example.AP")
-    map_put(opts9, "extra", "-Xmaxerrs 1")
-    _assert_eq("all combined", javac_cmd("out", "cp", "A.java", opts9),
-        "javac -d out --release 21 -encoding UTF-8 -g:vars -Xlint:all -Werror -deprecation -parameters -nowarn -verbose --enable-preview --module-path mods -processor com.example.AP -Xmaxerrs 1 -cp cp A.java")
+        spec.it("modular + release") callback {
+            opts8n = map_new()
+            map_put(opts8n, "release", "21")
+            map_put(opts8n, "modular", "1")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts8n),
+                "javac -d out --release 21 --module-path cp A.java", "modular + release")
+        }
 
-    // select_jdk(...) path: when the builder resolved a specific JDK home,
-    // it stashes "_javac_bin" on the opts map and javac_cmd uses that
-    // absolute javac instead of PATH's. release() stays orthogonal — the
-    // selected javac still compiles to the requested --release level.
-    opts10 = map_new()
-    map_put(opts10, "_javac_bin", "/usr/lib/jvm/java-21-amazon-corretto/bin/javac")
-    map_put(opts10, "release", "21")
-    _assert_eq("selected jdk binary", javac_cmd("out", "cp", "A.java", opts10),
-        "/usr/lib/jvm/java-21-amazon-corretto/bin/javac -d out --release 21 -cp cp A.java")
+        spec.it("all combined") callback {
+            opts9 = map_new()
+            map_put(opts9, "release", "21")
+            map_put(opts9, "encoding", "UTF-8")
+            map_put(opts9, "debug", "vars")
+            map_put(opts9, "lint", "all")
+            map_put(opts9, "werror", "true")
+            map_put(opts9, "deprecation", "true")
+            map_put(opts9, "parameters", "true")
+            map_put(opts9, "nowarn", "true")
+            map_put(opts9, "verbose", "true")
+            map_put(opts9, "enable_preview", "true")
+            map_put(opts9, "module_path", "mods")
+            map_put(opts9, "processor", "com.example.AP")
+            map_put(opts9, "extra", "-Xmaxerrs 1")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts9),
+                "javac -d out --release 21 -encoding UTF-8 -g:vars -Xlint:all -Werror -deprecation -parameters -nowarn -verbose --enable-preview --module-path mods -processor com.example.AP -Xmaxerrs 1 -cp cp A.java",
+                "all combined")
+        }
 
-    // empty _javac_bin falls back to PATH javac (defensive).
-    opts11 = map_new()
-    map_put(opts11, "_javac_bin", "")
-    _assert_eq("empty _javac_bin falls back to PATH", javac_cmd("out", "cp", "A.java", opts11),
-        "javac -d out -cp cp A.java")
+        spec.it("selected jdk binary") callback {
+            // select_jdk(...) path: when the builder resolved a specific JDK home,
+            // it stashes "_javac_bin" on the opts map and javac_cmd uses that
+            // absolute javac instead of PATH's. release() stays orthogonal — the
+            // selected javac still compiles to the requested --release level.
+            opts10 = map_new()
+            map_put(opts10, "_javac_bin", "/usr/lib/jvm/java-21-amazon-corretto/bin/javac")
+            map_put(opts10, "release", "21")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts10),
+                "/usr/lib/jvm/java-21-amazon-corretto/bin/javac -d out --release 21 -cp cp A.java",
+                "selected jdk binary")
+        }
 
-    // --- classpath_file: pre-resolved classpath, no resolver invocation
-    // (the bootstrap path for building aeb's own resolver). ---
-    // Native tmpdir + _sh chokepoint: _read_classpath_files reads via native
-    // file.exists/io.read_file, so the dir the shell creates and the path the
-    // reader stats must be the SAME native form on Windows. A raw
-    // os.system("mkdir -p /tmp/...") routes through cmd.exe and never creates
-    // it; io.read_file then finds nothing. See lib/build _sh docstring.
-    cpf_dir = _mktempdir()
-    _sh("mkdir -p '${cpf_dir}'")
-    _w1 = io.write_file("${cpf_dir}/a.cp", "/m2/x.jar:/m2/y.jar\n")
-    _w2 = io.write_file("${cpf_dir}/b.cp", "/m2/z.jar")
-    // The join BETWEEN files uses the host classpath separator (_cp_append →
-    // _path_sep()): ':' on POSIX, ';' on Windows. Build the expectation the
-    // same way so it holds on every host. The separators WITHIN a file's
-    // stored line ("/m2/x.jar:/m2/y.jar") are literal content, not re-joined.
-    sep = _path_sep()
-    cpb = map_new()
-    classpath_file(cpb, "a.cp")
-    classpath_file(cpb, "b.cp")
-    _assert_eq("classpath_file joins file contents",
-        _read_classpath_files(cpb, cpf_dir),
-        string.concat("/m2/x.jar:/m2/y.jar", string.concat(sep, "/m2/z.jar")))
-    // absolute path passes through; missing file contributes nothing
-    cpb2 = map_new()
-    classpath_file(cpb2, "${cpf_dir}/a.cp")
-    classpath_file(cpb2, "nope.cp")
-    _assert_eq("classpath_file abs + missing",
-        _read_classpath_files(cpb2, cpf_dir),
-        "/m2/x.jar:/m2/y.jar")
-    _assert_eq("no classpath_file -> empty",
-        _read_classpath_files(map_new(), cpf_dir), "")
-    _sh("rm -rf '${cpf_dir}'")
+        spec.it("empty _javac_bin falls back to PATH") callback {
+            // empty _javac_bin falls back to PATH javac (defensive).
+            opts11 = map_new()
+            map_put(opts11, "_javac_bin", "")
+            spec.assert_str_eq(javac_cmd("out", "cp", "A.java", opts11),
+                "javac -d out -cp cp A.java", "empty _javac_bin falls back to PATH")
+        }
+    }
 
-    println("javac_cmd tests done")
+    spec.describe(fw, "classpath_file: pre-resolved classpath") {
+        // classpath_file: pre-resolved classpath, no resolver invocation
+        // (the bootstrap path for building aeb's own resolver).
+        spec.it("joins file contents, abs+missing, empty") callback {
+            // Native tmpdir + _sh chokepoint: _read_classpath_files reads via
+            // native file.exists/io.read_file, so the dir the shell creates and
+            // the path the reader stats must be the SAME native form on Windows.
+            // A raw os.system("mkdir -p /tmp/...") routes through cmd.exe and
+            // never creates it; io.read_file then finds nothing. See lib/build
+            // _sh docstring.
+            cpf_dir = _mktempdir()
+            _sh("mkdir -p '${cpf_dir}'")
+            _w1 = io.write_file("${cpf_dir}/a.cp", "/m2/x.jar:/m2/y.jar\n")
+            _w2 = io.write_file("${cpf_dir}/b.cp", "/m2/z.jar")
+            // The join BETWEEN files uses the host classpath separator
+            // (_cp_append → _path_sep()): ':' on POSIX, ';' on Windows. Build the
+            // expectation the same way so it holds on every host. The separators
+            // WITHIN a file's stored line ("/m2/x.jar:/m2/y.jar") are literal
+            // content, not re-joined.
+            sep = _path_sep()
+            cpb = map_new()
+            classpath_file(cpb, "a.cp")
+            classpath_file(cpb, "b.cp")
+            spec.assert_str_eq(
+                _read_classpath_files(cpb, cpf_dir),
+                string.concat("/m2/x.jar:/m2/y.jar", string.concat(sep, "/m2/z.jar")),
+                "classpath_file joins file contents")
+            // absolute path passes through; missing file contributes nothing
+            cpb2 = map_new()
+            classpath_file(cpb2, "${cpf_dir}/a.cp")
+            classpath_file(cpb2, "nope.cp")
+            spec.assert_str_eq(
+                _read_classpath_files(cpb2, cpf_dir),
+                "/m2/x.jar:/m2/y.jar",
+                "classpath_file abs + missing")
+            spec.assert_str_eq(
+                _read_classpath_files(map_new(), cpf_dir), "",
+                "no classpath_file -> empty")
+            _sh("rm -rf '${cpf_dir}'")
+        }
+    }
+
+    spec.run_summary(fw)
 }

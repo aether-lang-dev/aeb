@@ -8,6 +8,7 @@
 // in this directory — first filesystem-fixture test in the suite.
 // If this pattern grows, factor the tmpdir helper into a shared
 // tests/_fixtures.ae or similar.
+import std.spec
 import std.string
 import std.io
 import std.os
@@ -22,18 +23,8 @@ import bldr
 import bldr (_sh, _sh_capture)
 import aether (_resolve_libaether_dir, _resolve_aether_include)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 // Allocate a fresh tmpdir per layout. Caller is responsible for
-// cleanup (rm -rf at end of main()).
+// cleanup (rm -rf at end of the it-block).
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
     // ("/tmp/tmp.XXXX" under MSYS), but std.fs/std.dir/std.file are native
@@ -77,78 +68,95 @@ _setup_empty(root: string) {
 }
 
 main() {
-    // --- FHS install: lib/aether/libaether.a + include/aether/ ---
-    fhs = _mktempdir()
-    _setup_fhs(fhs)
-    fhs_bin = string.concat(fhs, "/bin")
+    fw = spec.init()
 
-    // _resolve_libaether_dir returns the lib/aether dir form
-    // (string.concat result, not a normalised abs path).
-    _assert_eq("FHS: libaether.a found at lib/aether/",
-        _resolve_libaether_dir(fhs_bin),
-        string.concat(fhs_bin, "/../lib/aether"))
+    spec.describe(fw, "install-layout resolvers") {
+        spec.it("FHS install: lib/aether/libaether.a + include/aether/") callback {
+            fhs = _mktempdir()
+            _setup_fhs(fhs)
+            fhs_bin = string.concat(fhs, "/bin")
 
-    _assert_eq("FHS: include/aether/ found",
-        _resolve_aether_include(fhs_bin),
-        string.concat(fhs_bin, "/../include/aether"))
+            // _resolve_libaether_dir returns the lib/aether dir form
+            // (string.concat result, not a normalised abs path).
+            spec.assert_str_eq(
+                _resolve_libaether_dir(fhs_bin),
+                string.concat(fhs_bin, "/../lib/aether"),
+                "FHS: libaether.a found at lib/aether/")
 
-    _sh("rm -rf '${fhs}'")
+            spec.assert_str_eq(
+                _resolve_aether_include(fhs_bin),
+                string.concat(fhs_bin, "/../include/aether"),
+                "FHS: include/aether/ found")
 
-    // --- Flat install: lib/libaether.a, no include tree ---
-    flat = _mktempdir()
-    _setup_flat(flat)
-    flat_bin = string.concat(flat, "/bin")
+            _sh("rm -rf '${fhs}'")
+        }
 
-    _assert_eq("Flat: libaether.a found at lib/",
-        _resolve_libaether_dir(flat_bin),
-        string.concat(flat_bin, "/../lib"))
+        spec.it("Flat install: lib/libaether.a, no include tree") callback {
+            flat = _mktempdir()
+            _setup_flat(flat)
+            flat_bin = string.concat(flat, "/bin")
 
-    _assert_eq("Flat: no include/aether → empty",
-        _resolve_aether_include(flat_bin), "")
+            spec.assert_str_eq(
+                _resolve_libaether_dir(flat_bin),
+                string.concat(flat_bin, "/../lib"),
+                "Flat: libaether.a found at lib/")
 
-    _sh("rm -rf '${flat}'")
+            spec.assert_str_eq(
+                _resolve_aether_include(flat_bin), "",
+                "Flat: no include/aether → empty")
 
-    // --- Next-to-driver: libaether.a beside ae/aetherc ---
-    ntd = _mktempdir()
-    _setup_next_to_driver(ntd)
-    ntd_bin = string.concat(ntd, "/bin")
+            _sh("rm -rf '${flat}'")
+        }
 
-    _assert_eq("Next-to-driver: libaether.a found in bin/",
-        _resolve_libaether_dir(ntd_bin), ntd_bin)
+        spec.it("Next-to-driver: libaether.a beside ae/aetherc") callback {
+            ntd = _mktempdir()
+            _setup_next_to_driver(ntd)
+            ntd_bin = string.concat(ntd, "/bin")
 
-    _sh("rm -rf '${ntd}'")
+            spec.assert_str_eq(
+                _resolve_libaether_dir(ntd_bin), ntd_bin,
+                "Next-to-driver: libaether.a found in bin/")
 
-    // --- Empty: no libaether.a, no include — both probes return "" ---
-    empty = _mktempdir()
-    _setup_empty(empty)
-    empty_bin = string.concat(empty, "/bin")
+            _sh("rm -rf '${ntd}'")
+        }
 
-    _assert_eq("Empty install: libaether.a not found → empty",
-        _resolve_libaether_dir(empty_bin), "")
-    _assert_eq("Empty install: include not found → empty",
-        _resolve_aether_include(empty_bin), "")
+        spec.it("Empty install: neither probe finds anything") callback {
+            empty = _mktempdir()
+            _setup_empty(empty)
+            empty_bin = string.concat(empty, "/bin")
 
-    _sh("rm -rf '${empty}'")
+            spec.assert_str_eq(
+                _resolve_libaether_dir(empty_bin), "",
+                "Empty install: libaether.a not found → empty")
+            spec.assert_str_eq(
+                _resolve_aether_include(empty_bin), "",
+                "Empty install: include not found → empty")
 
-    // --- FHS preferred over flat when both exist ---
-    // (lib/aether/libaether.a is checked before lib/libaether.a)
-    both = _mktempdir()
-    _setup_flat(both)        // creates lib/libaether.a
-    _setup_fhs(both)         // also creates lib/aether/libaether.a
-    both_bin = string.concat(both, "/bin")
+            _sh("rm -rf '${empty}'")
+        }
 
-    _assert_eq("Probe order: FHS wins over flat when both present",
-        _resolve_libaether_dir(both_bin),
-        string.concat(both_bin, "/../lib/aether"))
+        spec.it("Probe order: FHS wins over flat when both present") callback {
+            // (lib/aether/libaether.a is checked before lib/libaether.a)
+            both = _mktempdir()
+            _setup_flat(both)        // creates lib/libaether.a
+            _setup_fhs(both)         // also creates lib/aether/libaether.a
+            both_bin = string.concat(both, "/bin")
 
-    _sh("rm -rf '${both}'")
+            spec.assert_str_eq(
+                _resolve_libaether_dir(both_bin),
+                string.concat(both_bin, "/../lib/aether"),
+                "Probe order: FHS wins over flat when both present")
 
-    // NOTE: $AETHER_INCLUDE env-var override is exercised by the
-    // resolver but not directly testable here — the current Aether
-    // stdlib has os.getenv but no os.setenv, so we can't manipulate
-    // the env from inside an .ae test. End-to-end smoke tests that
-    // run aeb under a chosen env (e.g. the install-layout fixture
-    // tests in /tmp/aeb-aether-smoke) cover this branch in practice.
+            _sh("rm -rf '${both}'")
 
-    println("aether resolvers tests done")
+            // NOTE: $AETHER_INCLUDE env-var override is exercised by the
+            // resolver but not directly testable here — the current Aether
+            // stdlib has os.getenv but no os.setenv, so we can't manipulate
+            // the env from inside an .ae test. End-to-end smoke tests that
+            // run aeb under a chosen env (e.g. the install-layout fixture
+            // tests in /tmp/aeb-aether-smoke) cover this branch in practice.
+        }
+    }
+
+    spec.run_summary(fw)
 }

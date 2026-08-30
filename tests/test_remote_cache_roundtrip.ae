@@ -8,23 +8,17 @@
 // the local store between calls in-process.
 //
 // Skips when cache.available() == 0.
+import std.spec
 import std.string
-import std.io
 import std.os
 import std.file
 import std.fs
 import std.list
 import std.map
 import std.path
-import std.dir
 
 import cache
 import bldr (_sh, _sh_capture)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
 
 _eq0(v: int) { if v == 0 { return 1 } return 0 }
 _eq_str(a: string, b: string) { if a == b { return 1 } return 0 }
@@ -63,66 +57,72 @@ _remote_off() {
 }
 
 main() {
-    if cache.available() == 0 {
-        println("SKIP: cache.available() == 0 (no OpenSSL or zlib)")
-        return 0
+    fw = spec.init()
+
+    spec.describe(fw, "shared remote cache round-trip") {
+        spec.it("PUT on machine A restored by GET on machine B; mode gating") callback {
+            if cache.available() == 0 {
+                println("SKIP: cache.available() == 0 (no OpenSSL or zlib)")
+                return 0
+            }
+
+            tmp = _mktempdir()
+            remote = path.join(tmp, "remote"); fs.mkdir_p(remote)
+            localA = path.join(tmp, "localA"); fs.mkdir_p(localA)
+            localB = path.join(tmp, "localB"); fs.mkdir_p(localB)
+            localC = path.join(tmp, "localC"); fs.mkdir_p(localC)
+            remote_url = string.concat("file://", remote)
+
+            // A binary artifact (NULs + high bytes) so we also prove binary-safe
+            // transfer through the remote store.
+            artifact = path.join(tmp, "artifact.bin")
+            _sh("head -c 96 /dev/urandom > '${artifact}'")
+            parts = list.new()
+            list.add(parts, "remote-roundtrip")
+            list.add(parts, artifact)
+            key, _ke = cache.hash_inputs(parts)
+
+            // === Machine A (CI runner): write-through to the shared remote. ===
+            _use_local(localA)
+            _remote_on(remote_url, "readwrite")
+            perr = cache.put(key, artifact)
+            spec.assert_true(_eq_str(perr, ""), "A: put ok")
+            spec.assert_true(file.exists(_sharded(remote, key)), "A: blob present in shared remote")
+
+            // === Machine B (developer): FRESH local store, read-only. The blob
+            // was never built here — it must come from the shared remote. ===
+            _use_local(localB)
+            _remote_on(remote_url, "read")
+            spec.assert_true(cache.has(key), "B: has() sees remote on local miss")
+            dest = path.join(tmp, "restored.bin")
+            gerr = cache.get(key, dest)
+            spec.assert_true(_eq_str(gerr, ""), "B: get ok (served via remote)")
+            spec.assert_true(_eq0(_sh("cmp -s '${artifact}' '${dest}'")),
+                "B: restored artifact byte-identical to original")
+            spec.assert_true(file.exists(_sharded(localB, key)),
+                "B: remote pull populated the LOCAL store")
+
+            // === Machine C: remote OFF -> a local miss stays a miss. ===
+            _use_local(localC)
+            _remote_off()
+            gmiss = cache.get(key, path.join(tmp, "nope.bin"))
+            spec.assert_true(_eq_str(gmiss, "miss"), "C: remote off -> local miss is a real miss")
+
+            // === Write gating: read-only mode must NOT upload a new key. ===
+            _use_local(localC)
+            _remote_on(remote_url, "read")
+            art2 = path.join(tmp, "artifact2.bin")
+            _sh("head -c 32 /dev/urandom > '${art2}'")
+            p2 = list.new(); list.add(p2, "remote-roundtrip-2"); list.add(p2, art2)
+            key2, _k2 = cache.hash_inputs(p2)
+            _p2err = cache.put(key2, art2)
+            spec.assert_true(_eq0(file.exists(_sharded(remote, key2))),
+                "write-gating: read mode did NOT push key2 to remote")
+
+            _remote_off()
+            _sh("rm -rf '${tmp}'")
+        }
     }
 
-    tmp = _mktempdir()
-    remote = path.join(tmp, "remote"); fs.mkdir_p(remote)
-    localA = path.join(tmp, "localA"); fs.mkdir_p(localA)
-    localB = path.join(tmp, "localB"); fs.mkdir_p(localB)
-    localC = path.join(tmp, "localC"); fs.mkdir_p(localC)
-    remote_url = string.concat("file://", remote)
-
-    // A binary artifact (NULs + high bytes) so we also prove binary-safe
-    // transfer through the remote store.
-    artifact = path.join(tmp, "artifact.bin")
-    _sh("head -c 96 /dev/urandom > '${artifact}'")
-    parts = list.new()
-    list.add(parts, "remote-roundtrip")
-    list.add(parts, artifact)
-    key, _ke = cache.hash_inputs(parts)
-
-    // === Machine A (CI runner): write-through to the shared remote. ===
-    _use_local(localA)
-    _remote_on(remote_url, "readwrite")
-    perr = cache.put(key, artifact)
-    _assert("A: put ok", _eq_str(perr, ""))
-    _assert("A: blob present in shared remote", file.exists(_sharded(remote, key)))
-
-    // === Machine B (developer): FRESH local store, read-only. The blob
-    // was never built here — it must come from the shared remote. ===
-    _use_local(localB)
-    _remote_on(remote_url, "read")
-    _assert("B: has() sees remote on local miss", cache.has(key))
-    dest = path.join(tmp, "restored.bin")
-    gerr = cache.get(key, dest)
-    _assert("B: get ok (served via remote)", _eq_str(gerr, ""))
-    _assert("B: restored artifact byte-identical to original",
-        _eq0(_sh("cmp -s '${artifact}' '${dest}'")))
-    _assert("B: remote pull populated the LOCAL store",
-        file.exists(_sharded(localB, key)))
-
-    // === Machine C: remote OFF -> a local miss stays a miss. ===
-    _use_local(localC)
-    _remote_off()
-    gmiss = cache.get(key, path.join(tmp, "nope.bin"))
-    _assert("C: remote off -> local miss is a real miss", _eq_str(gmiss, "miss"))
-
-    // === Write gating: read-only mode must NOT upload a new key. ===
-    _use_local(localC)
-    _remote_on(remote_url, "read")
-    art2 = path.join(tmp, "artifact2.bin")
-    _sh("head -c 32 /dev/urandom > '${art2}'")
-    p2 = list.new(); list.add(p2, "remote-roundtrip-2"); list.add(p2, art2)
-    key2, _k2 = cache.hash_inputs(p2)
-    _p2err = cache.put(key2, art2)
-    _assert("write-gating: read mode did NOT push key2 to remote",
-        _eq0(file.exists(_sharded(remote, key2))))
-
-    _remote_off()
-    _sh("rm -rf '${tmp}'")
-    println("remote cache round-trip done")
-    return 0
+    spec.run_summary(fw)
 }

@@ -4,45 +4,16 @@
 // reads .ts sources + the tsconfig via cache.hash_file and dep
 // artifacts via bldr._read_dep_artifact. Stages fixtures under a
 // tmpdir per case. Tolerates an absent tsc (version probe returns "").
+import std.spec
 import std.string
-import std.io
 import std.os
-import std.file
 import std.fs
 import std.list
 import std.map
 import std.path
-import std.dir
 
 import bldr
 import ts (_cache_key_for_tsc)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
-_assert_neq(label: string, a: string, b: string) {
-    if a == b {
-        println("FAIL: ${label}")
-        println("  unexpected match: '${a}'")
-    } else {
-        println("PASS: ${label}")
-    }
-}
-
-_assert_nonempty(label: string, s: string) {
-    if string.length(s) > 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label} (empty)")
-    }
-}
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
@@ -74,63 +45,70 @@ _minimal_ctx(root: string) {
 }
 
 main() {
-    tdir = _mktempdir()
+    fw = spec.init()
 
-    src = path.join(tdir, "index.ts")
-    _write(src, "export const x = 1\n")
-    tsconfig = path.join(tdir, "tsconfig.lib.json")
-    _write(tsconfig, "{\"compilerOptions\":{\"target\":\"ES2022\"}}\n")
+    spec.describe(fw, "tsc cache-key derivation") {
+        spec.it("cache-key lifecycle: determinism, content-addressing, invalidation") callback {
+            tdir = _mktempdir()
 
-    argfile = path.join(tdir, "argfile.txt")
-    _write(argfile, string.concat(src, "\n"))
+            src = path.join(tdir, "index.ts")
+            _write(src, "export const x = 1\n")
+            tsconfig = path.join(tdir, "tsconfig.lib.json")
+            _write(tsconfig, "{\"compilerOptions\":{\"target\":\"ES2022\"}}\n")
 
-    ctx = _minimal_ctx(tdir)
-    cmd = "tsc -p ${tsconfig} --outDir /target/js"
+            argfile = path.join(tdir, "argfile.txt")
+            _write(argfile, string.concat(src, "\n"))
 
-    // --- determinism ---
-    k1, e1 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
-    _assert_eq("key: no error on fresh inputs", e1, "")
-    _assert_nonempty("key: non-empty hash", k1)
-    k2, _e2 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
-    _assert_eq("determinism: same inputs → same key", k1, k2)
+            ctx = _minimal_ctx(tdir)
+            cmd = "tsc -p ${tsconfig} --outDir /target/js"
 
-    // --- src content change → different key ---
-    _write(src, "export const x = 2\n")
-    k3, _e3 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
-    _assert_neq("invalidation: src content change → different key", k1, k3)
-    _write(src, "export const x = 1\n")
-    k4, _e4 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
-    _assert_eq("content-addressed: same content → same key", k1, k4)
+            // --- determinism ---
+            k1, e1 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
+            spec.assert_str_eq(e1, "", "key: no error on fresh inputs")
+            spec.assert_true(string.length(k1) > 0, "key: non-empty hash")
+            k2, _e2 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
+            spec.assert_str_eq(k1, k2, "determinism: same inputs → same key")
 
-    // --- tsconfig content change → different key ---
-    _write(tsconfig, "{\"compilerOptions\":{\"target\":\"ES2015\"}}\n")
-    k_tc, _e5 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
-    _assert_neq("invalidation: tsconfig content change → different key", k1, k_tc)
-    _write(tsconfig, "{\"compilerOptions\":{\"target\":\"ES2022\"}}\n")
+            // --- src content change → different key ---
+            _write(src, "export const x = 2\n")
+            k3, _e3 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
+            spec.assert_false(string.equals(k1, k3), "invalidation: src content change → different key")
+            _write(src, "export const x = 1\n")
+            k4, _e4 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
+            spec.assert_str_eq(k1, k4, "content-addressed: same content → same key")
 
-    // --- cmd flag change → different key ---
-    k_cmd, _e6 = _cache_key_for_tsc(ctx, argfile, tsconfig, "tsc -p ${tsconfig} --outDir /target/js --strict", "tsc")
-    _assert_neq("invalidation: cmd flag change → different key", k1, k_cmd)
+            // --- tsconfig content change → different key ---
+            _write(tsconfig, "{\"compilerOptions\":{\"target\":\"ES2015\"}}\n")
+            k_tc, _e5 = _cache_key_for_tsc(ctx, argfile, tsconfig, cmd, "tsc")
+            spec.assert_false(string.equals(k1, k_tc), "invalidation: tsconfig content change → different key")
+            _write(tsconfig, "{\"compilerOptions\":{\"target\":\"ES2022\"}}\n")
 
-    // --- second source → different key, order-independent ---
-    src2 = path.join(tdir, "util.ts")
-    _write(src2, "export const y = 2\n")
-    argfile2 = path.join(tdir, "argfile2.txt")
-    _write(argfile2, string.concat(string.concat(src, "\n"), string.concat(src2, "\n")))
-    k_two, _e7 = _cache_key_for_tsc(ctx, argfile2, tsconfig, cmd, "tsc")
-    _assert_neq("invalidation: extra .ts added → different key", k1, k_two)
-    argfile_rev = path.join(tdir, "argfile_rev.txt")
-    _write(argfile_rev, string.concat(string.concat(src2, "\n"), string.concat(src, "\n")))
-    k_two_rev, _e8 = _cache_key_for_tsc(ctx, argfile_rev, tsconfig, cmd, "tsc")
-    _assert_eq("ordering: argfile listing order doesn't change key", k_two, k_two_rev)
+            // --- cmd flag change → different key ---
+            k_cmd, _e6 = _cache_key_for_tsc(ctx, argfile, tsconfig, "tsc -p ${tsconfig} --outDir /target/js --strict", "tsc")
+            spec.assert_false(string.equals(k1, k_cmd), "invalidation: cmd flag change → different key")
 
-    // --- missing src → error, empty key ---
-    bad_argfile = path.join(tdir, "bad.txt")
-    _write(bad_argfile, string.concat(path.join(tdir, "nope.ts"), "\n"))
-    k_bad, e_bad = _cache_key_for_tsc(ctx, bad_argfile, tsconfig, "tsc", "tsc")
-    _assert_eq("error path: missing src returns empty key", k_bad, "")
-    _assert_nonempty("error path: missing src reports error", e_bad)
+            // --- second source → different key, order-independent ---
+            src2 = path.join(tdir, "util.ts")
+            _write(src2, "export const y = 2\n")
+            argfile2 = path.join(tdir, "argfile2.txt")
+            _write(argfile2, string.concat(string.concat(src, "\n"), string.concat(src2, "\n")))
+            k_two, _e7 = _cache_key_for_tsc(ctx, argfile2, tsconfig, cmd, "tsc")
+            spec.assert_false(string.equals(k1, k_two), "invalidation: extra .ts added → different key")
+            argfile_rev = path.join(tdir, "argfile_rev.txt")
+            _write(argfile_rev, string.concat(string.concat(src2, "\n"), string.concat(src, "\n")))
+            k_two_rev, _e8 = _cache_key_for_tsc(ctx, argfile_rev, tsconfig, cmd, "tsc")
+            spec.assert_str_eq(k_two, k_two_rev, "ordering: argfile listing order doesn't change key")
 
-    os.system("rm -rf '${tdir}'")
-    println("ts cache-key tests done")
+            // --- missing src → error, empty key ---
+            bad_argfile = path.join(tdir, "bad.txt")
+            _write(bad_argfile, string.concat(path.join(tdir, "nope.ts"), "\n"))
+            k_bad, e_bad = _cache_key_for_tsc(ctx, bad_argfile, tsconfig, "tsc", "tsc")
+            spec.assert_str_eq(k_bad, "", "error path: missing src returns empty key")
+            spec.assert_true(string.length(e_bad) > 0, "error path: missing src reports error")
+
+            os.system("rm -rf '${tdir}'")
+        }
+    }
+
+    spec.run_summary(fw)
 }

@@ -16,10 +16,9 @@ import std.path
 import std.dir
 import std.cryptography
 
+import std.spec
 import approval (jira_check_script, approval_json_check_script, canonicalize_attestation, attestation_evidence_json, _shell_quote)
 import bldr (_sh, _sh_capture)
-
-extern println(s: string)
 
 // Native-form tmpdir via the _sh chokepoint. This test writes fake curl/bash
 // scripts (native fs.write_atomic), chmods and runs them under a real shell,
@@ -49,37 +48,21 @@ _posix_path(p: string) {
     return t
 }
 
-_assert_contains(label: string, haystack: string, needle: string) {
-    if string.index_of(haystack, needle) >= 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected to find: '${needle}'")
-    }
-}
-
-_assert_not_contains(label: string, haystack: string, needle: string) {
-    if string.index_of(haystack, needle) < 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  did not expect: '${needle}'")
-    }
-}
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
 main() {
-    _assert_eq("shell quote simple", _shell_quote("abc"), "'abc'")
-    _assert_eq("shell quote single quote", _shell_quote("a'b"), "'a'\\''b'")
+    fw = spec.init()
+
+    spec.describe(fw, "approval script renderer") {
+        spec.it("renders and executes jira/generic/attestation approval scripts") callback {
+            _run(fw)
+        }
+    }
+
+    spec.run_summary(fw)
+}
+
+_run(fw: ptr) {
+    spec.assert_str_eq(_shell_quote("abc"), "'abc'", "shell quote simple")
+    spec.assert_str_eq(_shell_quote("a'b"), "'a'\\''b'", "shell quote single quote")
 
     labels = list.new()
     list.add(labels, "release-approved")
@@ -93,24 +76,24 @@ main() {
                                labels, fields,
                                "target/release-approval.json", "30")
 
-    _assert_contains("sets base url", script, "BASE_URL='https://jira.example.com'")
-    _assert_contains("sets issue", script, "ISSUE='REL-1234'")
-    _assert_contains("uses token env name", script, "TOKEN_ENV='JIRA_TOKEN'")
+    spec.assert_contains(script, "BASE_URL='https://jira.example.com'", "sets base url")
+    spec.assert_contains(script, "ISSUE='REL-1234'", "sets issue")
+    spec.assert_contains(script, "TOKEN_ENV='JIRA_TOKEN'", "uses token env name")
     token_exp = "TOKEN=\"$"
     token_exp = string.concat(token_exp, "{!TOKEN_ENV:-}\"")
-    _assert_contains("indirect token expansion", script, token_exp)
-    _assert_not_contains("does not embed token value", script, "secret-token")
+    spec.assert_contains(script, token_exp, "indirect token expansion")
+    spec.assert_false(string.index_of(script, "secret-token") >= 0, "does not embed token value")
     issue_exp = "/rest/api/2/issue/$"
     issue_exp = string.concat(issue_exp, "{ISSUE}")
-    _assert_contains("curl jira REST", script, issue_exp)
-    _assert_contains("bearer header", script, "Authorization: Bearer $TOKEN")
-    _assert_contains("exports requirements", script, "export REQUIRE_STATUS REQUIRE_LABELS REQUIRE_FIELDS")
-    _assert_contains("requires status", script, "REQUIRE_STATUS='Approved'")
-    _assert_contains("requires labels", script, "release-approved\ncab-ok")
-    _assert_contains("requires fields", script, "Risk\tAccepted\ncustomfield_123\tApproved")
-    _assert_contains("writes evidence", script, "json.dump(result, f, sort_keys=True)")
-    _assert_contains("fails no-go", script, "approval.jira: NOT APPROVED")
-    _assert_contains("success message", script, "approval.jira: approved")
+    spec.assert_contains(script, issue_exp, "curl jira REST")
+    spec.assert_contains(script, "Authorization: Bearer $TOKEN", "bearer header")
+    spec.assert_contains(script, "export REQUIRE_STATUS REQUIRE_LABELS REQUIRE_FIELDS", "exports requirements")
+    spec.assert_contains(script, "REQUIRE_STATUS='Approved'", "requires status")
+    spec.assert_contains(script, "release-approved\ncab-ok", "requires labels")
+    spec.assert_contains(script, "Risk\tAccepted\ncustomfield_123\tApproved", "requires fields")
+    spec.assert_contains(script, "json.dump(result, f, sort_keys=True)", "writes evidence")
+    spec.assert_contains(script, "approval.jira: NOT APPROVED", "fails no-go")
+    spec.assert_contains(script, "approval.jira: approved", "success message")
 
     root = _mktempdir()
     _sh(string.concat("mkdir -p ", string.concat(root, "/bin")))
@@ -133,11 +116,11 @@ main() {
     cmd = string.concat("PATH=", string.concat(bin_posix, ":$PATH JIRA_TOKEN=fake-token bash "))
     cmd = string.concat(cmd, script_path)
     run_out, run_err = _sh_capture(cmd)
-    _assert_eq("fake jira execution stderr", string.trim(run_err), "")
-    _assert_contains("fake jira execution approved", run_out, "approval.jira: approved REL-1234")
+    spec.assert_str_eq(string.trim(run_err), "", "fake jira execution stderr")
+    spec.assert_contains(run_out, "approval.jira: approved REL-1234", "fake jira execution approved")
     evidence_body, _rerr = fs.read(evidence_path)
-    _assert_contains("evidence ok true", evidence_body, "\"ok\": true")
-    _assert_contains("evidence issue", evidence_body, "\"issue\": \"REL-1234\"")
+    spec.assert_contains(evidence_body, "\"ok\": true", "evidence ok true")
+    spec.assert_contains(evidence_body, "\"issue\": \"REL-1234\"", "evidence issue")
 
     req_json = list.new()
     list.add(req_json, "change.status\tapproved")
@@ -159,23 +142,23 @@ main() {
     fs.write_atomic(generic_script_path, generic_script, string.length(generic_script))
     _sh(string.concat("chmod +x ", generic_script_path))
     generic_out, generic_err = _sh_capture(string.concat("bash ", generic_script_path))
-    _assert_eq("generic approval stderr", string.trim(generic_err), "")
-    _assert_contains("generic approval stdout", generic_out, "approval.command: approved release-1")
+    spec.assert_str_eq(string.trim(generic_err), "", "generic approval stderr")
+    spec.assert_contains(generic_out, "approval.command: approved release-1", "generic approval stdout")
     generic_body, _gerr = fs.read(generic_evidence)
-    _assert_contains("generic evidence person1", generic_body, "\"id\": \"person1\"")
-    _assert_contains("generic evidence person2", generic_body, "\"id\": \"person2\"")
-    _assert_contains("generic evidence person3", generic_body, "\"id\": \"person3\"")
-    _assert_contains("generic evidence timestamp", generic_body, "\"approved_at\": \"2026-05-09T10:07:00Z\"")
+    spec.assert_contains(generic_body, "\"id\": \"person1\"", "generic evidence person1")
+    spec.assert_contains(generic_body, "\"id\": \"person2\"", "generic evidence person2")
+    spec.assert_contains(generic_body, "\"id\": \"person3\"", "generic evidence person3")
+    spec.assert_contains(generic_body, "\"approved_at\": \"2026-05-09T10:07:00Z\"", "generic evidence timestamp")
 
     att_text = "Release: R-2026-05-09  \r\nChange: CHG123456\t\r\nperson1: approved at 2026-05-09T10:00:00Z\nperson2: approved at 2026-05-09T10:05:00Z\nperson3: approved at 2026-05-09T10:07:00Z\n\n\n"
     att_canon = "Release: R-2026-05-09\nChange: CHG123456\nperson1: approved at 2026-05-09T10:00:00Z\nperson2: approved at 2026-05-09T10:05:00Z\nperson3: approved at 2026-05-09T10:07:00Z\n"
-    _assert_eq("attestation canonicalizes text", canonicalize_attestation(att_text), att_canon)
+    spec.assert_str_eq(canonicalize_attestation(att_text), att_canon, "attestation canonicalizes text")
     verify_prefix = "https://verify.example.com/c"
     digest, derr = cryptography.sha256_hex(att_canon, string.length(att_canon))
-    _assert_eq("attestation sha256 err", derr, "")
+    spec.assert_str_eq(derr, "", "attestation sha256 err")
     att_url = string.concat(string.concat(verify_prefix, "/"), digest)
     att_body = attestation_evidence_json("attestation", "CHG123456", digest, att_url, att_canon)
-    _assert_contains("attestation evidence hash", att_body, "\"attestation_sha256\":")
-    _assert_contains("attestation evidence verify url", att_body, "\"verify_url\":\"https://verify.example.com/c/")
-    _assert_contains("attestation evidence claim", att_body, "person3: approved at 2026-05-09T10:07:00Z")
+    spec.assert_contains(att_body, "\"attestation_sha256\":", "attestation evidence hash")
+    spec.assert_contains(att_body, "\"verify_url\":\"https://verify.example.com/c/", "attestation evidence verify url")
+    spec.assert_contains(att_body, "person3: approved at 2026-05-09T10:07:00Z", "attestation evidence claim")
 }

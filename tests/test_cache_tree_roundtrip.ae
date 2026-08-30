@@ -21,20 +21,12 @@ import std.map
 import std.path
 import std.dir
 
+import std.spec
 import bldr
 import bldr (_sh, _sh_capture)
 import cache
 
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
-
 _eq0(v: int) { if v == 0 { return 1 } return 0 }
-_eq_str(a: string, b: string) { if a == b { return 1 } return 0 }
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
@@ -69,6 +61,18 @@ _stage_tree(root: string) {
 }
 
 main() {
+    fw = spec.init()
+
+    spec.describe(fw, "directory-tree cache round-trip") {
+        spec.it("tar -> put -> get -> untar restores byte-identical tree") callback {
+            _run(fw)
+        }
+    }
+
+    spec.run_summary(fw)
+}
+
+_run(fw: ptr) {
     if cache.available() == 0 {
         println("SKIP: cache.available() == 0 (no OpenSSL or zlib)")
         return 0
@@ -79,27 +83,27 @@ main() {
     _stage_tree(src)
 
     // --- _dir_nonempty guard ---
-    _assert("_dir_nonempty: populated tree -> 1", bldr._dir_nonempty(src))
+    spec.assert_true(bldr._dir_nonempty(src), "_dir_nonempty: populated tree -> 1")
     empty = path.join(tmp, "empty")
     fs.mkdir_p(empty)
-    _assert("_dir_nonempty: empty dir -> 0", _eq0(bldr._dir_nonempty(empty)))
-    _assert("_dir_nonempty: missing dir -> 0", _eq0(bldr._dir_nonempty(path.join(tmp, "nope"))))
+    spec.assert_true(_eq0(bldr._dir_nonempty(empty)), "_dir_nonempty: empty dir -> 0")
+    spec.assert_true(_eq0(bldr._dir_nonempty(path.join(tmp, "nope"))), "_dir_nonempty: missing dir -> 0")
 
     // --- tar -> put -> get -> untar round-trip ---
     parts = list.new()
     list.add(parts, "roundtrip-test")
     list.add(parts, src)
     key, kerr = cache.hash_inputs(parts)
-    _assert("hash_inputs ok", _eq_str(kerr, ""))
+    spec.assert_str_eq(kerr, "", "hash_inputs ok")
 
-    _assert("has: miss before put", _eq0(cache.has(key)))
+    spec.assert_true(_eq0(cache.has(key)), "has: miss before put")
 
     tar1, terr = bldr._tar_dir(src)
-    _assert("_tar_dir ok", _eq_str(terr, ""))
+    spec.assert_str_eq(terr, "", "_tar_dir ok")
     perr = cache.put(key, tar1)
     _sh("rm -f '${tar1}'")
-    _assert("cache.put ok", _eq_str(perr, ""))
-    _assert("has: hit after put", cache.has(key))
+    spec.assert_str_eq(perr, "", "cache.put ok")
+    spec.assert_true(cache.has(key), "has: hit after put")
 
     // Fetch into a fresh tar, untar into a clean restore dir. The dest lives
     // inside `tmp` (already native on Windows) rather than a bare `mktemp` —
@@ -108,44 +112,43 @@ main() {
     // would silently fail to be written and the untar below would find nothing.
     tar2 = path.join(tmp, "fetch.tar")
     gerr = cache.get(key, tar2)
-    _assert("cache.get ok (hit)", _eq_str(gerr, ""))
+    spec.assert_str_eq(gerr, "", "cache.get ok (hit)")
 
     restore = path.join(tmp, "restore")
     uerr = bldr._untar_into(tar2, restore)
     _sh("rm -f '${tar2}'")
-    _assert("_untar_into ok", _eq_str(uerr, ""))
+    spec.assert_str_eq(uerr, "", "_untar_into ok")
 
     // The restored tree must be byte-identical to the source (diff -r
     // exit 0). This is the real end-to-end assertion: the bytes that
     // went into the cache come back out unchanged through tar+zlib.
     diff_rc = _sh("diff -r '${src}' '${restore}' >/dev/null 2>&1")
-    _assert("restored tree byte-identical to source (diff -r)", _eq0(diff_rc))
+    spec.assert_true(_eq0(diff_rc), "restored tree byte-identical to source (diff -r)")
 
     // Spot-check the binary file with the embedded NUL survived intact.
     b_ok = _sh("cmp -s '${src}/com/example/sub/B.class' '${restore}/com/example/sub/B.class'")
-    _assert("binary file with embedded NUL round-trips", _eq0(b_ok))
+    spec.assert_true(_eq0(b_ok), "binary file with embedded NUL round-trips")
 
     // get for a missing key reports "miss" (not a silent empty success).
     // Native dest inside tmp, same reason as tar2 above.
     miss_dest = path.join(tmp, "miss.bin")
     miss = cache.get("0000000000000000000000000000000000000000000000000000000000000000", miss_dest)
     _sh("rm -f '${miss_dest}'")
-    _assert("cache.get missing key -> 'miss'", _eq_str(miss, "miss"))
+    spec.assert_str_eq(miss, "miss", "cache.get missing key -> 'miss'")
 
     // --- _record_cache / _read_cache_outcome marker round-trip ---
     ctx = map.new()
     td = path.join(tmp, "target_mod")
     map.put(ctx, "target_dir", td)
     bldr._record_cache(ctx, "hit")
-    _assert("_record_cache/_read_cache_outcome -> hit",
-        _eq_str(bldr._read_cache_outcome(td), "hit"))
+    spec.assert_str_eq(bldr._read_cache_outcome(td), "hit",
+        "_record_cache/_read_cache_outcome -> hit")
     bldr._record_cache(ctx, "miss")
-    _assert("_record_cache overwrite -> miss",
-        _eq_str(bldr._read_cache_outcome(td), "miss"))
-    _assert("_read_cache_outcome absent -> n/a",
-        _eq_str(bldr._read_cache_outcome(path.join(tmp, "no_marker")), "n/a"))
+    spec.assert_str_eq(bldr._read_cache_outcome(td), "miss",
+        "_record_cache overwrite -> miss")
+    spec.assert_str_eq(bldr._read_cache_outcome(path.join(tmp, "no_marker")), "n/a",
+        "_read_cache_outcome absent -> n/a")
 
     _sh("rm -rf '${tmp}'")
-    println("cache tree round-trip done")
     return 0
 }

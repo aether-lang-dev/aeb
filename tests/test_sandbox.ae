@@ -6,103 +6,121 @@
 // (maintainer asks for something the operator didn't grant → dropped);
 // default_profile shape (no tcp); emit/parse round-trip.
 
+import std.spec
 import sandbox (new, grant_fs_read, grant_fs_write, grant_exec, grant_tcp,
                 grant_env, grant_all, pair_count, has_grant, is_grant_all,
                 intersect, default_profile, parse)
 import std.string
 import std.list
 
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") } else { println("FAIL: ${label}") }
-}
-
 main() {
-    // --- grant verbs + introspection ---
-    s = sandbox.new()
-    _assert("fresh sandbox has 0 grants", pair_count(s) == 0)
+    fw = spec.init()
 
-    sandbox.grant_fs_read(s, "/usr/*")
-    sandbox.grant_tcp(s, "crates.io")
-    _assert("two grants after two verbs", pair_count(s) == 2)
-    _assert("has_grant fs_read /usr/*", has_grant(s, "fs_read", "/usr/*"))
-    _assert("has_grant tcp crates.io", has_grant(s, "tcp", "crates.io"))
-    _assert("does NOT have a grant it wasn't given", 1 - has_grant(s, "tcp", "evil.com"))
-    _assert("not grant-all", 1 - is_grant_all(s))
+    spec.describe(fw, "grant verbs + introspection") {
+        spec.it("fresh / grant / has_grant / is_grant_all") callback {
+            s = sandbox.new()
+            spec.assert_eq(pair_count(s), 0, "fresh sandbox has 0 grants")
 
-    ga = sandbox.new()
-    sandbox.grant_all(ga)
-    _assert("grant_all → is_grant_all", is_grant_all(ga))
+            sandbox.grant_fs_read(s, "/usr/*")
+            sandbox.grant_tcp(s, "crates.io")
+            spec.assert_eq(pair_count(s), 2, "two grants after two verbs")
+            spec.assert_true(has_grant(s, "fs_read", "/usr/*"), "has_grant fs_read /usr/*")
+            spec.assert_true(has_grant(s, "tcp", "crates.io"), "has_grant tcp crates.io")
+            spec.assert_true(1 - has_grant(s, "tcp", "evil.com"), "does NOT have a grant it wasn't given")
+            spec.assert_true(1 - is_grant_all(s), "not grant-all")
 
-    // --- intersect: both concrete (operator ∩ maintainer) ---
-    // operator ceiling: read /usr, exec /usr/bin, NO tcp
-    op = sandbox.new()
-    sandbox.grant_fs_read(op, "/usr/*")
-    sandbox.grant_exec(op, "/usr/bin/*")
-    // maintainer asks: read /usr (ok), AND tcp evil.com (NOT in ceiling)
-    mr = sandbox.new()
-    sandbox.grant_fs_read(mr, "/usr/*")
-    sandbox.grant_tcp(mr, "evil.com")
-
-    eff = intersect(op, mr)
-    _assert("intersect keeps the shared fs_read /usr/*", has_grant(eff, "fs_read", "/usr/*"))
-    // THE THREAT CASE: maintainer's tcp evil.com is NOT in the operator
-    // ceiling → dropped. The build cannot widen beyond the operator.
-    _assert("intersect DROPS maintainer's un-ceilinged tcp evil.com",
-        1 - has_grant(eff, "tcp", "evil.com"))
-    // operator's exec /usr/bin/* not requested by maintainer → narrowed away
-    _assert("intersect drops operator grant the maintainer didn't request",
-        1 - has_grant(eff, "exec", "/usr/bin/*"))
-    _assert("effective has exactly the 1 shared grant", pair_count(eff) == 1)
-
-    // --- intersect: grant-all identities ---
-    // operator = grant-all (no ceiling, e.g. no --sandbox) → effective = maintainer
-    eff2 = intersect(ga, mr)
-    _assert("grant-all operator ∩ maintainer → maintainer's grants pass (tcp evil.com kept)",
-        has_grant(eff2, "tcp", "evil.com"))
-    _assert("grant-all operator ∩ maintainer → keeps maintainer's 2 grants", pair_count(eff2) == 2)
-    // maintainer = grant-all → effective = operator ceiling (can't widen past op)
-    eff3 = intersect(op, ga)
-    _assert("operator ∩ grant-all maintainer → operator ceiling kept", has_grant(eff3, "exec", "/usr/bin/*"))
-    _assert("operator ∩ grant-all maintainer → NO tcp (op had none)", 1 - has_grant(eff3, "tcp", "evil.com"))
-
-    // --- default profile: conservative, NO network ---
-    dp = default_profile("/work/repo", "/work/repo/target", "/opt/aeb")
-    _assert("default profile reads the repo", has_grant(dp, "fs_read", "/work/repo"))
-    _assert("default profile writes target", has_grant(dp, "fs_write", "/work/repo/target"))
-    _assert("default profile execs /usr/*", has_grant(dp, "exec", "/usr/*"))
-    _assert("default profile execs the aeb_home tools", has_grant(dp, "exec", "/opt/aeb/*"))
-    _assert("default profile reads the aeb_home", has_grant(dp, "fs_read", "/opt/aeb/*"))
-    _assert("default profile grants fork (orchestrator spawns compilers)", has_grant(dp, "fork", "*"))
-    // the headline: default profile grants NO tcp at all
-    has_any_tcp = 0
-    n = pair_count(dp)
-    i = 0
-    while i < n {
-        v, _ = list.get(dp, i * 2)
-        if string.equals(v, "tcp") == 1 { has_any_tcp = 1 }
-        i = i + 1
+            ga = sandbox.new()
+            sandbox.grant_all(ga)
+            spec.assert_true(is_grant_all(ga), "grant_all → is_grant_all")
+        }
     }
-    _assert("default profile grants NO tcp (network denied)", 1 - has_any_tcp)
-    _assert("default profile is not grant-all", 1 - is_grant_all(dp))
 
-    // --- emit/parse round-trip ---
-    // parse the wire shape back into a grant list
-    wire = "fs_read\t/usr/*\ntcp\tcrates.io\nexec\t/usr/bin/cc\n"
-    p = sandbox.parse(wire)
-    _assert("parse → 3 grants", pair_count(p) == 3)
-    _assert("parse fs_read /usr/*", has_grant(p, "fs_read", "/usr/*"))
-    _assert("parse tcp crates.io", has_grant(p, "tcp", "crates.io"))
-    _assert("parse exec /usr/bin/cc", has_grant(p, "exec", "/usr/bin/cc"))
-    // a pattern with spaces survives (tab is the only separator)
-    wire2 = "exec\t/usr/bin/cc -O2\n"
-    p2 = sandbox.parse(wire2)
-    _assert("parse preserves spaces in pattern", has_grant(p2, "exec", "/usr/bin/cc -O2"))
-    // blank + tab-less lines skipped
-    wire3 = "\nnotabhere\nfs_read\t/x\n"
-    p3 = sandbox.parse(wire3)
-    _assert("parse skips blank + tabless lines", pair_count(p3) == 1)
+    spec.describe(fw, "intersect") {
+        spec.it("both concrete (operator ∩ maintainer)") callback {
+            // operator ceiling: read /usr, exec /usr/bin, NO tcp
+            op = sandbox.new()
+            sandbox.grant_fs_read(op, "/usr/*")
+            sandbox.grant_exec(op, "/usr/bin/*")
+            // maintainer asks: read /usr (ok), AND tcp evil.com (NOT in ceiling)
+            mr = sandbox.new()
+            sandbox.grant_fs_read(mr, "/usr/*")
+            sandbox.grant_tcp(mr, "evil.com")
 
-    println("sandbox tests done")
+            eff = intersect(op, mr)
+            spec.assert_true(has_grant(eff, "fs_read", "/usr/*"), "intersect keeps the shared fs_read /usr/*")
+            // THE THREAT CASE: maintainer's tcp evil.com is NOT in the operator
+            // ceiling → dropped. The build cannot widen beyond the operator.
+            spec.assert_true(1 - has_grant(eff, "tcp", "evil.com"),
+                "intersect DROPS maintainer's un-ceilinged tcp evil.com")
+            // operator's exec /usr/bin/* not requested by maintainer → narrowed away
+            spec.assert_true(1 - has_grant(eff, "exec", "/usr/bin/*"),
+                "intersect drops operator grant the maintainer didn't request")
+            spec.assert_eq(pair_count(eff), 1, "effective has exactly the 1 shared grant")
+        }
+
+        spec.it("grant-all identities") callback {
+            op = sandbox.new()
+            sandbox.grant_fs_read(op, "/usr/*")
+            sandbox.grant_exec(op, "/usr/bin/*")
+            mr = sandbox.new()
+            sandbox.grant_fs_read(mr, "/usr/*")
+            sandbox.grant_tcp(mr, "evil.com")
+            ga = sandbox.new()
+            sandbox.grant_all(ga)
+
+            // operator = grant-all (no ceiling, e.g. no --sandbox) → effective = maintainer
+            eff2 = intersect(ga, mr)
+            spec.assert_true(has_grant(eff2, "tcp", "evil.com"),
+                "grant-all operator ∩ maintainer → maintainer's grants pass (tcp evil.com kept)")
+            spec.assert_eq(pair_count(eff2), 2, "grant-all operator ∩ maintainer → keeps maintainer's 2 grants")
+            // maintainer = grant-all → effective = operator ceiling (can't widen past op)
+            eff3 = intersect(op, ga)
+            spec.assert_true(has_grant(eff3, "exec", "/usr/bin/*"), "operator ∩ grant-all maintainer → operator ceiling kept")
+            spec.assert_true(1 - has_grant(eff3, "tcp", "evil.com"), "operator ∩ grant-all maintainer → NO tcp (op had none)")
+        }
+    }
+
+    spec.describe(fw, "default profile") {
+        spec.it("conservative shape, NO network") callback {
+            dp = default_profile("/work/repo", "/work/repo/target", "/opt/aeb")
+            spec.assert_true(has_grant(dp, "fs_read", "/work/repo"), "default profile reads the repo")
+            spec.assert_true(has_grant(dp, "fs_write", "/work/repo/target"), "default profile writes target")
+            spec.assert_true(has_grant(dp, "exec", "/usr/*"), "default profile execs /usr/*")
+            spec.assert_true(has_grant(dp, "exec", "/opt/aeb/*"), "default profile execs the aeb_home tools")
+            spec.assert_true(has_grant(dp, "fs_read", "/opt/aeb/*"), "default profile reads the aeb_home")
+            spec.assert_true(has_grant(dp, "fork", "*"), "default profile grants fork (orchestrator spawns compilers)")
+            // the headline: default profile grants NO tcp at all
+            has_any_tcp = 0
+            n = pair_count(dp)
+            i = 0
+            while i < n {
+                v, _ = list.get(dp, i * 2)
+                if string.equals(v, "tcp") == 1 { has_any_tcp = 1 }
+                i = i + 1
+            }
+            spec.assert_true(1 - has_any_tcp, "default profile grants NO tcp (network denied)")
+            spec.assert_true(1 - is_grant_all(dp), "default profile is not grant-all")
+        }
+    }
+
+    spec.describe(fw, "emit/parse round-trip") {
+        spec.it("parse the wire shape back into a grant list") callback {
+            wire = "fs_read\t/usr/*\ntcp\tcrates.io\nexec\t/usr/bin/cc\n"
+            p = sandbox.parse(wire)
+            spec.assert_eq(pair_count(p), 3, "parse → 3 grants")
+            spec.assert_true(has_grant(p, "fs_read", "/usr/*"), "parse fs_read /usr/*")
+            spec.assert_true(has_grant(p, "tcp", "crates.io"), "parse tcp crates.io")
+            spec.assert_true(has_grant(p, "exec", "/usr/bin/cc"), "parse exec /usr/bin/cc")
+            // a pattern with spaces survives (tab is the only separator)
+            wire2 = "exec\t/usr/bin/cc -O2\n"
+            p2 = sandbox.parse(wire2)
+            spec.assert_true(has_grant(p2, "exec", "/usr/bin/cc -O2"), "parse preserves spaces in pattern")
+            // blank + tab-less lines skipped
+            wire3 = "\nnotabhere\nfs_read\t/x\n"
+            p3 = sandbox.parse(wire3)
+            spec.assert_eq(pair_count(p3), 1, "parse skips blank + tabless lines")
+        }
+    }
+
+    spec.run_summary(fw)
 }

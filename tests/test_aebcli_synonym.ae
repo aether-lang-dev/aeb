@@ -5,101 +5,109 @@
 // `[[ "$a" == *:* ]]` test gets wrong. The trampoline's argv grammar was
 // "effectively untested" (TODO.md); this is the start of changing that.
 
+import std.spec
 import aebcli (is_flag, classify_target, synonym_dir, synonym_name, synonym_relpath, synonym_fqn, flag_known, flag_env, flag_takes_value, flag_implies)
 import std.string
 
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
-_ok(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
-_no(label: string, cond: int) {
-    if cond == 0 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
-
 main() {
-    // --- is_flag ---
-    _ok("is_flag --scan",         is_flag("--scan"))
-    _ok("is_flag -x",             is_flag("-x"))
-    _no("is_flag plain path",     is_flag("app/.build.ae"))
-    _no("is_flag synonym",        is_flag("app:build"))
+    fw = spec.init()
 
-    // --- classify_target: the *:* / *:*:* distinction ---
-    _eq("classify plain path",    classify_target("app/.build.ae"),    "plain")
-    _eq("classify bare arg",      classify_target("app"),              "plain")
-    _eq("classify synonym",       classify_target("app:build"),        "synonym")
-    _eq("classify bare synonym",  classify_target(":build"),           "synonym")
-    _eq("classify nested syn",    classify_target("a/b/c:tests"),      "synonym")
-    _eq("classify maven coord",   classify_target("org.corp:lib:1.0"), "coordinate")
+    spec.describe(fw, "is_flag") {
+        spec.it("distinguishes flags from paths/synonyms") callback {
+            spec.assert_true(is_flag("--scan"), "is_flag --scan")
+            spec.assert_true(is_flag("-x"), "is_flag -x")
+            spec.assert_true(1 - is_flag("app/.build.ae"), "is_flag plain path")
+            spec.assert_true(1 - is_flag("app:build"), "is_flag synonym")
+        }
+    }
 
-    // --- synonym resolution: dir / name / relpath / fqn ---
-    _eq("dir of path/to:name",    synonym_dir("path/to:name"),         "path/to")
-    _eq("dir of bare :name",      synonym_dir(":name"),                "")
-    _eq("name of path/to:name",   synonym_name("path/to:name"),        "name")
-    _eq("name of bare :name",     synonym_name(":name"),               "name")
-    _eq("name empty (trailing :)",synonym_name("app:"),                "")
+    spec.describe(fw, "classify_target") {
+        spec.it("the *:* / *:*:* distinction") callback {
+            spec.assert_str_eq(classify_target("app/.build.ae"), "plain", "classify plain path")
+            spec.assert_str_eq(classify_target("app"), "plain", "classify bare arg")
+            spec.assert_str_eq(classify_target("app:build"), "synonym", "classify synonym")
+            spec.assert_str_eq(classify_target(":build"), "synonym", "classify bare synonym")
+            spec.assert_str_eq(classify_target("a/b/c:tests"), "synonym", "classify nested syn")
+            spec.assert_str_eq(classify_target("org.corp:lib:1.0"), "coordinate", "classify maven coord")
+        }
+    }
 
-    _eq("relpath path/to:name",   synonym_relpath("path/to:name"),     "path/to/.name.ae")
-    _eq("relpath bare :build",    synonym_relpath(":build"),           "./.build.ae")
-    _eq("relpath nested",         synonym_relpath("a/b:tests"),        "a/b/.tests.ae")
+    spec.describe(fw, "synonym resolution") {
+        spec.it("dir / name / relpath / fqn") callback {
+            spec.assert_str_eq(synonym_dir("path/to:name"), "path/to", "dir of path/to:name")
+            spec.assert_str_eq(synonym_dir(":name"), "", "dir of bare :name")
+            spec.assert_str_eq(synonym_name("path/to:name"), "name", "name of path/to:name")
+            spec.assert_str_eq(synonym_name(":name"), "name", "name of bare :name")
+            spec.assert_str_eq(synonym_name("app:"), "", "name empty (trailing :)")
 
-    _eq("fqn strips ./",          synonym_fqn("./.build.ae"),          ".build.ae")
-    _eq("fqn keeps path",         synonym_fqn("app/.build.ae"),        "app/.build.ae")
+            spec.assert_str_eq(synonym_relpath("path/to:name"), "path/to/.name.ae", "relpath path/to:name")
+            spec.assert_str_eq(synonym_relpath(":build"), "./.build.ae", "relpath bare :build")
+            spec.assert_str_eq(synonym_relpath("a/b:tests"), "a/b/.tests.ae", "relpath nested")
 
-    // --- end-to-end: a bare synonym in the cwd, FQN as the bash echoes it ---
-    _eq("bare :build → FQN",
-        synonym_fqn(synonym_relpath(":build")),
-        ".build.ae")
-    _eq("app:build → FQN",
-        synonym_fqn(synonym_relpath("app:build")),
-        "app/.build.ae")
+            spec.assert_str_eq(synonym_fqn("./.build.ae"), ".build.ae", "fqn strips ./")
+            spec.assert_str_eq(synonym_fqn("app/.build.ae"), "app/.build.ae", "fqn keeps path")
+        }
 
-    // --- Windows drive-letter correctness (the bash `*:*` bug) ---
-    // The bash trampoline's `[[ "$a" == *:* ]]` would mis-read these as a
-    // synonym (and a coordinate for two-colon drive paths). aebcli strips the
-    // drive prefix first, so a drive path classifies as a PLAIN target. Drive
-    // detection is purely syntactic, so these hold on every host (there are no
-    // drives on POSIX, but a drive-shaped token is never a valid synonym).
-    _eq("drive path is plain",        classify_target("C:\\proj\\app"),  "plain")
-    _eq("bare drive is plain",        classify_target("C:"),             "plain")
-    _eq("fwd-slash drive is plain",   classify_target("D:/build"),       "plain")
-    // A drive-qualified synonym: strip "C:" and one colon remains.
-    _eq("drive+synonym classify",     classify_target("C:\\a\\b:build"), "synonym")
-    _eq("drive+synonym relpath",      synonym_relpath("C:\\a\\b:build"), "C:\\a\\b/.build.ae")
-    // A two-colon drive path is NOT a coordinate (the bash `*:*:*` bug):
-    // "C:\a:b" → strip "C:" → "\a:b" → one colon → synonym, not coordinate.
-    _eq("drive path not coordinate",  classify_target("C:\\a:b"),        "synonym")
+        spec.it("end-to-end: a bare synonym in the cwd, FQN as the bash echoes it") callback {
+            spec.assert_str_eq(synonym_fqn(synonym_relpath(":build")), ".build.ae", "bare :build → FQN")
+            spec.assert_str_eq(synonym_fqn(synonym_relpath("app:build")), "app/.build.ae", "app:build → FQN")
+        }
+    }
 
-    // --- flag table: env var, value-vs-bool, implications ---
-    _ok("flag_known --coverage",       flag_known("--coverage"))
-    _ok("flag_known --scan",           flag_known("--scan"))
-    _no("flag_known unknown",          flag_known("--nope"))
-    _no("flag_known a path",           flag_known("app/.build.ae"))
+    spec.describe(fw, "Windows drive-letter correctness (the bash *:* bug)") {
+        spec.it("drive paths classify as plain / synonym, never mis-read") callback {
+            // The bash trampoline's `[[ "$a" == *:* ]]` would mis-read these as a
+            // synonym (and a coordinate for two-colon drive paths). aebcli strips the
+            // drive prefix first, so a drive path classifies as a PLAIN target. Drive
+            // detection is purely syntactic, so these hold on every host (there are no
+            // drives on POSIX, but a drive-shaped token is never a valid synonym).
+            spec.assert_str_eq(classify_target("C:\\proj\\app"), "plain", "drive path is plain")
+            spec.assert_str_eq(classify_target("C:"), "plain", "bare drive is plain")
+            spec.assert_str_eq(classify_target("D:/build"), "plain", "fwd-slash drive is plain")
+            // A drive-qualified synonym: strip "C:" and one colon remains.
+            spec.assert_str_eq(classify_target("C:\\a\\b:build"), "synonym", "drive+synonym classify")
+            spec.assert_str_eq(synonym_relpath("C:\\a\\b:build"), "C:\\a\\b/.build.ae", "drive+synonym relpath")
+            // A two-colon drive path is NOT a coordinate (the bash `*:*:*` bug):
+            // "C:\a:b" → strip "C:" → "\a:b" → one colon → synonym, not coordinate.
+            spec.assert_str_eq(classify_target("C:\\a:b"), "synonym", "drive path not coordinate")
+        }
+    }
 
-    _eq("env of --coverage",           flag_env("--coverage"),       "AEB_COVERAGE")
-    _eq("env of --scan",               flag_env("--scan"),           "AEB_SCAN")
-    _eq("env of --sbom-json",          flag_env("--sbom-json"),      "AEB_SBOM_JSON")
-    _eq("env of --vet-tool",           flag_env("--vet-tool"),       "AEB_VET_TOOLS")
-    _eq("env of unknown is empty",     flag_env("--nope"),           "")
+    spec.describe(fw, "flag table: env var, value-vs-bool, implications") {
+        spec.it("flag_known") callback {
+            spec.assert_true(flag_known("--coverage"), "flag_known --coverage")
+            spec.assert_true(flag_known("--scan"), "flag_known --scan")
+            spec.assert_true(1 - flag_known("--nope"), "flag_known unknown")
+            spec.assert_true(1 - flag_known("app/.build.ae"), "flag_known a path")
+        }
 
-    _no("--coverage is boolean",       flag_takes_value("--coverage"))
-    _no("--vet is boolean",            flag_takes_value("--vet"))
-    _ok("--scan takes value",          flag_takes_value("--scan"))
-    _ok("--timeout takes value",       flag_takes_value("--timeout"))
-    _ok("--sandbox-profile takes value", flag_takes_value("--sandbox-profile"))
-    _no("unknown takes no value",      flag_takes_value("--nope"))
+        spec.it("flag_env") callback {
+            spec.assert_str_eq(flag_env("--coverage"), "AEB_COVERAGE", "env of --coverage")
+            spec.assert_str_eq(flag_env("--scan"), "AEB_SCAN", "env of --scan")
+            spec.assert_str_eq(flag_env("--sbom-json"), "AEB_SBOM_JSON", "env of --sbom-json")
+            spec.assert_str_eq(flag_env("--vet-tool"), "AEB_VET_TOOLS", "env of --vet-tool")
+            spec.assert_str_eq(flag_env("--nope"), "", "env of unknown is empty")
+        }
 
-    _eq("--coverage implies nothing",  flag_implies("--coverage"),   "")
-    _eq("--scan implies nothing",      flag_implies("--scan"),       "")
-    _eq("--sbom-json implies resolve", flag_implies("--sbom-json"),  "AEB_RESOLVE_ONLY")
-    _eq("--intent-json implies trace", flag_implies("--intent-json"),"AEB_TRACE_INTENT")
-    _eq("--veto-policy implies vet",   flag_implies("--veto-policy"),"AEB_VET")
-    _eq("--vet-tool implies vet",      flag_implies("--vet-tool"),   "AEB_VET")
-    _eq("--sandbox-profile implies sb",flag_implies("--sandbox-profile"),"AEB_SANDBOX")
+        spec.it("flag_takes_value") callback {
+            spec.assert_true(1 - flag_takes_value("--coverage"), "--coverage is boolean")
+            spec.assert_true(1 - flag_takes_value("--vet"), "--vet is boolean")
+            spec.assert_true(flag_takes_value("--scan"), "--scan takes value")
+            spec.assert_true(flag_takes_value("--timeout"), "--timeout takes value")
+            spec.assert_true(flag_takes_value("--sandbox-profile"), "--sandbox-profile takes value")
+            spec.assert_true(1 - flag_takes_value("--nope"), "unknown takes no value")
+        }
+
+        spec.it("flag_implies") callback {
+            spec.assert_str_eq(flag_implies("--coverage"), "", "--coverage implies nothing")
+            spec.assert_str_eq(flag_implies("--scan"), "", "--scan implies nothing")
+            spec.assert_str_eq(flag_implies("--sbom-json"), "AEB_RESOLVE_ONLY", "--sbom-json implies resolve")
+            spec.assert_str_eq(flag_implies("--intent-json"), "AEB_TRACE_INTENT", "--intent-json implies trace")
+            spec.assert_str_eq(flag_implies("--veto-policy"), "AEB_VET", "--veto-policy implies vet")
+            spec.assert_str_eq(flag_implies("--vet-tool"), "AEB_VET", "--vet-tool implies vet")
+            spec.assert_str_eq(flag_implies("--sandbox-profile"), "AEB_SANDBOX", "--sandbox-profile implies sb")
+        }
+    }
+
+    spec.run_summary(fw)
 }

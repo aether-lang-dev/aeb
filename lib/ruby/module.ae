@@ -470,6 +470,9 @@ builder package(): int {
         return rc
     }
     println("${mod_dir}: packaging done → ${dist_dir}")
+    // Publish the dist dir (holds the built .gem) so a consumer-install proof
+    // (.example) can read it back via dep_artifact(..., "gem_dir").
+    bldr._write_artifact(ctx, "gem_dir", dist_dir)
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }

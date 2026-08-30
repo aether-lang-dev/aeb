@@ -21,6 +21,7 @@
 //   - zero-match → loud error (extract-deps is silent at extraction
 //     time; runtime bldr.scan reports the error)
 
+import std.spec
 import std.string
 import std.io
 import std.os
@@ -32,18 +33,6 @@ import std.path
 import std.dir
 
 import bldr (_sh, _sh_capture)
-
-extern println(s: string)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
@@ -141,89 +130,74 @@ _ensure_extract_deps_built() {
 }
 
 main() {
-    _ensure_extract_deps_built()
+    fw = spec.init()
 
-    root = _mktempdir()
-    _setup_fixture(root)
+    spec.describe(fw, "extract-deps scan expansion") {
+        spec.it("dep+scan expansion, self-loop avoidance, dedup, coords, empties") callback {
+            _ensure_extract_deps_built()
 
-    // --- dep alone (regression: pass 1 unchanged) ---
-    dep_only = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"single/.build.ae\")\n}\n"
-    fs.write_atomic("${root}/.dep-only.ae", dep_only, string.length(dep_only))
-    out_dep = _run_extract_deps(root, ".dep-only.ae")
-    _assert_eq("dep-only: pass 1 still works",
-        _normalise(out_dep), "single/.build.ae")
+            root = _mktempdir()
+            _setup_fixture(root)
 
-    // --- scan alone, expanding to 3 matches at varying depths ---
-    out_all = _run_extract_deps(root, ".all-tests.ae")
-    _assert_eq("scan: 3 .tests.ae files at varying depths (sorted)",
-        _normalise(out_all),
-        "apps/baz/.tests.ae lib/bar/.tests.ae lib/foo/.tests.ae single/.tests.ae")
+            // --- dep alone (regression: pass 1 unchanged) ---
+            dep_only = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"single/.build.ae\")\n}\n"
+            fs.write_atomic("${root}/.dep-only.ae", dep_only, string.length(dep_only))
+            out_dep = _run_extract_deps(root, ".dep-only.ae")
+            spec.assert_str_eq(_normalise(out_dep), "single/.build.ae", "dep-only: pass 1 still works")
 
-    // --- scan with self-loop avoidance ---
-    // .everything.ae's scan("**/.*.ae") would otherwise include itself.
-    // Result should NOT contain ".everything.ae".
-    out_every = _run_extract_deps(root, ".everything.ae")
-    has_self = string.index_of(out_every, ".everything.ae")
-    if has_self < 0 {
-        println("PASS: scan: self-loop excluded")
-    } else {
-        println("FAIL: scan: self-loop NOT excluded")
-        println("  output: '${out_every}'")
-    }
+            // --- scan alone, expanding to 3 matches at varying depths ---
+            out_all = _run_extract_deps(root, ".all-tests.ae")
+            spec.assert_str_eq(_normalise(out_all),
+                "apps/baz/.tests.ae lib/bar/.tests.ae lib/foo/.tests.ae single/.tests.ae",
+                "scan: 3 .tests.ae files at varying depths (sorted)")
 
-    // --- dep + scan dedup ---
-    // .mixed.ae has dep(lib/foo/.tests.ae) AND scan("**/.tests.ae") which
-    // also matches it. Expected: lib/foo/.tests.ae appears exactly once.
-    out_mixed = _run_extract_deps(root, ".mixed.ae")
-    foo_idx = string.index_of(out_mixed, "lib/foo/.tests.ae")
-    foo_idx2 = -1
-    if foo_idx >= 0 {
-        rest_after = string.substring(out_mixed, foo_idx + 17, string.length(out_mixed))
-        foo_idx2 = string.index_of(rest_after, "lib/foo/.tests.ae")
-    }
-    if foo_idx >= 0 {
-        if foo_idx2 < 0 {
-            println("PASS: dep+scan: lib/foo/.tests.ae appears exactly once")
-        } else {
-            println("FAIL: dep+scan: lib/foo/.tests.ae appears twice")
-            println("  output: '${out_mixed}'")
+            // --- scan with self-loop avoidance ---
+            // .everything.ae's scan("**/.*.ae") would otherwise include itself.
+            // Result should NOT contain ".everything.ae".
+            out_every = _run_extract_deps(root, ".everything.ae")
+            spec.assert_false(string.index_of(out_every, ".everything.ae") >= 0, "scan: self-loop excluded")
+
+            // --- dep + scan dedup ---
+            // .mixed.ae has dep(lib/foo/.tests.ae) AND scan("**/.tests.ae") which
+            // also matches it. Expected: lib/foo/.tests.ae appears exactly once.
+            out_mixed = _run_extract_deps(root, ".mixed.ae")
+            foo_idx = string.index_of(out_mixed, "lib/foo/.tests.ae")
+            foo_idx2 = -1
+            if foo_idx >= 0 {
+                rest_after = string.substring(out_mixed, foo_idx + 17, string.length(out_mixed))
+                foo_idx2 = string.index_of(rest_after, "lib/foo/.tests.ae")
+            }
+            spec.assert_true(foo_idx >= 0, "dep+scan: lib/foo/.tests.ae present")
+            spec.assert_true(foo_idx2 < 0, "dep+scan: lib/foo/.tests.ae appears exactly once")
+
+            // --- coordinate deps are NOT file-DAG edges ---
+            // Regression: a maven `group:artifact:version` or `npm:pkg` coordinate
+            // was fabricated into a phantom `<coord>/.build.ae` node, which the
+            // driver could not build (`make: No rule to make target
+            // 'hiccup_hiccup_2.0.0-RC3_.build.ae'`). Coordinates are runtime-resolved
+            // package deps (maven jars onto the classpath, npm via pnpm) — they
+            // mirror the runtime bldr.dep colon rule and must emit no edge. Only
+            // the real file-path dep survives.
+            coords = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"hiccup:hiccup:2.0.0-RC3\")\n    dep(\"org.springframework.boot:spring-boot-starter\")\n    dep(\"npm:left-pad:1.3.0\")\n    dep(\"single/.build.ae\")\n}\n"
+            fs.write_atomic("${root}/.coords.ae", coords, string.length(coords))
+            out_coords = _run_extract_deps(root, ".coords.ae")
+            spec.assert_str_eq(_normalise(out_coords), "single/.build.ae",
+                "coord deps (maven/npm) excluded; only file dep emitted")
+
+            // --- empty file: no deps, no scans ---
+            empty = "import bldr\nmain() { b = bldr.start(); return 0 }\n"
+            fs.write_atomic("${root}/.empty.ae", empty, string.length(empty))
+            out_empty = _run_extract_deps(root, ".empty.ae")
+            spec.assert_str_eq(out_empty, "", "empty: no deps")
+
+            // --- scan finding only the pattern's matched files (not e.g. .build.ae) ---
+            // Pattern is specifically .tests.ae; the .build.ae in single/ should
+            // NOT appear in the output.
+            spec.assert_false(string.index_of(out_all, ".build.ae") >= 0, "scan: pattern restricts to .tests.ae only")
+
+            _sh("rm -rf '${root}'")
         }
-    } else {
-        println("FAIL: dep+scan: lib/foo/.tests.ae missing entirely")
-        println("  output: '${out_mixed}'")
     }
 
-    // --- coordinate deps are NOT file-DAG edges ---
-    // Regression: a maven `group:artifact:version` or `npm:pkg` coordinate
-    // was fabricated into a phantom `<coord>/.build.ae` node, which the
-    // driver could not build (`make: No rule to make target
-    // 'hiccup_hiccup_2.0.0-RC3_.build.ae'`). Coordinates are runtime-resolved
-    // package deps (maven jars onto the classpath, npm via pnpm) — they
-    // mirror the runtime bldr.dep colon rule and must emit no edge. Only
-    // the real file-path dep survives.
-    coords = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"hiccup:hiccup:2.0.0-RC3\")\n    dep(\"org.springframework.boot:spring-boot-starter\")\n    dep(\"npm:left-pad:1.3.0\")\n    dep(\"single/.build.ae\")\n}\n"
-    fs.write_atomic("${root}/.coords.ae", coords, string.length(coords))
-    out_coords = _run_extract_deps(root, ".coords.ae")
-    _assert_eq("coord deps (maven/npm) excluded; only file dep emitted",
-        _normalise(out_coords), "single/.build.ae")
-
-    // --- empty file: no deps, no scans ---
-    empty = "import bldr\nmain() { b = bldr.start(); return 0 }\n"
-    fs.write_atomic("${root}/.empty.ae", empty, string.length(empty))
-    out_empty = _run_extract_deps(root, ".empty.ae")
-    _assert_eq("empty: no deps", out_empty, "")
-
-    // --- scan finding only the pattern's matched files (not e.g. .build.ae) ---
-    // Pattern is specifically .tests.ae; the .build.ae in single/ should
-    // NOT appear in the output.
-    has_build = string.index_of(out_all, ".build.ae")
-    if has_build < 0 {
-        println("PASS: scan: pattern restricts to .tests.ae only")
-    } else {
-        println("FAIL: scan: pattern should have excluded .build.ae files")
-        println("  output: '${out_all}'")
-    }
-
-    _sh("rm -rf '${root}'")
-    println("extract-deps scan tests done")
+    spec.run_summary(fw)
 }

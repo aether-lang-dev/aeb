@@ -8,6 +8,7 @@
 // symbol. The two helpers below mine gcc's stderr and the project
 // tree so aeb can suggest the missing regen_with line directly.
 
+import std.spec
 import aether (_extract_undefined_refs, _find_extern_definer, _emit_extern_hints)
 import bldr
 import bldr (_sh, _sh_capture)
@@ -15,16 +16,6 @@ import std.string
 import std.os
 import std.list
 import std.map
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
 
 // Native-form tmpdir routed through the _sh chokepoint. _find_extern_definer
 // walks the tree with native std.fs/std.dir calls, which cannot see MSYS
@@ -42,86 +33,95 @@ _mktempdir() {
 }
 
 main() {
-    // --- Test 1: a single GNU ld undefined-reference line.
-    syms = _extract_undefined_refs("/usr/bin/ld: module_generated.c:(.text+0x9953): undefined reference to `repo_primary_hash'")
-    _assert("single undefined-ref produces one symbol", list.size(syms) == 1)
-    s0, _ = list.get(syms, 0)
-    _assert("the symbol name is extracted intact", string.equals(s0, "repo_primary_hash"))
+    fw = spec.init()
 
-    // --- Test 2: multi-line blob, duplicates collapse, order preserved.
-    blob = "/usr/bin/ld: module_generated.c:(.text+0x532a): undefined reference to `repos_rev_blob_sha'\n"
-    blob = string.concat(blob, "/usr/bin/ld: module_generated.c:(.text+0x9953): undefined reference to `repo_primary_hash'\n")
-    blob = string.concat(blob, "/usr/bin/ld: module_generated.c:(.text+0xbb9d): undefined reference to `repos_head_rev'\n")
-    blob = string.concat(blob, "/usr/bin/ld: module_generated.c:(.text+0xeeee): undefined reference to `repo_primary_hash'\n")
-    blob = string.concat(blob, "collect2: error: ld returned 1 exit status\n")
-    syms2 = _extract_undefined_refs(blob)
-    _assert("three unique symbols across four refs", list.size(syms2) == 3)
-    first2, _ = list.get(syms2, 0)
-    second2, _ = list.get(syms2, 1)
-    third2, _ = list.get(syms2, 2)
-    _assert("first symbol preserved", string.equals(first2, "repos_rev_blob_sha"))
-    _assert("second symbol preserved", string.equals(second2, "repo_primary_hash"))
-    _assert("third symbol preserved", string.equals(third2, "repos_head_rev"))
+    spec.describe(fw, "extern-ref diagnostics") {
+        spec.it("_extract_undefined_refs mines symbols from ld stderr") callback {
+            // --- Test 1: a single GNU ld undefined-reference line.
+            syms = _extract_undefined_refs("/usr/bin/ld: module_generated.c:(.text+0x9953): undefined reference to `repo_primary_hash'")
+            spec.assert_eq(list.size(syms), 1, "single undefined-ref produces one symbol")
+            s0, _ = list.get(syms, 0)
+            spec.assert_str_eq(s0, "repo_primary_hash", "the symbol name is extracted intact")
 
-    // --- Test 3: empty input.
-    syms3 = _extract_undefined_refs("")
-    _assert("empty stderr → empty list", list.size(syms3) == 0)
+            // --- Test 2: multi-line blob, duplicates collapse, order preserved.
+            blob = "/usr/bin/ld: module_generated.c:(.text+0x532a): undefined reference to `repos_rev_blob_sha'\n"
+            blob = string.concat(blob, "/usr/bin/ld: module_generated.c:(.text+0x9953): undefined reference to `repo_primary_hash'\n")
+            blob = string.concat(blob, "/usr/bin/ld: module_generated.c:(.text+0xbb9d): undefined reference to `repos_head_rev'\n")
+            blob = string.concat(blob, "/usr/bin/ld: module_generated.c:(.text+0xeeee): undefined reference to `repo_primary_hash'\n")
+            blob = string.concat(blob, "collect2: error: ld returned 1 exit status\n")
+            syms2 = _extract_undefined_refs(blob)
+            spec.assert_eq(list.size(syms2), 3, "three unique symbols across four refs")
+            first2, _ = list.get(syms2, 0)
+            second2, _ = list.get(syms2, 1)
+            third2, _ = list.get(syms2, 2)
+            spec.assert_str_eq(first2, "repos_rev_blob_sha", "first symbol preserved")
+            spec.assert_str_eq(second2, "repo_primary_hash", "second symbol preserved")
+            spec.assert_str_eq(third2, "repos_head_rev", "third symbol preserved")
 
-    // --- Test 4: unrelated gcc warnings — no false positives.
-    syms4 = _extract_undefined_refs("module_generated.c:42:1: warning: implicit declaration of function 'foo'\n")
-    _assert("no matches → empty list", list.size(syms4) == 0)
+            // --- Test 3: empty input.
+            syms3 = _extract_undefined_refs("")
+            spec.assert_eq(list.size(syms3), 0, "empty stderr → empty list")
 
-    // --- Test 5: _find_extern_definer end-to-end with a synthetic project.
-    base = _mktempdir()
-    _sh("rm -rf '${base}'; mkdir -p '${base}/repos' '${base}/util' '${base}/app'")
-    // Synthesize module_generated.c files containing function definitions.
-    _sh("printf 'AetherString repo_primary_hash(AetherString repo) {\\n    return repo;\\n}\\n' > '${base}/repos/module_generated.c'")
-    _sh("printf 'int util_helper(int x) {\\n    return x;\\n}\\n' > '${base}/util/module_generated.c'")
-    // Companion module.ae files so the resolver can find them.
-    _sh("printf 'main() {}\\n' > '${base}/repos/module.ae'")
-    _sh("printf 'helper() {}\\n' > '${base}/util/module.ae'")
+            // --- Test 4: unrelated gcc warnings — no false positives.
+            syms4 = _extract_undefined_refs("module_generated.c:42:1: warning: implicit declaration of function 'foo'\n")
+            spec.assert_eq(list.size(syms4), 0, "no matches → empty list")
+        }
 
-    found = _find_extern_definer(base, "repo_primary_hash")
-    _assert("locates definer under repos/", string.index_of(found, "/repos/module.ae") >= 0)
-    found2 = _find_extern_definer(base, "util_helper")
-    _assert("locates definer under util/", string.index_of(found2, "/util/module.ae") >= 0)
+        spec.it("_find_extern_definer locates the sibling that defines a symbol") callback {
+            // --- Test 5: _find_extern_definer end-to-end with a synthetic project.
+            base = _mktempdir()
+            _sh("rm -rf '${base}'; mkdir -p '${base}/repos' '${base}/util' '${base}/app'")
+            // Synthesize module_generated.c files containing function definitions.
+            _sh("printf 'AetherString repo_primary_hash(AetherString repo) {\\n    return repo;\\n}\\n' > '${base}/repos/module_generated.c'")
+            _sh("printf 'int util_helper(int x) {\\n    return x;\\n}\\n' > '${base}/util/module_generated.c'")
+            // Companion module.ae files so the resolver can find them.
+            _sh("printf 'main() {}\\n' > '${base}/repos/module.ae'")
+            _sh("printf 'helper() {}\\n' > '${base}/util/module.ae'")
 
-    // Symbol nowhere in the project → empty result.
-    found3 = _find_extern_definer(base, "no_such_symbol_anywhere_xyz")
-    _assert("missing symbol → empty result", string.length(found3) == 0)
+            found = _find_extern_definer(base, "repo_primary_hash")
+            spec.assert_true(string.index_of(found, "/repos/module.ae") >= 0, "locates definer under repos/")
+            found2 = _find_extern_definer(base, "util_helper")
+            spec.assert_true(string.index_of(found2, "/util/module.ae") >= 0, "locates definer under util/")
 
-    // Empty inputs guarded.
-    found4 = _find_extern_definer("", "foo")
-    _assert("empty root → empty result", string.length(found4) == 0)
-    found5 = _find_extern_definer(base, "")
-    _assert("empty sym → empty result", string.length(found5) == 0)
+            // Symbol nowhere in the project → empty result.
+            found3 = _find_extern_definer(base, "no_such_symbol_anywhere_xyz")
+            spec.assert_eq(string.length(found3), 0, "missing symbol → empty result")
 
-    // --- Test 6: _emit_extern_hints integration — feed it stderr text
-    // and a synthetic project, verify it prints the regen_with hint
-    // line. The function writes to stdout; we capture by re-running
-    // under a tee-redirected child wouldn't work here, so we just
-    // assert no crash and exercise the codepath. The hint text itself
-    // is then inspected by eye in iteration; the failure mode we care
-    // about is a runtime crash from the substring reassignment bug.
-    _sh("mkdir -p '${base}/repos'")
-    _sh("printf 'int my_extern_sym(int x) { return x; }\\n' > '${base}/repos/module_generated.c'")
-    _sh("printf 'main() {}\\n' > '${base}/repos/module.ae'")
-    ctx = map.new()
-    map.put(ctx, "root", base)
-    fake_stderr = "/usr/bin/ld: app.c:(.text+0x100): undefined reference to `my_extern_sym'\ncollect2: error: ld returned 1 exit status\n"
-    rc6 = _emit_extern_hints(ctx, "${base}/app", fake_stderr)
-    _assert("_emit_extern_hints returns 0 (success)", rc6 == 0)
+            // Empty inputs guarded.
+            found4 = _find_extern_definer("", "foo")
+            spec.assert_eq(string.length(found4), 0, "empty root → empty result")
+            found5 = _find_extern_definer(base, "")
+            spec.assert_eq(string.length(found5), 0, "empty sym → empty result")
 
-    // _emit_extern_hints with no matching symbols should be silent and
-    // return 0.
-    fake_stderr2 = "/usr/bin/ld: app.c:(.text+0x100): undefined reference to `nonexistent_symbol_zzz'\n"
-    rc7 = _emit_extern_hints(ctx, "${base}/app", fake_stderr2)
-    _assert("_emit_extern_hints with no project match → 0", rc7 == 0)
+            // --- Test 6: _emit_extern_hints integration — feed it stderr text
+            // and a synthetic project, verify it prints the regen_with hint
+            // line. The function writes to stdout; we capture by re-running
+            // under a tee-redirected child wouldn't work here, so we just
+            // assert no crash and exercise the codepath. The hint text itself
+            // is then inspected by eye in iteration; the failure mode we care
+            // about is a runtime crash from the substring reassignment bug.
+            _sh("mkdir -p '${base}/repos'")
+            _sh("printf 'int my_extern_sym(int x) { return x; }\\n' > '${base}/repos/module_generated.c'")
+            _sh("printf 'main() {}\\n' > '${base}/repos/module.ae'")
+            ctx = map.new()
+            map.put(ctx, "root", base)
+            fake_stderr = "/usr/bin/ld: app.c:(.text+0x100): undefined reference to `my_extern_sym'\ncollect2: error: ld returned 1 exit status\n"
+            rc6 = _emit_extern_hints(ctx, "${base}/app", fake_stderr)
+            spec.assert_eq(rc6, 0, "_emit_extern_hints returns 0 (success)")
 
-    // Empty stderr → 0.
-    rc8 = _emit_extern_hints(ctx, "${base}/app", "")
-    _assert("_emit_extern_hints empty stderr → 0", rc8 == 0)
+            // _emit_extern_hints with no matching symbols should be silent and
+            // return 0.
+            fake_stderr2 = "/usr/bin/ld: app.c:(.text+0x100): undefined reference to `nonexistent_symbol_zzz'\n"
+            rc7 = _emit_extern_hints(ctx, "${base}/app", fake_stderr2)
+            spec.assert_eq(rc7, 0, "_emit_extern_hints with no project match → 0")
 
-    _sh("rm -rf '${base}'")
-    println("extern diagnostics tests done")
+            // Empty stderr → 0.
+            rc8 = _emit_extern_hints(ctx, "${base}/app", "")
+            spec.assert_eq(rc8, 0, "_emit_extern_hints empty stderr → 0")
+
+            _sh("rm -rf '${base}'")
+        }
+    }
+
+    spec.run_summary(fw)
 }

@@ -8,30 +8,22 @@ import std.path
 import std.cryptography
 import std.zlib
 
+import std.spec
 import cache
 
-// Reuse the rest-of-suite assertion shape.
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
-_assert_int(label: string, actual: int, expected: int) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
+    fw = spec.init()
+
+    spec.describe(fw, "content-addressed cache") {
+        spec.it("dir/path/hash/put/get round-trip") callback {
+            _run(fw)
+        }
+    }
+
+    spec.run_summary(fw)
+}
+
+_run(fw: ptr) {
     // --- 1. Sandbox the test cache so it doesn't touch the real one ---
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
     // ("/tmp/tmp.XXXX" under MSYS), but std.fs/std.file are native Win32 calls
@@ -59,73 +51,65 @@ main() {
     }
 
     // --- 2. dir() / path() shape ---
-    _assert_eq("dir reflects $AEB_CACHE_DIR", cache.dir(), tmp_root)
+    spec.assert_str_eq(cache.dir(), tmp_root, "dir reflects $AEB_CACHE_DIR")
 
     sample_hash = "ab12cd34ef56"
     expected_path = path.join(path.join(tmp_root, "ab"), "12cd34ef56")
-    _assert_eq("path shards by 2-char prefix", cache.path(sample_hash), expected_path)
+    spec.assert_str_eq(cache.path(sample_hash), expected_path, "path shards by 2-char prefix")
 
     // --- 3. hash_inputs is order-sensitive and length-prefixed ---
     a = list.new()
     _e1 = list.add(a, "ab")
     _e2 = list.add(a, "c")
     h1, e1 = cache.hash_inputs(a)
-    _assert_eq("hash_inputs error empty", e1, "")
-    _assert_int("hash_inputs digest len 64", string.length(h1), 64)
+    spec.assert_str_eq(e1, "", "hash_inputs error empty")
+    spec.assert_eq(string.length(h1), 64, "hash_inputs digest len 64")
 
     b = list.new()
     _e3 = list.add(b, "a")
     _e4 = list.add(b, "bc")
     h2, _e2x = cache.hash_inputs(b)
-    if h1 == h2 {
-        println("FAIL: ['ab','c'] and ['a','bc'] should not collide")
-    } else {
-        println("PASS: ['ab','c'] != ['a','bc']")
-    }
+    spec.assert_false(string.equals(h1, h2), "['ab','c'] != ['a','bc']")
 
     // --- 4. hash_file round-trip ---
     src = path.join(tmp_root, "src.bin")
     sample = "hello, cache"
     werr = fs.write_atomic(src, sample, string.length(sample))
-    _assert_eq("write_atomic ok", werr, "")
+    spec.assert_str_eq(werr, "", "write_atomic ok")
 
     fh, fherr = cache.hash_file(src)
-    _assert_eq("hash_file error empty", fherr, "")
-    _assert_int("hash_file digest len 64", string.length(fh), 64)
+    spec.assert_str_eq(fherr, "", "hash_file error empty")
+    spec.assert_eq(string.length(fh), 64, "hash_file digest len 64")
 
     // sha256("hello, cache") computed offline:
     //   $ printf 'hello, cache' | sha256sum
     expected_digest = "84a315e553102967663d15f366b38f32898328d402e76116c1e8c4be8236182c"
-    _assert_eq("hash_file matches sha256", fh, expected_digest)
+    spec.assert_str_eq(fh, expected_digest, "hash_file matches sha256")
 
     // --- 5. put / has / get round-trip ---
     h, _ = cache.hash_inputs(a)
-    _assert_int("has miss before put", cache.has(h), 0)
+    spec.assert_eq(cache.has(h), 0, "has miss before put")
 
     perr = cache.put(h, src)
-    _assert_eq("put ok", perr, "")
-    _assert_int("has hit after put", cache.has(h), 1)
+    spec.assert_str_eq(perr, "", "put ok")
+    spec.assert_eq(cache.has(h), 1, "has hit after put")
 
     // Idempotent put: second call should also return "" and not re-write.
     perr2 = cache.put(h, src)
-    _assert_eq("put idempotent", perr2, "")
+    spec.assert_str_eq(perr2, "", "put idempotent")
 
     dest = path.join(tmp_root, "dest.bin")
     gerr = cache.get(h, dest)
-    _assert_eq("get ok", gerr, "")
+    spec.assert_str_eq(gerr, "", "get ok")
 
     rt_bytes, rt_len, _ = fs.read_binary(dest)
-    _assert_int("round-trip length", rt_len, string.length(sample))
-    if string.equals(rt_bytes, sample) == 1 {
-        println("PASS: round-trip bytes")
-    } else {
-        println("FAIL: round-trip bytes")
-    }
+    spec.assert_eq(rt_len, string.length(sample), "round-trip length")
+    spec.assert_true(string.equals(rt_bytes, sample), "round-trip bytes")
 
     // --- 6. get of unknown hash returns "miss" ---
     miss_err = cache.get("0000000000000000000000000000000000000000000000000000000000000000",
                         path.join(tmp_root, "ghost.bin"))
-    _assert_eq("get miss", miss_err, "miss")
+    spec.assert_str_eq(miss_err, "miss", "get miss")
 
     // --- 7. put_string / get_string round-trip ---
     s_inputs = list.new()
@@ -133,18 +117,16 @@ main() {
     sh, _ = cache.hash_inputs(s_inputs)
     s_payload = "classpath-of-12-jars-separated-by-colons"
     sperr = cache.put_string(sh, s_payload)
-    _assert_eq("put_string ok", sperr, "")
+    spec.assert_str_eq(sperr, "", "put_string ok")
 
     sval, sgerr = cache.get_string(sh)
-    _assert_eq("get_string ok", sgerr, "")
-    _assert_eq("get_string round-trip", sval, s_payload)
+    spec.assert_str_eq(sgerr, "", "get_string ok")
+    spec.assert_str_eq(sval, s_payload, "get_string round-trip")
 
     // miss on get_string
     _miss_val, miss_serr = cache.get_string("1111111111111111111111111111111111111111111111111111111111111111")
-    _assert_eq("get_string miss", miss_serr, "miss")
+    spec.assert_str_eq(miss_serr, "miss", "get_string miss")
 
     // --- 7. cleanup ---
     _ = os.system("rm -rf '${tmp_root}'")
-
-    println("cache tests done")
 }

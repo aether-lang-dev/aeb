@@ -7,22 +7,13 @@
 // Offline: writes fake artifact files under <root>/target/<dep>/ and
 // reads them back through the resolver.
 
+import std.spec
 import bldr (program_binary_of, _sh, _sh_capture)
 import std.string
 import std.os
 import std.io
 import std.map
 import std.path
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
 
 // Native-form tmpdir via the _sh chokepoint. program_binary_of reads its
 // fakes through native file.exists/io.read_file, so the dir the shell creates
@@ -49,36 +40,43 @@ _put_artifact(root: string, dep: string, key: string, content: string) {
 }
 
 main() {
-    base = _mktempdir()
-    _sh("rm -rf '${base}'; mkdir -p '${base}'")
-    ctx = map.new()
-    map.put(ctx, "root", base)
+    fw = spec.init()
 
-    // 1. program_binary present → used directly.
-    _put_artifact(base, "uni", "program_binary", "/bin/uni\n")
-    _assert("program_binary resolves",
-        string.equals(program_binary_of(ctx, "uni"), "/bin/uni"))
+    spec.describe(fw, "program_binary_of runnable-binary contract") {
+        spec.it("program_binary + legacy fallbacks + precedence + missing") callback {
+            base = _mktempdir()
+            _sh("rm -rf '${base}'; mkdir -p '${base}'")
+            ctx = map.new()
+            map.put(ctx, "root", base)
 
-    // 2. only legacy c_binary → fallback.
-    _put_artifact(base, "conly", "c_binary", "/bin/conly\n")
-    _assert("falls back to c_binary",
-        string.equals(program_binary_of(ctx, "conly"), "/bin/conly"))
+            // 1. program_binary present → used directly.
+            _put_artifact(base, "uni", "program_binary", "/bin/uni\n")
+            spec.assert_true(string.equals(program_binary_of(ctx, "uni"), "/bin/uni"),
+                "program_binary resolves")
 
-    // 3. only legacy aether_binary → fallback.
-    _put_artifact(base, "aonly", "aether_binary", "/bin/aonly\n")
-    _assert("falls back to aether_binary",
-        string.equals(program_binary_of(ctx, "aonly"), "/bin/aonly"))
+            // 2. only legacy c_binary → fallback.
+            _put_artifact(base, "conly", "c_binary", "/bin/conly\n")
+            spec.assert_true(string.equals(program_binary_of(ctx, "conly"), "/bin/conly"),
+                "falls back to c_binary")
 
-    // 4. program_binary wins over a legacy key when both exist.
-    _put_artifact(base, "both", "program_binary", "/bin/prog\n")
-    _put_artifact(base, "both", "c_binary", "/bin/legacy\n")
-    _assert("program_binary takes precedence over c_binary",
-        string.equals(program_binary_of(ctx, "both"), "/bin/prog"))
+            // 3. only legacy aether_binary → fallback.
+            _put_artifact(base, "aonly", "aether_binary", "/bin/aonly\n")
+            spec.assert_true(string.equals(program_binary_of(ctx, "aonly"), "/bin/aonly"),
+                "falls back to aether_binary")
 
-    // 5. nothing published → empty (caller treats as "not built / not deped").
-    _assert("missing dep resolves to empty",
-        string.equals(program_binary_of(ctx, "nope"), ""))
+            // 4. program_binary wins over a legacy key when both exist.
+            _put_artifact(base, "both", "program_binary", "/bin/prog\n")
+            _put_artifact(base, "both", "c_binary", "/bin/legacy\n")
+            spec.assert_true(string.equals(program_binary_of(ctx, "both"), "/bin/prog"),
+                "program_binary takes precedence over c_binary")
 
-    _sh("rm -rf '${base}'")
-    println("program-binary contract tests done")
+            // 5. nothing published → empty (caller treats as "not built / not deped").
+            spec.assert_true(string.equals(program_binary_of(ctx, "nope"), ""),
+                "missing dep resolves to empty")
+
+            _sh("rm -rf '${base}'")
+        }
+    }
+
+    spec.run_summary(fw)
 }

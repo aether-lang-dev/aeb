@@ -8,17 +8,11 @@
 // The fix walks the tree recursively (`find … -newer`). This test pins the
 // nested case that the old top-level glob missed.
 
-import bldr (_needs_rebuild, _sh, _sh_capture)
+import std.spec
+import bldr (_needs_rebuild, _sh)
 import std.string
 import std.os
 import std.path
-
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label}") }
-}
 
 _mktempdir() {
     raw, _e = os.exec("mktemp -d")
@@ -26,39 +20,42 @@ _mktempdir() {
 }
 
 main() {
-    dir = _mktempdir()
-    // A source nested two levels down — the shape the top-level glob missed.
-    nested_dir = path.join(dir, "src/test/kotlin/demo")
-    bldr._sh("mkdir -p '${nested_dir}'")
-    nested = path.join(nested_dir, "T.kt")
-    bldr._sh("printf 'v1' > '${nested}'")
+    fw = spec.init()
 
-    ts = path.join(dir, ".ts")
+    spec.describe(fw, "_needs_rebuild recursive source scan") {
+        spec.it("nested-source lifecycle: marker vs recursive edits vs target/") callback {
+            dir = _mktempdir()
+            // A source nested two levels down — the shape the top-level glob missed.
+            nested_dir = path.join(dir, "src/test/kotlin/demo")
+            bldr._sh("mkdir -p '${nested_dir}'")
+            nested = path.join(nested_dir, "T.kt")
+            bldr._sh("printf 'v1' > '${nested}'")
 
-    // 1. No marker yet -> must rebuild.
-    _assert("no ts marker -> needs rebuild (1)",
-        _needs_rebuild(dir, ts) == 1)
+            ts = path.join(dir, ".ts")
 
-    // 2. Marker NEWER than every source -> up to date (0). Create the marker
-    //    after the source, so the source is older.
-    bldr._sh("sleep 1 && touch '${ts}'")
-    _assert("marker newer than nested source -> up to date (0)",
-        _needs_rebuild(dir, ts) == 0)
+            // 1. No marker yet -> must rebuild.
+            spec.assert_eq(_needs_rebuild(dir, ts), 1, "no ts marker -> needs rebuild")
 
-    // 3. THE REGRESSION: edit the NESTED source so it is newer than the marker.
-    //    The old top-level `source_dir/*` glob never saw it -> stale (0, the
-    //    bug). The recursive find sees it -> needs rebuild (1).
-    bldr._sh("sleep 1 && printf 'v2-EDITED' > '${nested}'")
-    _assert("nested source edited after marker -> needs rebuild (1)",
-        _needs_rebuild(dir, ts) == 1)
+            // 2. Marker NEWER than every source -> up to date (0). Create the
+            //    marker after the source, so the source is older.
+            bldr._sh("sleep 1 && touch '${ts}'")
+            spec.assert_eq(_needs_rebuild(dir, ts), 0, "marker newer than nested source -> up to date")
 
-    // 4. target/ under source_dir must NOT force a rebuild (it holds this
-    //    node's own newer outputs). Refresh the marker, then drop a newer file
-    //    under target/ only.
-    bldr._sh("touch '${ts}' && mkdir -p '${dir}/target' && sleep 1 && touch '${dir}/target/out.o'")
-    _assert("newer file under target/ is ignored -> up to date (0)",
-        _needs_rebuild(dir, ts) == 0)
+            // 3. THE REGRESSION: edit the NESTED source so it is newer than the
+            //    marker. The old top-level `source_dir/*` glob never saw it ->
+            //    stale (0, the bug). The recursive find sees it -> rebuild (1).
+            bldr._sh("sleep 1 && printf 'v2-EDITED' > '${nested}'")
+            spec.assert_eq(_needs_rebuild(dir, ts), 1, "nested source edited after marker -> needs rebuild")
 
-    bldr._sh("rm -rf '${dir}'")
-    println("needs_rebuild tests done")
+            // 4. target/ under source_dir must NOT force a rebuild (it holds
+            //    this node's own newer outputs). Refresh the marker, then drop a
+            //    newer file under target/ only.
+            bldr._sh("touch '${ts}' && mkdir -p '${dir}/target' && sleep 1 && touch '${dir}/target/out.o'")
+            spec.assert_eq(_needs_rebuild(dir, ts), 0, "newer file under target/ is ignored -> up to date")
+
+            bldr._sh("rm -rf '${dir}'")
+        }
+    }
+
+    spec.run_summary(fw)
 }

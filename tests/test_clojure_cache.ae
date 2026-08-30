@@ -4,6 +4,7 @@
 // reads .clj sources via cache.hash_file and dep artifacts via
 // bldr._read_dep_artifact. Stages fixtures under a tmpdir per case.
 // Tolerates an absent java toolchain.
+import std.spec
 import std.string
 import std.io
 import std.os
@@ -16,33 +17,6 @@ import std.dir
 
 import bldr
 import clojure (_cache_key_for_clj)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
-
-_assert_neq(label: string, a: string, b: string) {
-    if a == b {
-        println("FAIL: ${label}")
-        println("  unexpected match: '${a}'")
-    } else {
-        println("PASS: ${label}")
-    }
-}
-
-_assert_nonempty(label: string, s: string) {
-    if string.length(s) > 0 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label} (empty)")
-    }
-}
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary
@@ -74,63 +48,70 @@ _minimal_ctx(root: string) {
 }
 
 main() {
-    tdir = _mktempdir()
+    fw = spec.init()
 
-    src = path.join(tdir, "core.clj")
-    _write(src, "(ns app.core (:gen-class))\n")
+    spec.describe(fw, "_cache_key_for_clj") {
+        spec.it("key derivation, invalidation, and content-addressing") callback {
+            tdir = _mktempdir()
 
-    argfile = path.join(tdir, "argfile.txt")
-    _write(argfile, string.concat(src, "\n"))
+            src = path.join(tdir, "core.clj")
+            _write(src, "(ns app.core (:gen-class))\n")
 
-    ctx = _minimal_ctx(tdir)
-    mcp = "/m/clojure-1.11.1.jar:/m/spec.alpha.jar"
-    ns = "app.core"
-    cmd = "java -Dclojure.compile.path=/target/classes -cp ${mcp} clojure.main -e \"(compile 'app.core)\""
+            argfile = path.join(tdir, "argfile.txt")
+            _write(argfile, string.concat(src, "\n"))
 
-    // --- determinism ---
-    k1, e1 = _cache_key_for_clj(ctx, argfile, cmd, mcp, ns)
-    _assert_eq("key: no error on fresh inputs", e1, "")
-    _assert_nonempty("key: non-empty hash", k1)
-    k2, _e2 = _cache_key_for_clj(ctx, argfile, cmd, mcp, ns)
-    _assert_eq("determinism: same inputs → same key", k1, k2)
+            ctx = _minimal_ctx(tdir)
+            mcp = "/m/clojure-1.11.1.jar:/m/spec.alpha.jar"
+            ns = "app.core"
+            cmd = "java -Dclojure.compile.path=/target/classes -cp ${mcp} clojure.main -e \"(compile 'app.core)\""
 
-    // --- src content change → different key ---
-    _write(src, "(ns app.core (:gen-class)) (defn f [] 1)\n")
-    k3, _e3 = _cache_key_for_clj(ctx, argfile, cmd, mcp, ns)
-    _assert_neq("invalidation: src content change → different key", k1, k3)
-    _write(src, "(ns app.core (:gen-class))\n")
-    k4, _e4 = _cache_key_for_clj(ctx, argfile, cmd, mcp, ns)
-    _assert_eq("content-addressed: same content → same key", k1, k4)
+            // --- determinism ---
+            k1, e1 = _cache_key_for_clj(ctx, argfile, cmd, mcp, ns)
+            spec.assert_str_eq(e1, "", "key: no error on fresh inputs")
+            spec.assert_true(string.length(k1) > 0, "key: non-empty hash")
+            k2, _e2 = _cache_key_for_clj(ctx, argfile, cmd, mcp, ns)
+            spec.assert_str_eq(k1, k2, "determinism: same inputs → same key")
 
-    // --- maven classpath change (clojure/dep bump) → different key ---
-    mcp2 = "/m/clojure-1.12.0.jar:/m/spec.alpha.jar"
-    cmd2 = "java -Dclojure.compile.path=/target/classes -cp ${mcp2} clojure.main -e \"(compile 'app.core)\""
-    k_mcp, _e5 = _cache_key_for_clj(ctx, argfile, cmd2, mcp2, ns)
-    _assert_neq("invalidation: maven classpath change → different key", k1, k_mcp)
+            // --- src content change → different key ---
+            _write(src, "(ns app.core (:gen-class)) (defn f [] 1)\n")
+            k3, _e3 = _cache_key_for_clj(ctx, argfile, cmd, mcp, ns)
+            spec.assert_false(string.equals(k1, k3), "invalidation: src content change → different key")
+            _write(src, "(ns app.core (:gen-class))\n")
+            k4, _e4 = _cache_key_for_clj(ctx, argfile, cmd, mcp, ns)
+            spec.assert_str_eq(k1, k4, "content-addressed: same content → same key")
 
-    // --- namespace change → different key ---
-    k_ns, _e6 = _cache_key_for_clj(ctx, argfile, cmd, mcp, "app.other")
-    _assert_neq("invalidation: AOT namespace change → different key", k1, k_ns)
+            // --- maven classpath change (clojure/dep bump) → different key ---
+            mcp2 = "/m/clojure-1.12.0.jar:/m/spec.alpha.jar"
+            cmd2 = "java -Dclojure.compile.path=/target/classes -cp ${mcp2} clojure.main -e \"(compile 'app.core)\""
+            k_mcp, _e5 = _cache_key_for_clj(ctx, argfile, cmd2, mcp2, ns)
+            spec.assert_false(string.equals(k1, k_mcp), "invalidation: maven classpath change → different key")
 
-    // --- second source → different key, order-independent ---
-    src2 = path.join(tdir, "util.clj")
-    _write(src2, "(ns app.util)\n")
-    argfile2 = path.join(tdir, "argfile2.txt")
-    _write(argfile2, string.concat(string.concat(src, "\n"), string.concat(src2, "\n")))
-    k_two, _e7 = _cache_key_for_clj(ctx, argfile2, cmd, mcp, ns)
-    _assert_neq("invalidation: extra .clj added → different key", k1, k_two)
-    argfile_rev = path.join(tdir, "argfile_rev.txt")
-    _write(argfile_rev, string.concat(string.concat(src2, "\n"), string.concat(src, "\n")))
-    k_two_rev, _e8 = _cache_key_for_clj(ctx, argfile_rev, cmd, mcp, ns)
-    _assert_eq("ordering: argfile listing order doesn't change key", k_two, k_two_rev)
+            // --- namespace change → different key ---
+            k_ns, _e6 = _cache_key_for_clj(ctx, argfile, cmd, mcp, "app.other")
+            spec.assert_false(string.equals(k1, k_ns), "invalidation: AOT namespace change → different key")
 
-    // --- missing src → error, empty key ---
-    bad_argfile = path.join(tdir, "bad.txt")
-    _write(bad_argfile, string.concat(path.join(tdir, "nope.clj"), "\n"))
-    k_bad, e_bad = _cache_key_for_clj(ctx, bad_argfile, cmd, mcp, ns)
-    _assert_eq("error path: missing src returns empty key", k_bad, "")
-    _assert_nonempty("error path: missing src reports error", e_bad)
+            // --- second source → different key, order-independent ---
+            src2 = path.join(tdir, "util.clj")
+            _write(src2, "(ns app.util)\n")
+            argfile2 = path.join(tdir, "argfile2.txt")
+            _write(argfile2, string.concat(string.concat(src, "\n"), string.concat(src2, "\n")))
+            k_two, _e7 = _cache_key_for_clj(ctx, argfile2, cmd, mcp, ns)
+            spec.assert_false(string.equals(k1, k_two), "invalidation: extra .clj added → different key")
+            argfile_rev = path.join(tdir, "argfile_rev.txt")
+            _write(argfile_rev, string.concat(string.concat(src2, "\n"), string.concat(src, "\n")))
+            k_two_rev, _e8 = _cache_key_for_clj(ctx, argfile_rev, cmd, mcp, ns)
+            spec.assert_str_eq(k_two, k_two_rev, "ordering: argfile listing order doesn't change key")
 
-    os.system("rm -rf '${tdir}'")
-    println("clojure cache-key tests done")
+            // --- missing src → error, empty key ---
+            bad_argfile = path.join(tdir, "bad.txt")
+            _write(bad_argfile, string.concat(path.join(tdir, "nope.clj"), "\n"))
+            k_bad, e_bad = _cache_key_for_clj(ctx, bad_argfile, cmd, mcp, ns)
+            spec.assert_str_eq(k_bad, "", "error path: missing src returns empty key")
+            spec.assert_true(string.length(e_bad) > 0, "error path: missing src reports error")
+
+            os.system("rm -rf '${tdir}'")
+        }
+    }
+
+    spec.run_summary(fw)
 }

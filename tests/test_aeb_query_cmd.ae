@@ -5,6 +5,7 @@
 // test_affected_targets.ae by testing the CLI parsing shapes:
 // query deps(...), query rdeps(...), owners, path, why.
 
+import std.spec
 import std.string
 import std.io
 import std.os
@@ -16,18 +17,6 @@ import std.path
 import std.dir
 
 import bldr (_sh, _sh_capture)
-
-extern println(s: string)
-
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: '${expected}'")
-        println("  actual:   '${actual}'")
-    }
-}
 
 // Native-form tmpdir via the _sh chokepoint. This test builds a tool into the
 // dir, writes an edges fixture with native io.write_file, and runs the tool —
@@ -56,50 +45,59 @@ _run(cmd: string) {
 }
 
 main() {
-    tmp = _mktempdir()
-    tool = string.concat(tmp, "/aeb-query-test")
-    // Build aeb-query with the harness's chosen compiler ($AETHER,
-    // exported by tests/run.sh), not bare `ae` from PATH — the two can
-    // differ (an overridden toolchain, or a broken PATH `ae`).
-    ae_bin = os.getenv("AETHER")
-    if string.length(ae_bin) == 0 { ae_bin = "ae" }
-    build_rc = _sh(string.concat(ae_bin, string.concat(" build tools/aeb-query.ae -o ", string.concat(tool, " >/dev/null 2>&1"))))
-    if build_rc != 0 {
-        println("FAIL: build aeb-query")
-        return 0
+    fw = spec.init()
+
+    spec.describe(fw, "aeb-query CLI modes") {
+        spec.it("deps/rdeps/owners/path/why over a fixture edges graph") callback {
+            tmp = _mktempdir()
+            tool = string.concat(tmp, "/aeb-query-test")
+            // Build aeb-query with the harness's chosen compiler ($AETHER,
+            // exported by tests/run.sh), not bare `ae` from PATH — the two can
+            // differ (an overridden toolchain, or a broken PATH `ae`).
+            ae_bin = os.getenv("AETHER")
+            if string.length(ae_bin) == 0 { ae_bin = "ae" }
+            build_rc = _sh(string.concat(ae_bin, string.concat(" build tools/aeb-query.ae -o ", string.concat(tool, " >/dev/null 2>&1"))))
+            spec.assert_eq(build_rc, 0, "build aeb-query")
+
+            edges = ""
+            edges = string.concat(edges, "apps/api/.dist.ae apps/api/.build.ae libs/core/.build.ae\n")
+            edges = string.concat(edges, "apps/api/.build.ae libs/core/.build.ae libs/util/.build.ae\n")
+            edges = string.concat(edges, "apps/api/.tests.ae apps/api/.build.ae libs/testkit/.build.ae\n")
+            edges = string.concat(edges, "libs/core/.build.ae libs/util/.build.ae\n")
+            edges = string.concat(edges, "libs/util/.build.ae \n")
+            edges = string.concat(edges, "libs/testkit/.build.ae libs/util/.build.ae\n")
+            edges_path = string.concat(tmp, "/aeb-query-edges.txt")
+            werr = io.write_file(edges_path, edges)
+            spec.assert_str_eq(werr, "", "write edges fixture")
+
+            spec.assert_str_eq(
+                _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " query 'deps(apps/api/.dist.ae)'")))),
+                "apps/api/.build.ae\nlibs/core/.build.ae\nlibs/util/.build.ae",
+                "deps transitive")
+
+            spec.assert_str_eq(
+                _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " query 'rdeps(libs/util/.build.ae)'")))),
+                "apps/api/.build.ae\napps/api/.dist.ae\napps/api/.tests.ae\nlibs/core/.build.ae\nlibs/testkit/.build.ae",
+                "rdeps transitive")
+
+            spec.assert_str_eq(
+                _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " owners apps/api/src/main.go")))),
+                "apps/api/.build.ae\napps/api/.dist.ae\napps/api/.tests.ae",
+                "owners nearest dir")
+
+            spec.assert_str_eq(
+                _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " path apps/api/.dist.ae libs/util/.build.ae")))),
+                "apps/api/.dist.ae\napps/api/.build.ae\nlibs/util/.build.ae",
+                "path")
+
+            spec.assert_str_eq(
+                _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " why apps/api/.tests.ae libs/util/.build.ae")))),
+                "apps/api/.tests.ae\napps/api/.build.ae\nlibs/util/.build.ae",
+                "why alias")
+
+            _sh("rm -rf '${tmp}'")
+        }
     }
 
-    edges = ""
-    edges = string.concat(edges, "apps/api/.dist.ae apps/api/.build.ae libs/core/.build.ae\n")
-    edges = string.concat(edges, "apps/api/.build.ae libs/core/.build.ae libs/util/.build.ae\n")
-    edges = string.concat(edges, "apps/api/.tests.ae apps/api/.build.ae libs/testkit/.build.ae\n")
-    edges = string.concat(edges, "libs/core/.build.ae libs/util/.build.ae\n")
-    edges = string.concat(edges, "libs/util/.build.ae \n")
-    edges = string.concat(edges, "libs/testkit/.build.ae libs/util/.build.ae\n")
-    edges_path = string.concat(tmp, "/aeb-query-edges.txt")
-    werr = io.write_file(edges_path, edges)
-    if string.length(werr) > 0 {
-        println("FAIL: write edges fixture")
-        return 0
-    }
-
-    _assert_eq("deps transitive",
-        _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " query 'deps(apps/api/.dist.ae)'")))),
-        "apps/api/.build.ae\nlibs/core/.build.ae\nlibs/util/.build.ae")
-
-    _assert_eq("rdeps transitive",
-        _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " query 'rdeps(libs/util/.build.ae)'")))),
-        "apps/api/.build.ae\napps/api/.dist.ae\napps/api/.tests.ae\nlibs/core/.build.ae\nlibs/testkit/.build.ae")
-
-    _assert_eq("owners nearest dir",
-        _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " owners apps/api/src/main.go")))),
-        "apps/api/.build.ae\napps/api/.dist.ae\napps/api/.tests.ae")
-
-    _assert_eq("path",
-        _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " path apps/api/.dist.ae libs/util/.build.ae")))),
-        "apps/api/.dist.ae\napps/api/.build.ae\nlibs/util/.build.ae")
-
-    _assert_eq("why alias",
-        _run(string.concat(tool, string.concat(" ", string.concat(edges_path, " why apps/api/.tests.ae libs/util/.build.ae")))),
-        "apps/api/.tests.ae\napps/api/.build.ae\nlibs/util/.build.ae")
+    spec.run_summary(fw)
 }

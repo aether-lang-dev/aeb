@@ -11,58 +11,54 @@
 // Layout built below: app/main.ae imports `mid`, mid imports `deep`;
 // `other` is an unrelated module nothing imports.
 
+import std.spec
 import aether (_cache_key_for_aether_link)
 import std.string
 import std.os
 
-extern println(s: string)
-
-_assert(label: string, cond: int) {
-    if cond == 1 {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-    }
-}
-
 main() {
-    base = "/tmp/aeb_test_import_closure"
-    os.system("rm -rf ${base}; mkdir -p ${base}/app ${base}/mid ${base}/deep ${base}/other")
-    appdir = "${base}/app"
-    entry = "${base}/app/main.ae"
-    os.system("printf 'import mid\\nmain() {}\\n' > ${entry}")
-    os.system("printf 'import deep\\nfoo() { return 1 }\\n' > ${base}/mid/module.ae")
-    os.system("printf 'bar() { return 1 }\\n' > ${base}/deep/module.ae")
-    os.system("printf 'unrelated() { return 1 }\\n' > ${base}/other/module.ae")
+    fw = spec.init()
 
-    k1, e1 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
-    // _cache_key_for_aether_link returns ("", err) when hashing is
-    // unavailable (no OpenSSL/zlib) — skip cleanly in that case.
-    if string.equals(e1, "") == 0 {
-        println("PASS: import-closure test skipped — ${e1}")
-        os.system("rm -rf ${base}")
-        println("import closure tests done")
-        return 0
+    spec.describe(fw, "aether.program cache key covers the import closure") {
+        spec.it("transitive/direct edits bust the key; unrelated edits do not") callback {
+            base = "/tmp/aeb_test_import_closure"
+            os.system("rm -rf ${base}; mkdir -p ${base}/app ${base}/mid ${base}/deep ${base}/other")
+            appdir = "${base}/app"
+            entry = "${base}/app/main.ae"
+            os.system("printf 'import mid\\nmain() {}\\n' > ${entry}")
+            os.system("printf 'import deep\\nfoo() { return 1 }\\n' > ${base}/mid/module.ae")
+            os.system("printf 'bar() { return 1 }\\n' > ${base}/deep/module.ae")
+            os.system("printf 'unrelated() { return 1 }\\n' > ${base}/other/module.ae")
+
+            k1, e1 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
+            // _cache_key_for_aether_link returns ("", err) when hashing is
+            // unavailable (no OpenSSL/zlib) — skip cleanly in that case.
+            if spec.skip_all_if(fw, string.equals(e1, "") == 0, "import-closure test skipped — ${e1}") == 1 {
+                os.system("rm -rf ${base}")
+                return 0
+            }
+
+            k1b, _eb = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
+            spec.assert_true(string.equals(k1, k1b), "key is stable across recomputation")
+
+            // Edit a TRANSITIVE import (deep ← mid ← app) — must bust the key.
+            os.system("printf 'bar() { return 2 }\\n' > ${base}/deep/module.ae")
+            k2, _e2 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
+            spec.assert_true(1 - string.equals(k1, k2), "editing a transitive import busts the key")
+
+            // Edit a DIRECT import (mid) — must bust the key.
+            os.system("printf 'import deep\\nfoo() { return 9 }\\n' > ${base}/mid/module.ae")
+            k3, _e3 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
+            spec.assert_true(1 - string.equals(k2, k3), "editing a direct import busts the key")
+
+            // Edit an UNRELATED module — nothing imports it — key must NOT move.
+            os.system("printf 'unrelated() { return 7 }\\n' > ${base}/other/module.ae")
+            k4, _e4 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
+            spec.assert_true(string.equals(k3, k4), "editing an unrelated module leaves the key unchanged")
+
+            os.system("rm -rf ${base}")
+        }
     }
 
-    k1b, _eb = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
-    _assert("key is stable across recomputation", string.equals(k1, k1b))
-
-    // Edit a TRANSITIVE import (deep ← mid ← app) — must bust the key.
-    os.system("printf 'bar() { return 2 }\\n' > ${base}/deep/module.ae")
-    k2, _e2 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
-    _assert("editing a transitive import busts the key", 1 - string.equals(k1, k2))
-
-    // Edit a DIRECT import (mid) — must bust the key.
-    os.system("printf 'import deep\\nfoo() { return 9 }\\n' > ${base}/mid/module.ae")
-    k3, _e3 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
-    _assert("editing a direct import busts the key", 1 - string.equals(k2, k3))
-
-    // Edit an UNRELATED module — nothing imports it — key must NOT move.
-    os.system("printf 'unrelated() { return 7 }\\n' > ${base}/other/module.ae")
-    k4, _e4 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
-    _assert("editing an unrelated module leaves the key unchanged", string.equals(k3, k4))
-
-    os.system("rm -rf ${base}")
-    println("import closure tests done")
+    spec.run_summary(fw)
 }
