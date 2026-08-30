@@ -43,7 +43,7 @@ AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne   # one project
 ## Named-target-set smoke test
 
 `presubmit-smoke.sh` verifies the `.presubmit.ae` convention
-(`../docs/presubmit-target-sets.md`): a dot-prefixed `.ae` file whose body
+(`../docs/design/presubmit-target-sets.md`): a dot-prefixed `.ae` file whose body
 is nothing but `build.dep(...)` lines is a runnable set of targets. It
 synthesises a three-node fixture in a temp dir and asserts that members
 run, the aggregator topo-sorts last, the set self-classifies as type
@@ -101,7 +101,7 @@ It exists because nothing tested this and it silently drifted: the
 trampoline built from source (~69 s, needs a C compiler) while
 `release.yml` fetched the prebuilt (<1 s) under a comment claiming it did
 so "the same way a cold node would", and
-`../docs/aeb-host-vm-or-container-setup.md` asserted "Aether itself is a
+`../docs/guides/aeb-host-vm-or-container-setup.md` asserted "Aether itself is a
 2.8 MB binary tarball, not a source build". Three places, two behaviours,
 no test to notice.
 

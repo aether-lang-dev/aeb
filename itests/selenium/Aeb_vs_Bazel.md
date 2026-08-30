@@ -180,7 +180,7 @@ model is enough.
 ## The Wingerd middle ground (same as PyTorch)
 
 The remote-cache gap can close without going hermetic — see
-`docs/distributed-cache-plan.md` and the follow-up section in
+`docs/plans/distributed-cache-plan.md` and the follow-up section in
 `itests/pytorch/Aeb_vs_Bazel.md`. Selenium would benefit from the
 same Wingerd-mainline-model shared cache if it ever materialises.
 Until then, accept that "Bazel-with-remote-cache" beats "aeb +

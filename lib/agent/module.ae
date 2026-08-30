@@ -8,7 +8,7 @@
 //     purpose match a scope's accept rule? is a job slot free? These are
 //     consumed by tools/aeb-agent (the listener exe) and tested offline.
 //
-// Design: docs/run-policy-class-and-cloud-leverage.md.
+// Design: docs/design/run-policy-class-and-cloud-leverage.md.
 // Walking skeleton — deliberately NOT yet: token auth, cache
 // partitioning, the details_url sync-pull, the duration-scoped callback
 // socket (the skeleton does a synchronous request/response). Those
@@ -181,7 +181,7 @@ _image_match(glob: string, image: string) {
 
 // prereq_to_image(token) — map a prereq toolchain token to its toolchain
 // image, the requester-side half of the per-job-image protocol (ladder Rung 3).
-// Convention (docs/agent-container-ladder.md): "<lang>:<ver>" -> "aeb-tc:<lang>-<ver>"
+// Convention (docs/design/agent-container-ladder.md): "<lang>:<ver>" -> "aeb-tc:<lang>-<ver>"
 //   "rust:1.75" -> "aeb-tc:rust-1.75"   "jdk:21" -> "aeb-tc:jdk-21"
 //   "go:1.22"   -> "aeb-tc:go-1.22"     "python:3.12" -> "aeb-tc:python-3.12"
 // A token without ':' (no version) -> "aeb-tc:<token>". Pure. The agent gates
@@ -234,7 +234,7 @@ _scope_accepts(scope_map: ptr, purpose: string) {
 }
 
 // --- Provisioning modes (per-slot tree lifecycle; launch-constrained) ------
-// See docs/agent-provisioning-modes.md. The agent OFFERS a set of modes at
+// See docs/design/agent-provisioning-modes.md. The agent OFFERS a set of modes at
 // launch; a dispatch REQUESTS one; the agent serves / busies / rejects. Pure
 // membership + allow-list helpers here; the tool wires them to the slot/tree.
 
@@ -369,7 +369,7 @@ _decision(scope_map: ptr, purpose: string, active: int) {
 // secret" — NO signing, NO expiry, NO embedded/verified scope, NO
 // per-principal issuance. It is the stand-in for the real
 // claim→verify→veto / purpose-in-the-token model
-// (docs/run-policy-class-and-cloud-leverage.md), so a sysop has a real
+// (docs/design/run-policy-class-and-cloud-leverage.md), so a sysop has a real
 // on/off today. Scope stays the agent's --accept; a token only gates
 // "may dispatch at all." Do NOT mistake this for the designed model.
 
@@ -500,7 +500,7 @@ _bearer_strip(header_value: string) {
 //
 // The real-auth thickening of the flat --tokens bearer set. A LEASE token is
 // self-describing and unforgeable without the shared signing secret, per
-// "A Purpose in a Token" (docs/run-policy-class-and-cloud-leverage.md §trust):
+// "A Purpose in a Token" (docs/design/run-policy-class-and-cloud-leverage.md §trust):
 //
 //   ae1.<purpose>.<expiry_unix_ms>.<hmac_sha256_hex>
 //        \_______________________/  \____________/
@@ -1189,7 +1189,7 @@ builder dispatch(): int {
 }
 
 // ============================================================================
-// Tier-A veto: pluggable tree/patch scan (docs/build-veto-and-sandbox.md).
+// Tier-A veto: pluggable tree/patch scan (docs/design/build-veto-and-sandbox.md).
 //
 // The agent's OWN gate, run on the PREPARED tree (post-checkout, post-patch)
 // BEFORE the build. Generalizes the original single hardcoded grep into a small
@@ -1217,7 +1217,7 @@ _veto_default_rules() {
     list.add(rules, "secret-pgp\ttree\tBEGIN PGP PRIVATE KEY BLOCK\ttree contains a PGP private-key marker")
     list.add(rules, "aws-akid\tpatch\tAKIA[0-9A-Z]\\{16\\}\tpatch introduces an AWS access-key id")
     // --- June-2026 supply-chain install-script class (the npm/postinstall
-    // attack family the veto effort targets; see docs/build-veto-and-sandbox.md) ---
+    // attack family the veto effort targets; see docs/design/build-veto-and-sandbox.md) ---
     // A binding.gyp ANYWHERE = a node-gyp native-addon build that runs at npm
     // install time — a primary install-exec vector. File-existence, not content.
     list.add(rules, "npm-binding-gyp\tfile\tbinding.gyp\ttree contains a binding.gyp (native-addon install-time build script)")
@@ -1349,7 +1349,7 @@ _veto_tree_size_cap(repo: string) {
 // (extract-deps BFS) and scan exactly the dirs of those files — catches deps
 // anywhere while still excluding unrelated subtrees. That needs the agent to
 // run a closure pass before the veto; deferred to keep this change small. See
-// docs/build-veto-and-sandbox.md + docs/agent-container-ladder.md (the
+// docs/design/build-veto-and-sandbox.md + docs/design/agent-container-ladder.md (the
 // "Veto is whole-workdir-scoped, not dep-closure-scoped" note).
 //
 // Falls back to `repo` (whole tree) when: target is empty, isn't an .ae path,

@@ -201,7 +201,7 @@ brew_formula_render(class_name_v: string, name: string, target_path: string,
     out = string.concat(out, target_path)
     out = string.concat(out, "\"\n")
     // target/build/<name>/ under the uniform target/<buildtype>/<dir> layout
-    // (docs/filename-is-the-route.md) — a binary is a build artifact.
+    // (docs/design/filename-is-the-route.md) — a binary is a build artifact.
     out = string.concat(out, "    bin.install \"target/build/")
     out = string.concat(out, name)
     out = string.concat(out, "/bin/")

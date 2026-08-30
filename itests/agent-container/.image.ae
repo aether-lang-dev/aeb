@@ -14,7 +14,7 @@
 // .ae DAG shape.)
 //
 // Where this can RUN at full fidelity vs. degraded (the control-plane
-// boundary): docs/containment-and-the-control-plane.md. On a mutable host
+// boundary): docs/design/containment-and-the-control-plane.md. On a mutable host
 // `aeb .image.ae` builds natively; on an immutable host (Bazzite/Atomic) use
 // the emit-only adapter (AEB_CONTAINER_EMIT_ONLY) to generate the Dockerfile
 // here and `podman build` it there.

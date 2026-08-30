@@ -1,7 +1,7 @@
 // provision — build-prerequisite preflight (and, later, host/container install).
 //
 // Implements the PROBE + PREFLIGHT half of
-// docs/build-prerequisites-and-provisioning.md. A build node declares system
+// docs/design/build-prerequisites-and-provisioning.md. A build node declares system
 // toolchain prerequisites with bldr.prereq(b, "<tc>:<ver>"); tools/extract-deps
 // --prereqs collects them statically; the flattened set (transitive union over
 // the dep DAG) is what preflight here consumes.
@@ -89,7 +89,7 @@ check_token_names(tokens: ptr) {
             return string.concat("prereq: '", string.concat(tok,
                 string.concat("' uses a non-canonical toolchain name '",
                 string.concat(tc, string.concat("' — use '", string.concat(canon,
-                "' (aeb publishes canonical prereq names; see docs/build-prerequisites-and-provisioning.md)"))))))
+                "' (aeb publishes canonical prereq names; see docs/design/build-prerequisites-and-provisioning.md)"))))))
         }
     }
     return ""
