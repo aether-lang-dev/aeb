@@ -1748,6 +1748,21 @@ assert_file(_ctx: ptr, path: string) {
     _e2 = list.add(l, path)
 }
 
+// consumer_run_cmd(run_abs, run_command) — the no-args base run: `cd '<run_abs>'
+// && env -u SELENIUM_CORE_LIB <run_command>`. SELENIUM_CORE_LIB is unset so the
+// consumer drives the engine via ONLY the crate's bundled .so. Pure; tested in
+// tests/test_consumer_example_cmd.ae.
+consumer_run_cmd(run_abs: string, run_command: string) {
+    return "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command}"
+}
+
+// consumer_run_arg_cmd(run_abs, run_command, arg) — the per-arg run: the base
+// with a trailing argv appended. Byte-identical to `consumer_run_cmd(...) <arg>`.
+// Pure; tested in tests/test_consumer_example_cmd.ae.
+consumer_run_arg_cmd(run_abs: string, run_command: string, arg: string) {
+    return "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command} ${arg}"
+}
+
 // rust.consumer_example() — stage a clean bundled crate + a consumer crate (via
 // stage() pairs), assert the bundled asset, then `cargo run --offline -- <arg>`
 // in run_in with SELENIUM_CORE_LIB unset — so the consumer drives the engine via
@@ -1848,7 +1863,7 @@ builder consumer_example(): int {
             }
         }
     }
-    base = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command}"
+    base = consumer_run_cmd(run_abs, run_command)
     args = null
     if _builder != null {
         if map.has(_builder, "run_args") == 1 { args, _ = map.get(_builder, "run_args") }
@@ -1861,7 +1876,7 @@ builder consumer_example(): int {
         while ai < na {
             a, _ = list.get(args, ai)
             println("${mod_dir}: consumer run (${a})")
-            if bldr._sh("${base} ${a}") != 0 {
+            if bldr._sh(consumer_run_arg_cmd(run_abs, run_command, a)) != 0 {
                 println("${mod_dir}: consumer run (${a}) failed")
                 bldr.fail(ctx, "consumer run (${a}) failed")
                 return 1

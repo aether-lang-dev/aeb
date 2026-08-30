@@ -1,0 +1,50 @@
+// Tests for lib/julia's pure surface: the script-run command builder, the
+// julia-bin resolver, and the script/julia_bin setters.
+import std.spec
+import std.map
+import julia (julia_script_cmd, _julia_of, script, julia_bin)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "julia_script_cmd") {
+        spec.it("default bin") callback {
+            spec.assert_str_eq(julia_script_cmd("/proj", "julia", "test/ffi_test.jl"),
+                "cd '/proj' && julia --color=no 'test/ffi_test.jl'", "default")
+        }
+        spec.it("resolved bin override") callback {
+            spec.assert_str_eq(julia_script_cmd("/proj", "/opt/julia/bin/julia", "test/a.jl"),
+                "cd '/proj' && /opt/julia/bin/julia --color=no 'test/a.jl'", "override")
+        }
+    }
+
+    spec.describe(fw, "_julia_of") {
+        spec.it("null / unset → bare julia") callback {
+            spec.assert_str_eq(_julia_of(null), "julia", "null")
+            spec.assert_str_eq(_julia_of(map_new()), "julia", "unset")
+        }
+        spec.it("julia_bin() override wins") callback {
+            m = map_new()
+            julia_bin(m, "/usr/local/bin/julia")
+            spec.assert_str_eq(_julia_of(m), "/usr/local/bin/julia", "override")
+        }
+    }
+
+    spec.describe(fw, "setters") {
+        spec.it("script stores under julia_script") callback {
+            m = map_new()
+            script(m, "test/ffi_test.jl")
+            v, _ = map.get(m, "julia_script")
+            spec.assert_str_eq(v, "test/ffi_test.jl", "script")
+        }
+        spec.it("julia_bin stores under julia_bin, last-call-wins") callback {
+            m = map_new()
+            julia_bin(m, "a")
+            julia_bin(m, "b")
+            v, _ = map.get(m, "julia_bin")
+            spec.assert_str_eq(v, "b", "last-wins")
+        }
+    }
+
+    spec.run_summary(fw)
+}

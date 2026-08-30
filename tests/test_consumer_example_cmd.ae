@@ -1,0 +1,90 @@
+// Tests for lib/rust's consumer_example() pure surface: the two run-command
+// builders (no-args base + per-arg) and the declarative setters the other host
+// langs derive from (run_cmd/run_arg/stage/stage_dir/pre_cmd/assert_file).
+import std.spec
+import rust (consumer_run_cmd, consumer_run_arg_cmd, run_cmd, run_arg, stage, stage_dir, pre_cmd, assert_file)
+import std.map
+import std.list
+
+_list_size_at(m: ptr, k: string) {
+    l, _ = map.get(m, k)
+    return list.size(l)
+}
+_list_get_at(m: ptr, k: string, i: int) {
+    l, _ = map.get(m, k)
+    v, _ = list.get(l, i)
+    return v
+}
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "consumer_run_cmd") {
+        spec.it("default cargo run — SELENIUM_CORE_LIB unset") callback {
+            spec.assert_str_eq(consumer_run_cmd("/stage/consumer", "cargo run --offline --"),
+                "cd '/stage/consumer' && env -u SELENIUM_CORE_LIB cargo run --offline --", "cargo")
+        }
+        spec.it("custom run command") callback {
+            spec.assert_str_eq(consumer_run_cmd("/s/c", "./app"),
+                "cd '/s/c' && env -u SELENIUM_CORE_LIB ./app", "custom")
+        }
+    }
+
+    spec.describe(fw, "consumer_run_arg_cmd") {
+        spec.it("base + trailing argv") callback {
+            spec.assert_str_eq(consumer_run_arg_cmd("/stage/consumer", "cargo run --offline --", "ffi"),
+                "cd '/stage/consumer' && env -u SELENIUM_CORE_LIB cargo run --offline -- ffi", "arg")
+        }
+        // Byte-identical to consumer_run_cmd(...) + " " + arg — the arg rides raw
+        // (no extra quoting), spaces and all, exactly as the old inline string did.
+        spec.it("arg with spaces rides raw") callback {
+            spec.assert_str_eq(consumer_run_arg_cmd("/s/c", "./app", "a b"),
+                "cd '/s/c' && env -u SELENIUM_CORE_LIB ./app a b", "spaces")
+        }
+    }
+
+    spec.describe(fw, "setters") {
+        spec.it("run_cmd stores scalar under run_cmd, last-call-wins") callback {
+            m = map_new()
+            run_cmd(m, "cargo run --offline --")
+            run_cmd(m, "./app")
+            v, _ = map.get(m, "run_cmd")
+            spec.assert_str_eq(v, "./app", "last-wins")
+        }
+        spec.it("pre_cmd stores scalar under pre_cmd") callback {
+            m = map_new()
+            pre_cmd(m, "cargo build --offline")
+            v, _ = map.get(m, "pre_cmd")
+            spec.assert_str_eq(v, "cargo build --offline", "pre_cmd")
+        }
+        spec.it("run_arg accumulates under run_args in order") callback {
+            m = map_new()
+            run_arg(m, "ffi")
+            run_arg(m, "grpc")
+            spec.assert_true(_list_size_at(m, "run_args") == 2, "two args")
+            spec.assert_str_eq(_list_get_at(m, "run_args", 0), "ffi", "first ffi")
+            spec.assert_str_eq(_list_get_at(m, "run_args", 1), "grpc", "second grpc")
+        }
+        spec.it("assert_file accumulates under assert_files in order") callback {
+            m = map_new()
+            assert_file(m, "pkg/native/libselenium_core.so")
+            assert_file(m, "pkg/Cargo.toml")
+            spec.assert_true(_list_size_at(m, "assert_files") == 2, "two files")
+            spec.assert_str_eq(_list_get_at(m, "assert_files", 0), "pkg/native/libselenium_core.so", "first")
+        }
+        spec.it("stage accumulates src<TAB>dest pairs under stage_pairs") callback {
+            m = map_new()
+            stage(m, "src/lib.rs", "pkg/src/lib.rs")
+            spec.assert_true(_list_size_at(m, "stage_pairs") == 1, "one pair")
+            spec.assert_str_eq(_list_get_at(m, "stage_pairs", 0), "src/lib.rs\tpkg/src/lib.rs", "tab-joined pair")
+        }
+        spec.it("stage_dir stores src<TAB>dest<TAB>prune under stage_dirs") callback {
+            m = map_new()
+            stage_dir(m, "../go", "go-pkg", "example")
+            spec.assert_true(_list_size_at(m, "stage_dirs") == 1, "one dir")
+            spec.assert_str_eq(_list_get_at(m, "stage_dirs", 0), "../go\tgo-pkg\texample", "tab-joined triple")
+        }
+    }
+
+    spec.run_summary(fw)
+}

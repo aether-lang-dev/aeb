@@ -1,0 +1,67 @@
+// Tests for lib/lfe's pure surface: the run-main command builder and the
+// src/test_src/run_main/pa setters.
+import std.spec
+import std.map
+import std.list
+import lfe (lfe_run_cmd, src, test_src, run_main, pa)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "lfe_run_cmd") {
+        spec.it("single -pa flag") callback {
+            spec.assert_str_eq(lfe_run_cmd("/proj", "-pa '/proj/target'", "ffi_test"),
+                "cd '/proj' && lfe -noshell -pa '/proj/target' -eval '(ffi_test:main (list))' -eval '(halt 0)'", "single")
+        }
+        spec.it("multiple -pa flags") callback {
+            spec.assert_str_eq(lfe_run_cmd("/proj", "-pa '/proj/target' -pa '/dep/ebin'", "smoke"),
+                "cd '/proj' && lfe -noshell -pa '/proj/target' -pa '/dep/ebin' -eval '(smoke:main (list))' -eval '(halt 0)'", "multi")
+        }
+        spec.it("empty pa_flags") callback {
+            spec.assert_str_eq(lfe_run_cmd("/proj", "", "m"),
+                "cd '/proj' && lfe -noshell  -eval '(m:main (list))' -eval '(halt 0)'", "empty")
+        }
+    }
+
+    spec.describe(fw, "setters") {
+        spec.it("run_main is scalar, last-call-wins under lfe_run_main") callback {
+            m = map_new()
+            run_main(m, "a")
+            run_main(m, "b")
+            v, _ = map.get(m, "lfe_run_main")
+            spec.assert_str_eq(v, "b", "run_main")
+        }
+        spec.it("src accumulates a list under lfe_src") callback {
+            m = map_new()
+            src(m, "src/one.lfe")
+            src(m, "src/two.lfe")
+            l, _ = map.get(m, "lfe_src")
+            spec.assert_eq(list.size(l), 2, "src count")
+            f0, _ = list.get(l, 0)
+            f1, _ = list.get(l, 1)
+            spec.assert_str_eq(f0, "src/one.lfe", "src[0]")
+            spec.assert_str_eq(f1, "src/two.lfe", "src[1]")
+        }
+        spec.it("test_src accumulates a list under lfe_test_src") callback {
+            m = map_new()
+            test_src(m, "test/a_test.lfe")
+            l, _ = map.get(m, "lfe_test_src")
+            spec.assert_eq(list.size(l), 1, "test_src count")
+            f0, _ = list.get(l, 0)
+            spec.assert_str_eq(f0, "test/a_test.lfe", "test_src[0]")
+        }
+        spec.it("pa accumulates a list under lfe_pa") callback {
+            m = map_new()
+            pa(m, "/e1/ebin")
+            pa(m, "/e2/ebin")
+            l, _ = map.get(m, "lfe_pa")
+            spec.assert_eq(list.size(l), 2, "pa count")
+            f0, _ = list.get(l, 0)
+            f1, _ = list.get(l, 1)
+            spec.assert_str_eq(f0, "/e1/ebin", "pa[0]")
+            spec.assert_str_eq(f1, "/e2/ebin", "pa[1]")
+        }
+    }
+
+    spec.run_summary(fw)
+}

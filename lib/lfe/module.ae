@@ -70,6 +70,14 @@ _files_str(bmap: ptr, key: string, source_dir: string) {
     return out
 }
 
+// lfe_run_cmd(source_dir, pa_flags, rmod) — `cd '<dir>' && lfe -noshell <pa_flags>
+// -eval '(<mod>:main (list))' -eval '(halt 0)'`. The pure command test() runs (env
+// prefix rides separately via _env_export_prefix). Pure; tested in
+// tests/test_lfe_cmd.ae.
+lfe_run_cmd(source_dir: string, pa_flags: string, rmod: string) {
+    return "cd '${source_dir}' && lfe -noshell ${pa_flags} -eval '(${rmod}:main (list))' -eval '(halt 0)'"
+}
+
 // lfe.run_main() — compile src + test_src with lfec, then run mod:main([]).
 builder test(): int {
     ctx = builder_context()
@@ -131,7 +139,7 @@ builder test(): int {
     }
 
     // 3. run mod:main([]).
-    run = "cd '${source_dir}' && lfe -noshell ${pa_flags} -eval '(${rmod}:main (list))' -eval '(halt 0)'"
+    run = lfe_run_cmd(source_dir, pa_flags, rmod)
     run = string.concat(bldr._env_export_prefix(_builder), run)
     println("${mod_dir}: running ${rmod}:main (lfe)")
     rc = bldr._sh(run)

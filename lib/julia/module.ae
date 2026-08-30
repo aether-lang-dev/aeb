@@ -40,6 +40,13 @@ _julia_of(bmap: ptr) {
     return "julia"
 }
 
+// julia_script_cmd(source_dir, julia, scr) — `cd '<dir>' && <julia> --color=no
+// '<scr>'`. The pure command test() runs (env prefix rides separately via
+// _env_export_prefix). Pure; tested in tests/test_julia_cmd.ae.
+julia_script_cmd(source_dir: string, julia: string, scr: string) {
+    return "cd '${source_dir}' && ${julia} --color=no '${scr}'"
+}
+
 // julia.test() — run the declared Julia script (Test stdlib). Loud-skips when
 // julia is absent. env() honored (e.g. SELENIUM_CORE_LIB for a ccall binding).
 builder test(): int {
@@ -70,7 +77,7 @@ builder test(): int {
     }
 
     println("${mod_dir}: running tests (julia)")
-    run = "cd '${source_dir}' && ${julia} --color=no '${scr}'"
+    run = julia_script_cmd(source_dir, julia, scr)
     run = string.concat(bldr._env_export_prefix(_builder), run)
     rc = bldr._sh(run)
     if rc != 0 {
