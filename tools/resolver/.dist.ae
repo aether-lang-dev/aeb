@@ -68,7 +68,7 @@ main() {
     out_bin = "${src_dir}/../../target/dist/tools/resolver/bin"
     build = "set -e; "
     build = string.concat(build, "stage=\"$(mktemp -d)\"; ")
-    build = string.concat(build, "javac -cp '${bld_jar}' -d \"$stage\" '${src_dir}/src/main/java/aeb/maven/BldResolve.java'; ")
+    build = string.concat(build, "javac -cp '${bld_jar}' -d \"$stage\" '${src_dir}/BldResolve.java'; ")
     build = string.concat(build, "printf 'Main-Class: aeb.maven.BldResolve\\nClass-Path: bld-${ver}.jar\\n' > \"$stage/MANIFEST.MF\"; ")
     build = string.concat(build, "mkdir -p '${out_bin}'; ")
     build = string.concat(build, "jar cfm '${out_bin}/aeb-resolve.jar' \"$stage/MANIFEST.MF\" -C \"$stage\" aeb; ")
