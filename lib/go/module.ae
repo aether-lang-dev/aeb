@@ -96,11 +96,50 @@ go_build_cmd(source_dir: string, out_path: string, opts: ptr) {
     return cmd
 }
 
+// Turn a colon-joined dir list (as in LD_LIBRARY_PATH) into a CGO_LDFLAGS
+// value: `-L<dir> -Wl,-rpath,<dir>` per dir. Used so a cgo binding links and
+// runtime-locates a dep-provided .so without a hardcoded path.
+_cgo_ldflags_from_ldpath(ld_path: string) {
+    out = ""
+    rest = ld_path
+    guard = 0
+    while string.length(rest) > 0 {
+        if guard > 64 { break }
+        guard = guard + 1
+        idx = string.index_of(rest, ":")
+        // Declare `d` before the if/else: a variable first-assigned inside
+        // both arms is not in scope after the block in Aether, so reading it
+        // below would be an undefined-variable error.
+        d = ""
+        if idx < 0 {
+            d = rest
+            rest = ""
+        } else {
+            d = string.substring(rest, 0, idx)
+            rest = string.substring(rest, idx + 1, string.length(rest))
+        }
+        if string.length(d) > 0 {
+            frag = "-L${d} -Wl,-rpath,${d}"
+            if string.length(out) > 0 { out = string.concat(out, " ") }
+            out = string.concat(out, frag)
+        }
+    }
+    return out
+}
+
 go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
     env_prefix = ""
     if string.length(ld_path) > 0 {
         dyld_var = bldr._dyld_env_var()
         env_prefix = "${dyld_var}=${ld_path} "
+        // Thread the dep shared-lib dirs into CGO_LDFLAGS so a cgo binding LINKS
+        // against an aeb-built .so (e.g. an engine node's shared_lib) without
+        // hardcoding its path in `#cgo LDFLAGS`. Each colon-separated dir in
+        // ld_path becomes `-L<dir>` (build-time link) + `-Wl,-rpath,<dir>`
+        // (so the test binary self-locates the .so at runtime too). `ld_path`
+        // already carries every dep's shared-lib dir (see the go_test builder).
+        cgo = _cgo_ldflags_from_ldpath(ld_path)
+        env_prefix = string.concat(env_prefix, "CGO_LDFLAGS='${cgo}' ")
     }
     if opts != null {
         if map.has(opts, "env") == 1 {

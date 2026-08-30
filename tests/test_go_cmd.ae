@@ -12,7 +12,7 @@ import bldr
 // Tests for go_build_cmd() and go_test_cmd()
 
 import go
-import go (go_build_cmd, go_test_cmd)
+import go (go_build_cmd, go_test_cmd, _cgo_ldflags_from_ldpath)
 
 _assert_eq(label: string, actual: string, expected: string) {
     if actual == expected {
@@ -65,8 +65,23 @@ main() {
     _assert_eq("test: no-config", go_test_cmd("/src", "", null),
         "cd /src && go test -v .")
 
-    _assert_eq("test: ld_path", go_test_cmd("/src", "/lib/path", null),
-        "cd /src && ${dyld}=/lib/path go test -v .")
+    // A non-empty ld_path sets the dyld var AND threads each dir into
+    // CGO_LDFLAGS (-L + -Wl,-rpath) so a cgo binding links + self-locates a
+    // dep-provided .so without a hardcoded path.
+    _assert_eq("test: ld_path (dyld var + CGO_LDFLAGS)", go_test_cmd("/src", "/lib/path", null),
+        "cd /src && ${dyld}=/lib/path CGO_LDFLAGS='-L/lib/path -Wl,-rpath,/lib/path' go test -v .")
+
+    _assert_eq("test: ld_path multi-dir → -L/-rpath per dir",
+        go_test_cmd("/src", "/a:/b", null),
+        "cd /src && ${dyld}=/a:/b CGO_LDFLAGS='-L/a -Wl,-rpath,/a -L/b -Wl,-rpath,/b' go test -v .")
+
+    // The pure helper behind it.
+    _assert_eq("cgo_ldflags: single dir",
+        _cgo_ldflags_from_ldpath("/a"), "-L/a -Wl,-rpath,/a")
+    _assert_eq("cgo_ldflags: two dirs colon-joined",
+        _cgo_ldflags_from_ldpath("/a:/b"), "-L/a -Wl,-rpath,/a -L/b -Wl,-rpath,/b")
+    _assert_eq("cgo_ldflags: empty → empty",
+        _cgo_ldflags_from_ldpath(""), "")
 
     opts8 = map_new()
     map_put(opts8, "verbose", "true")
