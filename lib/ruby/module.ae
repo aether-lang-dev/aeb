@@ -476,3 +476,89 @@ builder package(): int {
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
+
+// --- ruby.consumer_example: prove the gem installs + runs from clean ---
+
+consumer_script(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "consumer_script", path)
+}
+consumer_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "consumer_args") == 0 { _e1 = map.put(_ctx, "consumer_args", list.new()) }
+    l, _ = map.get(_ctx, "consumer_args")
+    _e2 = list.add(l, arg)
+}
+
+// ruby.consumer_example() — `gem install --local` the dep's built .gem into a
+// CLEAN GEM_HOME (isolated, no source tree), then run the consumer with
+// GEM_HOME/GEM_PATH = that dir and SELENIUM_CORE_LIB unset, so `require`
+// resolves the INSTALLED gem and only its bundled .so satisfies the load. Reads
+// the "gem_dir" artifact from the dep'd package node.
+builder consumer_example(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    deps, _ = map.get(ctx, "deps")
+    gem_dir = ""
+    nd = list.size(deps)
+    di = 0
+    while di < nd {
+        dp, _ = list.get(deps, di)
+        dm = bldr._strip_lang(dp)
+        gd = bldr._read_dep_artifact(ctx, dm, "gem_dir")
+        if string.length(gd) > 0 { gem_dir = gd }
+        di = di + 1
+    }
+    if string.length(gem_dir) == 0 {
+        bldr.fail(ctx, "ruby.consumer_example: no gem_dir artifact on the dep")
+        return 1
+    }
+
+    script = ""
+    if _builder != null {
+        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get(_builder, "consumer_script") }
+    }
+    if string.length(script) == 0 {
+        bldr.fail(ctx, "ruby.consumer_example: consumer_script(\"...\") is required")
+        return 1
+    }
+
+    gemhome = path.join(target_dir, "consumer-gems")
+    bldr._sh("rm -rf '${gemhome}' && mkdir -p '${gemhome}'")
+    gi = bldr._sh("gem install --no-document --local --install-dir '${gemhome}' '${gem_dir}'/*.gem")
+    if gi != 0 {
+        println("${mod_dir}: gem install into clean dir failed")
+        bldr.fail(ctx, "gem install failed")
+        return 1
+    }
+
+    script_abs = path.join(source_dir, script)
+    run_dir = path.dirname(script_abs)
+    base = "cd '${run_dir}' && env -u SELENIUM_CORE_LIB GEM_HOME='${gemhome}' GEM_PATH='${gemhome}' ruby '${script_abs}'"
+    args = null
+    if _builder != null {
+        if map.has(_builder, "consumer_args") == 1 { args, _ = map.get(_builder, "consumer_args") }
+    }
+    if args == null {
+        if bldr._sh(base) != 0 { bldr.fail(ctx, "consumer run failed"); return 1 }
+    } else {
+        na = list.size(args)
+        ai = 0
+        while ai < na {
+            a, _ = list.get(args, ai)
+            println("${mod_dir}: consumer run (${a})")
+            if bldr._sh("${base} ${a}") != 0 {
+                println("${mod_dir}: consumer run (${a}) failed")
+                bldr.fail(ctx, "consumer run (${a}) failed")
+                return 1
+            }
+            ai = ai + 1
+        }
+    }
+    println("${mod_dir}: PASS — installed gem loaded its bundled .so from clean")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
