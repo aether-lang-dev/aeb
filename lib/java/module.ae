@@ -1908,3 +1908,124 @@ shade(_ctx: ptr, main_class: string, jar_name: string) {
     println("  run: java -Djava.library.path=. -jar ${jar_path}")
     return 0
 }
+
+// --- java.consumer_example: prove the jar compiles+runs a consumer from clean ---
+
+consumer_source(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "consumer_source", path)
+}
+consumer_main(_ctx: ptr, cls: string) {
+    _e = map.put(_ctx, "consumer_main", cls)
+}
+consumer_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "consumer_args") == 0 { _e1 = map.put(_ctx, "consumer_args", list.new()) }
+    l, _ = map.get(_ctx, "consumer_args")
+    _e2 = list.add(l, arg)
+}
+consumer_jvm_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "consumer_jvm_flags") == 0 { _e1 = map.put(_ctx, "consumer_jvm_flags", list.new()) }
+    l, _ = map.get(_ctx, "consumer_jvm_flags")
+    _e2 = list.add(l, flag)
+}
+asset_in_jar(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "asset_in_jar", path)
+}
+
+// java.consumer_example() — in a CLEAN consumer dir, copy the dep's jar, compile
+// the consumer source against ONLY that jar (no src/ exposure), assert the
+// bundled asset is a jar resource, then run the consumer main on the jar
+// classpath with the dev env var unset. Reads the "jar" artifact.
+builder consumer_example(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    deps, _ = map.get(ctx, "deps")
+    jar = ""
+    nd = list.size(deps)
+    di = 0
+    while di < nd {
+        dp, _ = list.get(deps, di)
+        dm = bldr._strip_lang(dp)
+        j = bldr._read_dep_artifact(ctx, dm, "jar")
+        if string.length(j) > 0 { jar = j }
+        di = di + 1
+    }
+    if string.length(jar) == 0 {
+        bldr.fail(ctx, "java.consumer_example: no jar artifact on the dep")
+        return 1
+    }
+
+    csrc = ""
+    cmain = ""
+    asset = ""
+    if _builder != null {
+        if map.has(_builder, "consumer_source") == 1 { csrc, _ = map.get(_builder, "consumer_source") }
+        if map.has(_builder, "consumer_main") == 1 { cmain, _ = map.get(_builder, "consumer_main") }
+        if map.has(_builder, "asset_in_jar") == 1 { asset, _ = map.get(_builder, "asset_in_jar") }
+    }
+    if string.length(csrc) == 0 {
+        bldr.fail(ctx, "java.consumer_example: consumer_source(\"...\") is required")
+        return 1
+    }
+    if string.length(cmain) == 0 { cmain = "ConsumerExample" }
+
+    consumer = path.join(target_dir, "consumer")
+    csrc_abs = path.join(source_dir, csrc)
+    csrc_base = bldr._basename(csrc)
+    bldr._sh("rm -rf '${consumer}' && mkdir -p '${consumer}' && cp '${jar}' '${consumer}/app.jar' && cp '${csrc_abs}' '${consumer}/'")
+    cc = bldr._sh("cd '${consumer}' && javac -cp app.jar '${csrc_base}'")
+    if cc != 0 {
+        println("${mod_dir}: consumer compile against the jar FAILED")
+        bldr.fail(ctx, "consumer compile failed")
+        return 1
+    }
+    if string.length(asset) > 0 {
+        if bldr._sh("cd '${consumer}' && jar tf app.jar 2>/dev/null | grep -q '${asset}'") != 0 {
+            println("${mod_dir}: jar missing bundled ${asset}")
+            bldr.fail(ctx, "bundled asset missing in jar")
+            return 1
+        }
+    }
+
+    jflags = ""
+    if _builder != null {
+        if map.has(_builder, "consumer_jvm_flags") == 1 {
+            jl, _ = map.get(_builder, "consumer_jvm_flags")
+            jn = list.size(jl)
+            ji = 0
+            while ji < jn {
+                jf, _ = list.get(jl, ji)
+                jflags = string.concat(jflags, string.concat(" ", jf))
+                ji = ji + 1
+            }
+        }
+    }
+    base = "cd '${consumer}' && env -u SELENIUM_CORE_LIB java${jflags} -cp 'app.jar:.' ${cmain}"
+    args = null
+    if _builder != null {
+        if map.has(_builder, "consumer_args") == 1 { args, _ = map.get(_builder, "consumer_args") }
+    }
+    if args == null {
+        if bldr._sh(base) != 0 { bldr.fail(ctx, "consumer run failed"); return 1 }
+    } else {
+        na = list.size(args)
+        ai = 0
+        while ai < na {
+            a, _ = list.get(args, ai)
+            println("${mod_dir}: consumer run (${a})")
+            if bldr._sh("${base} ${a}") != 0 {
+                println("${mod_dir}: consumer run (${a}) failed")
+                bldr.fail(ctx, "consumer run (${a}) failed")
+                return 1
+            }
+            ai = ai + 1
+        }
+    }
+    println("${mod_dir}: PASS — consumer compiled+ran against the jar's bundled asset from clean")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
