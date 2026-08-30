@@ -1104,3 +1104,112 @@ builder test(): int {
     println("${mod_dir}: running tests (pytest)")
     return bldr._run_project(ctx, _builder, "python3 -m pytest -q", 1)
 }
+
+// --- python.consumer_example: prove the wheel installs + runs from clean ---
+
+// consumer_script("example/consumer_example.py") — the consumer program to run.
+consumer_script(_ctx: ptr, path: string) {
+    _e = map.put(_ctx, "consumer_script", path)
+}
+// consumer_arg("ffi") — an argv to run the consumer with (repeatable → one run
+// per arg, e.g. ffi/discovery/live modes). No args → one bare run.
+consumer_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "consumer_args") == 0 { _e1 = map.put(_ctx, "consumer_args", list.new()) }
+    l, _ = map.get(_ctx, "consumer_args")
+    _e2 = list.add(l, arg)
+}
+// asset_glob("selenium_core/native/*.so") — a glob (relative to the clean site)
+// that MUST match after install, asserting the bundled native asset shipped.
+asset_glob(_ctx: ptr, glob: string) {
+    _e = map.put(_ctx, "asset_glob", glob)
+}
+
+// python.consumer_example() — unpack the dep's wheel into a CLEAN site dir (no
+// source tree, no dev deps), assert the bundled asset, then run the consumer
+// with PYTHONPATH = ONLY that site and SELENIUM_CORE_LIB unset (so only the
+// bundled .so can satisfy the load). Proves the wheel is self-sufficient for a
+// third party. Reads the "wheel_dir" artifact from the dep()'d package node.
+builder consumer_example(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    // resolve the wheel_dir from the dep'd package node.
+    deps, _ = map.get(ctx, "deps")
+    wheel_dir = ""
+    nd = list.size(deps)
+    di = 0
+    while di < nd {
+        dp, _ = list.get(deps, di)
+        dm = bldr._strip_lang(dp)
+        wd = bldr._read_dep_artifact(ctx, dm, "wheel_dir")
+        if string.length(wd) > 0 { wheel_dir = wd }
+        di = di + 1
+    }
+    if string.length(wheel_dir) == 0 {
+        bldr.fail(ctx, "python.consumer_example: no wheel_dir artifact on the dep (dep the .package.ae)")
+        return 1
+    }
+
+    script = ""
+    asset = ""
+    if _builder != null {
+        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get(_builder, "consumer_script") }
+        if map.has(_builder, "asset_glob") == 1 { asset, _ = map.get(_builder, "asset_glob") }
+    }
+    if string.length(script) == 0 {
+        bldr.fail(ctx, "python.consumer_example: consumer_script(\"...\") is required")
+        return 1
+    }
+
+    // clean site: unzip the wheel into a bare dir.
+    site = path.join(target_dir, "consumer-site")
+    bldr._sh("rm -rf '${site}' && mkdir -p '${site}'")
+    uz = bldr._sh("cd '${site}' && for w in '${wheel_dir}'/*.whl; do python3 -c \"import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall('.')\" \"$w\"; done")
+    if uz != 0 {
+        println("${mod_dir}: clean-site wheel unpack failed")
+        bldr.fail(ctx, "wheel unpack failed")
+        return 1
+    }
+    // assert the bundled asset shipped.
+    if string.length(asset) > 0 {
+        if bldr._sh("ls '${site}'/${asset} >/dev/null 2>&1") != 0 {
+            println("${mod_dir}: installed wheel is missing ${asset}")
+            bldr.fail(ctx, "bundled asset missing after install")
+            return 1
+        }
+    }
+
+    // run the consumer with PYTHONPATH = ONLY the clean site, dev env unset.
+    script_abs = path.join(source_dir, script)
+    run_dir = path.dirname(script_abs)
+    base = "cd '${run_dir}' && env -u SELENIUM_CORE_LIB PYTHONPATH='${site}' python3 '${script_abs}'"
+    args = null
+    if _builder != null {
+        if map.has(_builder, "consumer_args") == 1 { args, _ = map.get(_builder, "consumer_args") }
+    }
+    if args == null {
+        rc = bldr._sh(base)
+        if rc != 0 { bldr.fail(ctx, "consumer run failed"); return 1 }
+    } else {
+        na = list.size(args)
+        ai = 0
+        while ai < na {
+            a, _ = list.get(args, ai)
+            println("${mod_dir}: consumer run (${a})")
+            rc = bldr._sh("${base} ${a}")
+            if rc != 0 {
+                println("${mod_dir}: consumer run (${a}) failed")
+                bldr.fail(ctx, "consumer run (${a}) failed")
+                return 1
+            }
+            ai = ai + 1
+        }
+    }
+    println("${mod_dir}: PASS — installed wheel loaded its bundled asset from clean")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
