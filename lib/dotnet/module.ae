@@ -39,6 +39,16 @@ configuration(_ctx: ptr, config: string) {
     _e = map.put(_ctx, "configuration", config)
 }
 
+// roll_forward("Major") — thread DOTNET_ROLL_FORWARD into the test/run so an
+// assembly built for an older TFM (e.g. net8.0) runs on a newer runtime
+// (net10) without retargeting. Values: Minor (default), Major, LatestMinor,
+// LatestMajor, Disable, LatestPatch. For CI boxes that track the latest SDK
+// while a project pins an older TFM. (asks/dotnet-test-false-pass-and-
+// rollforward.md, Bug 2.)
+roll_forward(_ctx: ptr, setting: string) {
+    _e = map.put(_ctx, "roll_forward", setting)
+}
+
 nuget(_ctx: ptr, pkg: string) {
     if map.has(_ctx, "nuget_deps") == 0 {
         _e1 = map.put(_ctx, "nuget_deps", list.new())
@@ -153,6 +163,17 @@ implicit_usings(_ctx: ptr) {
 // dotnet_build_cmd — `dotnet build` invocation. Pure.
 dotnet_build_cmd(csproj: string, config: string) {
     return "dotnet build '${csproj}' --configuration ${config}"
+}
+
+// _roll_forward_prefix(bmap) — `export DOTNET_ROLL_FORWARD=<v> && ` when
+// roll_forward() was set, else "". The env var (vs a --roll-forward flag) is
+// honoured by both `dotnet test`'s testhost and a `dotnet exec` run. Pure.
+_roll_forward_prefix(bmap: ptr) {
+    if bmap == null { return "" }
+    if map.has(bmap, "roll_forward") == 0 { return "" }
+    v, _ = map.get(bmap, "roll_forward")
+    if string.length(v) == 0 { return "" }
+    return "export DOTNET_ROLL_FORWARD=${v} && "
 }
 
 // csproj_path("Selenium.WebDriver.csproj") — explicit path to an
@@ -840,6 +861,11 @@ builder build_project(): int {
         exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: dotnet build failed")
+            // Mark the node failed in the status machine, not just return —
+            // a bare return is discarded by the immediate build() block, so
+            // without fail() a build failure never reddens the node / build
+            // (asks/dotnet-test-false-pass-and-rollforward.md).
+            bldr.fail(ctx, "dotnet build failed")
             return exit_code
         }
         if is_test == 0 {
@@ -954,6 +980,11 @@ builder build_project_existing(): int {
         exit_code = bldr._sh(cmd)
         if exit_code != 0 {
             println("${mod_dir}: dotnet build failed")
+            // Mark the node failed in the status machine, not just return —
+            // a bare return is discarded by the immediate build() block, so
+            // without fail() a build failure never reddens the node / build
+            // (asks/dotnet-test-false-pass-and-rollforward.md).
+            bldr.fail(ctx, "dotnet build failed")
             return exit_code
         }
         if is_test == 0 {
@@ -992,23 +1023,34 @@ builder test(): int {
 
     cmd = dotnet_test_cmd(csproj, config)
     // Honour env(K,V) on the run (e.g. a native lib path a P/Invoke binding
-    // loads). Empty when no env() was set — byte-identical otherwise.
-    // (asks/sdk-builders-cannot-set-env-for-the-test-run.md)
+    // loads) AND roll_forward() (DOTNET_ROLL_FORWARD) so an assembly targeting
+    // an older TFM runs on a newer runtime without retargeting. Empty when
+    // neither was set — byte-identical otherwise.
+    // (asks/sdk-builders-cannot-set-env-for-the-test-run.md,
+    //  asks/dotnet-test-false-pass-and-rollforward.md)
+    cmd = string.concat(_roll_forward_prefix(_builder), cmd)
     cmd = string.concat(bldr._env_export_prefix(_builder), cmd)
-    // Tee output to target/<module>/test_output.log so the same
-    // bytes serve two roles: (1) summary parsing for telemetry,
-    // (2) durable record for failure diagnosis after the build
-    // finishes (terminal scrollback isn't reliable, especially in
-    // CI). dotnet test prints
-    //   "Passed!  - Failed: 0, Passed: 14, Skipped: 0, Total: 14"
+    // Redirect (do NOT pipe) output to target/<module>/test_output.log so the
+    // same bytes serve two roles: (1) summary parsing for telemetry, (2) a
+    // durable failure record (terminal scrollback isn't reliable in CI).
+    // CRITICAL: use `> log 2>&1`, not `| tee log`. In a pipeline `cmd | tee`,
+    // $? is TEE's exit (~always 0), so a `dotnet test` that fails to build or
+    // whose testhost aborts was reported PASSED — a false green that defeats
+    // the gate (asks/dotnet-test-false-pass-and-rollforward.md, Bug 1).
+    // Redirection preserves dotnet test's own exit code.
     out_path = path.join(target_dir, "test_output.log")
-    full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
+    full_cmd = string.concat(string.concat(cmd, " > "), out_path)
+    full_cmd = string.concat(full_cmd, " 2>&1")
     exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     pd, fd = _parse_dotnet_counts(out_text)
     bldr._record_test_result(ctx, pd, fd)
     if exit_code != 0 {
         println("${mod_dir}: tests FAILED")
+        // fail() marks the node in the status machine so any_failed/the exit
+        // code see it — a bare return is swallowed by the immediate build()
+        // block (asks/dotnet-test-false-pass-and-rollforward.md, Bug 1).
+        bldr.fail(ctx, "dotnet tests FAILED")
         return exit_code
     }
     println("${mod_dir}: tests PASSED")
@@ -1159,6 +1201,7 @@ builder pack(): int {
     exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: dotnet pack failed")
+        bldr.fail(ctx, "dotnet pack failed")
         return exit_code
     }
 
@@ -1192,5 +1235,11 @@ builder test_existing(): int {
     // native-lib env var reaches the run here the same as in test() — the two
     // just thread it by different mechanisms (test prepends
     // _env_export_prefix; test_existing lets _run_project do it).
+    // roll_forward: use env("DOTNET_ROLL_FORWARD", "Major") on this builder —
+    // it threads through the same proc_env path. (test() has the dedicated
+    // roll_forward() setter; here env() covers it without special-casing.)
+    // Exit-code fidelity: _run_project runs the command directly (no `| tee`),
+    // so `dotnet test`'s real exit code propagates — this path never had the
+    // false-green the plain test() builder did.
     return bldr._run_project(ctx, _builder, "dotnet test --nologo", 1)
 }

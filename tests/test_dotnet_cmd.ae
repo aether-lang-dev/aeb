@@ -15,7 +15,8 @@ import dotnet (dotnet_build_cmd, dotnet_test_cmd, dotnet_pack_cmd, csproj_path,
                content_files, content_files_mode, native_runtime,
                package_id, package_version, package_description,
                package_readme, packable, test_project,
-               _glob_lead_dir, _last_index_of)
+               _glob_lead_dir, _last_index_of,
+               roll_forward, _roll_forward_prefix)
 
 main() {
     fw = spec.init()
@@ -166,6 +167,23 @@ main() {
             xml = csproj_content(tp, list_new(), list_new(), list_new())
             spec.assert_contains(xml, "<IsPackable>false</IsPackable>", "IsPackable false")
             spec.assert_false(string.contains(xml, "ShouldNotAppear"), "PackageId suppressed")
+        }
+    }
+
+    // roll_forward() → DOTNET_ROLL_FORWARD export prefix, so a net8 assembly
+    // runs on a net10 box without retargeting (Bug 2 of the false-pass ask).
+    spec.describe(fw, "roll_forward") {
+        spec.it("unset → no prefix") callback {
+            spec.assert_str_eq(_roll_forward_prefix(map_new()), "", "empty")
+        }
+        spec.it("null bmap → no prefix") callback {
+            spec.assert_str_eq(_roll_forward_prefix(null), "", "null")
+        }
+        spec.it("roll_forward(Major) → DOTNET_ROLL_FORWARD export") callback {
+            b = map_new()
+            roll_forward(b, "Major")
+            spec.assert_str_eq(_roll_forward_prefix(b),
+                "export DOTNET_ROLL_FORWARD=Major && ", "major")
         }
     }
 

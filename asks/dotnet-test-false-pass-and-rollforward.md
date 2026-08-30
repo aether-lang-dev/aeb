@@ -46,3 +46,30 @@ We worked around Bug 2 by targeting net10.0 (matches the box). Bug 1 is the
 important one — it lets a broken .NET test node push green, which defeats the
 gate. Our `ci/run.sh` log-scan currently catches it, but the builder itself
 should fail.
+
+---
+
+## RESOLVED (2026-08-30, verified on a net10-only box, .160)
+
+All three fixed in lib/dotnet + covered/proven:
+
+Bug 1 had TWO root causes, both fixed:
+  1a. `dotnet.test` ran `dotnet test … | tee log`, so exit_code was TEE's
+      (~always 0), masking the failure. Fixed: `> log 2>&1` redirect, which
+      preserves dotnet test's own exit code. Proven on .160: the identical
+      `dotnet test` returns 0 via `| tee` and 1 via `> redirect`.
+  1b. Even once test()/build_project() saw the non-zero exit, they only
+      `return exit_code` — swallowed by the immediate build() block — so the
+      node was never marked failed. Fixed: they now call bldr.fail(ctx, …)
+      (like _run_project already did). End-to-end on .160 a net8 test node on
+      a net10 box now goes from "0/0 PASS, aeb exit 0" to "0/0 FAIL, aeb exit
+      1"; both a build failure and a testhost-abort redden the node.
+
+Bug 2: added a roll_forward("Major") setter on the dotnet builders that
+  threads DOTNET_ROLL_FORWARD into the test/run. Verified on .160: a net8
+  test that aborts without it ("Framework 'Microsoft.NETCore.App' 8.0.0")
+  runs and passes with DOTNET_ROLL_FORWARD=Major. For test_existing(), use
+  env("DOTNET_ROLL_FORWARD","Major") (same proc_env path).
+
+Unit coverage in tests/test_dotnet_cmd.ae (_roll_forward_prefix cases).
+Suite 127/127.
