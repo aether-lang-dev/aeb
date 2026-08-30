@@ -79,10 +79,18 @@ install: $(INSTALL_TOOLS)
 	@# linker dies cryptically ("ld: can't write output file: tools/aeb-cli").
 	@# Removing the stale binary fixes it: `rm` needs write on the *directory*
 	@# (ours), not the file — so this works as the normal user even on a
-	@# root-owned file, and the loop below rebuilds it clean. Any tools/<x>
-	@# that exists, is a regular file, and isn't writable by us is a casualty.
+	@# root-owned file, and the loop below rebuilds it clean.
+	@# ONLY reclaim files the rebuild loop below can actually regenerate —
+	@# i.e. a tools/<x> that has a tools/<x>.ae source. Reclaiming anything
+	@# else (notably tools/aeb-resolve.jar, a Java artifact built out-of-band
+	@# by tools/resolver/.dist.ae, NOT by this Makefile) would delete it with
+	@# no way to rebuild it — the jar is gitignored, so it's then gone for
+	@# good and every maven/java/scala/kotlin build breaks. That is the exact
+	@# "make install keeps wiping aeb-resolve.jar" bug: a non-writable jar
+	@# (e.g. from a tarball/CI/prior sudo) got reclaimed but never rebuilt.
 	@for bin in tools/*; do \
 	    case "$$bin" in *.ae) continue;; esac; \
+	    [ -f "$$bin.ae" ] || continue; \
 	    [ -f "$$bin" ] && [ ! -w "$$bin" ] && { rm -f "$$bin" && echo "  reclaim $$bin (was not writable — stale from a prior sudo install?)"; }; \
 	done; true
 	@for src in tools/*.ae; do \

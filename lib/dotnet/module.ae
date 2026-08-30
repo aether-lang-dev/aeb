@@ -1185,5 +1185,12 @@ builder test_existing(): int {
     if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (dotnet test)")
+    // env(K,V) / step() / workdir() on the block ARE honoured: _run_project
+    // reads proc_env/proc_steps/proc_workdir off _builder and emits the
+    // `cd … && export K='V' && dotnet test` chain (see bldr._run_project_cmd,
+    // covered in tests/test_project_run_cmd.ae). So a P/Invoke binding's
+    // native-lib env var reaches the run here the same as in test() — the two
+    // just thread it by different mechanisms (test prepends
+    // _env_export_prefix; test_existing lets _run_project do it).
     return bldr._run_project(ctx, _builder, "dotnet test --nologo", 1)
 }
