@@ -1,32 +1,36 @@
 // Tests for lib/javascript's pure command-string builders.
+import std.spec
 import javascript (npm_install_cmd, npx_jest_cmd, npm_test_cmd)
-import std.string
-
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
 
 main() {
-    _eq("npm install bare",
-        npm_install_cmd("/proj", ""),
-        "cd '/proj' && npm install")
-    _eq("npm install with flags",
-        npm_install_cmd("/proj", "--silent --no-audit --no-fund"),
-        "cd '/proj' && npm install --silent --no-audit --no-fund")
+    fw = spec.init()
 
-    _eq("npx jest bare",
-        npx_jest_cmd("/proj", ""),
-        "cd '/proj' && npx jest")
-    _eq("npx jest --runInBand",
-        npx_jest_cmd("/proj", "--runInBand"),
-        "cd '/proj' && npx jest --runInBand")
+    spec.describe(fw, "npm_install_cmd") {
+        spec.it("bare") callback {
+            spec.assert_str_eq(npm_install_cmd("/proj", ""),
+                "cd '/proj' && npm install", "bare")
+        }
+        spec.it("with flags") callback {
+            spec.assert_str_eq(npm_install_cmd("/proj", "--silent --no-audit --no-fund"),
+                "cd '/proj' && npm install --silent --no-audit --no-fund", "flags")
+        }
+    }
 
-    _eq("npm test default runner",
-        npm_test_cmd("/proj"),
-        "cd '/proj' && npm test")
+    spec.describe(fw, "npx_jest_cmd") {
+        spec.it("bare") callback {
+            spec.assert_str_eq(npx_jest_cmd("/proj", ""), "cd '/proj' && npx jest", "bare")
+        }
+        spec.it("--runInBand") callback {
+            spec.assert_str_eq(npx_jest_cmd("/proj", "--runInBand"),
+                "cd '/proj' && npx jest --runInBand", "runInBand")
+        }
+    }
 
-    println("javascript command-string tests done")
+    spec.describe(fw, "npm_test_cmd") {
+        spec.it("default runner") callback {
+            spec.assert_str_eq(npm_test_cmd("/proj"), "cd '/proj' && npm test", "default")
+        }
+    }
+
+    spec.run_summary(fw)
 }

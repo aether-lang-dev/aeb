@@ -1,38 +1,31 @@
-import std.string
-import std.io
-import std.list
-
-import bldr
 // Tests for nim_c_run_cmd() — the pure per-file `nim c -r` command builder.
-
+import std.spec
 import nim (nim_c_run_cmd)
 
-_assert_eq(label: string, actual: string, expected: string) {
-    if actual == expected {
-        println("PASS: ${label}")
-    } else {
-        println("FAIL: ${label}")
-        println("  expected: ${expected}")
-        println("  actual:   ${actual}")
-    }
-}
-
 main() {
-    // No flags: just compile-and-run the quoted file.
-    _assert_eq("no flags", nim_c_run_cmd("tests/playback.nim", ""),
-        "nim c -r \"tests/playback.nim\"")
+    fw = spec.init()
 
-    // The servirtium-vcr binding's exact flag set — replaces the old shell
-    // `for t in …; do nim c -r --hints:off --threads:on … "$t"; done` loop.
-    _assert_eq("full flag set", nim_c_run_cmd("tests/record_test.nim",
-        "--hints:off --threads:on --path:src --path:tests"),
-        "nim c -r --hints:off --threads:on --path:src --path:tests \"tests/record_test.nim\"")
+    spec.describe(fw, "nim_c_run_cmd") {
+        spec.it("no flags — just compile-and-run the quoted file") callback {
+            spec.assert_str_eq(nim_c_run_cmd("tests/playback.nim", ""),
+                "nim c -r \"tests/playback.nim\"", "no flags")
+        }
+        // The servirtium-vcr binding's exact flag set — replaces the old shell
+        // `for t in …; do nim c -r --hints:off --threads:on … "$t"; done` loop.
+        spec.it("full flag set") callback {
+            spec.assert_str_eq(nim_c_run_cmd("tests/record_test.nim",
+                "--hints:off --threads:on --path:src --path:tests"),
+                "nim c -r --hints:off --threads:on --path:src --path:tests \"tests/record_test.nim\"", "full")
+        }
+        spec.it("one flag") callback {
+            spec.assert_str_eq(nim_c_run_cmd("tests/a.nim", "--threads:on"),
+                "nim c -r --threads:on \"tests/a.nim\"", "one flag")
+        }
+        spec.it("path with space stays quoted") callback {
+            spec.assert_str_eq(nim_c_run_cmd("tests/my test.nim", "--path:src"),
+                "nim c -r --path:src \"tests/my test.nim\"", "spaces")
+        }
+    }
 
-    // A single flag.
-    _assert_eq("one flag", nim_c_run_cmd("tests/a.nim", "--threads:on"),
-        "nim c -r --threads:on \"tests/a.nim\"")
-
-    // The file is always quoted (spaces / shell-meta safe).
-    _assert_eq("path with space", nim_c_run_cmd("tests/my test.nim", "--path:src"),
-        "nim c -r --path:src \"tests/my test.nim\"")
+    spec.run_summary(fw)
 }

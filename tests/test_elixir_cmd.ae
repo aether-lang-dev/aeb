@@ -1,36 +1,41 @@
 // Tests for lib/elixir's pure command-string builders.
-import elixir (mix_deps_get_cmd, mix_test_cmd, _flag_part)
-import std.string
+import std.spec
 import std.list
-
-extern println(s: string)
-
-_eq(label: string, got: string, want: string) {
-    if string.equals(got, want) == 1 { println("PASS: ${label}") }
-    else { println("FAIL: ${label} (got '${got}' want '${want}')") }
-}
+import elixir (mix_deps_get_cmd, mix_test_cmd, _flag_part)
 
 main() {
-    _eq("deps.get runs from source_dir",
-        mix_deps_get_cmd("/proj"),
-        "cd '/proj' && mix deps.get")
+    fw = spec.init()
 
-    _eq("mix test no flags",
-        mix_test_cmd("/proj", ""),
-        "cd '/proj' && mix test")
+    spec.describe(fw, "mix command builders") {
+        spec.it("deps.get runs from source_dir") callback {
+            spec.assert_str_eq(mix_deps_get_cmd("/proj"),
+                "cd '/proj' && mix deps.get", "deps.get")
+        }
+        spec.it("mix test, no flags") callback {
+            spec.assert_str_eq(mix_test_cmd("/proj", ""),
+                "cd '/proj' && mix test", "no flags")
+        }
+    }
 
-    // _flag_part renders the suffix with a leading space per flag.
-    _eq("flag part empty (null)", _flag_part(null), "")
-    fl = list.new()
-    _a1 = list.add(fl, "--trace")
-    _eq("mix test one flag",
-        mix_test_cmd("/proj", _flag_part(fl)),
-        "cd '/proj' && mix test --trace")
-    _a2 = list.add(fl, "--seed")
-    _a3 = list.add(fl, "0")
-    _eq("mix test multiple flags",
-        mix_test_cmd("/proj", _flag_part(fl)),
-        "cd '/proj' && mix test --trace --seed 0")
+    spec.describe(fw, "_flag_part suffix") {
+        spec.it("empty (null) → \"\"") callback {
+            spec.assert_str_eq(_flag_part(null), "", "empty")
+        }
+        spec.it("one flag → mix test --trace") callback {
+            fl = list.new()
+            _ = list.add(fl, "--trace")
+            spec.assert_str_eq(mix_test_cmd("/proj", _flag_part(fl)),
+                "cd '/proj' && mix test --trace", "one")
+        }
+        spec.it("multiple flags render in order, space-led") callback {
+            fl = list.new()
+            _ = list.add(fl, "--trace")
+            _ = list.add(fl, "--seed")
+            _ = list.add(fl, "0")
+            spec.assert_str_eq(mix_test_cmd("/proj", _flag_part(fl)),
+                "cd '/proj' && mix test --trace --seed 0", "multi")
+        }
+    }
 
-    println("elixir command-string tests done")
+    spec.run_summary(fw)
 }
