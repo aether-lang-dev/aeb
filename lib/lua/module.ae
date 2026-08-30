@@ -273,3 +273,195 @@ builder test(): int {
     println("${mod_dir}: running tests (lua)")
     return bldr._run_project(ctx, _builder, "busted", 1)
 }
+
+// --- consumer_example: stage a bundled package + consumer, run from clean ---
+
+// stage("src/lib.rs", "pkg/src/lib.rs") — copy one file (src relative to the
+// module source_dir, dest relative to the staging root under target_dir) into
+// the clean staging tree. Repeatable; this is the package+consumer manifest as
+// declarative data. Value is "src<TAB>dest".
+stage(_ctx: ptr, src: string, dest: string) {
+    if map.has(_ctx, "stage_pairs") == 0 { _e1 = map.put(_ctx, "stage_pairs", list.new()) }
+    l, _ = map.get(_ctx, "stage_pairs")
+    _e2 = list.add(l, string.concat(src, string.concat("\t", dest)))
+}
+// stage_dir("../go", "go-pkg", "example") — copy a whole dir (src relative to
+// module source_dir) into staging as dest, optionally deleting a sub-path after
+// (e.g. drop example/ from the packaged copy). Value is "src<TAB>dest<TAB>prune".
+stage_dir(_ctx: ptr, src: string, dest: string, prune: string) {
+    if map.has(_ctx, "stage_dirs") == 0 { _e1 = map.put(_ctx, "stage_dirs", list.new()) }
+    l, _ = map.get(_ctx, "stage_dirs")
+    _e2 = list.add(l, string.concat(src, string.concat("\t", string.concat(dest, string.concat("\t", prune)))))
+}
+// run_in("consumer") — the staging-relative dir to run from. Scalar.
+run_in(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "run_in", dir)
+}
+// run_cmd("cargo run --offline --") — the base run command (an env-prefix + argv
+// follows per run_arg). Default is the cargo form. Scalar.
+run_cmd(_ctx: ptr, cmd: string) {
+    _e = map.put(_ctx, "run_cmd", cmd)
+}
+// mode_env("SEL_MODE") — pass each run_arg as an env var (VAR=arg) instead of
+// an argv suffix. Scalar.
+mode_env(_ctx: ptr, v: string) {
+    _e = map.put(_ctx, "mode_env", v)
+}
+// pre_cmd("nim c -r ... consumer.nim") — a build step run once in run_in before
+// the per-arg runs (for compile-then-run languages). Scalar; optional.
+pre_cmd(_ctx: ptr, cmd: string) {
+    _e = map.put(_ctx, "pre_cmd", cmd)
+}
+// run_arg("ffi") — an argv for `cargo run --offline -- <arg>`. Repeatable.
+run_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "run_args") == 0 { _e1 = map.put(_ctx, "run_args", list.new()) }
+    l, _ = map.get(_ctx, "run_args")
+    _e2 = list.add(l, arg)
+}
+// assert_file("pkg/native/libselenium_core.so") — a staging-relative path that
+// MUST exist after staging (the bundled asset). Repeatable.
+assert_file(_ctx: ptr, path: string) {
+    if map.has(_ctx, "assert_files") == 0 { _e1 = map.put(_ctx, "assert_files", list.new()) }
+    l, _ = map.get(_ctx, "assert_files")
+    _e2 = list.add(l, path)
+}
+
+// rust.consumer_example() — stage a clean bundled crate + a consumer crate (via
+// stage() pairs), assert the bundled asset, then `cargo run --offline -- <arg>`
+// in run_in with SELENIUM_CORE_LIB unset — so the consumer drives the engine via
+// ONLY the crate's own bundled .so (no in-tree sibling). Deps the .package.ae.
+builder consumer_example(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    stageroot = path.join(target_dir, "stage")
+    bldr._sh("rm -rf '${stageroot}' && mkdir -p '${stageroot}'")
+
+    // stage the declared file pairs.
+    if _builder != null {
+        if map.has(_builder, "stage_pairs") == 1 {
+            l, _ = map.get(_builder, "stage_pairs")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                pair, _ = list.get(l, i)
+                tab = string.index_of(pair, "\t")
+                src = string.substring(pair, 0, tab)
+                dest = string.substring(pair, tab + 1, string.length(pair))
+                src_abs = path.join(source_dir, src)
+                dest_abs = path.join(stageroot, dest)
+                dest_parent = path.dirname(dest_abs)
+                bldr._sh("mkdir -p '${dest_parent}' && cp -r '${src_abs}' '${dest_abs}'")
+                i = i + 1
+            }
+        }
+    }
+
+    // stage whole dirs (cp -r), with an optional prune sub-path.
+    if _builder != null {
+        if map.has(_builder, "stage_dirs") == 1 {
+            l, _ = map.get(_builder, "stage_dirs")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                spec, _ = list.get(l, i)
+                t1 = string.index_of(spec, "\t")
+                sd_src = string.substring(spec, 0, t1)
+                r1 = string.substring(spec, t1 + 1, string.length(spec))
+                t2 = string.index_of(r1, "\t")
+                sd_dest = string.substring(r1, 0, t2)
+                sd_prune = string.substring(r1, t2 + 1, string.length(r1))
+                src_abs = path.join(source_dir, sd_src)
+                dest_abs = path.join(stageroot, sd_dest)
+                bldr._sh("cp -r '${src_abs}' '${dest_abs}'")
+                if string.length(sd_prune) > 0 {
+                    bldr._sh("rm -rf '${dest_abs}/${sd_prune}'")
+                }
+                i = i + 1
+            }
+        }
+    }
+
+    // assert bundled files.
+    if _builder != null {
+        if map.has(_builder, "assert_files") == 1 {
+            l, _ = map.get(_builder, "assert_files")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                af, _ = list.get(l, i)
+                if bldr._sh("ls '${stageroot}/${af}' >/dev/null 2>&1") != 0 {
+                    println("${mod_dir}: staged package missing ${af}")
+                    bldr.fail(ctx, "bundled asset missing after staging")
+                    return 1
+                }
+                i = i + 1
+            }
+        }
+    }
+
+    run_dir = "consumer"
+    if _builder != null {
+        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get(_builder, "run_in") }
+    }
+    run_abs = path.join(stageroot, run_dir)
+    run_command = "cargo run --offline --"
+    if _builder != null {
+        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get(_builder, "run_cmd") }
+    }
+    // optional build step before the per-arg runs.
+    if _builder != null {
+        if map.has(_builder, "pre_cmd") == 1 {
+            pc, _ = map.get(_builder, "pre_cmd")
+            if string.length(pc) > 0 {
+                if bldr._sh("cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${pc}") != 0 {
+                    println("${mod_dir}: consumer pre-build failed")
+                    bldr.fail(ctx, "consumer pre-build failed")
+                    return 1
+                }
+            }
+        }
+    }
+    has_mode_env = 0
+    mode_env = ""
+    if _builder != null {
+        if map.has(_builder, "mode_env") == 1 {
+            mode_env, _ = map.get(_builder, "mode_env")
+            has_mode_env = 1
+        }
+    }
+    args = null
+    if _builder != null {
+        if map.has(_builder, "run_args") == 1 { args, _ = map.get(_builder, "run_args") }
+    }
+    if args == null {
+        base = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command}"
+        if bldr._sh(base) != 0 { bldr.fail(ctx, "consumer run failed"); return 1 }
+    } else {
+        na = list.size(args)
+        ai = 0
+        while ai < na {
+            a, _ = list.get(args, ai)
+            println("${mod_dir}: consumer run (${a})")
+            one = ""
+            if has_mode_env == 1 {
+                one = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${mode_env}=${a} ${run_command}"
+            } else {
+                one = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command} ${a}"
+            }
+            if bldr._sh(one) != 0 {
+                println("${mod_dir}: consumer run (${a}) failed")
+                bldr.fail(ctx, "consumer run (${a}) failed")
+                return 1
+            }
+            ai = ai + 1
+        }
+    }
+    println("${mod_dir}: PASS — consumer drove the engine via the crate's bundled .so from clean")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
