@@ -96,5 +96,10 @@ main() {
     _assert_eq("resolve() with no maven_deps key returns empty (no segfault)",
         resolve(empty_ctx), "")
 
+    // (classpath() is the caller of resolve(); asserting resolve() covers the
+    // tier-1 guarantee — resolve is what shells out to aeb-resolve.jar, and it
+    // early-returns "" here. classpath() itself is intentionally not called in
+    // this unit test because it writes a maven_classpath artifact to disk.)
+
     println("maven cmd tests done")
 }

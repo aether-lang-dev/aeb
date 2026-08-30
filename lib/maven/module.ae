@@ -103,6 +103,97 @@ mvn_resolve_cmd(resolver_jar: string, bom_files: ptr, boms: ptr, repos: ptr, dep
     return cmd
 }
 
+// --- Tier-2 (temp-pom) Maven-lifecycle helpers ---
+//
+// These build a throwaway pom.xml and the `mvn` invocations for a project
+// that wants the real Maven lifecycle (compile + surefire) rather than the
+// resolver's classpath-only path. Pure string builders — the impure builder
+// (java.mvn_project) writes the pom and runs the commands. Tested in
+// tests/test_maven_pom.ae without a Maven install.
+
+// _pom_dependency(coord) — one <dependency> from a "group:artifact:version"
+// coord. Test scope is left default (compile) — surefire deps declared with
+// a trailing ":test" get <scope>test</scope>. Pure.
+_pom_dependency(coord: string) {
+    grp = coord
+    art = ""
+    ver = ""
+    scope = ""
+    // group:artifact:version[:scope]
+    i1 = string.index_of(coord, ":")
+    if i1 >= 0 {
+        grp = string.substring(coord, 0, i1)
+        rest = string.substring(coord, i1 + 1, string.length(coord))
+        i2 = string.index_of(rest, ":")
+        if i2 >= 0 {
+            art = string.substring(rest, 0, i2)
+            rest2 = string.substring(rest, i2 + 1, string.length(rest))
+            i3 = string.index_of(rest2, ":")
+            if i3 >= 0 {
+                ver = string.substring(rest2, 0, i3)
+                scope = string.substring(rest2, i3 + 1, string.length(rest2))
+            } else {
+                ver = rest2
+            }
+        } else {
+            art = rest
+        }
+    }
+    out = "    <dependency>\n"
+    out = string.concat(out, "      <groupId>${grp}</groupId>\n")
+    out = string.concat(out, "      <artifactId>${art}</artifactId>\n")
+    out = string.concat(out, "      <version>${ver}</version>\n")
+    if string.length(scope) > 0 {
+        out = string.concat(out, "      <scope>${scope}</scope>\n")
+    }
+    out = string.concat(out, "    </dependency>\n")
+    return out
+}
+
+// _pom_dependencies(coords) — the <dependencies> block for a coord list, or
+// "" when none. Pure.
+_pom_dependencies(coords: ptr) {
+    if coords == null { return "" }
+    n = list.size(coords)
+    if n == 0 { return "" }
+    out = "  <dependencies>\n"
+    i = 0
+    while i < n {
+        c, _ = list.get(coords, i)
+        out = string.concat(out, _pom_dependency(c))
+        i = i + 1
+    }
+    out = string.concat(out, "  </dependencies>\n")
+    return out
+}
+
+// pom_xml(group, artifact, version, java_ver, coords) — a minimal but
+// complete pom.xml for a temp-pom `mvn compile`/surefire build. maven.compiler
+// source/target come from java_ver; coords become <dependencies>. Pure.
+pom_xml(group: string, artifact: string, version: string, java_ver: string, coords: ptr) {
+    jv = java_ver
+    if string.length(jv) == 0 { jv = "17" }
+    out = "<project xmlns=\"http://maven.apache.org/POM/4.0.0\">\n"
+    out = string.concat(out, "  <modelVersion>4.0.0</modelVersion>\n")
+    out = string.concat(out, "  <groupId>${group}</groupId>\n")
+    out = string.concat(out, "  <artifactId>${artifact}</artifactId>\n")
+    out = string.concat(out, "  <version>${version}</version>\n")
+    out = string.concat(out, "  <properties>\n")
+    out = string.concat(out, "    <maven.compiler.source>${jv}</maven.compiler.source>\n")
+    out = string.concat(out, "    <maven.compiler.target>${jv}</maven.compiler.target>\n")
+    out = string.concat(out, "    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>\n")
+    out = string.concat(out, "  </properties>\n")
+    out = string.concat(out, _pom_dependencies(coords))
+    out = string.concat(out, "</project>\n")
+    return out
+}
+
+// mvn_lifecycle_cmd(source_dir, pom_path, goal) — `cd '<dir>' && mvn -q -f
+// '<pom>' <goal>`. goal is "compile" or "test" (surefire). Pure.
+mvn_lifecycle_cmd(source_dir: string, pom_path: string, goal: string) {
+    return "cd '${source_dir}' && mvn -q -f '${pom_path}' ${goal}"
+}
+
 // --- Maven dependency resolution ---
 //
 // Shells out to aeb-resolve.jar (Java-based Maven Resolver).

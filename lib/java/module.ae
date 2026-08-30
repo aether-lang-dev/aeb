@@ -1,4 +1,25 @@
 // java — Java SDK for aether.build
+//
+// TWO TIERS, so plain Java never drags in the Maven ecosystem:
+//
+//   Tier 1 — CORE (JDK only, no Maven). javac() / javac_test() / junit() /
+//     java_main() build their classpath from dep() edges alone
+//     (bldr._build_dep_classpath reads each dep's jvm_classpath artifact off
+//     disk — pure graph, no network, no resolver). A node that declares NO
+//     maven_dep()/jar_registry entries never invokes tools/aeb-resolve.jar
+//     and never needs `mvn` or ~/.m2 — maven.classpath() early-returns ""
+//     (see maven.resolve's dep_count==0 / no-maven_deps guards). This is the
+//     path for a monorepo whose deps are other in-tree modules: it needs
+//     only a JDK on PATH. Guarded by tests/test_maven_cmd.ae (resolve/
+//     classpath on a maven-free ctx return "" with no shell-out).
+//
+//   Tier 2 — MAVEN ECOSYSTEM (opt-in). When a node wants third-party
+//     coordinates, two mechanisms exist side by side: (a) the resolver —
+//     maven_dep()/jar_registry, resolved by tools/aeb-resolve.jar (bundled
+//     Eclipse Aether; needs a JDK, not a `mvn` binary); and (b) mvn_project()
+//     — generate a temp pom.xml and drive real `mvn compile` / surefire,
+//     for projects that want the actual Maven lifecycle. Both are opt-in;
+//     Tier 1 stays clean of them.
 import bldr
 import cache
 import maven
@@ -597,6 +618,74 @@ builder jar_registry_finalize(): int {
     cp_nl = string.trim(cp_raw)
     bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_nl)
     println("${mod_dir}: fetched maven deps")
+    return 0
+}
+
+// java.mvn_project() — TIER 2: hand the build to real Maven via a generated
+// temp pom.xml. For a project that wants the actual Maven lifecycle (compiler
+// plugin + surefire) rather than the resolver's classpath-only path. Reads
+// the coords declared with jar_registry(...)/maven_dep-style setters and the
+// java version (release()), writes target/<mod>/.pom.generated.xml, then runs
+// `mvn compile`; if test_project() was set, also `mvn test` (surefire), whose
+// exit code is the node's pass/fail. Requires `mvn` on PATH (this is the
+// opt-in tier — Tier 1 javac()/java_main() need only a JDK). SKIPs green when
+// mvn is absent, mirroring the other toolchain-optional builders.
+builder mvn_project(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    have = os.system("command -v mvn >/dev/null 2>&1")
+    if have != 0 {
+        println("${mod_dir}: mvn_project SKIPPED — mvn not on PATH")
+        return 0
+    }
+
+    // Coords declared on the node (group:artifact:version[:scope]).
+    coords = list.new()
+    if map.has(ctx, "maven_deps") == 1 {
+        coords, _ = map.get(ctx, "maven_deps")
+    }
+
+    // Compiler java version from release(); default handled by pom_xml.
+    java_ver = ""
+    if _builder != null {
+        if map.has(_builder, "release") == 1 {
+            java_ver, _ = map.get(_builder, "release")
+        }
+    }
+
+    pom = maven.pom_xml("aeb.gen", "temp-build", "0.0.0", java_ver, coords)
+    pom_path = path.join(target_dir, ".pom.generated.xml")
+    _ew = io.write_file(pom_path, pom)
+
+    println("${mod_dir}: mvn compile (temp pom)")
+    compile_cmd = maven.mvn_lifecycle_cmd(source_dir, pom_path, "compile")
+    rc = bldr._sh(compile_cmd)
+    if rc != 0 {
+        println("${mod_dir}: mvn compile FAILED")
+        return rc
+    }
+
+    is_test = 0
+    if _builder != null {
+        if map.has(_builder, "is_test_project") == 1 { is_test = 1 }
+    }
+    if is_test == 1 {
+        println("${mod_dir}: mvn test (surefire)")
+        test_cmd = maven.mvn_lifecycle_cmd(source_dir, pom_path, "test")
+        trc = bldr._sh(test_cmd)
+        if trc != 0 {
+            bldr._record_test_result(ctx, 0, 1)
+            println("${mod_dir}: tests FAILED")
+            return trc
+        }
+        bldr._record_test_result(ctx, 1, 0)
+        println("${mod_dir}: tests PASSED")
+    }
     return 0
 }
 

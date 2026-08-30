@@ -1,0 +1,69 @@
+// Tests for lib/maven's tier-2 (temp-pom) pure helpers: pom.xml generation
+// and the mvn lifecycle command. No Maven install needed — pure string
+// builders (the impure java.mvn_project() writes the pom + runs the cmd).
+import maven (pom_xml, mvn_lifecycle_cmd, _pom_dependency, _pom_dependencies)
+import std.string
+import std.list
+
+extern println(s: string)
+
+_eq(label: string, got: string, want: string) {
+    if string.equals(got, want) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}\n  got:  ${got}\n  want: ${want}") }
+}
+
+_contains(label: string, hay: string, needle: string) {
+    if string.contains(hay, needle) == 1 { println("PASS: ${label}") }
+    else { println("FAIL: ${label}\n  missing: ${needle}\n  in: ${hay}") }
+}
+
+main() {
+    // --- _pom_dependency: group:artifact:version → <dependency> block.
+    _eq("dependency g:a:v",
+        _pom_dependency("org.foo:bar:1.2.3"),
+        "    <dependency>\n      <groupId>org.foo</groupId>\n      <artifactId>bar</artifactId>\n      <version>1.2.3</version>\n    </dependency>\n")
+
+    // --- with a trailing :scope → <scope> emitted (e.g. junit :test).
+    _eq("dependency with test scope",
+        _pom_dependency("org.junit.jupiter:junit-jupiter:5.10.2:test"),
+        "    <dependency>\n      <groupId>org.junit.jupiter</groupId>\n      <artifactId>junit-jupiter</artifactId>\n      <version>5.10.2</version>\n      <scope>test</scope>\n    </dependency>\n")
+
+    // --- _pom_dependencies: empty list / null → "".
+    _eq("no deps → empty block", _pom_dependencies(list_new()), "")
+
+    // --- _pom_dependencies: wraps entries in <dependencies>.
+    coords = list_new()
+    _ = list_add(coords, "com.google.guava:guava:33.0.0-jre")
+    _ = list_add(coords, "org.junit.jupiter:junit-jupiter:5.10.2:test")
+    deps_xml = _pom_dependencies(coords)
+    _contains("dependencies block opens", deps_xml, "  <dependencies>\n")
+    _contains("dependencies block includes guava", deps_xml, "<artifactId>guava</artifactId>")
+    _contains("dependencies block includes junit test scope", deps_xml, "<scope>test</scope>")
+    _contains("dependencies block closes", deps_xml, "  </dependencies>\n")
+
+    // --- pom_xml: full project, coords + java version.
+    pom = pom_xml("aeb.gen", "temp-build", "0.0.0", "21", coords)
+    _contains("pom has modelVersion", pom, "<modelVersion>4.0.0</modelVersion>")
+    _contains("pom groupId", pom, "<groupId>aeb.gen</groupId>")
+    _contains("pom artifactId", pom, "<artifactId>temp-build</artifactId>")
+    _contains("pom compiler source from java_ver", pom, "<maven.compiler.source>21</maven.compiler.source>")
+    _contains("pom compiler target from java_ver", pom, "<maven.compiler.target>21</maven.compiler.target>")
+    _contains("pom UTF-8 encoding", pom, "<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>")
+    _contains("pom carries the deps", pom, "<artifactId>guava</artifactId>")
+
+    // --- pom_xml: empty java_ver defaults to 17; no coords → no <dependencies>.
+    pom2 = pom_xml("g", "a", "1.0", "", list_new())
+    _contains("pom default java 17 source", pom2, "<maven.compiler.source>17</maven.compiler.source>")
+    _eq("pom with no coords has no <dependencies>",
+        string.from_int(string.contains(pom2, "<dependencies>")), "0")
+
+    // --- mvn_lifecycle_cmd: compile + test (surefire) invocations.
+    _eq("mvn compile cmd",
+        mvn_lifecycle_cmd("/proj/java", "/proj/target/.pom.xml", "compile"),
+        "cd '/proj/java' && mvn -q -f '/proj/target/.pom.xml' compile")
+    _eq("mvn test (surefire) cmd",
+        mvn_lifecycle_cmd("/proj/java", "/proj/target/.pom.xml", "test"),
+        "cd '/proj/java' && mvn -q -f '/proj/target/.pom.xml' test")
+
+    println("maven pom tests done")
+}
