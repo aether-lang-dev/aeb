@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Changed
+
+- **The whole test suite propagates `std.spec`'s verdict:
+  `return spec.run_summary(fw)`.** As of Aether 0.612.0, `spec.run_summary`
+  *returns* its verdict (`0` all-green / `1` something failed) instead of
+  `exit(1)`-ing on failure — so a bare `spec.run_summary(fw)` as `main()`'s
+  last statement now silently turns a *failing* suite green (`main()`'s return
+  value is the process exit status, and a dropped verdict exits `0`). All 132
+  `tests/test_*.ae` were swept from the bare call to `return spec.run_summary(fw)`.
+  Verified against the real 0.613.0 toolchain: a passing suite exits `0`, a
+  failing one exits `1` (the returned verdict reddens), and the old bare form
+  exits `0` on failure (the footgun this removes). This also fixes fan-out
+  orchestration, where a node's return value is its result — an all-green suite
+  used to hand back garbage. `AETHER_PIN`/`AETHER_FETCH` raised 0.609.0 → 0.613.0
+  in lockstep (0.612 is the floor for the returned-verdict semantics; 0.613 adds
+  the SIGPIPE-server-death and sleep-signal fixes). The `telemetry-json-smoke`
+  `failtest` fixture keeps its own `return 0` — the telemetry driver judges it by
+  the emitted report, not the exit code.
+
 ### Added
 
 - **`kotlin.kotlinc_test` now does joint Java+Kotlin compilation** (`lib/kotlin`).

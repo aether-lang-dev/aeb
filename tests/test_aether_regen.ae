@@ -88,7 +88,7 @@ main() {
         }
     }
 
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
 
 // int helpers (the test compares mtimes).

@@ -88,4 +88,16 @@
 # Verified: aeb's full suite is 133/133 against the real 0.609.0 tarball, and the
 # bld-backed resolver + 9-target cross bundles build clean. PIN moves in lockstep
 # (no-back-compat DSL policy).
-0.609.0
+#
+# Raised 0.609.0 -> 0.613.0 (2026-08-31) for the std.spec run_summary contract.
+# 0.612.0 is where run_summary RETURNS its verdict (0/1) instead of exit(1)-ing
+# — the change aeb's 132-test sweep to `return spec.run_summary(fw)` depends on
+# (a bare last-statement call now silently greens a failing suite). We fetch
+# 0.613.0, the newest published, which is 0.612 + the SIGPIPE-server-death,
+# sleep-signal and ae-version snprintf-truncation fixes (all pure fixes, no
+# grammar/API break). Verified against the real 0.613.0 tarball: aeb rebuilds
+# clean, the full suite is green, and the run_summary semantics check reddens a
+# failing suite (fail->1) while a bare call does not (bare->0). All 6 platform
+# assets present; GLIBC_2.34. PIN moves in lockstep (this one IS a real floor —
+# the returned-verdict semantics require >= 0.612).
+0.613.0

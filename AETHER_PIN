@@ -48,4 +48,16 @@
 # 0.609.0 linux tarball; glibc floor is GLIBC_2.34 (Debian-12 safe). Bundles the
 # accumulated 0.603-0.609 fixes; nothing here calls a new primitive, but the
 # no-back-compat DSL policy keeps PIN moving with FETCH.
-0.609.0
+#
+# Raised 0.609.0 -> 0.613.0 (2026-08-31) in lockstep with AETHER_FETCH for the
+# std.spec run_summary contract change. As of 0.612.0, spec.run_summary RETURNS
+# its verdict (0 all-green / 1 failed) instead of exit(1)-on-failure; a bare
+# `spec.run_summary(fw)` last statement now silently turns a FAILING suite green
+# (main()'s return value is the process exit status, and a dropped verdict exits
+# 0). All 132 aeb tests were swept from the bare form to `return spec.run_summary(fw)`
+# and REQUIRE >= 0.612 to reflect failures. Verified against the real 0.613.0 tarball:
+# pass->0, fail->1 (returned verdict reddens), bare->0 (the footgun) — and the full
+# suite is green. 0.613 (the newest published) also carries the SIGPIPE server-death
+# and sleep-signal fixes; glibc floor stays GLIBC_2.34. This is a genuine floor move
+# (the returned-verdict semantics), not just the no-back-compat lockstep.
+0.613.0

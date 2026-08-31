@@ -3,8 +3,9 @@
 // resolver, the glob helpers, and csproj_content's generated XML.
 //
 // Written on std.spec — describe/it groups, assert_str_eq for exec strings,
-// assert_contains for the generated csproj XML. run_summary exits non-zero
-// on any failure, so tests/run.sh judges it by exit code.
+// assert_contains for the generated csproj XML. main() returns
+// run_summary's verdict (0 green / 1 failed), so tests/run.sh judges it by
+// exit code.
 import std.spec
 import std.string
 import std.list
@@ -187,5 +188,5 @@ main() {
         }
     }
 
-    spec.run_summary(fw)
+    return spec.run_summary(fw)
 }
