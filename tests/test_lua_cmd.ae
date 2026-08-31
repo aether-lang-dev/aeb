@@ -1,0 +1,39 @@
+// Tests for lua's lua_run_cmd() — the conformance run-command assembler.
+//
+// Regression guard for asks/lua-conformance-executes-machine-code-as-a-shell-command.md:
+// the run command was once built into a local named `run_cmd`, which collides
+// with lib/lua's top-level run_cmd() setter, so the interpolation rendered the
+// FUNCTION POINTER (an x86 prologue "UH..SH..") instead of the string and handed
+// it to /bin/sh. Asserting the assembled command is the exact expected string
+// catches any recurrence of that class (a pointer render would not string-eq).
+import std.spec
+import lua (lua_run_cmd)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "lua_run_cmd") {
+        spec.it("assembles cd + LUA_CPATH/LUA_PATH + interp + conf, no env prefix") callback {
+            spec.assert_str_eq(
+                lua_run_cmd("/src/lua", "'/src/lua/lua54'", "test/conformance.lua", ""),
+                "cd '/src/lua' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' '/src/lua/lua54' 'test/conformance.lua'",
+                "no-env")
+        }
+
+        spec.it("prepends the env export prefix verbatim") callback {
+            spec.assert_str_eq(
+                lua_run_cmd("/s", "lua5.4", "t/c.lua", "export HTMLSANITIZER_LIB='/x/lib.so' && "),
+                "export HTMLSANITIZER_LIB='/x/lib.so' && cd '/s' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' lua5.4 't/c.lua'",
+                "with-env")
+        }
+
+        spec.it("distro interpreter (bare word, no quotes) is placed as-is") callback {
+            spec.assert_str_eq(
+                lua_run_cmd("/s", "lua5.4", "c.lua", ""),
+                "cd '/s' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' lua5.4 'c.lua'",
+                "distro-interp")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

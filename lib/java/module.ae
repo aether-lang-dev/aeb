@@ -1404,8 +1404,13 @@ builder junit(): int {
     while j < tcount {
         tf = dir_list_get(test_files, j)
         tflen = string.length(tf)
-        class_path = string.substring(tf, prefix_len, tflen - 6)
-        raw, _er = bldr._sh_capture("echo ${class_path} | sed s,/,.,g")
+        // class_rel, NOT class_path: `class_path` is a top-level setter in
+        // lib/java (thin_jar's Class-Path), and a same-name local binds
+        // `${class_path}` to the FUNCTION POINTER, feeding an x86 prologue to
+        // `echo | sed` and corrupting test-class discovery. Same footgun as
+        // lib/lua's run_cmd. See asks/lua-conformance-executes-machine-code-as-a-shell-command.md.
+        class_rel = string.substring(tf, prefix_len, tflen - 6)
+        raw, _er = bldr._sh_capture("echo ${class_rel} | sed s,/,.,g")
         class_name = string.trim(raw)
         if j == 0 {
             class_names = class_name

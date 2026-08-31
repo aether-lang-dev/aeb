@@ -2220,7 +2220,11 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
     mod_ae = ""
     ns = 0
     rel = ""
-    caps = ""
+    // node_caps, NOT caps: `caps` is a top-level setter in lib/aether, and a
+    // same-name local binds `${caps}` to the FUNCTION POINTER (an x86 prologue),
+    // not the string. Same footgun as lib/lua's run_cmd. See
+    // asks/lua-conformance-executes-machine-code-as-a-shell-command.md.
+    node_caps = ""
     sym_list = ""
     j = 0
     sj = ""
@@ -2229,7 +2233,7 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
         sl, _ = map.get(by_module, mod_ae)
         ns = list.size(sl)
         rel = _relpath_for_hint(source_dir, mod_ae)
-        caps = _detect_caps(mod_ae)
+        node_caps = _detect_caps(mod_ae)
         sym_list = ""
         j = 0
         while j < ns {
@@ -2239,9 +2243,9 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
             j = j + 1
         }
         if string.length(rel) > 0 {
-            println("  regen_with(\"${rel}\", \"${caps}\")  // defines ${sym_list}")
+            println("  regen_with(\"${rel}\", \"${node_caps}\")  // defines ${sym_list}")
         } else {
-            println("  regen_with(\"${mod_ae}\", \"${caps}\")  // defines ${sym_list}")
+            println("  regen_with(\"${mod_ae}\", \"${node_caps}\")  // defines ${sym_list}")
         }
         mi = mi + 1
     }

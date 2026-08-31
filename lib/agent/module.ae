@@ -741,21 +741,25 @@ _lease_verify(secret: string, token: string, now_ms: long, req_purpose: string) 
     secret = keymat
     tag = _lease_field(token, 0)
     if string.equals(tag, _lease_tag()) == 0 { return "lease: not an ae1 token" }
-    purpose = _lease_field(token, 1)
+    // tok_purpose, NOT purpose: `purpose` is a top-level setter in lib/agent,
+    // and a same-name local binds `${purpose}` (line ~768) to the FUNCTION
+    // POINTER rather than the token field — the lua run_cmd footgun. See
+    // asks/lua-conformance-executes-machine-code-as-a-shell-command.md.
+    tok_purpose = _lease_field(token, 1)
     expiry = _lease_field(token, 2)
     sig = _lease_field(token, 3)
-    if string.length(purpose) == 0 { return "lease: missing purpose" }
+    if string.length(tok_purpose) == 0 { return "lease: missing purpose" }
     if string.length(expiry) == 0 { return "lease: missing expiry" }
     if string.length(sig) == 0 { return "lease: missing signature" }
     // 1. Signature: recompute over the prefix; constant-string compare.
-    want = _lease_sign(secret, purpose, expiry)
+    want = _lease_sign(secret, tok_purpose, expiry)
     if string.length(want) == 0 { return "lease: cannot verify (openssl unavailable)" }
     if string.equals(sig, want) == 0 { return "lease: bad signature (forged or wrong secret)" }
     // 1b. Canonical purpose — defense-in-depth: the verifier re-applies the
     //     mint-time grammar so a patched/rogue minter (holding the secret) can't
     //     smuggle a non-canonical purpose (uppercase/spaces/dots/unicode) past
     //     the trust boundary. "Constrained at issuance" AND at verification.
-    pgrm = _lease_purpose_valid(purpose)
+    pgrm = _lease_purpose_valid(tok_purpose)
     if string.length(pgrm) > 0 { return "lease: non-canonical purpose (${pgrm})" }
     // 2. Expiry: reject at/after the deadline. string.to_long is overflow-safe
     //    (unix-ms ~1.7e12 exceeds int32); a non-numeric expiry => fail-closed.
@@ -764,8 +768,8 @@ _lease_verify(secret: string, token: string, now_ms: long, req_purpose: string) 
     if exp_ms <= now_ms { return "lease: expired" }
     // 3. Purpose binding: the token's purpose must COVER the requested purpose
     //    (same glob grammar as scopes — "preint/*" token covers "preint/rust").
-    if _scope_glob_match(purpose, req_purpose) == 0 {
-        return "lease: purpose '${req_purpose}' not covered by token purpose '${purpose}'"
+    if _scope_glob_match(tok_purpose, req_purpose) == 0 {
+        return "lease: purpose '${req_purpose}' not covered by token purpose '${tok_purpose}'"
     }
     return ""
 }

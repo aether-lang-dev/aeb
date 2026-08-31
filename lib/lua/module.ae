@@ -206,6 +206,20 @@ builder c_extension(): int {
     return 0
 }
 
+// lua_run_cmd(source_dir, interp, conf, env_prefix) — assemble the conformance
+// run command as a pure string (testable; see tests/test_lua_cmd.ae):
+//   <env_prefix>cd '<src>' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' <interp> '<conf>'
+// Kept OUT of the conformance() builder body on purpose: (1) it is unit-testable
+// in isolation, and (2) the earlier inline form used a local named `run_cmd`,
+// which collides with this module's top-level run_cmd() setter — a same-name
+// local binds to the FUNCTION POINTER, so `${run_cmd}` handed an x86 prologue to
+// /bin/sh. A helper with fresh params has no such collision. See
+// asks/lua-conformance-executes-machine-code-as-a-shell-command.md.
+lua_run_cmd(source_dir: string, interp: string, conf: string, env_prefix: string) {
+    body = "cd '${source_dir}' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' ${interp} '${conf}'"
+    return string.concat(env_prefix, body)
+}
+
 // lua.conformance(b) — build the extension (via c_extension) then run the
 // conformance .lua with LUA_CPATH/LUA_PATH set so `require` finds the built .so
 // and the src .lua. SKIPs when no Lua 5.4 headers OR no interpreter (distro or
@@ -250,10 +264,12 @@ builder conformance(): int {
     }
 
     println("${mod_dir}: running ${conf} (lua)")
-    // ./?.so finds the extension; ./src/?.lua finds the pure-lua module.
-    run_cmd = "cd '${source_dir}' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' ${interp} '${conf}'"
-    run_cmd = string.concat(bldr._env_export_prefix(_builder), run_cmd)
-    rc = bldr._sh(run_cmd)
+    // ./?.so finds the extension; ./src/?.lua finds the pure-lua module. The
+    // command is assembled by the pure helper lua_run_cmd (testable, and free of
+    // the run_cmd() name collision that produced a function-pointer command).
+    env_prefix = bldr._env_export_prefix(_builder)
+    full_cmd = lua_run_cmd(source_dir, interp, conf, env_prefix)
+    rc = bldr._sh(full_cmd)
     if rc != 0 {
         bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: conformance FAILED")
