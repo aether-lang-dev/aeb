@@ -4,7 +4,12 @@
 // per-it() report to AE_SPEC_REPORT (set by aeb's driver_test spawn), which aeb
 // reads via bldr._parse_aeocha_report, so the telemetry JSON records
 // tests: {total:3, passed:2, failed:1, errored:0} — the granularity the CI
-// daemon wants, not a binary 0/1. Exit code is non-zero (a spec failed).
+// daemon wants, not a binary 0/1. main() returns run_summary's verdict, so a
+// spec failing makes the process exit non-zero — the driver's rc!=0 branch then
+// reports FAILED, which is the path this fixture exists to exercise. (Under
+// pre-0.612 std.spec run_summary exit(1)-ed itself; as of 0.612 it RETURNS the
+// verdict, so we must return it — a bare call + `return 0` would exit 0 and make
+// this deliberately-failing driver look green.)
 //
 // Migrated off contrib.aeocha (sunset). The modern std.spec API is fw-free in
 // the asserts: spec.assert_eq(actual, expected, msg), not assert_eq(fw, …).
@@ -25,6 +30,5 @@ main() {
         }
     }
 
-    spec.run_summary(fw)
-    return 0
+    return spec.run_summary(fw)
 }
