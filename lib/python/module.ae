@@ -306,12 +306,35 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
 
 // --- Internal: ensure venv exists ---
 
+// _ensure_venv(root) — create .aeb/venv if absent, and CONFIRM it is usable.
+// Returns (venv_path, ok): ok==1 only when the venv python is present and
+// runnable. A missing python3-venv (Debian/Ubuntu split it out of the base
+// python package) makes `python3 -m venv` fail; the old code discarded that
+// rc and returned the path anyway, so callers ran a python that isn't there
+// and — for pytest — reported PASS on zero tests. Callers MUST check ok.
+// (asks/python-pytest-reports-passed-when-venv-or-pytest-is-missing.md)
 _ensure_venv(root: string) {
     venv = path.join(root, ".aeb/venv")
+    venv_py = path.join(venv, "bin/python")
     if file.exists(venv) == 0 {
-        bldr._sh("python3 -m venv '${venv}'")
+        rc = bldr._sh("python3 -m venv '${venv}'")
+        if rc != 0 {
+            println("aeb: python3 -m venv failed (rc=${rc}) — is python3-venv installed? (e.g. apt install python3-venv)")
+            return venv, 0
+        }
     }
-    return venv
+    // Even a pre-existing .aeb/venv dir may be broken (partial create,
+    // wrong python). Require the interpreter to exist AND run.
+    if file.exists(venv_py) == 0 {
+        println("aeb: venv python missing at ${venv_py} — venv is incomplete (python3-venv not installed?)")
+        return venv, 0
+    }
+    probe = bldr._sh("'${venv_py}' -c 'import sys' >/dev/null 2>&1")
+    if probe != 0 {
+        println("aeb: venv python at ${venv_py} is not runnable (rc=${probe})")
+        return venv, 0
+    }
+    return venv, 1
 }
 
 // --- SDK functions ---
@@ -381,7 +404,12 @@ builder install(): int {
     bldr._mkdirs(target_dir)
     println("${mod_dir}: installing deps (pip)")
 
-    venv = _ensure_venv(root)
+    venv, venv_ok = _ensure_venv(root)
+    if venv_ok == 0 {
+        println("${mod_dir}: install FAILED — venv unavailable (see venv diagnostic above)")
+        bldr.fail(ctx, "python venv unavailable — cannot install deps")
+        return 1
+    }
     pip_bin = path.join(venv, "bin/pip")
 
     // Install from requirements file
@@ -473,7 +501,15 @@ builder pytest(): int {
     bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (pytest)")
 
-    venv = _ensure_venv(root)
+    venv, venv_ok = _ensure_venv(root)
+    if venv_ok == 0 {
+        // Venv could not be built / is unusable — fail closed. The old code
+        // ran a nonexistent python and reported PASS on zero collected tests.
+        println("${mod_dir}: tests FAILED — venv unavailable (see venv diagnostic above)")
+        bldr._record_test_result(ctx, 0, 1)
+        bldr.fail(ctx, "python venv unavailable — cannot run pytest")
+        return 1
+    }
     py = path.join(venv, "bin/python")
 
     cmd = pytest_cmd(py, source_dir, root)
@@ -484,12 +520,18 @@ builder pytest(): int {
     // byte-identical for callers that don't inject.
     // (asks/sdk-builders-cannot-set-env-for-the-test-run.md)
     cmd = string.concat(bldr._env_export_prefix(_builder), cmd)
-    // Tee to target/<module>/test_output.log — durable record for
-    // failure diagnosis, also feeds the summary parser. Pytest
-    // prints "===== 14 passed, 1 failed in 0.34s =====" at the end.
+    // Record to target/<module>/test_output.log — durable failure record, also
+    // feeds the summary parser. Pytest prints "===== 14 passed, 1 failed =====".
+    //
+    // CRITICAL: `> log 2>&1`, NOT `| tee log`. In a pipeline `cmd | tee`, $? is
+    // TEE's exit (~always 0), so pytest exit 5 ("no tests collected") and any
+    // real pytest failure were reported PASSED. Redirection preserves pytest's
+    // own exit code. Same false-green family as lib/dotnet Bug 1.
+    // (asks/python-pytest-reports-passed-when-venv-or-pytest-is-missing.md)
     bldr._mkdirs(target_dir)
     out_path = path.join(target_dir, "test_output.log")
-    full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
+    full_cmd = string.concat(string.concat(cmd, " > "), out_path)
+    full_cmd = string.concat(full_cmd, " 2>&1")
     exit_code = bldr._sh(full_cmd)
     out_text, _orerr = fs.read(out_path)
     pp, pf = _parse_pytest_counts(out_text)
@@ -498,6 +540,20 @@ builder pytest(): int {
         println("${mod_dir}: tests FAILED")
         bldr.fail(ctx, "tests FAILED")
         return exit_code
+    }
+    // pytest exits 0 only when tests ran and passed. Exit 5 = "no tests
+    // collected", which _sh may surface as non-zero (handled above) but a
+    // masking pipeline (tee) or a misconfigured path can still land here with
+    // exit 0 and zero counts. A suite that collected NOTHING is never a pass —
+    // it's the exact shape of a broken test path or an empty venv. Fail loud.
+    // (asks/python-pytest-reports-passed-when-venv-or-pytest-is-missing.md)
+    if pp == 0 {
+        if pf == 0 {
+            println("${mod_dir}: tests FAILED — pytest collected 0 tests (no tests found, or pytest/paths misconfigured)")
+            bldr._record_test_result(ctx, 0, 1)
+            bldr.fail(ctx, "pytest collected 0 tests")
+            return 1
+        }
     }
     println("${mod_dir}: tests PASSED")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
@@ -571,7 +627,12 @@ builder lint(): int {
     bldr._mkdirs(target_dir)
     println("${mod_dir}: linting (ruff)")
 
-    venv = _ensure_venv(root)
+    venv, venv_ok = _ensure_venv(root)
+    if venv_ok == 0 {
+        println("${mod_dir}: lint FAILED — venv unavailable (see venv diagnostic above)")
+        bldr.fail(ctx, "python venv unavailable — cannot run ruff")
+        return 1
+    }
     pip_bin = path.join(venv, "bin/pip")
     ruff = path.join(venv, "bin/ruff")
 
@@ -604,7 +665,12 @@ builder typecheck(): int {
     bldr._mkdirs(target_dir)
     println("${mod_dir}: type-checking (mypy)")
 
-    venv = _ensure_venv(root)
+    venv, venv_ok = _ensure_venv(root)
+    if venv_ok == 0 {
+        println("${mod_dir}: typecheck FAILED — venv unavailable (see venv diagnostic above)")
+        bldr.fail(ctx, "python venv unavailable — cannot run mypy")
+        return 1
+    }
     pip_bin = path.join(venv, "bin/pip")
     mypy = path.join(venv, "bin/mypy")
 
@@ -639,7 +705,12 @@ builder package(): int {
     dist_dir = path.join(target_dir, "dist")
     bldr._mkdirs(dist_dir)
 
-    venv = _ensure_venv(root)
+    venv, venv_ok = _ensure_venv(root)
+    if venv_ok == 0 {
+        println("${mod_dir}: packaging FAILED — venv unavailable (see venv diagnostic above)")
+        bldr.fail(ctx, "python venv unavailable — cannot package")
+        return 1
+    }
     pip_bin = path.join(venv, "bin/pip")
     py = path.join(venv, "bin/python")
 
@@ -778,7 +849,12 @@ builder package_existing(): int {
         }
     }
 
-    venv = _ensure_venv(root)
+    venv, venv_ok = _ensure_venv(root)
+    if venv_ok == 0 {
+        println("${mod_dir}: packaging FAILED — venv unavailable (see venv diagnostic above)")
+        bldr.fail(ctx, "python venv unavailable — cannot package")
+        return 1
+    }
     pip_bin = path.join(venv, "bin/pip")
     py = path.join(venv, "bin/python")
 

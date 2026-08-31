@@ -4,10 +4,42 @@
 import std.spec
 import std.map
 
-import python (pytest_cmd, ruff_lint_cmd, mypy_cmd, build_package_cmd, pip_install_cmd, pip_install_requirements_cmd, pyproject_path)
+import python (pytest_cmd, ruff_lint_cmd, mypy_cmd, build_package_cmd, pip_install_cmd, pip_install_requirements_cmd, pyproject_path, _parse_pytest_counts)
 
 main() {
     fw = spec.init()
+
+    // _parse_pytest_counts — the summary parser whose (passed, failed) the
+    // pytest verdict rests on. The "no tests collected" case (0/0) is what the
+    // builder now rejects as a failure rather than a green pass.
+    // (asks/python-pytest-reports-passed-when-venv-or-pytest-is-missing.md)
+    spec.describe(fw, "_parse_pytest_counts") {
+        spec.it("all passed") callback {
+            p, f = _parse_pytest_counts("===== 14 passed in 0.34s =====")
+            spec.assert_eq(p, 14, "passed count")
+            spec.assert_eq(f, 0, "failed count")
+        }
+        spec.it("mixed pass + fail") callback {
+            p, f = _parse_pytest_counts("===== 1 failed, 14 passed in 0.34s =====")
+            spec.assert_eq(p, 14, "passed count")
+            spec.assert_eq(f, 1, "failed count")
+        }
+        spec.it("errors count as failures") callback {
+            p, f = _parse_pytest_counts("===== 1 error in 0.05s =====")
+            spec.assert_eq(p, 0, "passed count")
+            spec.assert_eq(f, 1, "error → failed")
+        }
+        spec.it("no tests collected → 0 passed, 0 failed (the silent-green shape the builder now rejects)") callback {
+            p, f = _parse_pytest_counts("===== no tests ran in 0.01s =====")
+            spec.assert_eq(p, 0, "no passed")
+            spec.assert_eq(f, 0, "no failed — so pp==0 && pf==0 must FAIL the verdict")
+        }
+        spec.it("empty output → 0/0") callback {
+            p, f = _parse_pytest_counts("")
+            spec.assert_eq(p, 0, "no passed")
+            spec.assert_eq(f, 0, "no failed")
+        }
+    }
 
     spec.describe(fw, "python exec-string builders") {
         spec.it("pytest_cmd basic") callback {
