@@ -60,4 +60,14 @@
 # suite is green. 0.613 (the newest published) also carries the SIGPIPE server-death
 # and sleep-signal fixes; glibc floor stays GLIBC_2.34. This is a genuine floor move
 # (the returned-verdict semantics), not just the no-back-compat lockstep.
-0.613.0
+#
+# Raised 0.613.0 -> 0.636.0 (2026-09-05) in lockstep with AETHER_FETCH. 0.636 is
+# all diagnostic-QUALITY fixes (hand-built diagnostics now carry file/line/snippet
+# via the active source context; carets point at the token START not one past it;
+# "undefined function" underlines the callee not the paren) — no grammar/API/
+# primitive change, so nothing here newly requires it; the floor moves with FETCH
+# per the no-back-compat DSL policy. Bonus: aeb's own W1001 unused-variable build
+# warnings now carry a location instead of a bare message. Verified against the
+# real 0.636.0 linux tarball: aeb builds clean, full suite 134/134; glibc floor
+# GLIBC_2.34 (Debian-12 safe); all platform assets published.
+0.636.0

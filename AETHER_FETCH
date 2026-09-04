@@ -100,4 +100,12 @@
 # failing suite (fail->1) while a bare call does not (bare->0). All 6 platform
 # assets present; GLIBC_2.34. PIN moves in lockstep (this one IS a real floor —
 # the returned-verdict semantics require >= 0.612).
-0.613.0
+#
+# Raised 0.613.0 -> 0.636.0 (2026-09-05). 0.636 is the newest published aether;
+# its changes are all diagnostic-quality (hand-built diagnostics gain file/line/
+# snippet from the active source context; caret points at token start; undefined-
+# function underlines the callee) — no grammar/API break, strictly safer. Verified
+# against the real 0.636.0 tarball: aeb builds clean, full suite 134/134; glibc
+# floor GLIBC_2.34 (Debian-12 safe); all platform assets present. PIN moves in
+# lockstep (no-back-compat DSL policy).
+0.636.0
