@@ -113,4 +113,9 @@
 # break. Verified against the real 0.638.0 tarball: aeb builds clean, full suite
 # 134/134; glibc floor GLIBC_2.34 (Debian-12 safe); all platform assets present.
 # PIN moves in lockstep (no-back-compat DSL policy).
-0.638.0
+#
+# Raised 0.638.0 -> 0.640.0 (2026-09-05). Newest published aether; the change is an
+# `ae add @tag` dependency-pin fix, which aeb does not use. Verified against the
+# real 0.640.0 tarball: aeb builds clean, full suite 134/134; glibc floor
+# GLIBC_2.34 (Debian-12 safe); all platform assets present. PIN in lockstep.
+0.640.0

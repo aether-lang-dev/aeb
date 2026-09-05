@@ -76,4 +76,11 @@
 # the no-back-compat DSL policy. Verified against the real 0.638.0 linux tarball:
 # aeb builds clean, full suite 134/134; glibc floor GLIBC_2.34 (Debian-12 safe);
 # all platform assets published.
-0.638.0
+#
+# Raised 0.638.0 -> 0.640.0 (2026-09-05) in lockstep with AETHER_FETCH. 0.640's
+# change is an `ae add <pkg>@<tag>` dependency-pin fix — aeb doesn't use `ae add`
+# (it resolves JVM deps via its own bld-backed resolver), so no functional impact;
+# the floor moves with FETCH per the no-back-compat DSL policy. Verified against
+# the real 0.640.0 linux tarball: aeb builds clean, full suite 134/134; glibc floor
+# GLIBC_2.34 (Debian-12 safe); all platform assets published.
+0.640.0
