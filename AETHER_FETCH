@@ -108,4 +108,9 @@
 # against the real 0.636.0 tarball: aeb builds clean, full suite 134/134; glibc
 # floor GLIBC_2.34 (Debian-12 safe); all platform assets present. PIN moves in
 # lockstep (no-back-compat DSL policy).
-0.636.0
+#
+# Raised 0.636.0 -> 0.638.0 (2026-09-05). Newest published aether; no grammar/API
+# break. Verified against the real 0.638.0 tarball: aeb builds clean, full suite
+# 134/134; glibc floor GLIBC_2.34 (Debian-12 safe); all platform assets present.
+# PIN moves in lockstep (no-back-compat DSL policy).
+0.638.0
