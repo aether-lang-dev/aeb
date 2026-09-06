@@ -7,8 +7,10 @@
 #     curl -fsSL .../get.sh | sh -s -- v0.297        # pin the aeb release (positional)
 #     AEB_REF=v0.297 AE_PIN=0.645.0 sh get.sh         # pin both, via env
 #
-#   SOURCED (a consumer repo's README two-liner / CI step) — same logic as fns:
-#     . <(curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/get.sh)
+#   SOURCED (a consumer repo's README two-liner / CI step) — same logic as fns.
+#     Set AEBGET_SOURCE_ONLY=1 so sourcing DEFINES the functions without auto-
+#     installing (otherwise a bare shell $0 makes it execute — see the guard):
+#     AEBGET_SOURCE_ONLY=1 . <(curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/get.sh)
 #     AE_PIN=0.645.0 aeb_bootstrap        # ensures ae (>= AE_PIN) THEN aeb
 #     #   or the two steps yourself:  ae_ensure ; aeb_ensure
 #
@@ -50,7 +52,7 @@
 #   AEB_FROM_SOURCE=1 / AEBBOOT_NO_BINARY=1  force source builds (skip binaries).
 #
 # ---------------------------------------------------------------------------
-# AEBGET_REV: 1
+# AEBGET_REV: 2
 # ^ PROPAGATION SNIFF MARKER. Bumped by hand on every change. raw.github lags a
 # push by up to minutes; poll the raw URL for `AEBGET_REV: <n>` to know your push
 # redeployed. (A file can't contain its own not-yet-existing commit hash.)
@@ -302,10 +304,20 @@ aeb_bootstrap() {
 }
 
 # ===========================================================================
-# EXECUTED-MODE entry point. Runs only when this file is EXECUTED (curl|sh or
-# `sh get.sh`), NOT when SOURCED (`. get.sh`) — so a consumer sourcing it
-# gets the functions above without triggering an install. The guard: a sourced
-# script has $0 = the shell (sh/bash/-sh), an executed one has $0 = the path.
+# EXECUTED-MODE entry point. Installs when this file is EXECUTED — as `sh get.sh`
+# ($0 ends in get.sh) OR piped `curl … | sh` ($0 is the bare shell name, because
+# the script arrives on stdin, NOT as a path arg). It must NOT auto-run when
+# SOURCED as a library (`. get.sh` / `. <(curl …)`), so a consumer can define the
+# functions and call aeb_bootstrap itself with its pins on the next line.
+#
+# WHY $0 ALONE CANNOT DECIDE. `curl | sh` and `. file` (sourced into an
+# interactive/`sh -c` shell) can BOTH leave $0 = `sh`/`bash`/`-sh`/`dash` — so
+# "the basename is a shell name" does not separate piped-execute from sourced.
+# The earlier guard only matched `*/get.sh`, so `curl | sh` (the headline
+# one-liner) silently did NOTHING. The fix: default to RUN, and let the sourced
+# library path OPT OUT with AEBGET_SOURCE_ONLY=1 — which the documented sourced
+# two-liner sets. A path-named $0 (`sh get.sh`) always runs; a shell-named $0
+# runs UNLESS AEBGET_SOURCE_ONLY=1.
 # ===========================================================================
 _aebget_main() {
     # Positional arg #1 pins the aeb release (mirrors aether get.sh's `sh get.sh
@@ -316,14 +328,14 @@ _aebget_main() {
     say "done. Pin this in CI with: AE_PIN=${AE_PIN:-<x.y.z>} AEB_REF=${AEB_REF:-<vX.Y>}"
 }
 
-case "$0" in
-    *get.sh|sh|-sh|bash|-bash|dash|-dash|/bin/sh|/bin/bash) _sourced_hint=maybe ;;
-esac
-# Robust sourced-vs-executed detection: sh sets $0 to the script path when run
-# as `sh get.sh` or via curl|sh (the temp path), and to the shell name when
-# sourced interactively. We KEY on: if the basename of $0 is exactly this
-# script, we were executed. Consumers source with `.`/`source`, where $0 stays
-# their shell — so we do NOT auto-run.
-case "$0" in
-    */get.sh|get.sh) set -eu; _aebget_main "$@" ;;
-esac
+if [ -z "${AEBGET_SOURCE_ONLY:-}" ]; then
+    case "$0" in
+        # `sh get.sh [args]` — $0 is a path ending in get.sh: always execute.
+        */get.sh|get.sh) set -eu; _aebget_main "$@" ;;
+        # `curl … | sh` — the script is on stdin, so $0 is the bare shell name.
+        # Execute (this is the headline one-liner). A caller who instead SOURCES
+        # for the functions sets AEBGET_SOURCE_ONLY=1 to skip this.
+        sh|-sh|bash|-bash|dash|-dash|ash|-ash|/bin/sh|/bin/bash|/bin/dash)
+            set -eu; _aebget_main "$@" ;;
+    esac
+fi

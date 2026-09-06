@@ -197,9 +197,12 @@ consumer repo's README (or CI step) carries this two-liner against its own pin â
 no `bootstrap.sh` file needed:
 
 ```sh
-. <(curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/get.sh)
+AEBGET_SOURCE_ONLY=1 . <(curl -fsSL https://raw.githubusercontent.com/aether-lang-dev/aeb/main/get.sh)
 AE_PIN=0.645.0 aeb_bootstrap        # ensures ae (>= AE_PIN) THEN aeb
 ```
+
+(`AEBGET_SOURCE_ONLY=1` makes sourcing *define* the functions without installing;
+without it a bare-shell `$0` makes `get.sh` execute the install immediately.)
 
 Both tools are binary-first â€” prebuilt gh-release tarballs (with a runtime
 `.sha256` verify on aeb), falling back to the source installers for no-asset
