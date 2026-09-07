@@ -52,7 +52,7 @@
 #   AEB_FROM_SOURCE=1 / AEBBOOT_NO_BINARY=1  force source builds (skip binaries).
 #
 # ---------------------------------------------------------------------------
-# AEBGET_REV: 2
+# AEBGET_REV: 3
 # ^ PROPAGATION SNIFF MARKER. Bumped by hand on every change. raw.github lags a
 # push by up to minutes; poll the raw URL for `AEBGET_REV: <n>` to know your push
 # redeployed. (A file can't contain its own not-yet-existing commit hash.)
@@ -197,9 +197,12 @@ aebget_install_aeb_binary() {
     fi
     _here="$_td/$_base"
     [ -f "$_here/install.sh" ] || { rm -rf "$_td"; say "  aeb bundle had no install.sh — will build from source"; return 1; }
-    if ! have make && ! have gmake; then
-        rm -rf "$_td"; say "  GNU make absent (the aeb bundle's installer needs it) — will build from source"; return 1
-    fi
+    # NB: the bundle's install.sh is COPY-ONLY as of v0.298 (no make, no compiler
+    # — it just stages the prebuilt tree + writes the wrapper). A prior gate here
+    # pre-checked for GNU make and bailed to source when absent; that made the
+    # whole binary path require make on a bare box (the exact failure a prebuilt
+    # bundle exists to avoid). Removed — just run install.sh; the check below
+    # catches any real failure.
     if ! sh "$_here/install.sh" "$_prefix" >/dev/null 2>&1; then
         rm -rf "$_td"; say "  aeb bundle install.sh failed — will build from source"; return 1
     fi
