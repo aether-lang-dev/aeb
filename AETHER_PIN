@@ -97,4 +97,11 @@
 # the floor moves with FETCH per the no-back-compat DSL policy. Verified against
 # the real 0.645.0 linux tarball: aeb builds clean, full suite 134/134; glibc floor
 # GLIBC_2.34 (Debian-12 safe); all platform assets published.
-0.645.0
+#
+# Raised 0.645.0 -> 0.650.0 (2026-09-08) in lockstep with AETHER_FETCH. 0.650 is
+# cache-handling fixes (std.mutation no longer rm -rf's the shared ~/.aether/cache
+# mid-build; `ae cache` resolves the right dir) — no grammar/API/primitive change
+# aeb needs; the floor moves with FETCH per the no-back-compat DSL policy. Verified
+# against the real 0.650.0 linux tarball: aeb builds clean, full suite 134/134;
+# glibc floor GLIBC_2.34 (Debian-12 safe); all platform assets published.
+0.650.0

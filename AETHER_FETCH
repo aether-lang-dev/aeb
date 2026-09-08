@@ -128,4 +128,10 @@
 # malloc-literal-cast lint, no grammar/API break. Verified against the real
 # 0.645.0 tarball: aeb builds clean, full suite 134/134; glibc floor GLIBC_2.34
 # (Debian-12 safe); all platform assets present. PIN in lockstep.
-0.645.0
+#
+# Raised 0.645.0 -> 0.650.0 (2026-09-08). Newest published aether; cache-handling
+# fixes (std.mutation shared-cache wipe, `ae cache` dir resolution), no grammar/API
+# break. Verified against the real 0.650.0 tarball: aeb builds clean, full suite
+# 134/134; glibc floor GLIBC_2.34 (Debian-12 safe); all platform assets present.
+# PIN in lockstep.
+0.650.0
