@@ -45,11 +45,12 @@ main() {
     }
 
     spec.describe(fw, "_host_arch + _host_os_arch") {
-        // arch is a normalized token (amd64/arm64) or a raw uname -m passthrough;
-        // assert the two we normalize are never leaked in raw form.
-        spec.it("_host_arch() never returns a raw x86_64/aarch64") callback {
+        // arch normalizes to the ecosystem vocabulary x86_64/arm64 (matching
+        // aether + aeo, and aeb assets from v0.300). The forms we normalize AWAY
+        // (Debian/Docker "amd64", kernel "aarch64") must never leak in raw form.
+        spec.it("_host_arch() never returns a raw amd64/aarch64") callback {
             a = _host_arch()
-            spec.assert_false(string.equals(a, "x86_64"), "x86_64 is normalized to amd64")
+            spec.assert_false(string.equals(a, "amd64"), "amd64 is normalized to x86_64")
             spec.assert_false(string.equals(a, "aarch64"), "aarch64 is normalized to arm64")
             spec.assert_true(string.length(a) > 0, "_host_arch() is non-empty")
         }

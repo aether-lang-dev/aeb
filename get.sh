@@ -25,14 +25,15 @@
 #          layout bin/ include/ lib/ share/ -> PREFIX/). aether ships no .sha256,
 #          so the trust boundary is github-over-HTTPS. Source fallback: aether's
 #          own get.sh (make install), e.g. for linux-arm64 which has no asset.
-#   * aeb: aeb-<os>-amd64.tar.gz + its .sha256 from aeb's gh-releases; the
+#   * aeb: aeb-<os>-x86_64.tar.gz + its .sha256 from aeb's gh-releases; the
 #          checksum is VERIFIED (mismatch fatal; a missing sidecar or sha256 tool
 #          falls back to source, never installs unverified). Then the bundle's
 #          own install.sh (copies files — "no compiler", but runs `make install`,
 #          so GNU make is needed). Source fallback: the repo install.sh.
 # A cold box thus skips the ~1-2 min per-tool compile.
 #
-#   NOTE the arch-word asymmetry: aether assets use x86_64, aeb assets use amd64.
+#   ARCH WORD: x86_64 across aether, aeo AND aeb (aeb aligned at v0.300; it used
+#   amd64 through v0.299, for which the aeb fetch keeps a transitional fallback).
 #
 # TRUST MODEL (deliberate). The aeb .sha256 is fetched at RUNTIME and compared —
 # it catches transit corruption, not a compromised release (a tamperer replacing
@@ -93,7 +94,7 @@ sha256_of() {
 
 # aebget_platform : echo "os arch" normalized (os linux/macos/freebsd/windows,
 # arch x86_64/arm64), or nothing if unrecognized. The arch is the NORMALIZED
-# word; callers map it to each repo's asset vocabulary (aether x86_64, aeb amd64).
+# word; both aether and aeb assets are x86_64-worded (aeb from v0.300).
 aebget_platform() {
     case "$(uname -s 2>/dev/null)" in
         Linux) _os=linux ;; Darwin) _os=macos ;; FreeBSD) _os=freebsd ;;
@@ -164,21 +165,39 @@ aebget_aeb_tag() {
 }
 
 # aebget_install_aeb_binary : download+verify+install the aeb binary. 0 on
-# success; non-zero => source fallback. aeb assets are amd64-worded, in a single
-# top dir aeb-<os>-<arch>/ with a bundled install.sh.
+# success; non-zero => source fallback. aeb assets live in a single top dir
+# aeb-<os>-<arch>/ with a bundled install.sh.
+#
+# ARCH WORD: as of v0.300 aeb assets are x86_64-worded (matching aether + aeo);
+# v0.299 and earlier shipped amd64-worded assets. So for an x86_64 host we try
+# x86_64 FIRST, then fall back to amd64 for an old-tag pin. This fallback is
+# transitional — it can be dropped once the amd64-named releases are pruned.
 aebget_install_aeb_binary() {
     _prefix="${PREFIX:-$HOME/.local}"
     _plat="$(aebget_platform)"; [ -n "$_plat" ] || return 1
     _os="${_plat% *}"; _narch="${_plat#* }"
-    case "$_narch" in x86_64) _arch=amd64 ;; arm64) _arch=arm64 ;; *) return 1 ;; esac
-    _base="aeb-$_os-$_arch"
+    # Candidate arch words, in preference order. arm64 is arm64 in both eras.
+    case "$_narch" in
+        x86_64) _arches="x86_64 amd64" ;;
+        arm64)  _arches="arm64" ;;
+        *) return 1 ;;
+    esac
     _tag="$(aebget_aeb_tag)"
     [ -n "$_tag" ] || { say "  could not resolve an aeb release tag — will build from source"; return 1; }
-    _url="https://github.com/$AEBGET_AEB_REPO/releases/download/$_tag/$_base.tar.gz"
     _td="$(mktemp -d)"
-    say "trying aeb binary: $_base.tar.gz @ $_tag (with .sha256 verify)"
-    if ! curl -fsSL "$_url" -o "$_td/aeb.tgz" 2>/dev/null; then
-        rm -rf "$_td"; say "  no aeb binary for $_os-$_arch @ $_tag — will build from source"; return 1
+    # Try each candidate asset name until one downloads (x86_64 before amd64).
+    _base=""
+    for _a in $_arches; do
+        _cand="aeb-$_os-$_a"
+        say "trying aeb binary: $_cand.tar.gz @ $_tag (with .sha256 verify)"
+        if curl -fsSL "https://github.com/$AEBGET_AEB_REPO/releases/download/$_tag/$_cand.tar.gz" -o "$_td/aeb.tgz" 2>/dev/null; then
+            _base="$_cand"; break
+        fi
+        say "  no $_cand.tar.gz @ $_tag"
+    done
+    _url="https://github.com/$AEBGET_AEB_REPO/releases/download/$_tag/$_base.tar.gz"
+    if [ -z "$_base" ]; then
+        rm -rf "$_td"; say "  no aeb binary for $_os ($_arches) @ $_tag — will build from source"; return 1
     fi
     if curl -fsSL "$_url.sha256" -o "$_td/aeb.sha256" 2>/dev/null; then
         _want="$(awk '{print $1}' "$_td/aeb.sha256")"; _got="$(sha256_of "$_td/aeb.tgz")"
