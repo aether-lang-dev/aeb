@@ -10,7 +10,7 @@
 // is rejected but `== 1` typechecks (the same idiom every SDK uses on them).
 
 import std.spec
-import bldr (_host_os, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix, _is_abs_path)
+import bldr (_host_os, _host_arch, _host_os_arch, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix, _is_abs_path)
 import std.string
 
 main() {
@@ -41,6 +41,23 @@ main() {
             spec.assert_true(_agree(_is_macos(),   os, "macos"),   "_is_macos() agrees with token")
             spec.assert_true(_agree(_is_windows(), os, "windows"), "_is_windows() agrees with token")
             spec.assert_true(_agree(_is_freebsd(), os, "freebsd"), "_is_freebsd() agrees with token")
+        }
+    }
+
+    spec.describe(fw, "_host_arch + _host_os_arch") {
+        // arch is a normalized token (amd64/arm64) or a raw uname -m passthrough;
+        // assert the two we normalize are never leaked in raw form.
+        spec.it("_host_arch() never returns a raw x86_64/aarch64") callback {
+            a = _host_arch()
+            spec.assert_false(string.equals(a, "x86_64"), "x86_64 is normalized to amd64")
+            spec.assert_false(string.equals(a, "aarch64"), "aarch64 is normalized to arm64")
+            spec.assert_true(string.length(a) > 0, "_host_arch() is non-empty")
+        }
+        // The <os>-<arch> token is exactly _host_os() + "-" + _host_arch().
+        spec.it("_host_os_arch() == _host_os()-_host_arch()") callback {
+            spec.assert_str_eq(_host_os_arch(),
+                string.concat(_host_os(), string.concat("-", _host_arch())),
+                "os_arch composes os and arch")
         }
     }
 
