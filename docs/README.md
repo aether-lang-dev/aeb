@@ -27,6 +27,7 @@ Architecture and reference — how aeb actually works.
 - [label-is-the-addressing-contract.md](design/label-is-the-addressing-contract.md) — why routing must be label/filename-derivable.
 - [two-aeb-duality.md](design/two-aeb-duality.md) — host-aeb orchestrates; the aeb-under-test is a normal target.
 - [nodes-as-subprocesses.md](design/nodes-as-subprocesses.md) — each node runs as its own child process; exit code + disk markers are the verdict.
+- [graph-mermaid-run-colouring.md](design/graph-mermaid-run-colouring.md) — `aeb --graph mermaid` colours the DAG by the last build (invoked-ok / fail / uninvoked).
 - [capability-entrypoint.md](design/capability-entrypoint.md) — `aeb(cap)` as the capability entrypoint.
 - [inline-build-steps.md](design/inline-build-steps.md) — dropping into raw Aether; SDK builders for common patterns, inline escape hatch for bespoke.
 
