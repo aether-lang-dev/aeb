@@ -104,4 +104,11 @@
 # aeb needs; the floor moves with FETCH per the no-back-compat DSL policy. Verified
 # against the real 0.650.0 linux tarball: aeb builds clean, full suite 134/134;
 # glibc floor GLIBC_2.34 (Debian-12 safe); all platform assets published.
-0.650.0
+#
+# Raised 0.650.0 -> 0.652.0 (2026-09-10) in lockstep with AETHER_FETCH. 0.651 +
+# 0.652 are Windows-contrib (windows.h macro collision, utf8proc) + `ae cache`
+# override fixes — no grammar/API/primitive change aeb needs; the floor moves
+# with FETCH per the no-back-compat DSL policy. Verified against the real 0.652.0
+# linux tarball: aeb builds clean, full suite 134/134; glibc floor GLIBC_2.34
+# (Debian-12 safe); all platform assets published.
+0.652.0
