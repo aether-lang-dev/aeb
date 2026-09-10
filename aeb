@@ -802,6 +802,69 @@ if [[ -n "${AEB_VET:-}" ]]; then
     fi
 fi
 
+# --- C-compiler fallback: hot-install a pinned `zig cc` when none is found ----
+# aeb's builds shell out to `ae build`, which needs a C backend compiler and
+# dead-ends ("no C compiler found (looked for gcc, then cc)") on a box without
+# one — the single most common first-run wall after a binary-first install.
+# aether already honors $AE_CC / $CC over PATH, and already drives `zig cc` for
+# every --target cross-compile, so zig cc is a known-good compiler in this
+# toolchain. When NO system compiler resolves, fetch a pinned zig (the same
+# per-platform-tarball shape get.sh fetches ae/aeb — no sudo, no system deps)
+# and point the build at it via AE_CC. FALLBACK ONLY: an explicit $AE_CC/$CC or
+# a present gcc/cc short-circuits it and nothing is fetched. Opt out with
+# AEB_NO_ZIG=1 to keep aether's hard error (strict-hermetic CI).
+# (asks/hot-install-zig-cc-when-no-system-compiler.md)
+ZIG_REF="${ZIG_REF:-0.16.0}"   # single pin; override with ZIG_REF=
+_aeb_cc_present() {
+    # Mirror aether's own resolution order so the probe matches the real build.
+    [[ -n "${AE_CC:-}" ]] && return 0
+    [[ -n "${CC:-}" ]] && return 0
+    command -v gcc >/dev/null 2>&1 && return 0
+    command -v cc  >/dev/null 2>&1 && return 0
+    return 1
+}
+if ! _aeb_cc_present; then
+    if [[ -n "${AEB_NO_ZIG:-}" ]]; then
+        : # opt-out: leave AE_CC unset so aether emits its own hard error below
+    else
+        # Per-platform zig tarball slug (ziglang.org naming: <arch>-<os>).
+        _zos=""; case "$(uname -s 2>/dev/null)" in
+            Linux) _zos=linux ;; Darwin) _zos=macos ;; FreeBSD) _zos=freebsd ;;
+            MINGW*|MSYS*|CYGWIN*) _zos=windows ;;
+        esac
+        _zarch=""; case "$(uname -m 2>/dev/null)" in
+            x86_64|amd64) _zarch=x86_64 ;; arm64|aarch64) _zarch=aarch64 ;;
+        esac
+        if [[ -z "$_zos" || -z "$_zarch" ]]; then
+            : # unknown platform — no zig build for it; fall through to aether's error
+        else
+            _zcache="${XDG_CACHE_HOME:-$HOME/.cache}/aeb/zig/$ZIG_REF"
+            _zdir="$_zcache/zig-$_zarch-$_zos-$ZIG_REF"
+            _zext="tar.xz"; [[ "$_zos" == windows ]] && _zext="zip"
+            _zbin="$_zdir/zig"; [[ "$_zos" == windows ]] && _zbin="$_zdir/zig.exe"
+            if [[ ! -x "$_zbin" ]]; then
+                echo "aeb: no system C compiler found — fetching pinned zig $ZIG_REF (one-time, to $_zcache) to use \`zig cc\`" >&2
+                mkdir -p "$_zcache"
+                _zurl="https://ziglang.org/download/$ZIG_REF/zig-$_zarch-$_zos-$ZIG_REF.$_zext"
+                _ztmp="$(mktemp -d)"
+                if curl -fsSL "$_zurl" -o "$_ztmp/zig.$_zext" 2>/dev/null \
+                   && tar -xf "$_ztmp/zig.$_zext" -C "$_zcache" 2>/dev/null \
+                   && [[ -x "$_zbin" ]]; then
+                    :
+                else
+                    rm -rf "$_ztmp"
+                    echo "aeb: could not fetch zig $ZIG_REF for $_zarch-$_zos ($_zurl) — install a C compiler (gcc/cc) or set \$CC; or AEB_NO_ZIG=1 to silence this." >&2
+                fi
+                rm -rf "$_ztmp"
+            fi
+            if [[ -x "$_zbin" ]]; then
+                export AE_CC="$_zbin cc"
+                echo "aeb: no system C compiler found — using pinned zig $ZIG_REF (\`zig cc\`) at $_zbin" >&2
+            fi
+        fi
+    fi
+fi
+
 # --- Normal build: lazy-build the main tool ---
 AEB_MAIN_BIN="$AEB_HOME/tools/aeb-main"
 if [[ ! -x "$AEB_MAIN_BIN" ]]; then

@@ -925,8 +925,16 @@ main() {
         exit(1)
     }
 
-    // --- Link with gcc ---
-    cc = "gcc -O2 -pipe -w "
+    // --- Link the orchestrator ---
+    // Honor $AE_CC then $CC (aether's own override order), falling back to gcc.
+    // This is what lets the trampoline's zig-cc fallback reach the LINK step on
+    // a box with no system gcc: the trampoline sets AE_CC="<zig> cc" when no
+    // compiler is found, and this picks it up so aeb-link doesn't shell a bare
+    // `gcc` that isn't there. (asks/hot-install-zig-cc-when-no-system-compiler.md)
+    link_cc = os.getenv("AE_CC")
+    if string.length(link_cc) == 0 { link_cc = os.getenv("CC") }
+    if string.length(link_cc) == 0 { link_cc = "gcc" }
+    cc = string.concat(link_cc, " -O2 -pipe -w ")
     cc = string.concat(cc, orch_c)
     // The per-module object list scales with the build's module
     // count; strbuilder keeps the link-line accumulation O(1)/file.
