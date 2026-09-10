@@ -14,11 +14,40 @@ graph, so it answers a sharper question:
 Each node is given a Mermaid class, and the block carries the matching
 `classDef`s:
 
+The graph is the **full parsed DAG** — every dot-prefixed `.ae` node found by
+scanning, every `build.dep(...)` edge, i.e. all the *possible* deps collected
+from parsing. The colours then say which of those the last run actually executed:
+
 | Class | Colour | Meaning |
 |---|---|---|
-| `:::ok` | green | invoked in the last run, exited 0 |
-| `:::fail` | red | invoked, exited non-zero |
-| `:::uninvoked` | dimmed grey | present in the static tree, but **not** part of the last invocation (outside the `aeb <target>` / `--since` scope) |
+| `:::ok` | green | executed in the last run, exited 0 (this includes a cache-**hit** — the node ran, its SDK just skipped the work) |
+| `:::fail` | red | executed, exited non-zero |
+| `:::uninvoked` | dimmed grey | in the parsed tree but **not executed** by the last run |
+
+So it's a single graph showing the **executed paths** (green/red) against the
+**muted possible-deps that were only parsed, not run** (grey).
+
+The grey nodes are **not a detached list** — they stay in the same DAG with all
+their `build.dep` edges drawn, to and from the executed nodes. So the muted part
+is still a *dependency graph*: you can trace what an un-run node would pull in,
+and see how it hangs off the executed core, at the same glance. Colour is the
+only thing that changes; topology is the full parsed graph either way.
+
+**What the 3 states deliberately do NOT split** (kept simple on purpose):
+
+- **grey folds two not-executed reasons** — a node genuinely *out of scope*
+  (outside the `aeb <target>` / `--since` selection) and a selected node that
+  was *skipped because a dependency failed* both read as `:::uninvoked`. The
+  common case — "not in this invocation" — is what grey communicates; the
+  dep-failed-skip is rarer and its cause is visible from the red node upstream.
+- **green folds rebuilt vs cache-hit** — a node that did real work and one that
+  cache-hit both read `:::ok` (both *ran* as processes). "Did it rebuild or hit
+  the cache" is a `[hit]`/`[miss]` question answered by the `[telemetry]` block,
+  not the graph.
+
+Both distinctions are answerable from the telemetry JSON, and could be threaded
+into the graph later; today's colouring intentionally stays a 3-state
+executed-vs-parsed overlay rather than a 5-state one.
 
 Example, after building `app` (which deps `lib`) while `tests` was out of scope:
 
