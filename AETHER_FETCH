@@ -139,4 +139,10 @@
 # Windows-contrib + `ae cache` override fixes, no grammar/API break. Verified
 # against the real 0.652.0 tarball: aeb builds clean, full suite 134/134; glibc
 # floor GLIBC_2.34 (Debian-12 safe); all platform assets present. PIN in lockstep.
-0.652.0
+#
+# Raised 0.652.0 -> 0.665.0 (2026-09-10). Newest published aether; a 13-version
+# jump, all additive + fixes (0.653-0.665 notes scanned, no grammar/API break).
+# Verified against the real 0.665.0 tarball: aeb builds clean, full suite
+# 134/134; glibc floor GLIBC_2.34 (Debian-12 safe); all platform assets present.
+# PIN in lockstep.
+0.665.0

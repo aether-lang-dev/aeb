@@ -111,4 +111,11 @@
 # with FETCH per the no-back-compat DSL policy. Verified against the real 0.652.0
 # linux tarball: aeb builds clean, full suite 134/134; glibc floor GLIBC_2.34
 # (Debian-12 safe); all platform assets published.
-0.652.0
+#
+# Raised 0.652.0 -> 0.665.0 (2026-09-10) in lockstep with AETHER_FETCH. A
+# 13-version jump; scanned 0.653-0.665 release notes — all additive (std.resp,
+# std.cbor et al.) + fixes, NO grammar/API/removed/breaking change aeb touches;
+# the floor moves with FETCH per the no-back-compat DSL policy. Verified against
+# the real 0.665.0 linux tarball: aeb builds clean, full suite 134/134; glibc
+# floor GLIBC_2.34 (Debian-12 safe); all platform assets published.
+0.665.0
