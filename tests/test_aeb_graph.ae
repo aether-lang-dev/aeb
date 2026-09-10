@@ -109,7 +109,7 @@ _collect_nodes(edges_text: string) {
     return nodes
 }
 
-dot_render(edges_text: string) {
+dot_render(edges_text: string, rc_dir: string) {
     out = "digraph aeb {\n"
     out = string.concat(out, "  rankdir=LR;\n")
     out = string.concat(out, "  node [shape=box, fontname=\"Helvetica\"];\n")
@@ -238,24 +238,24 @@ main() {
 
     spec.describe(fw, "dot_render") {
         spec.it("empty edges → just the wrapper") callback {
-            spec.assert_str_eq(dot_render(""),
+            spec.assert_str_eq(dot_render("", ""),
                 "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n}\n", "empty")
         }
         spec.it("single isolated target (no deps)") callback {
-            spec.assert_str_eq(dot_render("lib/.build.ae\n"),
+            spec.assert_str_eq(dot_render("lib/.build.ae\n", ""),
                 "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"lib/.build.ae\";\n}\n", "isolated")
         }
         spec.it("two-node edge") callback {
-            spec.assert_str_eq(dot_render("app/.build.ae lib/.build.ae\n"),
+            spec.assert_str_eq(dot_render("app/.build.ae lib/.build.ae\n", ""),
                 "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib/.build.ae\";\n  \"app/.build.ae\" -> \"lib/.build.ae\";\n}\n", "one edge")
         }
         spec.it("realistic 3-node fan (lib<-app<-tests)") callback {
             edges3 = "app/.build.ae lib/.build.ae\ntests/.tests.ae app/.build.ae\n"
-            spec.assert_str_eq(dot_render(edges3),
+            spec.assert_str_eq(dot_render(edges3, ""),
                 "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib/.build.ae\";\n  \"tests/.tests.ae\";\n  \"app/.build.ae\" -> \"lib/.build.ae\";\n  \"tests/.tests.ae\" -> \"app/.build.ae\";\n}\n", "3-node fan")
         }
         spec.it("multi-dep target") callback {
-            spec.assert_str_eq(dot_render("app/.build.ae lib1/.build.ae lib2/.build.ae\n"),
+            spec.assert_str_eq(dot_render("app/.build.ae lib1/.build.ae lib2/.build.ae\n", ""),
                 "digraph aeb {\n  rankdir=LR;\n  node [shape=box, fontname=\"Helvetica\"];\n  \"app/.build.ae\";\n  \"lib1/.build.ae\";\n  \"lib2/.build.ae\";\n  \"app/.build.ae\" -> \"lib1/.build.ae\";\n  \"app/.build.ae\" -> \"lib2/.build.ae\";\n}\n", "two deps")
         }
     }

@@ -137,15 +137,34 @@ _collect_nodes(edges_text: string) {
 }
 
 // Render the edges text as a DOT digraph. Output is a complete file
+// _dot_fill(status) — the `[style=filled, fillcolor=...]` attribute for a DOT
+// node, matching the mermaid palette: ok green / fail red / uninvoked grey.
+// Empty string for an unknown status (leaves the node unstyled).
+_dot_fill(status: string) {
+    if string.equals(status, "ok") == 1 { return " [style=filled, fillcolor=\"#c6f6d5\"]" }
+    if string.equals(status, "fail") == 1 { return " [style=filled, fillcolor=\"#fed7d7\"]" }
+    if string.equals(status, "uninvoked") == 1 { return " [style=filled, fillcolor=\"#edf2f7\", fontcolor=\"#a0aec0\", color=\"#a0aec0\"]" }
+    return ""
+}
+
 // (digraph + brace block + nodes + edges + closing brace) suitable for
 // piping to graphviz `dot`. Nodes are explicitly declared (DOT would
 // auto-declare from edge usage, but explicit lines make per-node
 // styling/attribute additions trivial later).
-dot_render(edges_text: string) {
+//
+// rc_dir: same contract as mermaid_render — when non-empty, each node gets a
+// fillcolor from this run's outcome (ok/fail/uninvoked, read from the driver's
+// <san>.rc markers), so the SVG/PNG shows executed paths vs muted parsed-only
+// deps just like the inline mermaid. Empty rc_dir → plain uncoloured DOT
+// (backward-compatible).
+dot_render(edges_text: string, rc_dir: string) {
     sb = strbuilder.new(1024)
     strbuilder.append(sb, "digraph aeb {\n")
     strbuilder.append(sb, "  rankdir=LR;\n")
     strbuilder.append(sb, "  node [shape=box, fontname=\"Helvetica\"];\n")
+
+    color_on = 0
+    if string.length(rc_dir) > 0 { color_on = 1 }
 
     nodes = _collect_nodes(edges_text)
     nn = list.size(nodes)
@@ -154,6 +173,9 @@ dot_render(edges_text: string) {
         node, _ = list.get(nodes, k)
         strbuilder.append(sb, "  ")
         strbuilder.append(sb, node_id(node))
+        if color_on == 1 {
+            strbuilder.append(sb, _dot_fill(_node_status(rc_dir, node)))
+        }
         strbuilder.append(sb, ";\n")
         k = k + 1
     }
@@ -321,7 +343,7 @@ main() {
         out = mermaid_render(edges_text, rc_dir)
     } else {
         if string.equals(format, "dot") == 1 {
-            out = dot_render(edges_text)
+            out = dot_render(edges_text, rc_dir)
         } else {
             println(string.concat("aeb-graph: unknown format: ", format))
             exit(1)

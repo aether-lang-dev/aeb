@@ -320,21 +320,24 @@ authoritative DAG. Useful for debugging "why isn't X depending on
 Y", reviewing dep changes in a PR, or onboarding someone to a
 monorepo's structure.
 
-**Coloured by the last build.** When a build has run in this tree,
-`aeb --graph mermaid` colours each node by that run's outcome — read
-from the per-node markers under `target/.aeb/rc/`:
+**Coloured by the last build.** When a build has run in this tree, both
+`aeb --graph` (DOT) and `aeb --graph mermaid` colour each node by that
+run's outcome — read from the per-node markers under `target/.aeb/rc/`:
 
-- **green** (`:::ok`) — invoked this run and succeeded,
-- **red** (`:::fail`) — invoked and failed,
-- **dimmed** (`:::uninvoked`) — in the static tree but *not* part of
-  the last invocation (e.g. outside a `aeb <target>` / `--since` scope).
+- **green** — invoked this run and succeeded,
+- **red** — invoked and failed,
+- **dimmed grey** — in the static tree but *not* executed by the last
+  invocation (e.g. outside a `aeb <target>` / `--since` scope).
 
-So the graph answers not just "what's the shape" but "what did *this*
-`aeb …` actually touch, and how did it go" — invoked vs uninvoked at a
-glance. The DAG stays file-level (aeb doesn't graph control flow *inside*
-a build body); the colouring overlays the run onto that static shape. With
-no prior build (a cold `--graph mermaid`), the graph is plain/uncoloured,
-and DOT output is never coloured.
+(mermaid renders these via `:::ok/fail/uninvoked` classes; DOT via
+`[style=filled, fillcolor=…]`, so `aeb --graph … | dot -Tsvg` is coloured
+too.) So the graph answers not just "what's the shape" but "what did
+*this* `aeb …` actually touch, and how did it go" — executed paths vs the
+muted parsed-only deps, at a glance. The DAG stays file-level (aeb doesn't
+graph control flow *inside* a build body) and the muted nodes keep all
+their edges — it's the same dependency graph, just tinted by the run. With
+no prior build (a cold `--graph`), the graph is plain/uncoloured.
+See [docs/design/graph-mermaid-run-colouring.md](docs/design/graph-mermaid-run-colouring.md).
 
 ### Build graph queries
 

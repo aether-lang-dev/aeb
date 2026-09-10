@@ -75,11 +75,13 @@ aeb --graph mermaid > dag.md # colours by that build; renders inline on GitHub
 - **The colour is the LAST build, not this command.** `--graph` is a query — it
   reads the DAG and exits, it doesn't build. So the colours reflect whatever run
   most recently left markers in the tree. Re-run the build to refresh them.
-- **Cold `--graph mermaid` (never built here) → plain, uncoloured graph.** No
-  markers, no `classDef`s. Fully backward-compatible with the pre-colouring
-  output.
-- **Only mermaid is coloured.** `aeb --graph` (DOT) is never coloured — DOT is
-  the pipe-to-graphviz path; colour is a Mermaid-render nicety.
+- **Cold `--graph` (never built here) → plain, uncoloured graph.** No markers,
+  no styling. Fully backward-compatible with the pre-colouring output.
+- **Both formats are coloured.** mermaid via `:::ok/fail/uninvoked` classes;
+  DOT via `[style=filled, fillcolor=...]` (green/red, and grey + dimmed
+  font/border for uninvoked) — so `aeb --graph … | dot -Tsvg` produces a
+  coloured SVG/PNG, same executed-vs-parsed overlay as the inline mermaid. Same
+  rc-dir signal drives both.
 
 ## Where the data comes from
 
