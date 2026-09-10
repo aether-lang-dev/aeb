@@ -320,6 +320,22 @@ authoritative DAG. Useful for debugging "why isn't X depending on
 Y", reviewing dep changes in a PR, or onboarding someone to a
 monorepo's structure.
 
+**Coloured by the last build.** When a build has run in this tree,
+`aeb --graph mermaid` colours each node by that run's outcome — read
+from the per-node markers under `target/.aeb/rc/`:
+
+- **green** (`:::ok`) — invoked this run and succeeded,
+- **red** (`:::fail`) — invoked and failed,
+- **dimmed** (`:::uninvoked`) — in the static tree but *not* part of
+  the last invocation (e.g. outside a `aeb <target>` / `--since` scope).
+
+So the graph answers not just "what's the shape" but "what did *this*
+`aeb …` actually touch, and how did it go" — invoked vs uninvoked at a
+glance. The DAG stays file-level (aeb doesn't graph control flow *inside*
+a build body); the colouring overlays the run onto that static shape. With
+no prior build (a cold `--graph mermaid`), the graph is plain/uncoloured,
+and DOT output is never coloured.
+
 ### Build graph queries
 
 `aeb query`, `aeb owners`, `aeb path`, and `aeb why` answer read-only

@@ -20,6 +20,7 @@ import std.io
 import std.os
 import std.list
 import std.map
+import std.path
 import std.strbuilder
 
 extern println(s: string)
@@ -186,13 +187,58 @@ dot_render(edges_text: string) {
     return strbuilder.finish(sb)
 }
 
+// _san(s) — map any string to a flat [alnum._-] token (others -> '_').
+// MUST match tools/aeb-driver.ae's _san so a node path resolves to the same
+// `<san>.rc` filename the driver wrote for it.
+_san(s: string) {
+    keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"
+    out = ""
+    n = string.length(s)
+    i = 0
+    while i < n {
+        ch = string.substring(s, i, i + 1)
+        if string.index_of(keep, ch) >= 0 { out = string.concat(out, ch) }
+        else { out = string.concat(out, "_") }
+        i = i + 1
+    }
+    return out
+}
+
+// _node_status(rc_dir, node) — this run's outcome for a build-file node, read
+// from the driver's per-node `.rc` marker (0 = ok, non-zero = fail; ABSENT =
+// the node was NOT part of this invocation). Returns "ok" / "fail" /
+// "uninvoked". rc_dir empty => always "uninvoked" (a static graph, no run).
+_node_status(rc_dir: string, node: string) {
+    if string.length(rc_dir) == 0 { return "uninvoked" }
+    rcf = path.join(rc_dir, string.concat(_san(node), ".rc"))
+    if file.exists(rcf) == 0 { return "uninvoked" }
+    rc, _e = fs.read(rcf)
+    if string.equals(string.trim(rc), "0") == 1 { return "ok" }
+    return "fail"
+}
+
 // Render the edges text as a Mermaid flowchart. Output is a complete
 // `graph TD` block suitable for embedding in a Markdown ```mermaid
 // fence. Node IDs are munged (no / or . allowed); display labels
 // preserve the original path via `id["path"]` declarations.
-mermaid_render(edges_text: string) {
+//
+// rc_dir: when non-empty, each node is CLASSED by this run's outcome (read from
+// the driver's <san>.rc markers) — invoked-ok / invoked-fail / uninvoked — and
+// classDefs are emitted so the graph shows what THIS `aeb <target>` (or
+// `--since`) actually touched vs the rest of the static tree. Empty rc_dir
+// reproduces the plain, uncolored graph (backward-compatible).
+mermaid_render(edges_text: string, rc_dir: string) {
     sb = strbuilder.new(1024)
     strbuilder.append(sb, "graph TD\n")
+
+    // classDefs (only meaningful when rc_dir is set, but harmless if unused).
+    color_on = 0
+    if string.length(rc_dir) > 0 { color_on = 1 }
+    if color_on == 1 {
+        strbuilder.append(sb, "    classDef ok fill:#c6f6d5,stroke:#276749,color:#1a202c\n")
+        strbuilder.append(sb, "    classDef fail fill:#fed7d7,stroke:#9b2c2c,color:#1a202c\n")
+        strbuilder.append(sb, "    classDef uninvoked fill:#edf2f7,stroke:#a0aec0,color:#a0aec0\n")
+    }
 
     // Emit node declarations with display labels first, so the
     // edges below render against named nodes rather than introducing
@@ -206,7 +252,12 @@ mermaid_render(edges_text: string) {
         strbuilder.append(sb, mermaid_id(node))
         strbuilder.append(sb, "[\"")
         strbuilder.append(sb, node)
-        strbuilder.append(sb, "\"]\n")
+        strbuilder.append(sb, "\"]")
+        if color_on == 1 {
+            strbuilder.append(sb, ":::")
+            strbuilder.append(sb, _node_status(rc_dir, node))
+        }
+        strbuilder.append(sb, "\n")
         k = k + 1
     }
 
@@ -250,6 +301,14 @@ main() {
         f = aether_args_get(2)
         if string.length(f) > 0 { format = f }
     }
+    // Optional 4th positional: an rc-dir (target/.aeb/rc) from a completed run.
+    // When given (mermaid only), nodes are colored by this run's outcome —
+    // invoked-ok / invoked-fail / uninvoked (see mermaid_render). Absent =
+    // today's plain static graph.
+    rc_dir = ""
+    if argc >= 4 {
+        rc_dir = aether_args_get(3)
+    }
 
     edges_text, _err = fs.read(edges_path)
     if string.length(edges_text) == 0 {
@@ -259,7 +318,7 @@ main() {
 
     out = ""
     if string.equals(format, "mermaid") == 1 {
-        out = mermaid_render(edges_text)
+        out = mermaid_render(edges_text, rc_dir)
     } else {
         if string.equals(format, "dot") == 1 {
             out = dot_render(edges_text)

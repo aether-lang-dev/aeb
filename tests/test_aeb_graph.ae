@@ -152,7 +152,12 @@ dot_render(edges_text: string) {
     return out
 }
 
-mermaid_render(edges_text: string) {
+// Local copy of aeb-graph's mermaid_render for the pure-rendering assertions.
+// Mirrors the real 2-arg signature; these tests exercise the UNCOLORED path
+// (rc_dir=""), which must be byte-identical to the pre-coloring output. The
+// colored path (rc_dir set → classDefs + :::status) reads .rc files, so it's
+// covered by an end-to-end run of the built tool below, not this pure copy.
+mermaid_render(edges_text: string, rc_dir: string) {
     out = "graph TD\n"
     nodes = _collect_nodes(edges_text)
     nn = list.size(nodes)
@@ -257,23 +262,23 @@ main() {
 
     spec.describe(fw, "mermaid_render") {
         spec.it("empty") callback {
-            spec.assert_str_eq(mermaid_render(""), "graph TD\n", "empty")
+            spec.assert_str_eq(mermaid_render("", ""), "graph TD\n", "empty")
         }
         spec.it("single isolated target") callback {
-            spec.assert_str_eq(mermaid_render("lib/.build.ae\n"),
+            spec.assert_str_eq(mermaid_render("lib/.build.ae\n", ""),
                 "graph TD\n    lib__build_ae[\"lib/.build.ae\"]\n", "isolated")
         }
         spec.it("two-node edge") callback {
-            spec.assert_str_eq(mermaid_render("app/.build.ae lib/.build.ae\n"),
+            spec.assert_str_eq(mermaid_render("app/.build.ae lib/.build.ae\n", ""),
                 "graph TD\n    app__build_ae[\"app/.build.ae\"]\n    lib__build_ae[\"lib/.build.ae\"]\n    app__build_ae --> lib__build_ae\n", "one edge")
         }
         spec.it("realistic 3-node fan (lib<-app<-tests)") callback {
             edges3 = "app/.build.ae lib/.build.ae\ntests/.tests.ae app/.build.ae\n"
-            spec.assert_str_eq(mermaid_render(edges3),
+            spec.assert_str_eq(mermaid_render(edges3, ""),
                 "graph TD\n    app__build_ae[\"app/.build.ae\"]\n    lib__build_ae[\"lib/.build.ae\"]\n    tests__tests_ae[\"tests/.tests.ae\"]\n    app__build_ae --> lib__build_ae\n    tests__tests_ae --> app__build_ae\n", "3-node fan")
         }
         spec.it("tag-disambiguated .build-seed.ae node") callback {
-            spec.assert_str_eq(mermaid_render("ae/svnserver/.build-seed.ae\n"),
+            spec.assert_str_eq(mermaid_render("ae/svnserver/.build-seed.ae\n", ""),
                 "graph TD\n    ae_svnserver__build_seed_ae[\"ae/svnserver/.build-seed.ae\"]\n", "tagged node")
         }
     }

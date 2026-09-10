@@ -718,6 +718,19 @@ main() {
         gcmd = string.concat(string.concat(aeb_graph_bin, " "), edges_path)
         gcmd = string.concat(gcmd, " ")
         gcmd = string.concat(gcmd, gfmt)
+        // For mermaid, color the DAG by the MOST RECENT build's per-node
+        // outcome when its rc markers exist (target/.aeb/rc, written by the
+        // driver): invoked-ok / invoked-fail / uninvoked. --graph is a query
+        // (it doesn't build), so this reflects the last run, not this command;
+        // absent (never built here) → plain uncolored graph. Pass the rc-dir as
+        // aeb-graph's 4th arg only when it's present.
+        if string.equals(gfmt, "mermaid") == 1 {
+            rc_dir = string.concat(root, "/target/.aeb/rc")
+            if dir.exists(rc_dir) == 1 {
+                gcmd = string.concat(gcmd, " ")
+                gcmd = string.concat(gcmd, rc_dir)
+            }
+        }
         bldr._sh(gcmd)
         return 0
     }
