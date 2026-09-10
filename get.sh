@@ -151,10 +151,14 @@ aebget_install_ae_binary() {
 # a tag wins; else AEB_FETCH/AEB_MIN mapped to vX.Y; else latest via /releases/latest.
 aebget_aeb_tag() {
     _r="${AEB_REF:-${AEB_FETCH:-${AEB_MIN:-}}}"
+    # aeb tags are TWO-part (v0.301). Accept a three-part spelling (v0.301.0 —
+    # the ae tag shape, easy to copy by mistake) and normalize it down, rather
+    # than returning it verbatim to resolve to a nonexistent tag.
     case "$_r" in
-        v[0-9]*) printf '%s' "$_r"; return 0 ;;                    # already vX.Y[.Z]
-        [0-9]*.[0-9]*.[0-9]*) printf 'v%s' "${_r%.*}"; return 0 ;; # 0.297.0 -> v0.297
-        [0-9]*.[0-9]*) printf 'v%s' "$_r"; return 0 ;;            # 0.297   -> v0.297
+        v[0-9]*.[0-9]*.[0-9]*) printf 'v%s' "$(echo "${_r#v}" | cut -d. -f1,2)"; return 0 ;; # v0.301.0 -> v0.301
+        v[0-9]*.[0-9]*) printf '%s' "$_r"; return 0 ;;            # v0.301 (canonical)
+        [0-9]*.[0-9]*.[0-9]*) printf 'v%s' "$(echo "$_r" | cut -d. -f1,2)"; return 0 ;; # 0.301.0 -> v0.301
+        [0-9]*.[0-9]*) printf 'v%s' "$_r"; return 0 ;;            # 0.301   -> v0.301
     esac
     # Latest via the plain /releases/latest redirect (no rate-limited JSON API).
     _loc=$(curl -fsSI "https://github.com/$AEBGET_AEB_REPO/releases/latest" 2>/dev/null \
@@ -289,20 +293,49 @@ aeb_ensure() {
 
     if have aeb; then
         _have="$(aeb_version || true)"
+        # An explicitly-set AEB_REF is a REQUEST for that exact version: honor it
+        # even when some aeb is already present, instead of skipping on mere
+        # presence (which silently no-ops "bump the pin, re-run bootstrap" — a
+        # user re-running with a newer AEB_REF stayed on the old aeb). Normalize
+        # AEB_REF's tag (v0.301 / 0.301 / 0.301.0) to the X.Y.0 aeb_version shape
+        # so the compare is apples-to-apples. See
+        # asks/get-sh-skips-on-presence-ignores-explicit-aeb-ref.md.
+        _want=""
+        case "${AEB_REF:-}" in
+            "") : ;;                                        # no explicit pin
+            v[0-9]*.[0-9]*.[0-9]*) _want="${AEB_REF#v}" ;;  # v0.301.0 -> 0.301.0
+            v[0-9]*.[0-9]*)        _want="${AEB_REF#v}.0" ;; # v0.301   -> 0.301.0
+            [0-9]*.[0-9]*.[0-9]*)  _want="$AEB_REF" ;;
+            [0-9]*.[0-9]*)         _want="$AEB_REF.0" ;;
+        esac
         if [ "$_have" = "0.0.0" ]; then
             say "aeb (source build, unversioned) already on PATH — skipping floor check"
-        elif [ -n "${AEB_MIN:-}" ] && [ -n "$_have" ] && ! version_ge "$_have" "$AEB_MIN"; then
-            say "WARNING: aeb $_have is older than this repo's floor $AEB_MIN — upgrade with AEB_REF=v$AEB_MIN"
-        else
-            say "aeb ${_have:-(version unknown)} already on PATH — skipping"
+            say "using aeb: $(command -v aeb)"; return 0
         fi
-        say "using aeb: $(command -v aeb)"; return 0
+        if [ -n "$_want" ] && [ -n "$_have" ] && [ "$_want" != "$_have" ]; then
+            # Requested != installed. Upgrade freely; gate only a DOWNGRADE behind
+            # AEB_FORCE (an explicit newer pin is what the user asked for).
+            if version_ge "$_have" "$_want" && [ -z "${AEB_FORCE:-}" ]; then
+                say "aeb $_have on PATH is NEWER than requested AEB_REF ($_want) — keeping it; set AEB_FORCE=1 to downgrade."
+                say "using aeb: $(command -v aeb)"; return 0
+            fi
+            say "aeb $_have on PATH != requested AEB_REF ($_want) — installing $_want"
+            # fall through to the install below
+        else
+            if [ -n "${AEB_MIN:-}" ] && [ -n "$_have" ] && ! version_ge "$_have" "$AEB_MIN"; then
+                say "WARNING: aeb $_have is older than this repo's floor $AEB_MIN — upgrade with AEB_REF=v$AEB_MIN"
+            else
+                say "aeb ${_have:-(version unknown)} already on PATH — skipping"
+            fi
+            say "using aeb: $(command -v aeb)"; return 0
+        fi
     fi
 
     have ae || die "aeb_ensure: no \`ae\` on PATH — call ae_ensure first (or aeb_bootstrap); aeb's installer needs an ae to target."
 
     if [ -z "${AEBBOOT_NO_BINARY:-${AEB_FROM_SOURCE:-}}" ] && aebget_install_aeb_binary; then
-        say "using aeb: $(command -v aeb) ($(aeb_version || echo version-unknown)) (binary)"; return 0
+        say "using aeb: $(command -v aeb) ($(aeb_version || echo version-unknown)) (binary)"
+        _aebget_assert_ref; return 0
     fi
 
     # SOURCE fallback: repo install.sh (fetch source tarball, build with ae).
@@ -312,9 +345,31 @@ aeb_ensure() {
         [0-9]*.[0-9]*)        _ref="v$_ref" ;;         # 0.297   -> v0.297
     esac
     say "installing aeb via install.sh from source (AEB_REF=${_ref:-latest}, PREFIX=$_prefix)"
-    AEB_REF="$_ref" PREFIX="$_prefix" AETHER="$(command -v ae)" fetch_run "$AEBGET_AEB_INSTALL_URL" || die "aeb install failed (install.sh)."
+    AEB_REF="$_ref" PREFIX="$_prefix" AETHER="$(command -v ae)" fetch_run "$AEBGET_AEB_INSTALL_URL" || die "aeb install failed (install.sh) — is AEB_REF='${AEB_REF:-}' a real tag? aeb tags are two-part (v0.301)."
     have aeb || die "aeb installed but not on PATH — ensure $_prefix/bin is on PATH."
     say "using aeb: $(command -v aeb) ($(aeb_version || echo version-unknown)) (source)"
+    _aebget_assert_ref
+}
+
+# _aebget_assert_ref : after an install driven by an explicit AEB_REF, verify we
+# actually landed that version — a requested-but-unresolvable ref (e.g. a typo,
+# or the old three-part spelling) must FAIL LOUDLY, not look like success. A
+# source build reports 0.0.0 (unversioned), for which the check is a no-op.
+_aebget_assert_ref() {
+    [ -n "${AEB_REF:-}" ] || return 0
+    _want=""
+    case "$AEB_REF" in
+        v[0-9]*.[0-9]*.[0-9]*) _want="${AEB_REF#v}" ;;
+        v[0-9]*.[0-9]*)        _want="${AEB_REF#v}.0" ;;
+        [0-9]*.[0-9]*.[0-9]*)  _want="$AEB_REF" ;;
+        [0-9]*.[0-9]*)         _want="$AEB_REF.0" ;;
+    esac
+    [ -n "$_want" ] || return 0
+    _got="$(aeb_version || true)"
+    [ "$_got" = "0.0.0" ] && return 0           # source build: unversioned, can't check
+    if [ "$_got" != "$_want" ]; then
+        die "requested AEB_REF=$AEB_REF but installed aeb is ${_got:-unknown} — is $AEB_REF a real tag? aeb tags are two-part (e.g. v0.301, not v0.301.0)."
+    fi
 }
 
 # --- aeb_bootstrap : the convenience entry point (ae THEN aeb) --------------
