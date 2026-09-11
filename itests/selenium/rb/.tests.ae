@@ -22,11 +22,14 @@
 import bldr
 import bldr (dep)
 import ruby
+import ruby (rspec, rubocop)
 
 main() {
     bldr.build() {
         dep(".build.ae")
-        ruby.rspec()
-        ruby.rubocop()
+        ruby.bundle() {
+            rspec()
+            rubocop()
+        }
     }
 }

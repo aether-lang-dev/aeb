@@ -1,37 +1,35 @@
 // ruby — Ruby SDK for aether.build
 //
-// Drives Bundler, RSpec, RuboCop, and `gem build` against a project
-// that ships a Gemfile + (optionally) a .gemspec. Bundler is the
-// load-bearing entry point: every other command goes through
-// `bundle exec` so the resolved gem closure is in scope.
+// TOOL-NAMED GRAMMAR. The verb names the external tool the node leans on, so a
+// call site declares its dependency rather than hiding it — mirroring how
+// java.javac (JDK-only) sits beside the Maven-coordinate path. Four verbs:
 //
-// Project-local isolation: gems install into `.aeb/bundle/` (parallel
-// to `lib/python`'s `.aeb/venv/`). Avoids touching the system
-// rubygems repo and lets aeb's per-project cache claim the closure.
+//   ruby.bundle() { ... }   — the Bundler tool. install() resolves the gem
+//                             closure (`bundle install`); rspec()/minitest()/
+//                             rubocop() run that tool via `bundle exec`. NEEDS
+//                             Bundler + a Gemfile.
+//   ruby.gem()    { build("foo.gemspec") }  — the `gem` tool: `gem build` → .gem.
+//   ruby.rake()   { task("test") }          — the Rake tool: `rake <task>`.
+//   ruby.mri()    { test_file("t.rb") }     — NO tool. Plain MRI (`ruby -Ilib
+//                             -Ispec -Itest`), env-injected, no Gemfile/Bundler
+//                             assumption. The toolchain-only lane for an FFI
+//                             binding that wraps a C .so — symmetric with
+//                             lua.conformance / python.test's minimal form.
 //
-// Common shape:
+// The tool-free ruby.mri() is the point of the tiering: a binding that only
+// needs MRI + the engine .so should not be forced through Bundler/gem/rake.
+// "alludes to future work where those would be avoided in an invocation."
 //
-//     import bldr
-//     import ruby
+// Project-local isolation: gems install into `${root}/.aeb/bundle/` (parallel to
+// lib/python's `.aeb/venv/`). env(K,V) on any verb rides _env_export_prefix (a
+// native library path a Fiddle/FFI binding dlopens).
 //
-//     main() {
-//         b = bldr.start()
-//         ruby.install(b)
-//         ruby.rspec(b)
-//         ruby.rubocop(b)
-//     }
+// Common shapes:
 //
-// Packaging shape:
-//
-//     import ruby (gemspec)
-//
-//     main() {
-//         b = bldr.start()
-//         ruby.install(b)
-//         ruby.package(b) {
-//             gemspec("selenium-webdriver.gemspec")
-//         }
-//     }
+//     ruby.bundle() { install() rspec() }            // resolve + test
+//     ruby.gem()    { build("selenium-webdriver.gemspec") }
+//     ruby.rake()   { task("compile") task("test") }
+//     ruby.mri()    { test_file("test/ffi_test.rb") env("CORE_LIB", lib) }
 
 import bldr
 import std.string
@@ -44,111 +42,107 @@ import std.map
 import std.path
 import std.dir
 
-// --- DSL setters ---
+// --- shared setters (used across the tool verbs) -----------------------------
 
-// gem("rspec ~> 3.13") — declare a gem to append to the project's
-// Gemfile at install time. Repeatable; each entry is one `gem '...'`
-// line. Use the bundler-syntax string verbatim (name + optional
-// version constraint, possibly groups/platforms). For projects that
-// already maintain a Gemfile in-tree, prefer leaving it alone and
-// let bundler resolve from there — this setter is for ad-hoc
-// additions, the same way `python.pip` is.
-gem(_ctx: ptr, line: string) {
-    if map.has(_ctx, "ruby_gems") == 0 {
-        _e1 = map.put(_ctx, "ruby_gems", list.new())
-    }
+// gem_dep("rspec ~> 3.13") — a gem line appended to the Gemfile at bundle
+// install time. Repeatable. (Named gem_dep, not gem: `gem` is a top-level verb.)
+gem_dep(_ctx: ptr, line: string) {
+    if map.has(_ctx, "ruby_gems") == 0 { _e1 = map.put(_ctx, "ruby_gems", list.new()) }
     gems, _ = map.get(_ctx, "ruby_gems")
     _e2 = list.add(gems, line)
 }
 
-// gemfile("Gemfile.aeb") — override the default Gemfile location.
-// Path resolved against source_dir. Default: `Gemfile`.
+// gemfile("Gemfile.aeb") — override the default Gemfile location (rel source_dir).
 gemfile(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "ruby_gemfile", path)
 }
 
-// gemspec("selenium-webdriver.gemspec") — point `ruby.package(b)` at
-// the .gemspec file to build. Path resolved against source_dir.
-// Required for `ruby.package`; ignored by `ruby.install` /
-// `ruby.rspec` / `ruby.rubocop`.
-gemspec(_ctx: ptr, path: string) {
-    _e = map.put(_ctx, "ruby_gemspec", path)
-}
-
-// bundle_path("vendor/bundle") — override the bundle install path
-// (where `bundle install --path=<dir>` writes the gem closure).
-// Default: `${root}/.aeb/bundle`. Use when interoperating with an
-// existing project convention.
+// bundle_path("vendor/bundle") — where `bundle install` writes the closure.
+// Default: `${root}/.aeb/bundle`.
 bundle_path(_ctx: ptr, dir: string) {
     _e = map.put(_ctx, "ruby_bundle_path", dir)
 }
 
-// rspec_arg("--format=doc") — append one CLI argument to the
-// `bundle exec rspec` invocation. Repeatable.
+// env(K, V) — an env var exported for the run (e.g. a native .so path an FFI
+// binding dlopens). Rides bldr's proc_env / _env_export_prefix like every SDK.
+env(_ctx: ptr, k: string, v: string) {
+    bldr.env(_ctx, k, v)
+}
+
+// --- ruby.bundle block setters ---
+
+// install() — resolve + install the gem closure (`bundle install`) as part of
+// this bundle node.
+install(_ctx: ptr) { _e = map.put(_ctx, "ruby_do_install", "1") }
+// rspec() — run RSpec via `bundle exec rspec`.
+rspec(_ctx: ptr) { _e = map.put(_ctx, "ruby_do_rspec", "1") }
+// minitest() — run Minitest via `bundle exec ruby` (or plain ruby if no Gemfile).
+minitest(_ctx: ptr) { _e = map.put(_ctx, "ruby_do_minitest", "1") }
+// rubocop() — run RuboCop via `bundle exec rubocop`.
+rubocop(_ctx: ptr) { _e = map.put(_ctx, "ruby_do_rubocop", "1") }
+
+// rspec_arg("--format=doc") — append a CLI arg to `bundle exec rspec`. Repeatable.
 rspec_arg(_ctx: ptr, arg: string) {
-    if map.has(_ctx, "ruby_rspec_args") == 0 {
-        _e1 = map.put(_ctx, "ruby_rspec_args", list.new())
-    }
+    if map.has(_ctx, "ruby_rspec_args") == 0 { _e1 = map.put(_ctx, "ruby_rspec_args", list.new()) }
     args, _ = map.get(_ctx, "ruby_rspec_args")
     _e2 = list.add(args, arg)
 }
-
-// minitest_file("spec/ffi_test.rb") — a minitest test file to run under
-// `ruby.minitest()`. Repeatable. Each file `require`s minitest/autorun, so the
-// builder just runs them with -Ilib -Ispec on the load path. When none is set,
-// minitest() runs every *_test.rb / test_*.rb under the default test/ + spec/
-// dirs (see _minitest_files_str). Minitest is one of Ruby's two standard test
-// frameworks; this is its builder alongside rspec().
+// minitest_file("spec/ffi_test.rb") — a minitest file to run (bundle or mri).
+// Repeatable; none set → glob *_test.rb / test_*.rb under spec/ + test/.
 minitest_file(_ctx: ptr, path: string) {
-    if map.has(_ctx, "ruby_minitest_files") == 0 {
-        _e1 = map.put(_ctx, "ruby_minitest_files", list.new())
-    }
+    if map.has(_ctx, "ruby_minitest_files") == 0 { _e1 = map.put(_ctx, "ruby_minitest_files", list.new()) }
     files, _ = map.get(_ctx, "ruby_minitest_files")
     _e2 = list.add(files, path)
 }
-
-// rubocop_config(".rubocop.yml") — explicit rubocop config path.
-// Default: rubocop searches upward from source_dir for a
-// `.rubocop.yml` (its standard behaviour).
+// rubocop_config(".rubocop.yml") — explicit rubocop config (rel source_dir).
 rubocop_config(_ctx: ptr, path: string) {
     _e = map.put(_ctx, "ruby_rubocop_config", path)
 }
 
-// ruby_version("3.3") — declared required Ruby major.minor. Today
-// this is only echoed in the build log and doesn't gate compilation;
-// future work could check `ruby --version` matches.
-ruby_version(_ctx: ptr, ver: string) {
-    _e = map.put(_ctx, "ruby_version", ver)
+// --- ruby.gem block setters ---
+
+// build("foo.gemspec") — the .gemspec `gem build` packages (rel source_dir).
+build(_ctx: ptr, gemspec: string) { _e = map.put(_ctx, "ruby_gemspec", gemspec) }
+
+// --- ruby.rake block setters ---
+
+// task("test") — a rake task to run (`rake <task>`). Repeatable; order preserved.
+task(_ctx: ptr, name: string) {
+    if map.has(_ctx, "ruby_rake_tasks") == 0 { _e1 = map.put(_ctx, "ruby_rake_tasks", list.new()) }
+    l, _ = map.get(_ctx, "ruby_rake_tasks")
+    _e2 = list.add(l, name)
+}
+
+// --- ruby.mri block setters (tool-free) ---
+
+// test_file("test/ffi.rb") — a .rb to run under plain MRI (-Ilib -Ispec -Itest).
+// Repeatable. No Gemfile/Bundler. (Shared list with bundle's minitest_file.)
+test_file(_ctx: ptr, path: string) { minitest_file(_ctx, path) }
+// mri_flag("-I/abs/inc") — a raw `ruby` flag for the MRI run. Repeatable.
+mri_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "ruby_mri_flags") == 0 { _e1 = map.put(_ctx, "ruby_mri_flags", list.new()) }
+    l, _ = map.get(_ctx, "ruby_mri_flags")
+    _e2 = list.add(l, flag)
+}
+
+// --- ruby.gem / consumer-example setters ---
+
+consumer_script(_ctx: ptr, path: string) { _e = map.put(_ctx, "consumer_script", path) }
+consumer_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "consumer_args") == 0 { _e1 = map.put(_ctx, "consumer_args", list.new()) }
+    l, _ = map.get(_ctx, "consumer_args")
+    _e2 = list.add(l, arg)
 }
 
 // --- Command builders (pure) ---
 
-// bundle_install_cmd — `bundle config set --local path <bundle_path>`
-// then `bundle install`. Pure.
-//
-// Bundler 2.x removed the `--path=DIR` flag from `bundle install` (it
-// relied on being remembered across invocations, which bundler no
-// longer does). The replacement is `bundle config set --local path
-// <DIR>` (writes to `<src>/.bundle/config`), followed by a plain
-// `bundle install` which reads the path from the local config.
-//
-// Two-statement compound (`&&` chained) so a config-write failure
-// short-circuits the install. Single-quoted args survive paths with
-// spaces.
+// bundle_install_cmd — `bundle config set --local path <dir> && bundle install`.
+// Bundler 2.x dropped `--path=DIR`; the config-set is its replacement. Pure.
 bundle_install_cmd(bundle_bin: string, source_dir: string, bundle_path: string) {
     return "cd '${source_dir}' && '${bundle_bin}' config set --local path '${bundle_path}' && '${bundle_bin}' install"
 }
 
-// bundle_exec_cmd — `bundle exec <argv>` from source_dir. The
-// `argv_str` is appended verbatim; caller is responsible for any
-// shell quoting needed. Pure.
-bundle_exec_cmd(bundle_bin: string, source_dir: string, argv_str: string) {
-    return "cd '${source_dir}' && '${bundle_bin}' exec ${argv_str}"
-}
-
-// rspec_cmd — bundle exec rspec with appended args. args is a
-// pre-joined space-separated string (caller built it from the
-// rspec_arg list). Empty args → bare `bundle exec rspec`. Pure.
+// rspec_cmd — `bundle exec rspec [args]`. Pure.
 rspec_cmd(bundle_bin: string, source_dir: string, args: string) {
     if string.length(args) == 0 {
         return "cd '${source_dir}' && '${bundle_bin}' exec rspec"
@@ -156,28 +150,34 @@ rspec_cmd(bundle_bin: string, source_dir: string, args: string) {
     return "cd '${source_dir}' && '${bundle_bin}' exec rspec ${args}"
 }
 
-// minitest_cmd — run minitest files with lib/ + spec/ + test/ on the load path
-// (`-Ilib -Ispec -Itest`). Multiple test files can't be passed positionally
-// (ruby runs only the first; the rest become ARGV), so each is loaded with a
-// `-r<basename>` require against the load path — every file requires
-// minitest/autorun, and minitest's at_exit runs all the defined tests once.
-// `reqs` is a pre-joined `-r...` string (from _minitest_files_str); when empty,
-// a shell glob builds the -r list from *_test.rb / test_*.rb under spec/ + test/.
-// Runs under `bundle exec` ONLY when a Gemfile is present (minitest is often
-// stdlib-only, no Bundler); otherwise plain `ruby`. Pure.
+// minitest_cmd — run minitest files with lib/spec/test on the load path. Each
+// file is `-r<basename>` (ruby runs only the first positional; the rest would
+// become ARGV). `reqs` pre-joined; empty → glob. Runs under `bundle exec` when a
+// Gemfile is present, else plain ruby. Pure.
 minitest_cmd(bundle_bin: string, source_dir: string, reqs: string) {
     load = "-Ilib -Ispec -Itest"
     body = reqs
     if string.length(reqs) == 0 {
-        // Glob the conventional locations and turn each into `-r<basename>`.
         body = "$(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done)"
     }
     runner = "if [ -f Gemfile ]; then '${bundle_bin}' exec ruby ${load} ${body} -e ''; else ruby ${load} ${body} -e ''; fi"
     return "cd '${source_dir}' && ${runner}"
 }
 
-// rubocop_cmd — bundle exec rubocop, optionally with --config flag.
-// Empty config_path → no --config (rubocop searches the tree). Pure.
+// mri_cmd — TOOL-FREE: run test files with plain `ruby` (no bundle exec, no
+// Gemfile). Same -r<basename> + load-path mechanism as minitest_cmd, plus any
+// mri_flag()s; globs when no files named. Pure.
+mri_cmd(source_dir: string, reqs: string, extra_flags: string) {
+    load = "-Ilib -Ispec -Itest"
+    if string.length(extra_flags) > 0 { load = string.concat(load, string.concat(" ", extra_flags)) }
+    body = reqs
+    if string.length(reqs) == 0 {
+        body = "$(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb *_test.rb test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done)"
+    }
+    return "cd '${source_dir}' && ruby ${load} ${body} -e ''"
+}
+
+// rubocop_cmd — `bundle exec rubocop [--config cfg]`. Pure.
 rubocop_cmd(bundle_bin: string, source_dir: string, config_path: string) {
     if string.length(config_path) == 0 {
         return "cd '${source_dir}' && '${bundle_bin}' exec rubocop"
@@ -185,28 +185,22 @@ rubocop_cmd(bundle_bin: string, source_dir: string, config_path: string) {
     return "cd '${source_dir}' && '${bundle_bin}' exec rubocop --config '${config_path}'"
 }
 
-// gem_build_cmd — `gem build <basename>` from `source_dir`, then
-// move the resulting `.gem` into `<dist_dir>`. Pure.
-//
-// Why not `cd dist_dir && gem build /abs/path.gemspec`: the gemspec
-// has its `s.files` paths resolved against the **cwd** of the gem
-// build invocation, not the gemspec's directory. Real-world
-// gemspecs (Selenium's included) reference relative paths like
-// "LICENSE", "lib/foo.rb"; running gem build from dist_dir would
-// fail with "[LICENSE, lib/foo.rb, ...] are not files."
-//
-// Output `.gem` lands in dist_dir via the `mv` step. `mv -f *.gem`
-// requires that source_dir not contain pre-existing `.gem` files
-// from a manual gem build; an idempotent build run is the contract.
+// gem_build_cmd — `gem build <basename>` from source_dir (so gemspec `s.files`
+// relative paths resolve), then move the .gem into dist_dir. Pure.
 gem_build_cmd(gem_bin: string, source_dir: string, gemspec_basename: string, dist_dir: string) {
     return "cd '${source_dir}' && '${gem_bin}' build '${gemspec_basename}' && mv -f *.gem '${dist_dir}/'"
 }
 
-// --- Internal: ensure bundler-installed dirs exist ---
+// rake_cmd — `rake <task> …` from source_dir, under `bundle exec` when a Gemfile
+// is present (a Rakefile's tasks usually need the bundle), else bare rake. Pure.
+rake_cmd(bundle_bin: string, source_dir: string, tasks: string) {
+    body = "rake ${tasks}"
+    runner = "if [ -f Gemfile ]; then '${bundle_bin}' exec ${body}; else ${body}; fi"
+    return "cd '${source_dir}' && ${runner}"
+}
 
-// Resolve the bundle install path. Returns the absolute path. If
-// the builder declared `bundle_path(...)`, use it (resolving
-// relative against root). Otherwise default to `<root>/.aeb/bundle`.
+// --- resolvers ---
+
 _resolve_bundle_path(builder_map: ptr, root: string) {
     if builder_map != null {
         if map.has(builder_map, "ruby_bundle_path") == 1 {
@@ -220,47 +214,30 @@ _resolve_bundle_path(builder_map: ptr, root: string) {
     return path.join(root, ".aeb/bundle")
 }
 
-// Resolve the bundle binary to an absolute path. PATH first (the
-// common case: rbenv/rvm/chruby shims, a distro `bundle`), then ask
-// Ruby where the bundler gem's `bundle` executable lives. Modern
-// RubyGems (bundler ships as a gem, e.g. Ruby 3.4 + bundler 4) puts
-// `bundle` in the user gem bindir, which is frequently NOT on the
-// non-interactive PATH aeb's `_sh` runs under — so a bare "bundle"
-// hits `command not found`. `gem contents bundler` names the actual
-// exe file regardless of PATH; `Gem.bin_path` is the RubyGems API for
-// the same and is the reliable fallback. Bare "bundle" is the last
-// resort so behaviour never regresses when Ruby can't be probed.
+// Resolve `bundle` to an abs path: PATH, then RubyGems' Gem.bin_path (modern
+// RubyGems puts `bundle` in a gem bindir often off the non-interactive PATH).
 _resolve_bundle_bin() {
     p, _e = bldr._sh_capture("command -v bundle 2>/dev/null")
     tp = string.trim(p)
-    if tp != "" {
-        return tp
-    }
-    // Ask RubyGems for the bundler gem's `bundle` executable path.
+    if tp != "" { return tp }
     q, _qe = bldr._sh_capture("ruby -e 'begin; print Gem.bin_path(\"bundler\",\"bundle\"); rescue Exception; end' 2>/dev/null")
     tq = string.trim(q)
-    if tq != "" {
-        return tq
-    }
+    if tq != "" { return tq }
     return "bundle"
 }
 
 _resolve_gem_bin() {
     p, _e = bldr._sh_capture("command -v gem 2>/dev/null")
     tp = string.trim(p)
-    if tp != "" {
-        return tp
-    }
+    if tp != "" { return tp }
     return "gem"
 }
 
-// Build the rspec args string from the accumulated list. Empty list → "".
 _rspec_args_str(builder_map: ptr) {
     if builder_map == null { return "" }
     if map.has(builder_map, "ruby_rspec_args") == 0 { return "" }
     args, _ = map.get(builder_map, "ruby_rspec_args")
     n = list.size(args)
-    if n == 0 { return "" }
     out = ""
     i = 0
     while i < n {
@@ -272,20 +249,15 @@ _rspec_args_str(builder_map: ptr) {
     return out
 }
 
-// Turn the accumulated minitest_file list into a `-r<basename>` require string
-// (files load via the -Ispec/-Itest load path, so the dir + .rb are stripped:
-// "spec/ffi_test.rb" -> "-rffi_test"). Empty list -> "" (minitest_cmd globs).
 _minitest_files_str(builder_map: ptr) {
     if builder_map == null { return "" }
     if map.has(builder_map, "ruby_minitest_files") == 0 { return "" }
     files, _ = map.get(builder_map, "ruby_minitest_files")
     n = list.size(files)
-    if n == 0 { return "" }
     out = ""
     i = 0
     while i < n {
         f, _ = list.get(files, i)
-        // basename without .rb
         base = bldr._basename(f)
         if string.ends_with(base, ".rb") == 1 {
             base = string.substring(base, 0, string.length(base) - 3)
@@ -297,142 +269,156 @@ _minitest_files_str(builder_map: ptr) {
     return out
 }
 
-// --- SDK functions ---
+// Join a builder-map list of raw tokens into a space-separated string.
+_join_toks(builder_map: ptr, key: string) {
+    if builder_map == null { return "" }
+    if map.has(builder_map, key) == 0 { return "" }
+    l, _ = map.get(builder_map, key)
+    n = list.size(l)
+    out = ""
+    i = 0
+    while i < n {
+        t, _ = list.get(l, i)
+        if i > 0 { out = string.concat(out, " ") }
+        out = string.concat(out, t)
+        i = i + 1
+    }
+    return out
+}
 
-// Install bundler-managed gems into the project-local bundle path.
-// Idempotent at the bundler level: `bundle install` is a no-op when
-// Gemfile.lock matches the closure on disk. The `.timestamp` file
-// lets aeb's dep-edge handling see "install ran."
-builder install(): int {
+// --- ruby.bundle — the Bundler tool (install + bundle-exec test/lint) --------
+
+builder bundle(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     root = bldr._get(ctx, "root")
     source_dir = bldr._get(ctx, "source_dir")
-
     bldr._mkdirs(target_dir)
-    println("${mod_dir}: installing gems (bundle)")
 
-    bundle = _resolve_bundle_bin()
-    bp = _resolve_bundle_path(_builder, root)
-    bldr._mkdirs(bp)
+    bundle_bin = _resolve_bundle_bin()
+    did_test = 0
+    tests_ok = 1
 
-    cmd = bundle_install_cmd(bundle, source_dir, bp)
-    rc = bldr._sh(cmd)
-    if rc != 0 {
-        println("${mod_dir}: bundle install FAILED")
-        bldr.fail(ctx, "bundle install FAILED")
-        return rc
-    }
-    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
-    return 0
-}
-
-// Run rspec via bundler. Reads rspec_arg(...) entries.
-builder rspec(): int {
-    ctx = builder_context()
-    if ctx == 0 { return 0 }
-    target_dir = bldr._get(ctx, "target_dir")
-    mod_dir = bldr._get(ctx, "module_dir")
-    source_dir = bldr._get(ctx, "source_dir")
-
-    bldr._mkdirs(target_dir)
-    println("${mod_dir}: running tests (rspec)")
-
-    bundle = _resolve_bundle_bin()
-    args_str = _rspec_args_str(_builder)
-    cmd = string.concat(bldr._env_export_prefix(_builder), rspec_cmd(bundle, source_dir, args_str))
-    rc = bldr._sh(cmd)
-    if rc != 0 {
-        // rspec exits non-zero on test failure; record one logical
-        // failure. A future iteration could parse rspec's
-        // `--format=json` output for per-example pass/fail counts.
-        bldr._record_test_result(ctx, 0, 1)
-        println("${mod_dir}: tests FAILED")
-        bldr.fail(ctx, "tests FAILED")
-        return rc
-    }
-    bldr._record_test_result(ctx, 1, 0)
-    println("${mod_dir}: tests PASSED")
-    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
-    return 0
-}
-
-// Run minitest test files via bundler. The sibling of rspec() for projects that
-// use Minitest (Ruby's other standard test framework). Each file requires
-// minitest/autorun and self-runs; the builder loads them with -Ilib -Ispec
-// -Itest. Files come from minitest_file(); with none set, it globs *_test.rb /
-// test_*.rb under spec/ and test/. Honours env(K,V) via _env_export_prefix
-// (e.g. a native library path a Fiddle binding dlopens). Ruby exits non-zero if
-// any test fails or errors, which the builder propagates as a node failure.
-builder minitest(): int {
-    ctx = builder_context()
-    if ctx == 0 { return 0 }
-    target_dir = bldr._get(ctx, "target_dir")
-    mod_dir = bldr._get(ctx, "module_dir")
-    source_dir = bldr._get(ctx, "source_dir")
-
-    bldr._mkdirs(target_dir)
-    println("${mod_dir}: running tests (minitest)")
-
-    bundle = _resolve_bundle_bin()
-    files_str = _minitest_files_str(_builder)
-    cmd = string.concat(bldr._env_export_prefix(_builder), minitest_cmd(bundle, source_dir, files_str))
-    rc = bldr._sh(cmd)
-    if rc != 0 {
-        bldr._record_test_result(ctx, 0, 1)
-        println("${mod_dir}: tests FAILED")
-        bldr.fail(ctx, "tests FAILED")
-        return rc
-    }
-    bldr._record_test_result(ctx, 1, 0)
-    println("${mod_dir}: tests PASSED")
-    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
-    return 0
-}
-
-// Run rubocop via bundler.
-builder rubocop(): int {
-    ctx = builder_context()
-    if ctx == 0 { return 0 }
-    target_dir = bldr._get(ctx, "target_dir")
-    mod_dir = bldr._get(ctx, "module_dir")
-    source_dir = bldr._get(ctx, "source_dir")
-
-    bldr._mkdirs(target_dir)
-    println("${mod_dir}: linting (rubocop)")
-
-    bundle = _resolve_bundle_bin()
-    cfg = ""
+    // install() — resolve the gem closure.
     if _builder != null {
-        if map.has(_builder, "ruby_rubocop_config") == 1 {
-            cfg, _ = map.get(_builder, "ruby_rubocop_config")
+        if map.has(_builder, "ruby_do_install") == 1 {
+            println("${mod_dir}: installing gems (bundle)")
+            bp = _resolve_bundle_path(_builder, root)
+            bldr._mkdirs(bp)
+            rc = bldr._sh(bundle_install_cmd(bundle_bin, source_dir, bp))
+            if rc != 0 {
+                println("${mod_dir}: bundle install FAILED")
+                bldr.fail(ctx, "bundle install FAILED")
+                return rc
+            }
         }
     }
-    cmd = rubocop_cmd(bundle, source_dir, cfg)
-    rc = bldr._sh(cmd)
-    if rc != 0 {
-        println("${mod_dir}: lint FAILED")
-        bldr.fail(ctx, "lint FAILED")
-        return rc
+
+    // rspec() — bundle exec rspec.
+    if _builder != null {
+        if map.has(_builder, "ruby_do_rspec") == 1 {
+            println("${mod_dir}: running tests (rspec)")
+            did_test = 1
+            cmd = string.concat(bldr._env_export_prefix(_builder), rspec_cmd(bundle_bin, source_dir, _rspec_args_str(_builder)))
+            if bldr._sh(cmd) != 0 { tests_ok = 0 }
+        }
     }
-    println("${mod_dir}: lint PASSED")
+
+    // minitest() — bundle exec ruby (or plain ruby if no Gemfile).
+    if _builder != null {
+        if map.has(_builder, "ruby_do_minitest") == 1 {
+            println("${mod_dir}: running tests (minitest)")
+            did_test = 1
+            cmd = string.concat(bldr._env_export_prefix(_builder), minitest_cmd(bundle_bin, source_dir, _minitest_files_str(_builder)))
+            if bldr._sh(cmd) != 0 { tests_ok = 0 }
+        }
+    }
+
+    // rubocop() — bundle exec rubocop.
+    if _builder != null {
+        if map.has(_builder, "ruby_do_rubocop") == 1 {
+            println("${mod_dir}: linting (rubocop)")
+            cfg = ""
+            if map.has(_builder, "ruby_rubocop_config") == 1 { cfg, _ = map.get(_builder, "ruby_rubocop_config") }
+            if bldr._sh(rubocop_cmd(bundle_bin, source_dir, cfg)) != 0 {
+                println("${mod_dir}: lint FAILED")
+                bldr.fail(ctx, "lint FAILED")
+                return 1
+            }
+        }
+    }
+
+    if did_test == 1 {
+        if tests_ok == 0 {
+            bldr._record_test_result(ctx, 0, 1)
+            println("${mod_dir}: tests FAILED")
+            bldr.fail(ctx, "tests FAILED")
+            return 1
+        }
+        bldr._record_test_result(ctx, 1, 0)
+        println("${mod_dir}: tests PASSED")
+    }
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
 
-// Build a .gem package from a .gemspec. Requires `gemspec("path")`.
-// Output lands in `target/<module>/dist/<name>-<version>.gem`.
-//
-// **Name note:** this builder is `package`, not `gem`, because
-// `gem` is also the setter that appends a line to the in-memory
-// Gemfile (`gem("rspec ~> 3.13")`). aeb's compile-to-C name
-// mangling collides on `ruby_gem` for both, so the builder takes
-// the `package` name to match `python.package`'s convention.
-// LLM.md § "a builder must not share a name with a function in
-// its module" formalises this rule.
-builder package(): int {
+// --- ruby.mri — the TOOL-FREE lane (plain MRI, no Bundler/gem/rake) ----------
+
+builder mri(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    bldr._mkdirs(target_dir)
+    println("${mod_dir}: running tests (mri — no bundler)")
+
+    reqs = _minitest_files_str(_builder)
+    flags = _join_toks(_builder, "ruby_mri_flags")
+    cmd = string.concat(bldr._env_export_prefix(_builder), mri_cmd(source_dir, reqs, flags))
+    rc = bldr._sh(cmd)
+    if rc != 0 {
+        bldr._record_test_result(ctx, 0, 1)
+        println("${mod_dir}: tests FAILED")
+        bldr.fail(ctx, "tests FAILED")
+        return rc
+    }
+    bldr._record_test_result(ctx, 1, 0)
+    println("${mod_dir}: tests PASSED")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// --- ruby.rake — the Rake tool -----------------------------------------------
+
+builder rake(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    source_dir = bldr._get(ctx, "source_dir")
+    bldr._mkdirs(target_dir)
+
+    tasks = _join_toks(_builder, "ruby_rake_tasks")
+    if string.length(tasks) == 0 { tasks = "" }   // bare `rake` (default task)
+    println("${mod_dir}: running rake ${tasks}")
+    bundle_bin = _resolve_bundle_bin()
+    cmd = string.concat(bldr._env_export_prefix(_builder), rake_cmd(bundle_bin, source_dir, tasks))
+    rc = bldr._sh(cmd)
+    if rc != 0 {
+        println("${mod_dir}: rake FAILED")
+        bldr.fail(ctx, "rake FAILED")
+        return rc
+    }
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// --- ruby.gem — the `gem` tool (build a .gem) --------------------------------
+
+builder gem(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
@@ -440,18 +426,18 @@ builder package(): int {
     source_dir = bldr._get(ctx, "source_dir")
 
     if _builder == null {
-        bldr.fail(ctx, "ruby.package: no builder context")
+        bldr.fail(ctx, "ruby.gem: no builder context")
         return 1
     }
     if map.has(_builder, "ruby_gemspec") == 0 {
-        println("${mod_dir}: ruby.package requires gemspec(\"<name>.gemspec\")")
-        bldr.fail(ctx, "ruby.package requires gemspec")
+        println("${mod_dir}: ruby.gem requires build(\"<name>.gemspec\")")
+        bldr.fail(ctx, "ruby.gem requires build(\"...gemspec\")")
         return 1
     }
     gemspec_rel, _ = map.get(_builder, "ruby_gemspec")
     gemspec_abs = path.join(source_dir, gemspec_rel)
     if file.exists(gemspec_abs) == 0 {
-        println("${mod_dir}: ruby.package: gemspec not found at ${gemspec_abs}")
+        println("${mod_dir}: ruby.gem: gemspec not found at ${gemspec_abs}")
         bldr.fail(ctx, "gemspec not found")
         return 1
     }
@@ -462,37 +448,22 @@ builder package(): int {
 
     gem_bin = _resolve_gem_bin()
     gemspec_basename = path.basename(gemspec_rel)
-    cmd = gem_build_cmd(gem_bin, source_dir, gemspec_basename, dist_dir)
-    rc = bldr._sh(cmd)
+    rc = bldr._sh(gem_build_cmd(gem_bin, source_dir, gemspec_basename, dist_dir))
     if rc != 0 {
         println("${mod_dir}: gem build FAILED")
         bldr.fail(ctx, "gem build FAILED")
         return rc
     }
     println("${mod_dir}: packaging done → ${dist_dir}")
-    // Publish the dist dir (holds the built .gem) so a consumer-install proof
-    // (.example) can read it back via dep_artifact(..., "gem_dir").
     bldr._write_artifact(ctx, "gem_dir", dist_dir)
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
 
-// --- ruby.consumer_example: prove the gem installs + runs from clean ---
-
-consumer_script(_ctx: ptr, path: string) {
-    _e = map.put(_ctx, "consumer_script", path)
-}
-consumer_arg(_ctx: ptr, arg: string) {
-    if map.has(_ctx, "consumer_args") == 0 { _e1 = map.put(_ctx, "consumer_args", list.new()) }
-    l, _ = map.get(_ctx, "consumer_args")
-    _e2 = list.add(l, arg)
-}
-
-// ruby.consumer_example() — `gem install --local` the dep's built .gem into a
-// CLEAN GEM_HOME (isolated, no source tree), then run the consumer with
-// GEM_HOME/GEM_PATH = that dir and SELENIUM_CORE_LIB unset, so `require`
-// resolves the INSTALLED gem and only its bundled .so satisfies the load. Reads
-// the "gem_dir" artifact from the dep'd package node.
+// --- ruby.consumer_example — prove the gem installs + runs from clean --------
+// Part of the `gem` tool family (it `gem install`s the dep's built .gem into a
+// clean GEM_HOME, then runs the consumer against only the installed gem + its
+// bundled .so). Reads the "gem_dir" artifact from the dep'd ruby.gem node.
 builder consumer_example(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }

@@ -18,14 +18,14 @@
 //                         them as required files; without staging,
 //                         `gem build` fails with
 //                         "[LICENSE, NOTICE] are not files".
-//   2. ruby.install()  — bundle install from the upstream Gemfile.
-//                         Honours `Gemfile.lock`; project-local gem
-//                         closure lands under `.aeb/bundle/`.
-//   3. ruby.package()  — gem build against selenium-webdriver.gemspec.
+//   2. ruby.bundle() { install() } — bundle install from the upstream
+//                         Gemfile. Honours `Gemfile.lock`; project-local
+//                         gem closure lands under `.aeb/bundle/`.
+//   3. ruby.gem() { build("selenium-webdriver.gemspec") } — gem build.
 //                         Output: target/<mod>/dist/selenium-webdriver-<ver>.gem.
-//                         (Builder is `package`, not `gem`, because
-//                         `gem` is the Gemfile-line setter; LLM.md
-//                         § builder-name-collision.)
+//                         (Tool-named grammar: the verb IS the tool —
+//                         ruby.bundle / ruby.gem / ruby.rake, with ruby.mri
+//                         the tool-free MRI lane.)
 //
 // The selenium-devtools.gemspec sibling would be a separate
 // `.dist.ae` (a single `.build.ae` can only declare one builder
@@ -46,7 +46,7 @@ import bldr
 import copy
 import copy (from, to)
 import ruby
-import ruby (gemspec)
+import ruby (install, build)
 
 main() {
     bldr.build() {
@@ -58,9 +58,11 @@ main() {
             from("../NOTICE")
             to("NOTICE")
         }
-        ruby.install()
-        ruby.package() {
-            gemspec("selenium-webdriver.gemspec")
+        ruby.bundle() {
+            install()
+        }
+        ruby.gem() {
+            build("selenium-webdriver.gemspec")
         }
     }
 }

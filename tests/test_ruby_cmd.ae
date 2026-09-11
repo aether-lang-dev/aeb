@@ -13,10 +13,10 @@
 //      `ruby_version` on a fresh map, read back the keys.
 
 import std.spec
-import ruby (bundle_install_cmd, bundle_exec_cmd, rspec_cmd,
-             rubocop_cmd, gem_build_cmd, minitest_cmd,
-             gem, rspec_arg, rubocop_config, gemspec, gemfile,
-             bundle_path, ruby_version, minitest_file)
+import ruby (bundle_install_cmd, rspec_cmd, rubocop_cmd, gem_build_cmd,
+             minitest_cmd, mri_cmd, rake_cmd,
+             gem_dep, rspec_arg, rubocop_config, gemfile,
+             bundle_path, minitest_file, test_file, mri_flag, task, build)
 import std.list
 import std.map
 
@@ -61,12 +61,25 @@ main() {
                 "bundle_install_cmd with spaces")
         }
 
-        // --- bundle_exec_cmd: generic exec passthrough.
-        spec.it("bundle_exec_cmd basic") callback {
+        // --- mri_cmd: TOOL-FREE — plain `ruby`, no bundle exec, no Gemfile.
+        spec.it("mri_cmd with files") callback {
             spec.assert_str_eq(
-                bundle_exec_cmd("bundle", "/proj/rb", "rake spec"),
-                "cd '/proj/rb' && 'bundle' exec rake spec",
-                "bundle_exec_cmd basic")
+                mri_cmd("/proj/rb", "-rffi_test", ""),
+                "cd '/proj/rb' && ruby -Ilib -Ispec -Itest -rffi_test -e ''",
+                "mri_cmd files")
+        }
+        spec.it("mri_cmd with an extra flag") callback {
+            spec.assert_str_eq(
+                mri_cmd("/proj/rb", "-rffi_test", "-I/abs/inc"),
+                "cd '/proj/rb' && ruby -Ilib -Ispec -Itest -I/abs/inc -rffi_test -e ''",
+                "mri_cmd flag")
+        }
+        // --- rake_cmd: `rake <tasks>`, under bundle exec iff a Gemfile is present.
+        spec.it("rake_cmd tasks") callback {
+            spec.assert_str_eq(
+                rake_cmd("bundle", "/proj/rb", "compile test"),
+                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec rake compile test; else rake compile test; fi",
+                "rake_cmd tasks")
         }
 
         // --- rspec_cmd: no args.
@@ -146,14 +159,12 @@ main() {
                 "rubocop_cmd config path with spaces")
         }
 
-        // --- bundle_exec_cmd: trailing argv with embedded quoting passes
-        // through verbatim. (Caller is responsible for quoting; this just
-        // documents the surface contract.)
-        spec.it("bundle_exec_cmd argv passthrough") callback {
+        // --- rake_cmd: no tasks → bare `rake` (the default task).
+        spec.it("rake_cmd no tasks → bare rake") callback {
             spec.assert_str_eq(
-                bundle_exec_cmd("bundle", "/proj/rb", "rake spec[selenium-webdriver]"),
-                "cd '/proj/rb' && 'bundle' exec rake spec[selenium-webdriver]",
-                "bundle_exec_cmd argv passthrough")
+                rake_cmd("bundle", "/proj/rb", ""),
+                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec rake ; else rake ; fi",
+                "rake_cmd bare")
         }
 
         // --- minitest_cmd: explicit -r reqs. Runs under `bundle exec ruby`
@@ -183,9 +194,9 @@ main() {
         // --- gem: list accumulator, order preserved.
         spec.it("gem accumulates and preserves order") callback {
             bm1 = map.new()
-            gem(bm1, "rspec ~> 3.13")
-            gem(bm1, "rubocop ~> 1.66")
-            gem(bm1, "debug")
+            gem_dep(bm1, "rspec ~> 3.13")
+            gem_dep(bm1, "rubocop ~> 1.66")
+            gem_dep(bm1, "debug")
             spec.assert_eq(_list_size_at(bm1, "ruby_gems"), 3, "gem accumulates 3 entries")
             spec.assert_str_eq(_list_get_at(bm1, "ruby_gems", 0), "rspec ~> 3.13", "gem order: first is rspec")
             spec.assert_str_eq(_list_get_at(bm1, "ruby_gems", 2), "debug", "gem order: third is debug")
@@ -194,7 +205,7 @@ main() {
         // --- rspec_arg: separate list from gem.
         spec.it("rspec_arg stores separately from gem") callback {
             bm2 = map.new()
-            gem(bm2, "rspec")
+            gem_dep(bm2, "rspec")
             rspec_arg(bm2, "--format=doc")
             rspec_arg(bm2, "spec/foo_spec.rb")
             spec.assert_eq(_list_size_at(bm2, "ruby_rspec_args"), 2, "rspec_arg stores in its own key")
@@ -216,23 +227,21 @@ main() {
         // key. Later calls overwrite earlier (map.put semantics).
         spec.it("scalar setters each store a single string key") callback {
             bm3 = map.new()
-            gemspec(bm3, "selenium-webdriver.gemspec")
+            build(bm3, "selenium-webdriver.gemspec")
             gemfile(bm3, "Gemfile.aeb")
             bundle_path(bm3, "vendor/bundle")
             rubocop_config(bm3, ".rubocop.yml")
-            ruby_version(bm3, "3.3")
-            spec.assert_str_eq(_str_at(bm3, "ruby_gemspec"), "selenium-webdriver.gemspec", "gemspec stored as scalar")
+            spec.assert_str_eq(_str_at(bm3, "ruby_gemspec"), "selenium-webdriver.gemspec", "build() stores gemspec scalar")
             spec.assert_str_eq(_str_at(bm3, "ruby_gemfile"), "Gemfile.aeb", "gemfile stored as scalar")
             spec.assert_str_eq(_str_at(bm3, "ruby_bundle_path"), "vendor/bundle", "bundle_path stored as scalar")
             spec.assert_str_eq(_str_at(bm3, "ruby_rubocop_config"), ".rubocop.yml", "rubocop_config stored as scalar")
-            spec.assert_str_eq(_str_at(bm3, "ruby_version"), "3.3", "ruby_version stored as scalar")
         }
 
         // --- Scalar overwrite: last call wins.
         spec.it("scalar overwrite: last call wins") callback {
             bm4 = map.new()
-            gemspec(bm4, "first.gemspec")
-            gemspec(bm4, "second.gemspec")
+            build(bm4, "first.gemspec")
+            build(bm4, "second.gemspec")
             spec.assert_str_eq(_str_at(bm4, "ruby_gemspec"), "second.gemspec", "gemspec last-call-wins")
         }
 
