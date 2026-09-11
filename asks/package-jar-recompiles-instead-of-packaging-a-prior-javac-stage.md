@@ -1,5 +1,32 @@
 # `java.package_jar()` recompiles the sources instead of packaging a prior `javac` stage's classes
 
+> **STATUS: FIXED (2026-09-11).** Added `from_classes(<classpath>)` to
+> `package_jar`; when present it packages those pre-compiled classes and skips
+> its internal javac. Self-compile stays as the fallback. Exactly the suggested
+> shape.
+
+## Resolution
+
+`lib/java/module.ae`: new `from_classes("<dir|classpath>")` setter. When set,
+`package_jar` stages each classpath entry (a directory's class tree is copied
+in; a `.jar` is copied alongside) and **skips the internal javac**; native
+resources + jar steps are unchanged, so `native_resource()` and the builder's
+other niceties are preserved (the thing the hand-rolled workaround lost). Absent
+→ self-compile as before. The builder doc now leads with the from_classes
+(package-a-prior-stage) shape as preferred, self-compile as the fallback — the
+compile/package split mainstream JVM build systems use.
+
+Verified end-to-end on ae 0.665.0: a `java/.build.ae` javac node + a
+`java/.jar.ae` using `from_classes(dep_artifact("java/.build.ae",
+"jvm_classpath_deps_including_transitive"))` + `native_resource` →
+the node's log shows `cp -R …/classes/. → stage` and "packaging pre-compiled
+classes (no recompile)", **no javac in the package step**; the jar contains the
+javac node's `Hello.class` + `native/libdemo.so`. Self-compile fallback (no
+from_classes) still builds a jar from `src/main/java` / flat layout. Full aeb
+suite green.
+
+So "you ship what you tested" is now structural, and the binding compiles once.
+
 ## The ask
 
 `java.package_jar()` (lib/java/module.ae, ~line 1153) runs its **own `javac`**

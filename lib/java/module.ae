@@ -41,6 +41,21 @@ jar_name(_ctx: ptr, name: string) {
     _e = map.put(_ctx, "jar_name", name)
 }
 
+// from_classes("<dir>") — package THESE already-compiled classes instead of
+// self-compiling. Hand it a prior javac stage's output, e.g.
+//   from_classes(dep_artifact("java/.build.ae", "jvm_classpath_deps_including_transitive"))
+// so the jar ships the exact bytecode your tests ran against (compile once,
+// package that) rather than recompiling the sources a second time. When set,
+// package_jar copies this dir into the jar and skips its internal javac; when
+// absent, package_jar self-compiles as before (the fallback for a jar node with
+// no upstream compile). Scalar. The classpath artifact may contain several
+// entries (dir/jar, ':'-separated); package_jar stages each directory entry's
+// tree and copies each .jar alongside.
+// (asks/package-jar-recompiles-instead-of-packaging-a-prior-javac-stage.md)
+from_classes(_ctx: ptr, classes: string) {
+    _e = map.put(_ctx, "jar_from_classes", classes)
+}
+
 // native_resource("<abs .so>", "native/libfoo.so") — bundle a native asset into
 // the jar at the given resource path (e.g. so a loader finds /native/lib*.so as
 // a classpath resource). Repeatable. Value is "src<TAB>dest".
@@ -1145,11 +1160,22 @@ builder javac(): int {
     return 0
 }
 
-// java.package_jar() — build a distributable jar: compile src/main/java into a
-// staging dir, bundle any native_resource()s, `jar cf`, and publish the jar on
-// the "jar" artifact edge. For a hand-rolled jar that ships a native asset (the
-// Selenium port's jar bundles the engine .so as /native/). Setters: jar_name
-// (required), native_resource, release, source_layout.
+// java.package_jar() — build a distributable jar: stage classes, bundle any
+// native_resource()s, `jar cf`, and publish the jar on the "jar" artifact edge.
+//
+// PREFERRED shape — package a prior javac stage's output (compile once, package
+// that), so the jar ships the exact bytecode the tests ran, structurally:
+//   java.package_jar() {
+//       jar_name("foo.jar")
+//       from_classes(dep_artifact("java/.build.ae", "jvm_classpath_deps_including_transitive"))
+//       native_resource(lib, "native/libfoo.so")
+//   }
+// Without from_classes, package_jar SELF-COMPILES src/main/java (maven layout,
+// flat fallback) — the fallback for a jar node with no upstream compile. That's
+// the odd-one-out vs maven/gradle/bazel (jar = a downstream step over compile
+// output, not a recompile); from_classes makes aeb match that.
+// Setters: jar_name (required), from_classes, native_resource, release,
+// source_layout. (asks/package-jar-recompiles-instead-of-packaging-a-prior-javac-stage.md)
 builder package_jar(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -1167,29 +1193,73 @@ builder package_jar(): int {
         return 1
     }
 
-    // 1. compile src/main/java (maven layout) into a fresh staging classes dir.
+    // 1. populate a fresh staging classes dir. Two ways:
+    //    (a) from_classes(<classpath>) — package a PRIOR javac stage's output
+    //        (the default shape aeb promotes: compile once, package that, so the
+    //        jar ships the exact bytecode the tests ran). Stage each classpath
+    //        entry: a directory's tree is copied in; a .jar is copied alongside.
+    //    (b) no from_classes — self-compile src/main/java (maven layout, flat
+    //        fallback). The fallback for a jar node with no upstream compile.
     stage = path.join(target_dir, "jar-classes")
     bldr._sh("rm -rf '${stage}' && mkdir -p '${stage}'")
-    src_root = path.join(source_dir, "src/main/java")
-    argfile = path.join(target_dir, "package_jar_sources.txt")
-    bldr._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
-    af_raw, _eaf = io.read_file(argfile)
-    if string.length(string.trim(af_raw)) == 0 {
-        // fall back to a flat top-level scan (non-maven layout).
-        bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
-    }
-    release_flag = ""
+
+    from_cp = ""
     if _builder != null {
-        if map.has(_builder, "release") == 1 {
-            rv, _ = map.get(_builder, "release")
-            release_flag = " --release ${rv}"
-        }
+        if map.has(_builder, "jar_from_classes") == 1 { from_cp, _ = map.get(_builder, "jar_from_classes") }
     }
-    jc = bldr._sh("javac${release_flag} -d '${stage}' @'${argfile}'")
-    if jc != 0 {
-        println("${mod_dir}: package_jar: javac FAILED")
-        bldr.fail(ctx, "package_jar javac failed")
-        return 1
+
+    if string.length(string.trim(from_cp)) > 0 {
+        // (a) package pre-compiled classes — no javac. Split the classpath on
+        // ':' and stage each entry by kind (dir tree in / jar copied beside).
+        staged_any = 0
+        ci = 1
+        while ci <= 200 {
+            e_raw, _ece = bldr._sh_capture("printf '%s' '${from_cp}' | cut -d: -f${ci}")
+            entry = string.trim(e_raw)
+            if string.length(entry) == 0 { ci = 999 }
+            else {
+                if dir.exists(entry) == 1 {
+                    // copy the directory's CONTENTS (classes tree) into the stage.
+                    bldr._sh("cp -R '${entry}/.' '${stage}/' 2>/dev/null || true")
+                    staged_any = 1
+                } else {
+                    if file.exists(entry) == 1 {
+                        bldr._sh("cp -f '${entry}' '${stage}/' 2>/dev/null || true")
+                        staged_any = 1
+                    }
+                }
+                ci = ci + 1
+            }
+        }
+        if staged_any == 0 {
+            println("${mod_dir}: package_jar: from_classes('${from_cp}') resolved no classes dir or jar")
+            bldr.fail(ctx, "package_jar: from_classes path had nothing to package")
+            return 1
+        }
+        println("${mod_dir}: package_jar: packaging pre-compiled classes (no recompile)")
+    } else {
+        // (b) self-compile src/main/java (maven layout) into the staging dir.
+        src_root = path.join(source_dir, "src/main/java")
+        argfile = path.join(target_dir, "package_jar_sources.txt")
+        bldr._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
+        af_raw, _eaf = io.read_file(argfile)
+        if string.length(string.trim(af_raw)) == 0 {
+            // fall back to a flat top-level scan (non-maven layout).
+            bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
+        }
+        release_flag = ""
+        if _builder != null {
+            if map.has(_builder, "release") == 1 {
+                rv, _ = map.get(_builder, "release")
+                release_flag = " --release ${rv}"
+            }
+        }
+        jc = bldr._sh("javac${release_flag} -d '${stage}' @'${argfile}'")
+        if jc != 0 {
+            println("${mod_dir}: package_jar: javac FAILED")
+            bldr.fail(ctx, "package_jar javac failed")
+            return 1
+        }
     }
 
     // 2. bundle native_resource()s into the staging tree.
