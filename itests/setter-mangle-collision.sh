@@ -70,15 +70,17 @@ else
     fail "setter/function mangle-collision(s) found"
     printf '%s\n' "$HITS" | sed 's/^/        /'
     echo "        -> rename the function so it is not <module>_<setter>"
-    echo "           (e.g. lib/ruby's ruby_env -> ruby_manager)"
+    echo "           (e.g. lib/ruby's rbenv setter must not be named ruby_env)"
 fi
 
 # Regression pin: lib/ruby must not reintroduce `ruby_env` (collided with the
 # `env` setter's mangled form). Named so a re-break says WHICH history repeats.
+# The rbenv-declaration setter is a bare `rbenv()` flag (mangles to ruby_rbenv,
+# collision-free) precisely to keep off `ruby_env`.
 if grep -qE "^ruby_env\(" lib/ruby/module.ae 2>/dev/null; then
-    fail "lib/ruby defines ruby_env( again — collides with the 'env' setter (SIGSEGV). Use ruby_manager."
+    fail "lib/ruby defines ruby_env( again — collides with the 'env' setter (SIGSEGV). Declare rbenv via rbenv()."
 else
-    pass "lib/ruby's rbenv setter is still ruby_manager (not ruby_env)"
+    pass "lib/ruby's rbenv declaration setter avoids ruby_env (it is rbenv())"
 fi
 
 echo

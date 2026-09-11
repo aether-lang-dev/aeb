@@ -3,6 +3,11 @@
 (Distinct from the segfault ask — that's fixed. This is the next layer, in the
 rbenv resolution itself.)
 
+> **API NOTE:** this ask was written when the setter was `ruby_manager("rbenv")`.
+> It is now the bare flag **`rbenv()`** (renamed pre-release; see the segfault ask).
+> Wherever this doc says `ruby_manager("rbenv")`, read `rbenv()`. The shim-vs-
+> which-path fix it describes is unchanged and shipped.
+
 ## Symptom
 A ruby node with `ruby_manager("rbenv")` (was `ruby_env`) installs gems fine but
 then `bundle exec ruby …` fails:

@@ -3,6 +3,13 @@
 **Status: FIXED in `lib/ruby/module.ae` (rename); an underlying compiler gap
 remains (separate ask below).**
 
+> **API UPDATE (post-fix, pre-release):** the rename target `ruby_manager("rbenv")`
+> was itself superseded before any release shipped it. The rbenv declaration is now
+> a bare tool-named flag **`rbenv()`** (+ `ruby_version("3.3.1")` to pin) — `rbenv`
+> mangles to `ruby_rbenv`, equally collision-free, and reads better than a manager
+> string whose only valid value was ever "rbenv". The segfault fix (keep the setter
+> off `ruby_env`) stands unchanged; only the chosen name moved on.
+
 ## Symptom
 `ruby.mri(){ test_file("x.rb") env("K","v") }` (or the same `env()` inside
 `ruby.bundle()`) SEGFAULTs the node in ~0.02s — `SIGSEGV in map_put_raw`,

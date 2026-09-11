@@ -17,7 +17,7 @@ import ruby (bundle_install_cmd, rspec_cmd, rubocop_cmd, gem_build_cmd,
              minitest_cmd, mri_cmd, rake_cmd,
              gem_dep, rspec_arg, rubocop_config, gemfile,
              bundle_path, minitest_file, test_file, mri_flag, task, build,
-             ruby_manager, ruby_version,
+             rbenv, ruby_version,
              _ruby_env_manager, _ruby_env_version, _rbenv_version_prefix, _prefer_shim,
              _reject_node_call, install, rspec, minitest, rubocop)
 import std.list
@@ -265,46 +265,45 @@ main() {
         }
     }
 
-    // === ruby_env / ruby_version — the declared-interpreter grammar =====
-    // Default (no ruby_env) = system Ruby on PATH. rbenv is declared, never a
-    // silent PATH accident. These cover the PURE pieces (the setters + the
-    // manager/version readers + the RBENV_VERSION prefix); the actual
-    // resolution (rbenv which / command -v) is a _sh side-effect exercised by
-    // the itests.
-    spec.describe(fw, "ruby_env declared interpreter") {
-        // --- Default: no ruby_env declared → system Ruby (empty manager).
+    // === rbenv() / ruby_version() — the declared-interpreter grammar ====
+    // Default (no rbenv()) = system Ruby on PATH. rbenv is declared with a bare
+    // tool-named flag, never a silent PATH accident. These cover the PURE pieces
+    // (the setters + the manager/version readers + the RBENV_VERSION prefix); the
+    // actual resolution (shim / command -v) is a _sh side-effect exercised by the
+    // itests.
+    spec.describe(fw, "rbenv declared interpreter") {
+        // --- Default: no rbenv() declared → system Ruby (empty manager).
         spec.it("untouched map = system ruby (no manager, no version)") callback {
             rm0 = map.new()
-            spec.assert_str_eq(_ruby_env_manager(rm0), "", "no ruby_env → empty manager (system)")
+            spec.assert_str_eq(_ruby_env_manager(rm0), "", "no rbenv() → empty manager (system)")
             spec.assert_str_eq(_ruby_env_version(rm0), "", "no ruby_version → empty version")
             spec.assert_str_eq(_rbenv_version_prefix(rm0), "", "no version → no RBENV_VERSION prefix")
         }
 
-        // --- ruby_env("rbenv") with no version → rbenv current selection.
-        spec.it("ruby_manager(rbenv) declares the manager, version unpinned") callback {
+        // --- rbenv() with no version → rbenv current selection.
+        spec.it("rbenv() declares the manager, version unpinned") callback {
             rm1 = map.new()
-            ruby_manager(rm1, "rbenv")
-            spec.assert_str_eq(_ruby_env_manager(rm1), "rbenv", "ruby_env stores the manager")
+            rbenv(rm1)
+            spec.assert_str_eq(_ruby_env_manager(rm1), "rbenv", "rbenv() stores the manager as \"rbenv\"")
             spec.assert_str_eq(_ruby_env_version(rm1), "", "version unpinned → empty")
             spec.assert_str_eq(_rbenv_version_prefix(rm1), "", "unpinned → no RBENV_VERSION prefix")
         }
 
-        // --- ruby_manager("rbenv") + ruby_version("3.3.1") → pinned, prefix set.
+        // --- rbenv() + ruby_version("3.3.1") → pinned, prefix set.
         spec.it("ruby_version pins the version and emits an RBENV_VERSION prefix") callback {
             rm2 = map.new()
-            ruby_manager(rm2, "rbenv")
+            rbenv(rm2)
             ruby_version(rm2, "3.3.1")
             spec.assert_str_eq(_ruby_env_manager(rm2), "rbenv", "manager still rbenv")
             spec.assert_str_eq(_ruby_env_version(rm2), "3.3.1", "version pinned to 3.3.1")
             spec.assert_str_eq(_rbenv_version_prefix(rm2), "RBENV_VERSION='3.3.1' ", "pinned → RBENV_VERSION inline prefix")
         }
 
-        // --- Manager/version are trimmed (stray whitespace doesn't leak).
-        spec.it("manager and version are trimmed") callback {
+        // --- ruby_version is trimmed (stray whitespace doesn't leak).
+        spec.it("ruby_version is trimmed") callback {
             rm3 = map.new()
-            ruby_manager(rm3, "  rbenv  ")
+            rbenv(rm3)
             ruby_version(rm3, "  3.2.0 ")
-            spec.assert_str_eq(_ruby_env_manager(rm3), "rbenv", "manager trimmed")
             spec.assert_str_eq(_ruby_env_version(rm3), "3.2.0", "version trimmed")
             spec.assert_str_eq(_rbenv_version_prefix(rm3), "RBENV_VERSION='3.2.0' ", "prefix uses the trimmed version")
         }

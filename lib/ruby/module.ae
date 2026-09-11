@@ -35,8 +35,8 @@
 // To run a node under an rbenv-managed Ruby, DECLARE it — never a silent PATH
 // accident. The builder logs the resolved interpreter either way:
 //
-//     ruby.bundle() { ruby_manager("rbenv") install() rspec() }   // rbenv current
-//     ruby.mri()    { ruby_manager("rbenv") ruby_version("3.3.1") test_file("t.rb") }
+//     ruby.bundle() { rbenv() install() rspec() }             // rbenv current
+//     ruby.mri()    { rbenv() ruby_version("3.3.1") test_file("t.rb") }
 //     ruby.gem()    { build("foo.gemspec") }                  // system (default)
 
 import bldr
@@ -77,27 +77,29 @@ env(_ctx: ptr, k: string, v: string) {
     bldr.env(_ctx, k, v)
 }
 
-// ruby_manager("rbenv") — DECLARE which Ruby this node runs under. Default
+// rbenv() — DECLARE that this node runs under an rbenv-managed Ruby. Default
 // (setter absent) is the system Ruby on PATH — unchanged, and still the norm.
-// Declaring ruby_manager("rbenv") routes ruby/gem/bundle/rake through `rbenv
-// which …` (so an rbenv-managed Ruby is used even though rbenv's shims are NOT
-// on the non-interactive PATH aeb's _sh runs under). The builder LOGS the
-// resolved interpreter ("using rbenv ruby <ver> at <path>") — never a silent
-// PATH accident. Only "rbenv" is understood today; any other value fails loud.
+// Declaring rbenv() routes ruby/gem/bundle/rake through the rbenv shim (so an
+// rbenv-managed Ruby is used even though rbenv's shims are NOT on the
+// non-interactive PATH aeb's _sh runs under). The builder LOGS the resolved
+// interpreter ("ruby = rbenv <ver> at <path>") — never a silent PATH accident.
 // Pair with ruby_version("3.3.1") to pin a specific installed version.
 //
-// NB the name is ruby_MANAGER, not ruby_env: inside a `ruby.<verb>() { … }`
-// block the compiler mangles the bare `env` setter to `ruby_env`, so a
-// function literally named `ruby_env` collides with it — and (as of ae 0.666)
-// that collision silently mis-dispatches `env("K","V")` to the 1-arg ruby_env
-// and SEGFAULTS in map.put rather than erroring. See asks/
-// setter-mangle-collides-with-function-name.md. Keep this name off `*_env`.
-ruby_manager(_ctx: ptr, manager: string) { _e = map.put(_ctx, "ruby_env_manager", manager) }
+// Why a bare tool-named flag, not a manager string: the tool IS the declaration
+// (mirroring ruby.bundle/gem/rake — the verb names the tool). A string parameter
+// like ruby_manager("<x>") would imply an open set (rvm/chruby/asdf) the resolver
+// does not have — every value but "rbenv" would silently fall back to system
+// Ruby, the exact accident this feature prevents. rvm/chruby, if ever needed,
+// get their OWN flag. (Also: the natural name `ruby_env` is a landmine — the
+// `env` setter mangles to `ruby_env`, so a function of that name collides and
+// SEGFAULTs; see asks/setter-mangle-collides-with-function-name.md. `rbenv`
+// mangles to `ruby_rbenv`, which is collision-free.)
+rbenv(_ctx: ptr) { _e = map.put(_ctx, "ruby_env_manager", "rbenv") }
 
-// ruby_version("3.3.1") — pin the version the declared ruby_manager resolves.
-// With ruby_manager("rbenv") this exports RBENV_VERSION so `rbenv which` picks
-// that install; absent → rbenv's current selection (.ruby-version / global).
-// No-op without a ruby_manager() (system Ruby is whatever's on PATH).
+// ruby_version("3.3.1") — pin the version the declared rbenv() resolves. With
+// rbenv() this exports RBENV_VERSION so the shim picks that install; absent →
+// rbenv's current selection (.ruby-version / global). No-op without an rbenv()
+// (system Ruby is whatever's on PATH).
 ruby_version(_ctx: ptr, version: string) { _e = map.put(_ctx, "ruby_env_version", version) }
 
 // --- ruby.bundle block setters ---
@@ -272,10 +274,10 @@ _resolve_bundle_path(builder_map: ptr, root: string) {
 
 // --- Ruby-interpreter resolution: system PATH (default) vs a declared manager -
 //
-// Default (no ruby_env()): the system Ruby on PATH — `command -v`, with the
-// RubyGems Gem.bin_path fallback for bundle. Declaring ruby_env("rbenv") swaps
-// every resolver onto `rbenv which <tool>` so an rbenv-managed Ruby is used even
-// though rbenv's shims are off the non-interactive PATH aeb's _sh runs under.
+// Default (no rbenv()): the system Ruby on PATH — `command -v`, with the
+// RubyGems Gem.bin_path fallback for bundle. Declaring rbenv() swaps every
+// resolver onto the rbenv shim so an rbenv-managed Ruby is used even though
+// rbenv's shims are off the non-interactive PATH aeb's _sh runs under.
 // All of this is LOGGED by the builders (see _announce_ruby_env) — never silent.
 
 // The manager declared on this node, or "" for system Ruby.
