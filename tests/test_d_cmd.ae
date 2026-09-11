@@ -1,0 +1,52 @@
+// Tests for lib/d's pure command-string builders + flag/bin accessors.
+import std.spec
+import std.map
+import d (run_test_cmd, _d_flags_of, _d_bin_of)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "run_test_cmd") {
+        spec.it("plain, no flags/sources") callback {
+            spec.assert_str_eq(run_test_cmd("dmd", "/proj", "", "", "tests/ffi.d"),
+                "cd '/proj' && 'dmd' -run 'tests/ffi.d'", "plain run")
+        }
+        spec.it("with flags") callback {
+            spec.assert_str_eq(
+                run_test_cmd("dmd", "/proj", " -L-L/native -L-lselenium_core", "", "tests/live.d"),
+                "cd '/proj' && 'dmd' -L-L/native -L-lselenium_core -run 'tests/live.d'",
+                "run with link flags")
+        }
+        spec.it("with sources compiled in") callback {
+            spec.assert_str_eq(
+                run_test_cmd("dmd", "/proj", " -Isrc", " src/selenium/package.d", "tests/ffi.d"),
+                "cd '/proj' && 'dmd' -Isrc src/selenium/package.d -run 'tests/ffi.d'",
+                "sources precede -run")
+        }
+        spec.it("custom dmd path quoted") callback {
+            spec.assert_str_eq(run_test_cmd("/opt/dmd/dmd", "/proj", "", "", "t.d"),
+                "cd '/proj' && '/opt/dmd/dmd' -run 't.d'", "custom dmd quoted")
+        }
+    }
+
+    spec.describe(fw, "_d_bin_of") {
+        spec.it("default dmd") callback {
+            m = map.new()
+            spec.assert_str_eq(_d_bin_of(m), "dmd", "default is dmd")
+        }
+        spec.it("override honoured") callback {
+            m = map.new()
+            _e = map.put(m, "d_bin", "ldc2")
+            spec.assert_str_eq(_d_bin_of(m), "ldc2", "override to ldc2")
+        }
+    }
+
+    spec.describe(fw, "_d_flags_of") {
+        spec.it("empty when none") callback {
+            m = map.new()
+            spec.assert_str_eq(_d_flags_of(m), "", "no flags → ''")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

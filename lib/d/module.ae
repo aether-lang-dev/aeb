@@ -1,0 +1,312 @@
+// d — D SDK for aether.build
+//
+// Drives a plain D project with the reference compiler `dmd` directly (no dub
+// needed for a simple FFI binding): each test file is compiled-and-run with
+// `dmd -run`. A binding that links a C .so passes the link flags via d_flag(),
+// e.g. `-L-L<dir> -L-l<name> -L-rpath -L<dir>` (dmd forwards `-L<x>` to the
+// linker). Style mirror: lib/zig / lib/nim — system `dmd` on PATH, no venv.
+//
+// DSL:
+//   d_bin("dmd")            override the D compiler executable (default "dmd")
+//   d_flag("-L-L/x")        a compiler/linker flag; repeatable, order preserved
+//   test_file("t/ffi.d")    a test .d to compile-and-run; repeatable
+//   env("K","V")            an env var for the compile+run (e.g. SELENIUM_CORE_LIB)
+import bldr
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.dir
+
+// --- DSL setters ---
+
+// d_bin("dmd") — override the D compiler. Default "dmd".
+d_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "d_bin", bin)
+}
+
+// d_flag("-L-L/abs/native") — one dmd flag (compile or, via -L, linker).
+// Repeatable; order preserved.
+d_flag(_ctx: ptr, flag: string) {
+    if map.has(_ctx, "d_flags") == 0 { _e0 = map.put(_ctx, "d_flags", list.new()) }
+    l, _ = map.get(_ctx, "d_flags")
+    _e = list.add(l, flag)
+}
+
+// d_source("src/selenium/package.d") — a library source file compiled INTO
+// every test binary (dmd needs the binding's own module on the compile line,
+// not just the test). Repeatable; order preserved; comes before `-run`.
+d_source(_ctx: ptr, f: string) {
+    if map.has(_ctx, "d_sources") == 0 { _e0 = map.put(_ctx, "d_sources", list.new()) }
+    l, _ = map.get(_ctx, "d_sources")
+    _e = list.add(l, f)
+}
+
+// test_file("tests/ffi.d") — a D test compiled-and-run with `dmd -run`.
+// Repeatable; each is a separate compile+run.
+test_file(_ctx: ptr, f: string) {
+    if map.has(_ctx, "d_test_files") == 0 { _e0 = map.put(_ctx, "d_test_files", list.new()) }
+    l, _ = map.get(_ctx, "d_test_files")
+    _e = list.add(l, f)
+}
+
+// env("SELENIUM_CORE_LIB", "/abs/lib.so") — an env var exported for the
+// compile+run. Repeatable. Forwarded via bldr's env-export prefix.
+env(_ctx: ptr, k: string, v: string) {
+    bldr.env(_ctx, k, v)
+}
+
+// --- pure helpers ---
+
+_d_bin_of(builder_map: ptr) {
+    if map.has(builder_map, "d_bin") == 1 { b, _ = map.get(builder_map, "d_bin"); return b }
+    return "dmd"
+}
+
+// _join_list(map, key) — " <v1> <v2> …" for a stored list at key (or "").
+_join_list(builder_map: ptr, key: string) {
+    flags = ""
+    if map.has(builder_map, key) == 1 {
+        l, _ = map.get(builder_map, key)
+        n = list.size(l)
+        i = 0
+        while i < n {
+            f, _ = list.get(l, i)
+            flags = string.concat(flags, string.concat(" ", f))
+            i = i + 1
+        }
+    }
+    return flags
+}
+
+// " <flag1> <flag2> …" for the declared d_flag()s (or "").
+_d_flags_of(builder_map: ptr) {
+    return _join_list(builder_map, "d_flags")
+}
+
+// " <src1> <src2> …" for the declared d_source()s (or "").
+_d_sources_of(builder_map: ptr) {
+    return _join_list(builder_map, "d_sources")
+}
+
+// run_test_cmd — compile-and-run one D file:
+//   `cd <dir> && dmd <flags> <sources> -run <file>`.
+// Pure. dmd -run compiles the whole set to a temp binary and executes it,
+// running (and forwarding the exit code of) the file after `-run`; any sources
+// before `-run` are compiled in (the binding's own module).
+run_test_cmd(dmd: string, source_dir: string, flags: string, sources: string, file: string) {
+    return "cd '${source_dir}' && '${dmd}'${flags}${sources} -run '${file}'"
+}
+
+// --- builders ---
+
+// test() — compile-and-run each test_file() with dmd, in order. Fail-fast: a
+// non-zero exit reddens the build. Records pass/fail counts per the runner's
+// output when it prints them, else 1/0 (or 0/1 on failure) per file.
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    dmd = _d_bin_of(_builder)
+    flags = _d_flags_of(_builder)
+    sources = _d_sources_of(_builder)
+    envp = bldr._env_export_prefix(_builder)
+
+    files = list.new()
+    if map.has(_builder, "d_test_files") == 1 { files, _ = map.get(_builder, "d_test_files") }
+    nf = list.size(files)
+    if nf == 0 {
+        println("${mod_dir}: d.test — no test_file() declared; nothing to run")
+        return 0
+    }
+
+    total_pass = 0
+    total_fail = 0
+    fi = 0
+    while fi < nf {
+        f, _ = list.get(files, fi)
+        println("${mod_dir}: dmd -run ${f}")
+        cmd = string.concat(envp, run_test_cmd(dmd, source_dir, flags, sources, f))
+        out_path = path.join(target_dir, string.concat("test_output_", string.concat(bldr._basename(f), ".log")))
+        full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
+        exit_code = bldr._sh(full_cmd)
+        if exit_code != 0 {
+            total_fail = total_fail + 1
+            bldr._record_test_result(ctx, total_pass, total_fail)
+            println("${mod_dir}: ${f} FAILED")
+            bldr.fail(ctx, "d.test: a test failed")
+            return exit_code
+        }
+        total_pass = total_pass + 1
+        fi = fi + 1
+    }
+    bldr._record_test_result(ctx, total_pass, total_fail)
+    println("${mod_dir}: tests PASSED (${total_pass} file(s))")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// --- consumer_example() DSL + builder ---------------------------------------
+//
+// Prove a third party can drive the engine from a CLEAN staged package: stage
+// the package (src + native/.so, NO tests/core) and a consumer, assert the .so
+// shipped, then compile-and-run the consumer with SELENIUM_CORE_LIB UNSET — so
+// it links ONLY the package's own bundled .so. Generic (same shape as lib/zig).
+
+// stage("src/x", "d-pkg/src/x") — copy one file/dir into the clean stage root.
+stage(_ctx: ptr, src: string, dest: string) {
+    if map.has(_ctx, "stage_pairs") == 0 { _e1 = map.put(_ctx, "stage_pairs", list.new()) }
+    l, _ = map.get(_ctx, "stage_pairs")
+    _e2 = list.add(l, string.concat(src, string.concat("\t", dest)))
+}
+// stage_dir("src", "d-pkg/src", "") — cp -r a whole dir, optional prune sub-path.
+stage_dir(_ctx: ptr, src: string, dest: string, prune: string) {
+    if map.has(_ctx, "stage_dirs") == 0 { _e1 = map.put(_ctx, "stage_dirs", list.new()) }
+    l, _ = map.get(_ctx, "stage_dirs")
+    _e2 = list.add(l, string.concat(src, string.concat("\t", string.concat(dest, string.concat("\t", prune)))))
+}
+// run_in("d-consumer") — the stage-relative dir the consumer runs from.
+run_in(_ctx: ptr, dir: string) {
+    _e = map.put(_ctx, "run_in", dir)
+}
+// consumer_run_cmd("dmd ... -run consumer.d") — the run command (the arg is
+// appended as argv, becoming the consumer's mode). Scalar.
+consumer_run_cmd(_ctx: ptr, cmd: string) {
+    _e = map.put(_ctx, "run_cmd", cmd)
+}
+// pre_cmd("...") — a build step run once in run_in before the per-arg runs.
+pre_cmd(_ctx: ptr, cmd: string) {
+    _e = map.put(_ctx, "pre_cmd", cmd)
+}
+// run_arg("ffi") — an argv appended to the run command. Repeatable.
+run_arg(_ctx: ptr, arg: string) {
+    if map.has(_ctx, "run_args") == 0 { _e1 = map.put(_ctx, "run_args", list.new()) }
+    l, _ = map.get(_ctx, "run_args")
+    _e2 = list.add(l, arg)
+}
+// assert_file("d-pkg/native/libselenium_core.so") — a stage-relative path that
+// MUST exist after staging. Repeatable.
+assert_file(_ctx: ptr, p: string) {
+    if map.has(_ctx, "assert_files") == 0 { _e1 = map.put(_ctx, "assert_files", list.new()) }
+    l, _ = map.get(_ctx, "assert_files")
+    _e2 = list.add(l, p)
+}
+
+builder consumer_example(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    stageroot = path.join(target_dir, "stage")
+    bldr._sh("rm -rf '${stageroot}' && mkdir -p '${stageroot}'")
+
+    // stage file pairs.
+    if map.has(_builder, "stage_pairs") == 1 {
+        l, _ = map.get(_builder, "stage_pairs")
+        n = list.size(l)
+        i = 0
+        while i < n {
+            pair, _ = list.get(l, i)
+            tab = string.index_of(pair, "\t")
+            src = string.substring(pair, 0, tab)
+            dest = string.substring(pair, tab + 1, string.length(pair))
+            src_abs = path.join(source_dir, src)
+            dest_abs = path.join(stageroot, dest)
+            dest_parent = path.dirname(dest_abs)
+            bldr._sh("mkdir -p '${dest_parent}' && cp -r '${src_abs}' '${dest_abs}'")
+            i = i + 1
+        }
+    }
+
+    // stage whole dirs.
+    if map.has(_builder, "stage_dirs") == 1 {
+        l, _ = map.get(_builder, "stage_dirs")
+        n = list.size(l)
+        i = 0
+        while i < n {
+            spec, _ = list.get(l, i)
+            t1 = string.index_of(spec, "\t")
+            sd_src = string.substring(spec, 0, t1)
+            r1 = string.substring(spec, t1 + 1, string.length(spec))
+            t2 = string.index_of(r1, "\t")
+            sd_dest = string.substring(r1, 0, t2)
+            sd_prune = string.substring(r1, t2 + 1, string.length(r1))
+            src_abs = path.join(source_dir, sd_src)
+            dest_abs = path.join(stageroot, sd_dest)
+            bldr._sh("cp -r '${src_abs}' '${dest_abs}'")
+            if string.length(sd_prune) > 0 {
+                bldr._sh("rm -rf '${dest_abs}/${sd_prune}'")
+            }
+            i = i + 1
+        }
+    }
+
+    // assert bundled files.
+    if map.has(_builder, "assert_files") == 1 {
+        l, _ = map.get(_builder, "assert_files")
+        n = list.size(l)
+        i = 0
+        while i < n {
+            af, _ = list.get(l, i)
+            if bldr._sh("ls '${stageroot}/${af}' >/dev/null 2>&1") != 0 {
+                println("${mod_dir}: staged package missing ${af}")
+                bldr.fail(ctx, "bundled asset missing after staging")
+                return 1
+            }
+            i = i + 1
+        }
+    }
+
+    run_dir = "consumer"
+    if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get(_builder, "run_in") }
+    run_abs = path.join(stageroot, run_dir)
+    run_command = "dmd -run consumer.d"
+    if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get(_builder, "run_cmd") }
+
+    // optional build step before the per-arg runs.
+    if map.has(_builder, "pre_cmd") == 1 {
+        pc, _ = map.get(_builder, "pre_cmd")
+        if string.length(pc) > 0 {
+            if bldr._sh("cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${pc}") != 0 {
+                println("${mod_dir}: consumer pre-build failed")
+                bldr.fail(ctx, "consumer pre-build failed")
+                return 1
+            }
+        }
+    }
+
+    args = null
+    if map.has(_builder, "run_args") == 1 { args, _ = map.get(_builder, "run_args") }
+    if args == null {
+        base = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command}"
+        if bldr._sh(base) != 0 { bldr.fail(ctx, "consumer run failed"); return 1 }
+    } else {
+        na = list.size(args)
+        ai = 0
+        while ai < na {
+            a, _ = list.get(args, ai)
+            println("${mod_dir}: consumer run (${a})")
+            one = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command} ${a}"
+            if bldr._sh(one) != 0 {
+                println("${mod_dir}: consumer run (${a}) failed")
+                bldr.fail(ctx, "consumer run (${a}) failed")
+                return 1
+            }
+            ai = ai + 1
+        }
+    }
+    println("${mod_dir}: PASS — consumer drove the engine via the package's bundled .so from clean")
+    _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
