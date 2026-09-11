@@ -35,8 +35,8 @@
 // To run a node under an rbenv-managed Ruby, DECLARE it — never a silent PATH
 // accident. The builder logs the resolved interpreter either way:
 //
-//     ruby.bundle() { ruby_env("rbenv") install() rspec() }   // rbenv current
-//     ruby.mri()    { ruby_env("rbenv") ruby_version("3.3.1") test_file("t.rb") }
+//     ruby.bundle() { ruby_manager("rbenv") install() rspec() }   // rbenv current
+//     ruby.mri()    { ruby_manager("rbenv") ruby_version("3.3.1") test_file("t.rb") }
 //     ruby.gem()    { build("foo.gemspec") }                  // system (default)
 
 import bldr
@@ -77,20 +77,27 @@ env(_ctx: ptr, k: string, v: string) {
     bldr.env(_ctx, k, v)
 }
 
-// ruby_env("rbenv") — DECLARE which Ruby this node runs under. Default (setter
-// absent) is the system Ruby on PATH — unchanged, and still the norm. Declaring
-// ruby_env("rbenv") routes ruby/gem/bundle/rake through `rbenv which …` (so an
-// rbenv-managed Ruby is used even though rbenv's shims are NOT on the
-// non-interactive PATH aeb's _sh runs under). The builder LOGS the resolved
-// interpreter ("using rbenv ruby <ver> at <path>") — never a silent PATH
-// accident. Only "rbenv" is understood today; any other value fails loud.
+// ruby_manager("rbenv") — DECLARE which Ruby this node runs under. Default
+// (setter absent) is the system Ruby on PATH — unchanged, and still the norm.
+// Declaring ruby_manager("rbenv") routes ruby/gem/bundle/rake through `rbenv
+// which …` (so an rbenv-managed Ruby is used even though rbenv's shims are NOT
+// on the non-interactive PATH aeb's _sh runs under). The builder LOGS the
+// resolved interpreter ("using rbenv ruby <ver> at <path>") — never a silent
+// PATH accident. Only "rbenv" is understood today; any other value fails loud.
 // Pair with ruby_version("3.3.1") to pin a specific installed version.
-ruby_env(_ctx: ptr, manager: string) { _e = map.put(_ctx, "ruby_env_manager", manager) }
+//
+// NB the name is ruby_MANAGER, not ruby_env: inside a `ruby.<verb>() { … }`
+// block the compiler mangles the bare `env` setter to `ruby_env`, so a
+// function literally named `ruby_env` collides with it — and (as of ae 0.666)
+// that collision silently mis-dispatches `env("K","V")` to the 1-arg ruby_env
+// and SEGFAULTS in map.put rather than erroring. See asks/
+// setter-mangle-collides-with-function-name.md. Keep this name off `*_env`.
+ruby_manager(_ctx: ptr, manager: string) { _e = map.put(_ctx, "ruby_env_manager", manager) }
 
-// ruby_version("3.3.1") — pin the version the declared ruby_env resolves. With
-// ruby_env("rbenv") this exports RBENV_VERSION so `rbenv which` picks that
-// install; absent → rbenv's current selection (.ruby-version / global). No-op
-// without a ruby_env() (system Ruby is whatever's on PATH).
+// ruby_version("3.3.1") — pin the version the declared ruby_manager resolves.
+// With ruby_manager("rbenv") this exports RBENV_VERSION so `rbenv which` picks
+// that install; absent → rbenv's current selection (.ruby-version / global).
+// No-op without a ruby_manager() (system Ruby is whatever's on PATH).
 ruby_version(_ctx: ptr, version: string) { _e = map.put(_ctx, "ruby_env_version", version) }
 
 // --- ruby.bundle block setters ---
@@ -305,15 +312,39 @@ _rbenv_bin() {
     return string.trim(r)
 }
 
-// `rbenv which <tool>` → absolute path to that tool in the resolved Ruby. "" on
-// any failure (rbenv absent, version not installed, tool not present). Finds the
-// rbenv binary off-PATH via _rbenv_bin, and honours a pinned RBENV_VERSION.
+// Resolve `<tool>` to an rbenv path that ESTABLISHES the rbenv environment when
+// run. Prefer the rbenv SHIM ($RBENV_ROOT|~/.rbenv/shims/<tool>): a shim run by
+// absolute path re-execs through rbenv and sets up RUBYLIB/GEM_HOME/version
+// selection, so `bundle install` + `bundle exec` agree on the gem home even off
+// PATH. (A bare `rbenv which <tool>` path — the version-dir binary — does NOT do
+// this: it falls back to the SYSTEM Ruby's rubygems, so `bundle exec` then can't
+// find the just-installed gems — see asks/ruby-rbenv-exec-env-not-established.md.)
+// A pinned RBENV_VERSION is honoured by the shim; we still verify via `rbenv
+// which` that the tool exists for the resolved version. "" if rbenv/shim absent.
 _rbenv_which(builder_map: ptr, tool: string) {
     rb = _rbenv_bin()
     if rb == "" { return "" }
     pfx = _rbenv_version_prefix(builder_map)
-    p, _e = bldr._sh_capture("${pfx}'${rb}' which ${tool} 2>/dev/null")
-    return string.trim(p)
+    // Confirm the tool resolves for this rbenv version (also validates rbenv).
+    chk, _ce = bldr._sh_capture("${pfx}'${rb}' which ${tool} 2>/dev/null")
+    // Prefer the shim (self-establishing); fall back to the which-path only if no
+    // shims dir exists (older rbenv layout).
+    shim, _se = bldr._sh_capture("if [ -n \"$RBENV_ROOT\" ] && [ -x \"$RBENV_ROOT/shims/${tool}\" ]; then printf %s \"$RBENV_ROOT/shims/${tool}\"; elif [ -x \"$HOME/.rbenv/shims/${tool}\" ]; then printf %s \"$HOME/.rbenv/shims/${tool}\"; fi")
+    return _prefer_shim(string.trim(shim), string.trim(chk))
+}
+
+// _prefer_shim(shim, which) — the pure resolution rule behind _rbenv_which:
+// a bare `rbenv which <tool>` path (the version-dir binary) does NOT establish
+// the rbenv environment, so `bundle install` and a later `bundle exec` disagree
+// on the gem home and exec falls back to the SYSTEM Ruby's rubygems. The shim
+// self-establishes the env. So: if `rbenv which` found nothing, the tool isn't
+// available for this version → "" (caller falls back to PATH). Else prefer the
+// shim when present, and only use the which-path when no shim exists. Pure —
+// covered in tests/test_ruby_cmd.ae. See asks/ruby-rbenv-exec-env-not-established.
+_prefer_shim(shim: string, which: string) {
+    if which == "" { return "" }
+    if shim != "" { return shim }
+    return which
 }
 
 // Resolve one Ruby tool ("ruby"/"gem"/"bundle"/"rake") honouring a declared

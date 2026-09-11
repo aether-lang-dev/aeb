@@ -17,8 +17,8 @@ import ruby (bundle_install_cmd, rspec_cmd, rubocop_cmd, gem_build_cmd,
              minitest_cmd, mri_cmd, rake_cmd,
              gem_dep, rspec_arg, rubocop_config, gemfile,
              bundle_path, minitest_file, test_file, mri_flag, task, build,
-             ruby_env, ruby_version,
-             _ruby_env_manager, _ruby_env_version, _rbenv_version_prefix,
+             ruby_manager, ruby_version,
+             _ruby_env_manager, _ruby_env_version, _rbenv_version_prefix, _prefer_shim,
              _reject_node_call, install, rspec, minitest, rubocop)
 import std.list
 import std.map
@@ -281,18 +281,18 @@ main() {
         }
 
         // --- ruby_env("rbenv") with no version → rbenv current selection.
-        spec.it("ruby_env(rbenv) declares the manager, version unpinned") callback {
+        spec.it("ruby_manager(rbenv) declares the manager, version unpinned") callback {
             rm1 = map.new()
-            ruby_env(rm1, "rbenv")
+            ruby_manager(rm1, "rbenv")
             spec.assert_str_eq(_ruby_env_manager(rm1), "rbenv", "ruby_env stores the manager")
             spec.assert_str_eq(_ruby_env_version(rm1), "", "version unpinned → empty")
             spec.assert_str_eq(_rbenv_version_prefix(rm1), "", "unpinned → no RBENV_VERSION prefix")
         }
 
-        // --- ruby_env("rbenv") + ruby_version("3.3.1") → pinned, prefix set.
+        // --- ruby_manager("rbenv") + ruby_version("3.3.1") → pinned, prefix set.
         spec.it("ruby_version pins the version and emits an RBENV_VERSION prefix") callback {
             rm2 = map.new()
-            ruby_env(rm2, "rbenv")
+            ruby_manager(rm2, "rbenv")
             ruby_version(rm2, "3.3.1")
             spec.assert_str_eq(_ruby_env_manager(rm2), "rbenv", "manager still rbenv")
             spec.assert_str_eq(_ruby_env_version(rm2), "3.3.1", "version pinned to 3.3.1")
@@ -302,7 +302,7 @@ main() {
         // --- Manager/version are trimmed (stray whitespace doesn't leak).
         spec.it("manager and version are trimmed") callback {
             rm3 = map.new()
-            ruby_env(rm3, "  rbenv  ")
+            ruby_manager(rm3, "  rbenv  ")
             ruby_version(rm3, "  3.2.0 ")
             spec.assert_str_eq(_ruby_env_manager(rm3), "rbenv", "manager trimmed")
             spec.assert_str_eq(_ruby_env_version(rm3), "3.2.0", "version trimmed")
@@ -314,6 +314,28 @@ main() {
             spec.assert_str_eq(_ruby_env_manager(null), "", "null map → empty manager")
             spec.assert_str_eq(_ruby_env_version(null), "", "null map → empty version")
             spec.assert_str_eq(_rbenv_version_prefix(null), "", "null map → no prefix")
+        }
+    }
+
+    // === _prefer_shim — the rbenv tool-resolution rule ==================
+    // A bare `rbenv which <tool>` path (version-dir binary) does NOT set up the
+    // rbenv env, so `bundle install` + a later `bundle exec` disagree on the gem
+    // home and exec falls back to the SYSTEM Ruby → GemNotFound. The shim self-
+    // establishes the env, so _rbenv_which prefers it. This is the pure decision.
+    // Regression for asks/ruby-rbenv-exec-env-not-established.md.
+    spec.describe(fw, "_prefer_shim (rbenv tool resolution)") {
+        spec.it("no which-path → unavailable for this version → empty") callback {
+            spec.assert_str_eq(_prefer_shim("/home/x/.rbenv/shims/bundle", ""), "",
+                "which='' means the tool isn't in the resolved version → '' (fall back to PATH)")
+        }
+        spec.it("shim present → prefer the shim (self-establishing env)") callback {
+            spec.assert_str_eq(
+                _prefer_shim("/home/x/.rbenv/shims/bundle", "/home/x/.rbenv/versions/3.3.12/bin/bundle"),
+                "/home/x/.rbenv/shims/bundle", "shim wins over the version-dir binary")
+        }
+        spec.it("no shim (older rbenv) → fall back to the which-path") callback {
+            spec.assert_str_eq(_prefer_shim("", "/home/x/.rbenv/versions/3.3.12/bin/bundle"),
+                "/home/x/.rbenv/versions/3.3.12/bin/bundle", "no shim → the which-path")
         }
     }
 

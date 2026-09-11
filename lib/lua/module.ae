@@ -206,16 +206,21 @@ builder c_extension(): int {
     return 0
 }
 
-// lua_run_cmd(source_dir, interp, conf, env_prefix) — assemble the conformance
+// _lua_conf_cmd(source_dir, interp, conf, env_prefix) — assemble the conformance
 // run command as a pure string (testable; see tests/test_lua_cmd.ae):
 //   <env_prefix>cd '<src>' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' <interp> '<conf>'
 // Kept OUT of the conformance() builder body on purpose: (1) it is unit-testable
 // in isolation, and (2) the earlier inline form used a local named `run_cmd`,
 // which collides with this module's top-level run_cmd() setter — a same-name
 // local binds to the FUNCTION POINTER, so `${run_cmd}` handed an x86 prologue to
-// /bin/sh. A helper with fresh params has no such collision. See
-// asks/lua-conformance-executes-machine-code-as-a-shell-command.md.
-lua_run_cmd(source_dir: string, interp: string, conf: string, env_prefix: string) {
+// /bin/sh. See asks/lua-conformance-executes-machine-code-as-a-shell-command.md.
+// NB the helper name is `_lua_conf_cmd`, NOT `lua_run_cmd`: the `run_cmd` setter
+// mangles to `lua_run_cmd` inside a `lua.<verb>() { … }` block, so a function
+// literally named `lua_run_cmd` re-created the collision at the mangle level (a
+// block `run_cmd(...)` would mis-dispatch to the 4-arg helper → SIGSEGV). Kept
+// off `lua_<setter>` and underscore-prefixed (module-private). Guarded by
+// itests/setter-mangle-collision.sh.
+_lua_conf_cmd(source_dir: string, interp: string, conf: string, env_prefix: string) {
     body = "cd '${source_dir}' && LUA_CPATH='./?.so;;' LUA_PATH='./src/?.lua;;' ${interp} '${conf}'"
     return string.concat(env_prefix, body)
 }
@@ -265,10 +270,10 @@ builder conformance(): int {
 
     println("${mod_dir}: running ${conf} (lua)")
     // ./?.so finds the extension; ./src/?.lua finds the pure-lua module. The
-    // command is assembled by the pure helper lua_run_cmd (testable, and free of
+    // command is assembled by the pure helper _lua_conf_cmd (testable, and free of
     // the run_cmd() name collision that produced a function-pointer command).
     env_prefix = bldr._env_export_prefix(_builder)
-    full_cmd = lua_run_cmd(source_dir, interp, conf, env_prefix)
+    full_cmd = _lua_conf_cmd(source_dir, interp, conf, env_prefix)
     rc = bldr._sh(full_cmd)
     if rc != 0 {
         bldr._record_test_result_exitcode(ctx, 0, 1)
