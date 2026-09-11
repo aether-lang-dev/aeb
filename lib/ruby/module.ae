@@ -30,6 +30,14 @@
 //     ruby.gem()    { build("selenium-webdriver.gemspec") }
 //     ruby.rake()   { task("compile") task("test") }
 //     ruby.mri()    { test_file("test/ffi_test.rb") env("CORE_LIB", lib) }
+//
+// INTERPRETER. Default is the system Ruby on PATH — unchanged and still the norm.
+// To run a node under an rbenv-managed Ruby, DECLARE it — never a silent PATH
+// accident. The builder logs the resolved interpreter either way:
+//
+//     ruby.bundle() { ruby_env("rbenv") install() rspec() }   // rbenv current
+//     ruby.mri()    { ruby_env("rbenv") ruby_version("3.3.1") test_file("t.rb") }
+//     ruby.gem()    { build("foo.gemspec") }                  // system (default)
 
 import bldr
 import std.string
@@ -68,6 +76,22 @@ bundle_path(_ctx: ptr, dir: string) {
 env(_ctx: ptr, k: string, v: string) {
     bldr.env(_ctx, k, v)
 }
+
+// ruby_env("rbenv") — DECLARE which Ruby this node runs under. Default (setter
+// absent) is the system Ruby on PATH — unchanged, and still the norm. Declaring
+// ruby_env("rbenv") routes ruby/gem/bundle/rake through `rbenv which …` (so an
+// rbenv-managed Ruby is used even though rbenv's shims are NOT on the
+// non-interactive PATH aeb's _sh runs under). The builder LOGS the resolved
+// interpreter ("using rbenv ruby <ver> at <path>") — never a silent PATH
+// accident. Only "rbenv" is understood today; any other value fails loud.
+// Pair with ruby_version("3.3.1") to pin a specific installed version.
+ruby_env(_ctx: ptr, manager: string) { _e = map.put(_ctx, "ruby_env_manager", manager) }
+
+// ruby_version("3.3.1") — pin the version the declared ruby_env resolves. With
+// ruby_env("rbenv") this exports RBENV_VERSION so `rbenv which` picks that
+// install; absent → rbenv's current selection (.ruby-version / global). No-op
+// without a ruby_env() (system Ruby is whatever's on PATH).
+ruby_version(_ctx: ptr, version: string) { _e = map.put(_ctx, "ruby_env_version", version) }
 
 // --- ruby.bundle block setters ---
 
@@ -153,28 +177,29 @@ rspec_cmd(bundle_bin: string, source_dir: string, args: string) {
 // minitest_cmd — run minitest files with lib/spec/test on the load path. Each
 // file is `-r<basename>` (ruby runs only the first positional; the rest would
 // become ARGV). `reqs` pre-joined; empty → glob. Runs under `bundle exec` when a
-// Gemfile is present, else plain ruby. Pure.
-minitest_cmd(bundle_bin: string, source_dir: string, reqs: string) {
+// Gemfile is present, else plain ruby. `ruby_bin` is the resolved interpreter
+// (system or a declared ruby_env). Pure.
+minitest_cmd(bundle_bin: string, ruby_bin: string, source_dir: string, reqs: string) {
     load = "-Ilib -Ispec -Itest"
     body = reqs
     if string.length(reqs) == 0 {
         body = "$(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done)"
     }
-    runner = "if [ -f Gemfile ]; then '${bundle_bin}' exec ruby ${load} ${body} -e ''; else ruby ${load} ${body} -e ''; fi"
+    runner = "if [ -f Gemfile ]; then '${bundle_bin}' exec ruby ${load} ${body} -e ''; else '${ruby_bin}' ${load} ${body} -e ''; fi"
     return "cd '${source_dir}' && ${runner}"
 }
 
 // mri_cmd — TOOL-FREE: run test files with plain `ruby` (no bundle exec, no
 // Gemfile). Same -r<basename> + load-path mechanism as minitest_cmd, plus any
 // mri_flag()s; globs when no files named. Pure.
-mri_cmd(source_dir: string, reqs: string, extra_flags: string) {
+mri_cmd(ruby_bin: string, source_dir: string, reqs: string, extra_flags: string) {
     load = "-Ilib -Ispec -Itest"
     if string.length(extra_flags) > 0 { load = string.concat(load, string.concat(" ", extra_flags)) }
     body = reqs
     if string.length(reqs) == 0 {
         body = "$(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb *_test.rb test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done)"
     }
-    return "cd '${source_dir}' && ruby ${load} ${body} -e ''"
+    return "cd '${source_dir}' && '${ruby_bin}' ${load} ${body} -e ''"
 }
 
 // rubocop_cmd — `bundle exec rubocop [--config cfg]`. Pure.
@@ -192,10 +217,10 @@ gem_build_cmd(gem_bin: string, source_dir: string, gemspec_basename: string, dis
 }
 
 // rake_cmd — `rake <task> …` from source_dir, under `bundle exec` when a Gemfile
-// is present (a Rakefile's tasks usually need the bundle), else bare rake. Pure.
-rake_cmd(bundle_bin: string, source_dir: string, tasks: string) {
-    body = "rake ${tasks}"
-    runner = "if [ -f Gemfile ]; then '${bundle_bin}' exec ${body}; else ${body}; fi"
+// is present (a Rakefile's tasks usually need the bundle), else the resolved
+// `rake_bin` (system or a declared ruby_env). Pure.
+rake_cmd(bundle_bin: string, rake_bin: string, source_dir: string, tasks: string) {
+    runner = "if [ -f Gemfile ]; then '${bundle_bin}' exec rake ${tasks}; else '${rake_bin}' ${tasks}; fi"
     return "cd '${source_dir}' && ${runner}"
 }
 
@@ -214,23 +239,122 @@ _resolve_bundle_path(builder_map: ptr, root: string) {
     return path.join(root, ".aeb/bundle")
 }
 
-// Resolve `bundle` to an abs path: PATH, then RubyGems' Gem.bin_path (modern
-// RubyGems puts `bundle` in a gem bindir often off the non-interactive PATH).
-_resolve_bundle_bin() {
-    p, _e = bldr._sh_capture("command -v bundle 2>/dev/null")
+// --- Ruby-interpreter resolution: system PATH (default) vs a declared manager -
+//
+// Default (no ruby_env()): the system Ruby on PATH — `command -v`, with the
+// RubyGems Gem.bin_path fallback for bundle. Declaring ruby_env("rbenv") swaps
+// every resolver onto `rbenv which <tool>` so an rbenv-managed Ruby is used even
+// though rbenv's shims are off the non-interactive PATH aeb's _sh runs under.
+// All of this is LOGGED by the builders (see _announce_ruby_env) — never silent.
+
+// The manager declared on this node, or "" for system Ruby.
+_ruby_env_manager(builder_map: ptr) {
+    if builder_map == null { return "" }
+    if map.has(builder_map, "ruby_env_manager") == 0 { return "" }
+    m, _ = map.get(builder_map, "ruby_env_manager")
+    return string.trim(m)
+}
+
+// The version pinned on this node, or "".
+_ruby_env_version(builder_map: ptr) {
+    if builder_map == null { return "" }
+    if map.has(builder_map, "ruby_env_version") == 0 { return "" }
+    v, _ = map.get(builder_map, "ruby_env_version")
+    return string.trim(v)
+}
+
+// An inline `RBENV_VERSION=<ver> ` prefix for a command, or "" when unpinned.
+_rbenv_version_prefix(builder_map: ptr) {
+    v = _ruby_env_version(builder_map)
+    if v == "" { return "" }
+    return "RBENV_VERSION='${v}' "
+}
+
+// Locate the rbenv binary for the non-interactive _sh (where rbenv's `init`
+// shims are typically NOT on PATH): PATH `rbenv`, then $RBENV_ROOT/bin/rbenv,
+// then ~/.rbenv/bin/rbenv. "" if none found.
+_rbenv_bin() {
+    p, _e = bldr._sh_capture("command -v rbenv 2>/dev/null")
     tp = string.trim(p)
     if tp != "" { return tp }
-    q, _qe = bldr._sh_capture("ruby -e 'begin; print Gem.bin_path(\"bundler\",\"bundle\"); rescue Exception; end' 2>/dev/null")
+    r, _re = bldr._sh_capture("if [ -n \"$RBENV_ROOT\" ] && [ -x \"$RBENV_ROOT/bin/rbenv\" ]; then printf %s \"$RBENV_ROOT/bin/rbenv\"; elif [ -x \"$HOME/.rbenv/bin/rbenv\" ]; then printf %s \"$HOME/.rbenv/bin/rbenv\"; fi")
+    return string.trim(r)
+}
+
+// `rbenv which <tool>` → absolute path to that tool in the resolved Ruby. "" on
+// any failure (rbenv absent, version not installed, tool not present). Finds the
+// rbenv binary off-PATH via _rbenv_bin, and honours a pinned RBENV_VERSION.
+_rbenv_which(builder_map: ptr, tool: string) {
+    rb = _rbenv_bin()
+    if rb == "" { return "" }
+    pfx = _rbenv_version_prefix(builder_map)
+    p, _e = bldr._sh_capture("${pfx}'${rb}' which ${tool} 2>/dev/null")
+    return string.trim(p)
+}
+
+// Resolve one Ruby tool ("ruby"/"gem"/"bundle"/"rake") honouring a declared
+// manager. rbenv → `rbenv which`; system (default) → `command -v`.
+_resolve_ruby_tool(builder_map: ptr, tool: string) {
+    mgr = _ruby_env_manager(builder_map)
+    if mgr == "rbenv" {
+        w = _rbenv_which(builder_map, tool)
+        if w != "" { return w }
+        // rbenv declared but couldn't resolve — fall through to PATH so the
+        // failure surfaces at the command, but the builder already announced it.
+    }
+    p, _e = bldr._sh_capture("command -v ${tool} 2>/dev/null")
+    return string.trim(p)
+}
+
+// Resolve `bundle`: declared manager first, then PATH, then RubyGems' Gem.bin_path
+// (modern RubyGems puts `bundle` in a gem bindir often off the non-interactive
+// PATH). builder_map selects system (default) vs a declared ruby_env.
+_resolve_bundle_bin(builder_map: ptr) {
+    t = _resolve_ruby_tool(builder_map, "bundle")
+    if t != "" { return t }
+    // Gem.bin_path fallback, run under the resolved ruby (rbenv-aware).
+    rb = _resolve_ruby_bin(builder_map)
+    q, _qe = bldr._sh_capture("'${rb}' -e 'begin; print Gem.bin_path(\"bundler\",\"bundle\"); rescue Exception; end' 2>/dev/null")
     tq = string.trim(q)
     if tq != "" { return tq }
     return "bundle"
 }
 
-_resolve_gem_bin() {
-    p, _e = bldr._sh_capture("command -v gem 2>/dev/null")
-    tp = string.trim(p)
-    if tp != "" { return tp }
+_resolve_gem_bin(builder_map: ptr) {
+    t = _resolve_ruby_tool(builder_map, "gem")
+    if t != "" { return t }
     return "gem"
+}
+
+// Resolve `ruby` itself (used by mri_cmd and the Gem.bin_path probe).
+_resolve_ruby_bin(builder_map: ptr) {
+    t = _resolve_ruby_tool(builder_map, "ruby")
+    if t != "" { return t }
+    return "ruby"
+}
+
+// Resolve `rake` (the no-Gemfile branch of rake_cmd).
+_resolve_rake_bin(builder_map: ptr) {
+    t = _resolve_ruby_tool(builder_map, "rake")
+    if t != "" { return t }
+    return "rake"
+}
+
+// Log the resolved interpreter, loud and once per node, so a declared ruby_env
+// is never a silent choice. Prints the manager, pinned version (if any), and
+// the absolute `ruby` path actually resolved.
+_announce_ruby_env(mod_dir: string, builder_map: ptr) {
+    mgr = _ruby_env_manager(builder_map)
+    rb = _resolve_ruby_bin(builder_map)
+    if mgr == "" {
+        println("${mod_dir}: ruby = system (${rb})")
+        return 0
+    }
+    ver = _ruby_env_version(builder_map)
+    vshow = ver
+    if vshow == "" { vshow = "current" }
+    println("${mod_dir}: ruby = ${mgr} ${vshow} (${rb})")
+    return 0
 }
 
 _rspec_args_str(builder_map: ptr) {
@@ -297,7 +421,9 @@ builder bundle(): int {
     source_dir = bldr._get(ctx, "source_dir")
     bldr._mkdirs(target_dir)
 
-    bundle_bin = _resolve_bundle_bin()
+    _a = _announce_ruby_env(mod_dir, _builder)
+    bundle_bin = _resolve_bundle_bin(_builder)
+    ruby_bin = _resolve_ruby_bin(_builder)
     did_test = 0
     tests_ok = 1
 
@@ -331,7 +457,7 @@ builder bundle(): int {
         if map.has(_builder, "ruby_do_minitest") == 1 {
             println("${mod_dir}: running tests (minitest)")
             did_test = 1
-            cmd = string.concat(bldr._env_export_prefix(_builder), minitest_cmd(bundle_bin, source_dir, _minitest_files_str(_builder)))
+            cmd = string.concat(bldr._env_export_prefix(_builder), minitest_cmd(bundle_bin, ruby_bin, source_dir, _minitest_files_str(_builder)))
             if bldr._sh(cmd) != 0 { tests_ok = 0 }
         }
     }
@@ -374,10 +500,12 @@ builder mri(): int {
     source_dir = bldr._get(ctx, "source_dir")
     bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (mri — no bundler)")
+    _a = _announce_ruby_env(mod_dir, _builder)
 
+    ruby_bin = _resolve_ruby_bin(_builder)
     reqs = _minitest_files_str(_builder)
     flags = _join_toks(_builder, "ruby_mri_flags")
-    cmd = string.concat(bldr._env_export_prefix(_builder), mri_cmd(source_dir, reqs, flags))
+    cmd = string.concat(bldr._env_export_prefix(_builder), mri_cmd(ruby_bin, source_dir, reqs, flags))
     rc = bldr._sh(cmd)
     if rc != 0 {
         bldr._record_test_result(ctx, 0, 1)
@@ -404,8 +532,10 @@ builder rake(): int {
     tasks = _join_toks(_builder, "ruby_rake_tasks")
     if string.length(tasks) == 0 { tasks = "" }   // bare `rake` (default task)
     println("${mod_dir}: running rake ${tasks}")
-    bundle_bin = _resolve_bundle_bin()
-    cmd = string.concat(bldr._env_export_prefix(_builder), rake_cmd(bundle_bin, source_dir, tasks))
+    _a = _announce_ruby_env(mod_dir, _builder)
+    bundle_bin = _resolve_bundle_bin(_builder)
+    rake_bin = _resolve_rake_bin(_builder)
+    cmd = string.concat(bldr._env_export_prefix(_builder), rake_cmd(bundle_bin, rake_bin, source_dir, tasks))
     rc = bldr._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: rake FAILED")
@@ -445,8 +575,9 @@ builder gem(): int {
     dist_dir = path.join(target_dir, "dist")
     bldr._mkdirs(dist_dir)
     println("${mod_dir}: packaging (gem build)")
+    _a = _announce_ruby_env(mod_dir, _builder)
 
-    gem_bin = _resolve_gem_bin()
+    gem_bin = _resolve_gem_bin(_builder)
     gemspec_basename = path.basename(gemspec_rel)
     rc = bldr._sh(gem_build_cmd(gem_bin, source_dir, gemspec_basename, dist_dir))
     if rc != 0 {

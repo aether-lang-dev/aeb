@@ -16,7 +16,9 @@ import std.spec
 import ruby (bundle_install_cmd, rspec_cmd, rubocop_cmd, gem_build_cmd,
              minitest_cmd, mri_cmd, rake_cmd,
              gem_dep, rspec_arg, rubocop_config, gemfile,
-             bundle_path, minitest_file, test_file, mri_flag, task, build)
+             bundle_path, minitest_file, test_file, mri_flag, task, build,
+             ruby_env, ruby_version,
+             _ruby_env_manager, _ruby_env_version, _rbenv_version_prefix)
 import std.list
 import std.map
 
@@ -64,21 +66,30 @@ main() {
         // --- mri_cmd: TOOL-FREE — plain `ruby`, no bundle exec, no Gemfile.
         spec.it("mri_cmd with files") callback {
             spec.assert_str_eq(
-                mri_cmd("/proj/rb", "-rffi_test", ""),
-                "cd '/proj/rb' && ruby -Ilib -Ispec -Itest -rffi_test -e ''",
+                mri_cmd("ruby", "/proj/rb", "-rffi_test", ""),
+                "cd '/proj/rb' && 'ruby' -Ilib -Ispec -Itest -rffi_test -e ''",
                 "mri_cmd files")
         }
         spec.it("mri_cmd with an extra flag") callback {
             spec.assert_str_eq(
-                mri_cmd("/proj/rb", "-rffi_test", "-I/abs/inc"),
-                "cd '/proj/rb' && ruby -Ilib -Ispec -Itest -I/abs/inc -rffi_test -e ''",
+                mri_cmd("ruby", "/proj/rb", "-rffi_test", "-I/abs/inc"),
+                "cd '/proj/rb' && 'ruby' -Ilib -Ispec -Itest -I/abs/inc -rffi_test -e ''",
                 "mri_cmd flag")
         }
-        // --- rake_cmd: `rake <tasks>`, under bundle exec iff a Gemfile is present.
+        // --- mri_cmd: a declared ruby_env resolves an absolute interpreter path
+        // (e.g. rbenv's `rbenv which ruby`) — that path lands verbatim, quoted.
+        spec.it("mri_cmd with an rbenv-resolved ruby path") callback {
+            spec.assert_str_eq(
+                mri_cmd("/home/u/.rbenv/versions/3.3.1/bin/ruby", "/proj/rb", "-rffi_test", ""),
+                "cd '/proj/rb' && '/home/u/.rbenv/versions/3.3.1/bin/ruby' -Ilib -Ispec -Itest -rffi_test -e ''",
+                "mri_cmd rbenv ruby")
+        }
+        // --- rake_cmd: `rake <tasks>`, under bundle exec iff a Gemfile is present,
+        // else the resolved rake_bin.
         spec.it("rake_cmd tasks") callback {
             spec.assert_str_eq(
-                rake_cmd("bundle", "/proj/rb", "compile test"),
-                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec rake compile test; else rake compile test; fi",
+                rake_cmd("bundle", "rake", "/proj/rb", "compile test"),
+                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec rake compile test; else 'rake' compile test; fi",
                 "rake_cmd tasks")
         }
 
@@ -162,8 +173,8 @@ main() {
         // --- rake_cmd: no tasks → bare `rake` (the default task).
         spec.it("rake_cmd no tasks → bare rake") callback {
             spec.assert_str_eq(
-                rake_cmd("bundle", "/proj/rb", ""),
-                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec rake ; else rake ; fi",
+                rake_cmd("bundle", "rake", "/proj/rb", ""),
+                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec rake ; else 'rake' ; fi",
                 "rake_cmd bare")
         }
 
@@ -173,8 +184,8 @@ main() {
         // all defined tests once). Pure.
         spec.it("minitest_cmd explicit reqs") callback {
             spec.assert_str_eq(
-                minitest_cmd("bundle", "/proj/rb", " -rfoo_test -rbar_test"),
-                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec ruby -Ilib -Ispec -Itest  -rfoo_test -rbar_test -e ''; else ruby -Ilib -Ispec -Itest  -rfoo_test -rbar_test -e ''; fi",
+                minitest_cmd("bundle", "ruby", "/proj/rb", " -rfoo_test -rbar_test"),
+                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec ruby -Ilib -Ispec -Itest  -rfoo_test -rbar_test -e ''; else 'ruby' -Ilib -Ispec -Itest  -rfoo_test -rbar_test -e ''; fi",
                 "minitest_cmd explicit reqs")
         }
 
@@ -182,8 +193,8 @@ main() {
         // conventional *_test.rb / test_*.rb under spec/ + test/.
         spec.it("minitest_cmd empty reqs globs conventional locations") callback {
             spec.assert_str_eq(
-                minitest_cmd("bundle", "/proj/rb", ""),
-                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec ruby -Ilib -Ispec -Itest $(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done) -e ''; else ruby -Ilib -Ispec -Itest $(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done) -e ''; fi",
+                minitest_cmd("bundle", "ruby", "/proj/rb", ""),
+                "cd '/proj/rb' && if [ -f Gemfile ]; then 'bundle' exec ruby -Ilib -Ispec -Itest $(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done) -e ''; else 'ruby' -Ilib -Ispec -Itest $(for f in spec/*_test.rb spec/test_*.rb test/*_test.rb test/test_*.rb; do [ -f \"$f\" ] && printf ' -r%s' \"$(basename \"$f\" .rb)\"; done) -e ''; fi",
                 "minitest_cmd empty reqs globs conventional locations")
         }
     }
@@ -250,6 +261,58 @@ main() {
             bm5 = map.new()
             spec.assert_eq(_list_size_at(bm5, "ruby_gems"), 0, "untouched map has no ruby_gems")
             spec.assert_str_eq(_str_at(bm5, "ruby_gemspec"), "", "untouched map has empty ruby_gemspec")
+        }
+    }
+
+    // === ruby_env / ruby_version — the declared-interpreter grammar =====
+    // Default (no ruby_env) = system Ruby on PATH. rbenv is declared, never a
+    // silent PATH accident. These cover the PURE pieces (the setters + the
+    // manager/version readers + the RBENV_VERSION prefix); the actual
+    // resolution (rbenv which / command -v) is a _sh side-effect exercised by
+    // the itests.
+    spec.describe(fw, "ruby_env declared interpreter") {
+        // --- Default: no ruby_env declared → system Ruby (empty manager).
+        spec.it("untouched map = system ruby (no manager, no version)") callback {
+            rm0 = map.new()
+            spec.assert_str_eq(_ruby_env_manager(rm0), "", "no ruby_env → empty manager (system)")
+            spec.assert_str_eq(_ruby_env_version(rm0), "", "no ruby_version → empty version")
+            spec.assert_str_eq(_rbenv_version_prefix(rm0), "", "no version → no RBENV_VERSION prefix")
+        }
+
+        // --- ruby_env("rbenv") with no version → rbenv current selection.
+        spec.it("ruby_env(rbenv) declares the manager, version unpinned") callback {
+            rm1 = map.new()
+            ruby_env(rm1, "rbenv")
+            spec.assert_str_eq(_ruby_env_manager(rm1), "rbenv", "ruby_env stores the manager")
+            spec.assert_str_eq(_ruby_env_version(rm1), "", "version unpinned → empty")
+            spec.assert_str_eq(_rbenv_version_prefix(rm1), "", "unpinned → no RBENV_VERSION prefix")
+        }
+
+        // --- ruby_env("rbenv") + ruby_version("3.3.1") → pinned, prefix set.
+        spec.it("ruby_version pins the version and emits an RBENV_VERSION prefix") callback {
+            rm2 = map.new()
+            ruby_env(rm2, "rbenv")
+            ruby_version(rm2, "3.3.1")
+            spec.assert_str_eq(_ruby_env_manager(rm2), "rbenv", "manager still rbenv")
+            spec.assert_str_eq(_ruby_env_version(rm2), "3.3.1", "version pinned to 3.3.1")
+            spec.assert_str_eq(_rbenv_version_prefix(rm2), "RBENV_VERSION='3.3.1' ", "pinned → RBENV_VERSION inline prefix")
+        }
+
+        // --- Manager/version are trimmed (stray whitespace doesn't leak).
+        spec.it("manager and version are trimmed") callback {
+            rm3 = map.new()
+            ruby_env(rm3, "  rbenv  ")
+            ruby_version(rm3, "  3.2.0 ")
+            spec.assert_str_eq(_ruby_env_manager(rm3), "rbenv", "manager trimmed")
+            spec.assert_str_eq(_ruby_env_version(rm3), "3.2.0", "version trimmed")
+            spec.assert_str_eq(_rbenv_version_prefix(rm3), "RBENV_VERSION='3.2.0' ", "prefix uses the trimmed version")
+        }
+
+        // --- null map (no builder context) reads as system Ruby, no crash.
+        spec.it("null builder map reads as system ruby") callback {
+            spec.assert_str_eq(_ruby_env_manager(null), "", "null map → empty manager")
+            spec.assert_str_eq(_ruby_env_version(null), "", "null map → empty version")
+            spec.assert_str_eq(_rbenv_version_prefix(null), "", "null map → no prefix")
         }
     }
 
