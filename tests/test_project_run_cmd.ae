@@ -116,7 +116,7 @@ main() {
     }
 
     // --- _env_export_prefix: the prefix the ENHANCED existing verbs prepend
-    //     (rust.cargo_test_existing, ruby.rspec, zig/dart/gleam.test, junit5) ---
+    //     (rust.cargo_test_existing, ruby.bundle{rspec()}, zig/dart/gleam.test, junit5) ---
     spec.describe(fw, "_env_export_prefix") {
         spec.it("null bmap → empty") callback {
             spec.assert_str_eq(_env_export_prefix(null), "", "env prefix: null bmap → empty")

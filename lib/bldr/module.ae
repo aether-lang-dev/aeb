@@ -2211,7 +2211,7 @@ _project_run_cmd(absdir: string, env_pairs: ptr, steps: ptr) {
 // _env_export_prefix(bmap) — render the `export K='V' && ` chain an
 // EXISTING SDK verb prepends to its assembled command so the foundation's
 // env(K,V) setter injects into a verb that wasn't built on _run_project
-// (rust.cargo_test_existing, python.pytest, dotnet.test, ruby.rspec, …).
+// (rust.cargo_test_existing, python.pytest, dotnet.test, ruby.bundle{rspec()}, …).
 // `export` (not an inline prefix) so the vars survive the verb's own
 // internal `cd X && runner`. Empty string when no env() was set, so the
 // verb is byte-identical for callers that don't inject — backward compatible.
