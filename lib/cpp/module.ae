@@ -124,14 +124,57 @@ _join_raw(items: ptr) {
 // includes/cxxflags/link_flags are lists; out is the absolute output
 // path. Runs from source_dir so relative source/include paths resolve.
 cxx_compile_cmd(cxx: string, source_dir: string, std_flag: string, sources: ptr, includes: ptr, cxxflags: ptr, link_flags: ptr, out: string) {
+    return cxx_compile_cmd_objs(cxx, source_dir, std_flag, sources, includes, cxxflags, link_flags, "", out)
+}
+
+// As cxx_compile_cmd, plus `dep_objs` (a pre-joined " <obj> <obj>" fragment of
+// dependency C objects) spliced onto the compile line — so a C++ target links a
+// C dependency's objects. dep_objs="" reduces to the plain form.
+cxx_compile_cmd_objs(cxx: string, source_dir: string, std_flag: string, sources: ptr, includes: ptr, cxxflags: ptr, link_flags: ptr, dep_objs: string, out: string) {
     inc_part = _join_flagged("-I", includes)
     flag_part = _join_raw(cxxflags)
     src_part = _join_raw(sources)
     link_part = _join_raw(link_flags)
-    return "cd '${source_dir}' && '${cxx}'${std_flag}${inc_part}${flag_part}${src_part}${link_part} -o '${out}'"
+    return "cd '${source_dir}' && '${cxx}'${std_flag}${inc_part}${flag_part}${src_part}${dep_objs}${link_part} -o '${out}'"
 }
 
 // --- Internal ---
+
+// _collect_dep_objects(ctx) — gather `c_objects` artifacts published by
+// dependency modules (a sibling c.compile / lib/aether codegen) into a
+// space-separated fragment for the C++ link line. Lets a C++ target link a C
+// dependency's pre-compiled objects — e.g. cpp/ wrapping the C client's
+// selenium.c compiled-as-C (so its `extern "C"` symbols aren't C++-mangled).
+// Mirrors lib/c's collector of the same name.
+_collect_dep_objects(ctx: ptr) {
+    if map.has(ctx, "deps") == 0 { return "" }
+    deps, _ = map.get(ctx, "deps")
+    out = ""
+    dep_count = list.size(deps)
+    n = 0
+    while n < dep_count {
+        dp, _ = list.get(deps, n)
+        n = n + 1
+        dm = bldr._strip_lang(dp)
+        objs = bldr._read_dep_artifact(ctx, dm, "c_objects")
+        if string.length(objs) > 0 {
+            lines = string.split(objs, "\n")
+            m = string.array_size(lines)
+            j = 0
+            while j < m {
+                o = string.array_get(lines, j)
+                j = j + 1
+                t = string.trim(o)
+                if string.length(t) > 0 {
+                    out = string.concat(out, " ")
+                    out = string.concat(out, t)
+                }
+            }
+            string.array_free(lines)
+        }
+    }
+    return out
+}
 
 _cxx_of(builder_map: ptr) {
     if builder_map != null {
@@ -225,11 +268,12 @@ builder program(): int {
     out_abs = path.join(target_dir, out_name)
 
     println("${mod_dir}: compiling (${cxx_bin})")
-    cmd = cxx_compile_cmd(cxx_bin, source_dir, _std_flag(_std_of(_builder)),
+    cmd = cxx_compile_cmd_objs(cxx_bin, source_dir, _std_flag(_std_of(_builder)),
                           sources,
                           _list_or_null(_builder, "cpp_includes"),
                           _list_or_null(_builder, "cpp_cxxflags"),
                           _list_or_null(_builder, "cpp_link_flags"),
+                          _collect_dep_objects(ctx),
                           out_abs)
     exit_code = bldr._sh(cmd)
     if exit_code != 0 {
@@ -270,11 +314,12 @@ builder tests(): int {
     test_bin = path.join(target_dir, string.concat(out_name, "_test"))
 
     println("${mod_dir}: building tests (${cxx_bin})")
-    cmd = cxx_compile_cmd(cxx_bin, source_dir, _std_flag(_std_of(_builder)),
+    cmd = cxx_compile_cmd_objs(cxx_bin, source_dir, _std_flag(_std_of(_builder)),
                           sources,
                           _list_or_null(_builder, "cpp_includes"),
                           _list_or_null(_builder, "cpp_cxxflags"),
                           _list_or_null(_builder, "cpp_link_flags"),
+                          _collect_dep_objects(ctx),
                           test_bin)
     bc = bldr._sh(cmd)
     if bc != 0 {

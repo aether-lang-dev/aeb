@@ -1,7 +1,7 @@
 // Tests for lib/cpp's pure command-string builders.
 
 import std.spec
-import cpp (cxx_compile_cmd, _std_flag, _join_flagged, _join_raw)
+import cpp (cxx_compile_cmd, cxx_compile_cmd_objs, _std_flag, _join_flagged, _join_raw)
 import std.list
 
 main() {
@@ -75,6 +75,44 @@ main() {
             spec.assert_str_eq(
                 cxx_compile_cmd("g++", "/proj", "", s3, null, null, null, "/out dir/app"),
                 "cd '/proj' && 'g++' 'm.cpp' -o '/out dir/app'", "output path with spaces quoted")
+        }
+
+        // --- dep C objects spliced in (a C++ target linking a C dependency's
+        //     pre-compiled objects, e.g. cpp/ wrapping the C client's selenium.c
+        //     compiled AS C so its extern "C" symbols aren't C++-mangled).
+        spec.it("dep objects spliced before link flags") callback {
+            s4 = list.new()
+            list.add(s4, "test/t.cpp")
+            lk4 = list.new()
+            list.add(lk4, "/abs/libselenium_core.so")
+            spec.assert_str_eq(
+                cxx_compile_cmd_objs("g++", "/proj", " -std=c++17", s4, null, null, lk4,
+                    " /proj/target/obj/selenium.o", "/out/app"),
+                "cd '/proj' && 'g++' -std=c++17 'test/t.cpp' /proj/target/obj/selenium.o '/abs/libselenium_core.so' -o '/out/app'",
+                "dep objects appear after sources, before link flags")
+        }
+
+        // --- empty dep_objs reduces to the plain form.
+        spec.it("empty dep objects == plain compile") callback {
+            s5 = list.new()
+            list.add(s5, "m.cpp")
+            spec.assert_str_eq(
+                cxx_compile_cmd_objs("c++", "/proj", "", s5, null, null, null, "", "/out/app"),
+                cxx_compile_cmd("c++", "/proj", "", s5, null, null, null, "/out/app"),
+                "empty dep_objs equals plain cxx_compile_cmd")
+        }
+
+        // --- multiple dep objects: the pre-joined fragment (leading space +
+        //     space-separated) splices verbatim between sources and link flags.
+        //     Same call the program AND tests builders make via _collect_dep_objects.
+        spec.it("multiple dep objects splice verbatim") callback {
+            s6 = list.new()
+            list.add(s6, "app.cpp")
+            spec.assert_str_eq(
+                cxx_compile_cmd_objs("g++", "/proj", "", s6, null, null, null,
+                    " /proj/target/obj/a.o /proj/target/obj/b.o", "/out/app"),
+                "cd '/proj' && 'g++' 'app.cpp' /proj/target/obj/a.o /proj/target/obj/b.o -o '/out/app'",
+                "two dep objects appear in order after sources")
         }
     }
 
