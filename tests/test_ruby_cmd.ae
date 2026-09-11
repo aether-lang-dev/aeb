@@ -18,7 +18,8 @@ import ruby (bundle_install_cmd, rspec_cmd, rubocop_cmd, gem_build_cmd,
              gem_dep, rspec_arg, rubocop_config, gemfile,
              bundle_path, minitest_file, test_file, mri_flag, task, build,
              ruby_env, ruby_version,
-             _ruby_env_manager, _ruby_env_version, _rbenv_version_prefix)
+             _ruby_env_manager, _ruby_env_version, _rbenv_version_prefix,
+             _reject_node_call, install, rspec, minitest, rubocop)
 import std.list
 import std.map
 
@@ -313,6 +314,39 @@ main() {
             spec.assert_str_eq(_ruby_env_manager(null), "", "null map → empty manager")
             spec.assert_str_eq(_ruby_env_version(null), "", "null map → empty version")
             spec.assert_str_eq(_rbenv_version_prefix(null), "", "null map → no prefix")
+        }
+    }
+
+    // === Setter-as-node guard (_reject_node_call) ======================
+    // The v0.303 reshape demoted rspec/install/minitest/rubocop to block
+    // setters. Called in builder position they'd otherwise silently no-op or
+    // crash; _reject_node_call aborts loud instead. Here we can only exercise
+    // the INERT path (a fresh block map / null → pass through, setter writes
+    // its key); the abort path calls os.exit(1) and is covered by the itest
+    // (a top-level ruby.rspec() node fails with the migration hint).
+    spec.describe(fw, "setter-as-node guard") {
+        // --- A fresh block map (the correct call site) has no "target_dir";
+        //     the guard is inert and returns 0.
+        spec.it("guard is inert on a fresh block map") callback {
+            gm = map.new()
+            spec.assert_eq(_reject_node_call(gm, "rspec"), 0, "fresh block map → guard passes (0)")
+        }
+        // --- A null ctx (empty block) is also inert.
+        spec.it("guard is inert on a null ctx") callback {
+            spec.assert_eq(_reject_node_call(null, "install"), 0, "null ctx → guard passes (0)")
+        }
+        // --- The guarded setters still write their key when called correctly
+        //     (block map, no target_dir): the guard doesn't disturb the setter.
+        spec.it("guarded setters still write their key inside a block") callback {
+            sm = map.new()
+            install(sm)
+            rspec(sm)
+            minitest(sm)
+            rubocop(sm)
+            spec.assert_str_eq(_str_at(sm, "ruby_do_install"), "1", "install() still sets its flag")
+            spec.assert_str_eq(_str_at(sm, "ruby_do_rspec"), "1", "rspec() still sets its flag")
+            spec.assert_str_eq(_str_at(sm, "ruby_do_minitest"), "1", "minitest() still sets its flag")
+            spec.assert_str_eq(_str_at(sm, "ruby_do_rubocop"), "1", "rubocop() still sets its flag")
         }
     }
 

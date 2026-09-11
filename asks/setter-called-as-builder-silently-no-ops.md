@@ -1,7 +1,40 @@
 # A setter called as a top-level builder (e.g. `ruby.rspec()`) silently no-ops — make it a hard error
 
-**Status:** OPEN (2026-09-11). Found migrating servirtium-vcr to the v0.303
-tool-named ruby grammar.
+**Status:** PARTIALLY RESOLVED in aeb (2026-09-11); the general check remains a
+LANGUAGE ask for the Aether sibling. Found migrating servirtium-vcr to the
+v0.303 tool-named ruby grammar.
+
+## Resolution (aeb side — the ruby footgun)
+
+`lib/ruby/module.ae`: the four demoted setters (`install`/`rspec`/`minitest`/
+`rubocop`) now call a `_reject_node_call(_ctx, verb)` guard first. It
+discriminates on the ctx it was handed: a setter called correctly (inside
+`ruby.bundle() { … }`) receives a fresh block map `map_new()` that carries no
+graph-ctx keys; a setter called as a NODE receives the graph build ctx, which
+carries `"target_dir"` (and `"_session"`). When `target_dir` is present the guard
+prints the migration hint and `os.exit(1)`s — a hard, loud failure instead of the
+silent no-op / segfault. Verified on ae 0.665.0 / aeb HEAD:
+
+```
+ruby.rspec()  (top-level node)  -> "ruby.rspec() is a block setter, not a builder.
+                                    ... ruby.bundle() { rspec() } ..." then exit 1
+ruby.bundle() { rspec() }       -> unaffected: announce + install + rspec run
+```
+
+Unit-tested (the inert block-map / null paths) + itest (the abort path). Full
+suite 135/135. This closes the ruby footgun the v0.303 change opened.
+
+## Still open — the GENERAL check (Aether language)
+
+The guard above is ruby-specific and pattern-matches a bldr convention
+(`target_dir` on the graph ctx). The clean, universal fix — "a name declared as
+a plain setter, invoked in builder position, is a compile error" — needs the
+`builder` keyword information the Aether compiler has and aeb's SDK does not.
+`transform-ae` is a mechanical sed rewrite with no semantic model of which module
+functions are `builder`s, so aeb cannot enforce this generically. A language-level
+diagnostic ("`<mod>.<name>()` is a setter, not a node builder") would catch this
+class across every SDK (python/rust/scala/… all have block setters), not just
+ruby's four verbs. Filing that half against Aether.
 
 ## The trap
 

@@ -95,15 +95,39 @@ ruby_version(_ctx: ptr, version: string) { _e = map.put(_ctx, "ruby_env_version"
 
 // --- ruby.bundle block setters ---
 
+// _reject_node_call — the v0.303 tool-named reshape demoted rspec/install/
+// minitest/rubocop from top-level builders to block SETTERS (they live only
+// inside `ruby.bundle() { … }`). The OLD form `ruby.rspec() { … }` still
+// type-checks — the name resolves — but a setter invoked as a NODE gets the
+// graph build ctx auto-injected instead of a fresh block map, and no ruby
+// *builder* ever reads it, so it either silently runs nothing or crashes in
+// map.put. Either way it's a dishonest "test" node that tested nothing.
+//
+// This guard makes that a HARD, LOUD error. Discriminator: a fresh block map
+// (the correct call site, `map_new()` pushed by the block) carries none of the
+// graph-ctx keys; the graph ctx a node receives carries "target_dir" + "_session"
+// (bldr sets them at node setup). So `_ctx` holding "target_dir" means the setter
+// was called in builder position — abort with the migration hint.
+_reject_node_call(_ctx: ptr, verb: string) {
+    if _ctx == null { return 0 }
+    if map.has(_ctx, "target_dir") == 0 { return 0 }   // fresh block map → correct use
+    println("ruby.${verb}() is a block setter, not a builder.")
+    println("  The v0.303 tool-named grammar moved it inside ruby.bundle():")
+    println("      ruby.bundle() { ${verb}() }")
+    println("  (install/rspec/minitest/rubocop are setters of ruby.bundle; the")
+    println("   node builders are bundle / mri / rake / gem / consumer_example.)")
+    os.exit(1)   // [[noreturn]] — every reachable path already returned above
+}
+
 // install() — resolve + install the gem closure (`bundle install`) as part of
 // this bundle node.
-install(_ctx: ptr) { _e = map.put(_ctx, "ruby_do_install", "1") }
+install(_ctx: ptr) { _r = _reject_node_call(_ctx, "install") _e = map.put(_ctx, "ruby_do_install", "1") }
 // rspec() — run RSpec via `bundle exec rspec`.
-rspec(_ctx: ptr) { _e = map.put(_ctx, "ruby_do_rspec", "1") }
+rspec(_ctx: ptr) { _r = _reject_node_call(_ctx, "rspec") _e = map.put(_ctx, "ruby_do_rspec", "1") }
 // minitest() — run Minitest via `bundle exec ruby` (or plain ruby if no Gemfile).
-minitest(_ctx: ptr) { _e = map.put(_ctx, "ruby_do_minitest", "1") }
+minitest(_ctx: ptr) { _r = _reject_node_call(_ctx, "minitest") _e = map.put(_ctx, "ruby_do_minitest", "1") }
 // rubocop() — run RuboCop via `bundle exec rubocop`.
-rubocop(_ctx: ptr) { _e = map.put(_ctx, "ruby_do_rubocop", "1") }
+rubocop(_ctx: ptr) { _r = _reject_node_call(_ctx, "rubocop") _e = map.put(_ctx, "ruby_do_rubocop", "1") }
 
 // rspec_arg("--format=doc") — append a CLI arg to `bundle exec rspec`. Repeatable.
 rspec_arg(_ctx: ptr, arg: string) {
