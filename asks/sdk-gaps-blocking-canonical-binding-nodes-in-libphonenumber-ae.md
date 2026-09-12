@@ -110,6 +110,34 @@ correctly reads groovy 2.4's version and the running JVM) is needed for this to
 go canonical. Same concern likely applies to kotlin_test / clojure.test loading
 FFM-era dep classes on an old runtime.
 
+## Gap 6 — no "run a plain script" test builder (php, and the dotnet/erlang family)
+
+Several bindings use a **plain assertion-script conformance runner** whose exit
+code is the result — not the language's xUnit framework — because the suite only
+samples FFI value shapes and a framework adds a dependency for nothing:
+
+- **php** — `php tests/conformance.php`. `php.test()` runs **only phpunit**
+  (`_run_project(..., "phpunit", ...)`); there's no `php.script("…​.php")`. Our
+  test isn't a phpunit test class, so it can't go canonical without rewriting the
+  suite to phpunit.
+- **dotnet** — `dotnet run --project …` console runner (Gap 3), no
+  `dotnet.run_project()`.
+- **erlang** — worked around by adding a `main/1` to the eunit module so
+  `erlang.eunit()`'s `run_main` path could call it. Fine there; not always
+  possible.
+
+A generic "run this script/command under the toolchain, exit-code-is-result"
+test builder per language (`php.script`, `dotnet.run_project`, a `run_main` that
+does `eunit:test`) would let all of these go canonical without bending the suite
+to a framework it doesn't use.
+
+## Gap 7 — gleam test-count parser reports 0/0 for a passing run
+
+`gleam.test()` on a passing suite (gleam prints `.....` then "45 passed, no
+failures", exits 0, node exits 0) is recorded as `0/0` — the count parser doesn't
+read gleam's dot-progress + summary format. Non-fatal (the node correctly passes)
+but the test count is lost from the summary. Same family as dart Gap 4, milder.
+
 ## Also seen: node exits 1 while its own rc marker is 0 (stale test-result state)
 
 Twice during conversion, a node whose body returned 0 (rc marker 0, its own log
