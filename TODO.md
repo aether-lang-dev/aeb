@@ -2452,3 +2452,42 @@ doesn't chase them as aeb bugs.
   incompatible with the current rustc. Fails under bare `cargo build`
   too. Would need an upstream bump or a pin to an older rustc; not
   aeb work.
+
+## Groovy version detection needs work (surfaced 2026-09-12)
+
+`lib/groovy`'s capability gate doesn't scan the same install its compile
+path uses, so an apt-installed Groovy 2.4 (Debian/Ubuntu) is **invisible to
+the candidate-jar scan** — `skip_below_groovy` / `min_groovy` can't *detect*
+it, only notice that no capable Groovy was found.
+
+Verified on the .160 dev box (which has Debian's `groovy` 2.4.21):
+
+- `_groovy_core_jars_desc()` globs `$GROOVY_JAR`, `$GROOVY_HOME/lib`,
+  `~/.m2`, `~/.gradle/.../lib` — but **NOT** `/usr/share/groovy/lib`
+  (apt's location) nor the PATH-`groovy`'s own resolved lib dir. With
+  `GROOVY_HOME` unset (the default), `/usr/share/groovy/lib/groovy-2.4.21.jar`
+  is never a candidate, even though its name matches the `groovy-[0-9]*.jar`
+  glob.
+- The function's **doc comment claims** it scans "the groovy on PATH's lib" —
+  the code does not. Documentation/implementation mismatch.
+- `_groovy_home()` *does* probe `/usr/share/groovy` (its `bin/groovyc` exists),
+  but that resolved home feeds the compile/run paths only, **not** the
+  `_groovy_core_jars_desc()` candidate scan. So the gate and the actual
+  `groovyc` used can diverge when `GROOVY_HOME` is unset.
+
+Net behaviour is still *safe* (it SKIPS green for `skip_below_groovy`, or
+FAILS for the hard `min_groovy`, rather than falsely building against 2.4),
+but imprecise: the reason is "no capable Groovy found," never "found Groovy
+2.4, below your floor." And the gate-vs-compile-path divergence is a latent
+bug on boxes where apt's Groovy is the only one.
+
+Fix (small, two-part):
+
+- [ ] Add `/usr/share/groovy/lib/groovy-[0-9]*.jar` **and** the PATH-`groovy`'s
+      resolved lib (`dirname $(command -v groovy)/../lib`, or reuse
+      `_groovy_home()`) to the `_groovy_core_jars_desc()` globs — so an apt 2.4
+      becomes a *detected-then-rejected* candidate with an honest message, and
+      the gate scans the same install the compile path compiles with.
+- [ ] Make the doc comment match (or make the code match the comment).
+- Covered today only indirectly; no dedicated test asserts an apt-2.4 box is
+      detected-and-skipped. Add one (a stubbed glob dir) when fixing.
