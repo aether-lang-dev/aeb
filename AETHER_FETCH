@@ -145,4 +145,11 @@
 # Verified against the real 0.665.0 tarball: aeb builds clean, full suite
 # 134/134; glibc floor GLIBC_2.34 (Debian-12 safe); all platform assets present.
 # PIN in lockstep.
-0.665.0
+#
+# Raised 0.665.0 -> 0.666.0 (2026-09-13). Newest published aether; all fixes +
+# perf (memory-leak fixes, string.release-untracked, compiler-command-length
+# handling, foo()->foo(void), 4.5x type-check), no grammar/API break. Verified
+# against the real 0.666.0 tarball: aeb builds clean, full suite 136/136, fat
+# aeb-resolve.jar builds + resolves; glibc floor GLIBC_2.34 (Debian-12 safe).
+# PIN in lockstep.
+0.666.0

@@ -118,4 +118,13 @@
 # the floor moves with FETCH per the no-back-compat DSL policy. Verified against
 # the real 0.665.0 linux tarball: aeb builds clean, full suite 134/134; glibc
 # floor GLIBC_2.34 (Debian-12 safe); all platform assets published.
-0.665.0
+#
+# Raised 0.665.0 -> 0.666.0 (2026-09-13). Newest published aether; all fixes +
+# perf, no grammar/API/removed/breaking change (scanned the notes): tcp_receive/
+# casper leak fixes, string.release-untracked fix, a long-build-path compiler-
+# command-truncation fix (mildly relevant — aeb assembles long commands),
+# foo()->foo(void) + -Wstrict-prototypes, and a 4.5x-faster type-check. Verified
+# against the real 0.666.0 linux tarball: aeb builds clean, full suite 136/136,
+# the fat aeb-resolve.jar builds + resolves; glibc floor GLIBC_2.34 (Debian-12
+# safe). PIN moves in lockstep with FETCH (no-back-compat DSL policy).
+0.666.0
