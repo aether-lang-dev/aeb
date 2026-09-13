@@ -330,6 +330,7 @@ jobs:
 
       - name: Build aeb-resolve.jar (fat, published as its own asset)
         continue-on-error: true
+        shell: bash
         run: |
           # BEST-EFFORT — must NEVER fail the release. aeb-resolve.jar is a
           # convenience asset (aeb's Maven resolver, a single FAT jar with bld
@@ -337,30 +338,40 @@ jobs:
           # NOT in the source tarball; it ships as its OWN asset that a binary
           # install fetches. If building it here fails, the release still ships —
           # a JVM build then fetches from an earlier tag's asset, or the
-          # get.sh/first-use path builds it on the box. So this step never
-          # `exit 1`s on a build problem: it sets RESOLVER_ASSET only on full
-          # success, and the Publish step includes the asset only when set.
-          # (set -u/pipefail, but NOT -e: we handle failures ourselves.)
-          set -uo pipefail
-          WORK="$(mktemp -d)"; tar xzf aeb-bootstrap.tar.gz -C "$WORK"
-          HOME_DIR="$WORK/aeb-bootstrap"
-          if ! command -v javac >/dev/null; then
-            echo "no JDK on the runner — skipping aeb-resolve.jar (release continues)"; exit 0
+          # get.sh/first-use path builds it on the box.
+          #
+          # NB `shell: bash` (NOT the default `bash -e {0}`): under -e, ANY early
+          # non-zero (a missing tarball, a tar hiccup) aborts the step with exit 2
+          # and NO output before we can trap it — which is exactly what happened
+          # (the step showed conclusion=success via continue-on-error but exited 2
+          # with no diagnostics and published nothing). We handle every failure
+          # ourselves and always `exit 0`.
+          set +e
+          set -u
+          echo "resolver: cwd=$(pwd)"
+          if [ ! -f aeb-bootstrap.tar.gz ]; then
+            echo "no aeb-bootstrap.tar.gz here — skipping aeb-resolve.jar (release continues)"; exit 0
           fi
+          WORK="$(mktemp -d)"
+          tar xzf aeb-bootstrap.tar.gz -C "$WORK" || { echo "payload untar failed — skipping (release continues)"; exit 0; }
+          HOME_DIR="$WORK/aeb-bootstrap"
+          command -v javac >/dev/null 2>&1 || { echo "no JDK — skipping (release continues)"; exit 0; }
+          echo "resolver: javac=$(command -v javac) ($(javac -version 2>&1))"
           # Build from the SOURCE checkout (payload staging strips tools/resolver;
           # the checked-out repo still has it).
-          if ! AETHER=/tmp/aeth/bin/ae AEB_HOME="$HOME_DIR" "$HOME_DIR/aeb" tools/resolver/.dist.ae >/tmp/resolver_build.log 2>&1; then
+          AETHER=/tmp/aeth/bin/ae AEB_HOME="$HOME_DIR" "$HOME_DIR/aeb" tools/resolver/.dist.ae >/tmp/resolver_build.log 2>&1
+          if [ $? -ne 0 ]; then
             echo "resolver build failed — skipping the asset (release continues):"; tail -40 /tmp/resolver_build.log; exit 0
           fi
           RJAR="$(ls -t target/dist/tools/resolver/aeb-resolve.jar target/dist/tools/resolver/bin/aeb-resolve.jar 2>/dev/null | head -1)"
           if [ -z "$RJAR" ]; then echo "no aeb-resolve.jar produced — skipping (release continues)"; exit 0; fi
-          if ! java -jar "$RJAR" --output classpath org.apache.commons:commons-lang3:3.14.0 | grep -q 'commons-lang3-3.14.0.jar'; then
-            echo "fat aeb-resolve.jar did not resolve a coordinate — skipping (release continues)"; exit 0
-          fi
+          java -jar "$RJAR" --output classpath org.apache.commons:commons-lang3:3.14.0 2>/dev/null | grep -q 'commons-lang3-3.14.0.jar'
+          if [ $? -ne 0 ]; then echo "fat aeb-resolve.jar did not resolve a coordinate — skipping (release continues)"; exit 0; fi
           cp -f "$RJAR" aeb-resolve.jar
           sha256sum aeb-resolve.jar | tee aeb-resolve.jar.sha256
           echo "RESOLVER_ASSET=aeb-resolve.jar" >> "$GITHUB_ENV"
           echo "resolver asset ready: $(du -h aeb-resolve.jar | cut -f1) $(cut -d' ' -f1 aeb-resolve.jar.sha256)"
+          exit 0
 
       # Published with `gh release create`, NOT softprops/action-gh-release.
       #
