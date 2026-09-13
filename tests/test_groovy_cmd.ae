@@ -1,8 +1,9 @@
 // Tests for lib/groovy's pure command pieces: the groovyc invocation string
 // and the JAVA_OPTS bytecode-target prefix.
 import std.spec
+import std.io
 import std.map
-import groovy (groovyc_cmd, _java_opts, target_bytecode, run_script)
+import groovy (groovyc_cmd, _java_opts, target_bytecode, run_script, _write_argfile)
 
 main() {
     fw = spec.init()
@@ -57,6 +58,33 @@ main() {
             run_script(bmr, "scripts/other.groovy")
             sv2, _ = map.get(bmr, "run_script")
             spec.assert_str_eq(sv2, "scripts/other.groovy", "run_script last-call-wins")
+        }
+    }
+
+    spec.describe(fw, "_write_argfile") {
+        // Regression: this wrote an EMPTY file because it reached into
+        // string.split's result with list.size/list.get instead of
+        // string.array_size/string.array_get. _cache_key_for_groovyc hashes
+        // each source NAMED IN THIS FILE, so an empty argfile meant the
+        // groovyc cache key ignored source content entirely — edit a .groovy
+        // file and the stale cached class tree was replayed forever. A
+        // deliberately broken Groovy test kept reporting PASS because of it.
+        spec.it("lists every source, one per line") callback {
+            out = _write_argfile("/tmp", "aeb_test_argfile.txt",
+                "a/One.groovy b/Two.groovy c/Three.groovy")
+            content, _e = io.read_file(out)
+            spec.assert_str_eq(content, "a/One.groovy\nb/Two.groovy\nc/Three.groovy",
+                "all three sources present, newline separated")
+        }
+        spec.it("is not empty for a single source") callback {
+            out = _write_argfile("/tmp", "aeb_test_argfile1.txt", "only/One.groovy")
+            content, _e = io.read_file(out)
+            spec.assert_str_eq(content, "only/One.groovy", "single source written")
+        }
+        spec.it("skips padding without emitting blank lines") callback {
+            out = _write_argfile("/tmp", "aeb_test_argfile2.txt", "  a.groovy   b.groovy  ")
+            content, _e = io.read_file(out)
+            spec.assert_str_eq(content, "a.groovy\nb.groovy", "extra spaces collapse")
         }
     }
 

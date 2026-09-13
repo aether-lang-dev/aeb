@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- **The groovyc cache key ignored source content, so edited Groovy never
+  rebuilt.** `lib/groovy`'s `_write_argfile` reached into `string.split`'s
+  result with `list.size`/`list.get` instead of `string.array_size`/
+  `string.array_get`. That yielded size 0, so it wrote an EMPTY argfile — and
+  `_cache_key_for_groovyc` hashes each source NAMED IN THAT FILE, so the key
+  was computed over no sources at all. Both the prod and test argfiles were
+  0 bytes. Once a class tree was cached, any later edit to a `.groovy` file was
+  ignored and the stale tree was replayed: in servirtium-vcr a deliberately
+  broken Groovy test kept reporting `1/1 PASS` from a class compiled minutes
+  earlier, even after its node output was wiped. Only the groovy SDK has this
+  helper; java/kotlin/scala were unaffected. Covered by
+  `tests/test_groovy_cmd.ae`, which was itself checked by restoring the buggy
+  form and watching it redden.
+
 - **Nine test-runner builders across seven SDKs reported PASS on a failing
   suite.** `cpp.tests`, `d.test`, `swift.test`, `dart.test`, `gleam.test`,
   `jest.test`, `moonbit.test` and both JUnit runners in `java` ran the runner as

@@ -248,19 +248,28 @@ _cache_key_for_groovyc(ctx: ptr, argfile_path: string, groovyc_cmd_str: string, 
 // source. Returns the argfile path.
 _write_argfile(target_dir: string, name: string, file_list: string) {
     argfile = path.join(target_dir, name)
+    // string.split returns a STRING ARRAY, reached with string.array_size /
+    // string.array_get — not a list. Using list.size/list.get here silently
+    // yielded size 0, so this wrote an EMPTY argfile, and
+    // _cache_key_for_groovyc (which hashes each source named in it) therefore
+    // hashed NO sources: the groovyc cache key was blind to source content.
+    // Editing a .groovy file — prod or test — did not invalidate the cache, so
+    // a cached class tree was replayed forever. Caught in servirtium-vcr, where
+    // a deliberately broken Groovy test kept reporting 1/1 PASS from a stale
+    // class. Covered by tests/test_groovy_cmd.ae.
     paths = string.split(file_list, " ")
     af = ""
     i = 0
-    n = list.size(paths)
+    n = string.array_size(paths)
     while i < n {
-        p, _ = list.get(paths, i)
-        p = string.trim(p)
+        p = string.trim(string.array_get(paths, i))
         if string.length(p) > 0 {
             if string.length(af) > 0 { af = string.concat(af, "\n") }
             af = string.concat(af, p)
         }
         i = i + 1
     }
+    string.array_free(paths)
     _e = io.write_file(argfile, af)
     return argfile
 }
