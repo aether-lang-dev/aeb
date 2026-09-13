@@ -1,6 +1,39 @@
 # aeb-resolve.jar: make it a single FAT jar, publish it as a release asset, and fetch it for binary installs
 
-**Status:** OPEN (2026-09-13). Design agreed; two foundation fixes landed; the
+**Status: IMPLEMENTED (2026-09-13).** All of it landed: the fat jar
+(72db50c), then the publish + fetch wiring (f05035d). The "blocker" below was
+NOT a real orchestrator limitation — it was two concrete bugs in my own code
+(a same-dir dep_artifact resolution gap + package_jar splitting the classpath on
+the wrong separator), both fixed. What remains is only CI-verification: the
+release.yml asset-build/publish step and get.sh pre-fetch can't be fully
+exercised without an actual tagged release on the ubuntu-22.04 runner — the next
+release will confirm them. The historical analysis below is kept for the record.
+
+## What shipped
+
+- `tools/resolver/.build.ae` + `.dist.ae`: fat `aeb-resolve.jar` via
+  `package_jar from_classes` (bld folded in; no runtime sibling). Proven: 2.0 MB,
+  contains `rife/bld/*` + `BldResolve`, Main-Class set, `java -jar … --output
+  classpath <coord>` resolves transitively with no sibling jar.
+- `lib/java`: `javac` keeps `own_cp` on its published classpath; `package_jar
+  from_classes` explodes a `.jar` entry (fat, `unzip`), normalises the classpath
+  separator (newline OR colon), and honours `main_class()` (→ `jar --main-class`).
+- `lib/bldr`: `_read_dep_artifact` resolves a same-dir `.build.ae` sibling against
+  the node's own `module_dir`; `_ensure_resolver_jar(aeb_home)` returns an
+  existing jar or fetches the release asset (tag from AEB_STAMP, sha-verified).
+- `release.yml`: builds + `java -jar`-proves + publishes `aeb-resolve.jar` +
+  `.sha256` as release assets (still stripped from the base tarball).
+- `get.sh`: `aebget_prefetch_resolver` — java-present, best-effort pre-fetch into
+  `$PREFIX/share/aeb/tools` after a binary install (offline-container path).
+- `lib/maven` / `lib/scala` / `tools/aeb-sbom`: fetch-or-fail-loud via
+  `_ensure_resolver_jar` instead of `java -jar <missing>`.
+- `Makefile`: install glob finds the fat jar at the package_jar node-root path.
+
+---
+
+_(historical — the "blocker" turned out to be fixable bugs, see Status above)_
+
+Design agreed; two foundation fixes landed; the
 packaging step is blocked on a pre-existing orchestrator limitation (below).
 
 ## The problem this closes
