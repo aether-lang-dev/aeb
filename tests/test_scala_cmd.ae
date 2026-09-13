@@ -2,7 +2,7 @@
 import std.spec
 import std.map
 
-import scala (scalac_cmd, munit_cmd,
+import scala (scalac_cmd, munit_cmd, _test_root_of, source_layout,
               assembly_unzip_jar_cmd, assembly_copy_classes_cmd,
               assembly_jar_cmd, _ends_with_jar,
               main_class, output_jar)
@@ -131,6 +131,32 @@ main() {
             main_class(bm, "com.example.Other")
             mc2, _ = map_get(bm, "main_class")
             spec.assert_str_eq(mc2, "com.example.Other", "main_class last-call-wins")
+        }
+    }
+
+    spec.describe(fw, "_test_root_of") {
+        // Regression: scalac_test used to `find` over the WHOLE module dir for
+        // *Test.scala, so a sibling example/ or samples/ subtree carrying a
+        // CONSUMER test was compiled into the in-tree suite and run against the
+        // wrong classpath. servirtium-vcr's scala/example test — which asserts
+        // it was loaded from the INSTALLED jar — failed there while the binding
+        // itself was fine.
+        spec.it("defaults to the whole module dir (back-compat)") callback {
+            m = map.new()
+            spec.assert_str_eq(_test_root_of("/proj/scala", m), "/proj/scala",
+                "unset layout keeps the historical glob")
+        }
+        spec.it("scopes to src/test/scala under the maven layout") callback {
+            m = map.new()
+            source_layout(m, "maven idiomatic")
+            spec.assert_str_eq(_test_root_of("/proj/scala", m),
+                "/proj/scala/src/test/scala", "maven idiomatic narrows the root")
+        }
+        spec.it("an unrecognised layout does not narrow") callback {
+            m = map.new()
+            source_layout(m, "flat")
+            spec.assert_str_eq(_test_root_of("/proj/scala", m), "/proj/scala",
+                "only the known layout changes behaviour")
         }
     }
 

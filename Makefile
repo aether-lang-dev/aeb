@@ -102,11 +102,33 @@ install: $(INSTALL_TOOLS)
 	    $(AETHER) build "$$src" -o "$$bin" $(AEFLAGS) $$extra >/dev/null || { echo "install: failed to build $$src" >&2; exit 1; }; \
 	done
 	rm -f $(BINDIR)/aeb
+	@# tools/*.jar are OUT-OF-BAND artifacts: aeb-resolve.jar and its co-located
+	@# bld-<v>.jar are built by `aeb tools/resolver/.dist.ae`, are gitignored, and
+	@# do NOT exist in the dev tools/ tree. So the `rm -rf` + `cp -R tools` below
+	@# DESTROYS them and puts nothing back — after which every maven/java/scala/
+	@# kotlin build dies with "Unable to access jarfile .../aeb-resolve.jar" and
+	@# "Could not find or load main class dotty.tools.dotc.Main". That is the
+	@# "make install keeps wiping aeb-resolve.jar" bug the comments above warn
+	@# about; the reclaim loop was hardened, but the wholesale wipe here still hit
+	@# it. Stash them, and restore after the copy.
+	@rm -rf $(SHAREDIR)/.tools-jar-stash
+	@if ls $(SHAREDIR)/tools/*.jar >/dev/null 2>&1; then \
+	    mkdir -p $(SHAREDIR)/.tools-jar-stash && cp -p $(SHAREDIR)/tools/*.jar $(SHAREDIR)/.tools-jar-stash/ ; \
+	fi
 	rm -rf $(SHAREDIR)/lib $(SHAREDIR)/tools $(SHAREDIR)/veto $(SHAREDIR)/sandbox
 	cp -f aeb $(SHAREDIR)/aeb
 	chmod +x $(SHAREDIR)/aeb
 	cp -R lib $(SHAREDIR)/lib
 	cp -R tools $(SHAREDIR)/tools
+	@# Prefer a freshly built resolver from target/dist; else put the stash back.
+	@if ls target/dist/tools/resolver/bin/*.jar >/dev/null 2>&1; then \
+	    cp -p target/dist/tools/resolver/bin/*.jar $(SHAREDIR)/tools/ && echo "  install tools/*.jar (freshly built resolver)"; \
+	elif ls $(SHAREDIR)/.tools-jar-stash/*.jar >/dev/null 2>&1; then \
+	    cp -p $(SHAREDIR)/.tools-jar-stash/*.jar $(SHAREDIR)/tools/ && echo "  restore tools/*.jar (out-of-band artifacts preserved)"; \
+	else \
+	    echo "  note: no tools/aeb-resolve.jar — build it with: aeb tools/resolver/.dist.ae"; \
+	fi
+	@rm -rf $(SHAREDIR)/.tools-jar-stash
 	cp -R veto $(SHAREDIR)/veto
 	cp -R sandbox $(SHAREDIR)/sandbox
 	@printf '%s\n' \

@@ -24,6 +24,22 @@ scala_version(_ctx: ptr, ver: string) {
 }
 
 // Set the main class for running
+// source_layout("maven idiomatic") — scope TEST discovery to src/test/scala
+// instead of globbing the whole module dir. Mirrors lib/kotlin and lib/groovy.
+//
+// Opt-in on purpose: the default (any *Test.scala / *Tests.scala / *.test.scala
+// anywhere under the module) is what existing consumers get, and narrowing it
+// silently could drop someone's tests. But that default sweeps in sources it
+// should not own — a `example/` or `samples/` subtree holding a CONSUMER test
+// gets compiled into the in-tree suite and run against the wrong classpath.
+// That is not hypothetical: servirtium-vcr's scala/example consumer test,
+// which asserts it was loaded from the INSTALLED jar, was pulled into the
+// in-tree run and failed there ("expected the installed scala jar, got
+// .../target/build/scala/classes/") while the binding itself was fine.
+source_layout(_ctx: ptr, layout: string) {
+    _e = map.put(_ctx, "source_layout", layout)
+}
+
 main_class(_ctx: ptr, cls: string) {
     _e = map.put(_ctx, "main_class", cls)
 }
@@ -339,6 +355,20 @@ builder scalac(): int {
 
 // Compile and run Scala tests.
 // Compiles test .scala files, then runs them via JUnit (munit integrates with JUnit).
+// _test_root_of(source_dir, bmap) — the directory scalac_test searches for
+// test sources. "maven idiomatic" roots it at src/test/scala; anything else
+// (including unset) keeps the historical whole-module glob. Pure; tested in
+// tests/test_scala_cmd.ae.
+_test_root_of(source_dir: string, bmap: ptr) {
+    if bmap == null { return source_dir }
+    if map.has(bmap, "source_layout") == 0 { return source_dir }
+    layout_t, _ = map.get(bmap, "source_layout")
+    if string.equals(layout_t, "maven idiomatic") == 1 {
+        return path.join(source_dir, "src/test/scala")
+    }
+    return source_dir
+}
+
 builder scalac_test(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -370,9 +400,13 @@ builder scalac_test(): int {
 
     println("${mod_dir}: compiling test code (scalac)")
 
-    // Find test source files
+    // Find test source files. With source_layout("maven idiomatic") the search
+    // is rooted at src/test/scala, so sibling subtrees (example/, samples/)
+    // that carry their own *Test.scala are NOT compiled into this suite.
+    // Without it, the historical whole-module glob is preserved.
+    test_root = _test_root_of(source_dir, _builder)
     argfile = path.join(target_dir, "scalac_test_sources.txt")
-    bldr._sh("find '${source_dir}' -name '*.test.scala' -o -name '*Test.scala' -o -name '*Tests.scala' > '${argfile}' 2>/dev/null || true")
+    bldr._sh("find '${test_root}' -name '*.test.scala' -o -name '*Test.scala' -o -name '*Tests.scala' > '${argfile}' 2>/dev/null || true")
 
     af_raw, _eaf = bldr._sh_capture("cat '${argfile}'")
     argfile_content = string.trim(af_raw)

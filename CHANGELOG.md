@@ -4,6 +4,33 @@
 
 ### Fixed
 
+- **`make install` destroyed `tools/aeb-resolve.jar`, breaking every
+  maven/java/scala/kotlin build.** The install does
+  `rm -rf $(SHAREDIR)/tools` then `cp -R tools $(SHAREDIR)/tools`, but the
+  resolver jar (and its co-located `bld-<v>.jar`) is built OUT OF BAND by
+  `aeb tools/resolver/.dist.ae`, is gitignored, and does not exist in the dev
+  `tools/` tree — so the copy put nothing back. The next Scala build died with
+  `Unable to access jarfile .../aeb-resolve.jar` and
+  `Could not find or load main class dotty.tools.dotc.Main`. This is the
+  "make install keeps wiping aeb-resolve.jar" bug the surrounding comments warn
+  about: the reclaim loop had been hardened, but the wholesale wipe still hit
+  it. Install now stashes `tools/*.jar` across the wipe and restores them,
+  preferring a freshly built `target/dist/tools/resolver/bin/*.jar`, and says
+  which it did (or tells you how to build one when there is none).
+
+### Changed
+
+- **`scala.scalac_test` can scope test discovery with
+  `source_layout("maven idiomatic")`**, rooting the search at `src/test/scala`
+  the way `lib/kotlin` and `lib/groovy` already do. The default — `find` over
+  the WHOLE module dir for `*Test.scala` / `*Tests.scala` / `*.test.scala` — is
+  unchanged, so nobody's tests disappear; but that default sweeps in sources it
+  should not own. In servirtium-vcr it compiled `scala/example`'s third-party
+  CONSUMER test (which asserts it was loaded from the INSTALLED jar) into the
+  in-tree suite, where it failed by design and reddened a binding that was
+  fine. The root choice is the pure `_test_root_of`, covered in
+  `tests/test_scala_cmd.ae`.
+
 - **The groovyc cache key ignored source content, so edited Groovy never
   rebuilt.** `lib/groovy`'s `_write_argfile` reached into `string.split`'s
   result with `list.size`/`list.get` instead of `string.array_size`/
