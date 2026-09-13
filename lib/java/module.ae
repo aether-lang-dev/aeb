@@ -1110,7 +1110,13 @@ builder javac(): int {
         }
     }
 
-    // Write classpath artifact (classes dir + dep classpath + maven classpath)
+    // Write classpath artifact (classes dir + dep classpath + maven classpath +
+    // this node's OWN jar_pinned/jar_vendored jars). own_cp must be included:
+    // jar_pinned wrote it into this same artifact, and without re-adding it here
+    // javac's write CLOBBERS the pinned jar — so a downstream dep (e.g. a
+    // .dist.ae that fat-jars a jar_pinned + javac build node, like the bld
+    // resolver) loses it. It's on the compile classpath above; it belongs in the
+    // published classpath too.
     cp_out = classes_dir
     if string.length(dep_cp) > 0 {
         tmp2 = string.concat(cp_out, "\n")
@@ -1123,6 +1129,10 @@ builder javac(): int {
     if string.length(file_cp) > 0 {
         tmp4 = string.concat(cp_out, "\n")
         cp_out = string.concat(tmp4, file_cp)
+    }
+    if string.length(own_cp) > 0 {
+        tmp5 = string.concat(cp_out, "\n")
+        cp_out = string.concat(tmp5, own_cp)
     }
     bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_out)
 
@@ -1210,7 +1220,12 @@ builder package_jar(): int {
 
     if string.length(string.trim(from_cp)) > 0 {
         // (a) package pre-compiled classes — no javac. Split the classpath on
-        // ':' and stage each entry by kind (dir tree in / jar copied beside).
+        // ':' and stage each entry by kind: a directory's class tree is copied
+        // in; a .jar is EXPLODED in (a non-shaded fat jar — its classes land
+        // beside ours, so `java -jar` loads them with no sibling jar and no
+        // package relocation); any other file (a native .so, a resource) is
+        // copied beside. Exploding is the only useful thing to do with a .jar
+        // here — a jar nested inside a jar is not on the classpath at runtime.
         staged_any = 0
         ci = 1
         while ci <= 200 {
@@ -1224,7 +1239,12 @@ builder package_jar(): int {
                     staged_any = 1
                 } else {
                     if file.exists(entry) == 1 {
-                        bldr._sh("cp -f '${entry}' '${stage}/' 2>/dev/null || true")
+                        if string.ends_with(entry, ".jar") == 1 {
+                            // explode the jar into the stage (fat jar, non-shaded)
+                            bldr._sh("unzip -qq -o '${entry}' -d '${stage}' >/dev/null 2>&1 || true")
+                        } else {
+                            bldr._sh("cp -f '${entry}' '${stage}/' 2>/dev/null || true")
+                        }
                         staged_any = 1
                     }
                 }
