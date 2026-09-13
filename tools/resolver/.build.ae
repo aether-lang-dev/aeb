@@ -1,0 +1,10 @@
+import bldr
+import java
+import java (jar_pinned, javac, no_module_info)
+main() {
+    bldr.build() {
+        java.jar_pinned("com.uwyn.rife2:bld:2.3.0",
+                        "762d7809f62ab93528bcfc9558c103b22f5f080c948b68649b155639e957858f")
+        java.javac() { no_module_info() }
+    }
+}

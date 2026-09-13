@@ -1219,17 +1219,25 @@ builder package_jar(): int {
     }
 
     if string.length(string.trim(from_cp)) > 0 {
-        // (a) package pre-compiled classes — no javac. Split the classpath on
-        // ':' and stage each entry by kind: a directory's class tree is copied
-        // in; a .jar is EXPLODED in (a non-shaded fat jar — its classes land
-        // beside ours, so `java -jar` loads them with no sibling jar and no
-        // package relocation); any other file (a native .so, a resource) is
-        // copied beside. Exploding is the only useful thing to do with a .jar
-        // here — a jar nested inside a jar is not on the classpath at runtime.
+        // (a) package pre-compiled classes — no javac. Split the classpath and
+        // stage each entry by kind: a directory's class tree is copied in; a
+        // .jar is EXPLODED in (a non-shaded fat jar — its classes land beside
+        // ours, so `java -jar` loads them with no sibling jar and no package
+        // relocation); any other file (a native .so, a resource) is copied
+        // beside. Exploding is the only useful thing to do with a .jar here — a
+        // jar nested inside a jar is not on the classpath at runtime.
+        //
+        // The value may be COLON-separated (a hand-written a:b:c) OR
+        // NEWLINE-separated (a jvm_classpath_deps_including_transitive artifact
+        // read via dep_artifact() — the common case). Normalise newlines to
+        // colons first so cut sees one entry per field either way; without this
+        // a newline-joined "classes\n<jar>" is treated as ONE bogus entry.
+        from_cp_norm, _fce = bldr._sh_capture("printf '%s' '${from_cp}' | tr '\n' ':' | sed 's/:$//'")
+        from_cp_norm = string.trim(from_cp_norm)
         staged_any = 0
         ci = 1
         while ci <= 200 {
-            e_raw, _ece = bldr._sh_capture("printf '%s' '${from_cp}' | cut -d: -f${ci}")
+            e_raw, _ece = bldr._sh_capture("printf '%s' '${from_cp_norm}' | cut -d: -f${ci}")
             entry = string.trim(e_raw)
             if string.length(entry) == 0 { ci = 999 }
             else {
@@ -1301,9 +1309,19 @@ builder package_jar(): int {
         }
     }
 
-    // 3. jar it.
+    // 3. jar it. An optional main_class() setter (shared with thin_jar's
+    //    thin_main_class key) makes the jar launchable via `java -jar` — jar's
+    //    --main-class writes the manifest Main-Class. Absent → a plain library
+    //    jar (today's behaviour).
+    mc_flag = ""
+    if _builder != null {
+        if map.has(_builder, "thin_main_class") == 1 {
+            mc, _ = map.get(_builder, "thin_main_class")
+            if string.length(mc) > 0 { mc_flag = " --main-class ${mc}" }
+        }
+    }
     jar_out = path.join(target_dir, jar_nm)
-    jc2 = bldr._sh("cd '${stage}' && jar --create --file '${jar_out}' .")
+    jc2 = bldr._sh("cd '${stage}' && jar --create${mc_flag} --file '${jar_out}' .")
     if jc2 != 0 {
         println("${mod_dir}: package_jar: jar FAILED")
         bldr.fail(ctx, "package_jar jar failed")

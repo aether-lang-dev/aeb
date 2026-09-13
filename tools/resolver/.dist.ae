@@ -1,48 +1,14 @@
-// Build aeb-resolve.jar — aeb's Maven coordinate resolver.
-//
-// aeb-resolve is a THIN shim (aeb.maven.BldResolve) over Geert Bevin's bld
-// (com.uwyn.rife2:bld) — a single self-contained ~2 MB jar whose
-// rife.bld.dependencies.* resolver does transitive Maven-coordinate resolution
-// (POM walk, parent chains, dependencyManagement/BOM, property interpolation,
-// download from Central) with ZERO runtime dependencies and NO logging
-// framework. This REPLACES the old Eclipse-Aether MavenResolver (24-jar
-// closure) + its mvn/shade/stub build. See docs/plans/aether-maven-resolver-todo.md.
-//
-// Written in aeb's own java DSL — no mvn, no shade, no hand-rolled shell:
-//   jar_pinned   fetches bld by coordinate+sha256 (cache/~/.m2/Central,
-//                fail-closed) onto the compile classpath.
-//   javac        compiles the flat BldResolve.java against it. no_module_info
-//                forces class-path mode (bld ships a module-info; without this
-//                javac puts it on --module-path as an automatic module and the
-//                unnamed-module shim can't read it).
-//   thin_jar     packages a small launcher jar: Main-Class runs the shim, and
-//                Class-Path names bld, which thin_jar co-locates next to the
-//                output jar — so `java -jar aeb-resolve.jar ...` finds bld at
-//                runtime. lib/maven + aeb-sbom invoke the jar unchanged.
-//
-//   aeb tools/resolver/.dist.ae   # → target/dist/tools/resolver/bin/aeb-resolve.jar
-//                                 #   (+ bld-<v>.jar co-located in bin/)
-//
-// NOT wired into make (make builds the Aether parts of aeb; this Java shim is
-// built by aeb). aeb-resolve.jar AND bld-<v>.jar are gitignored artifacts; a
-// fresh install builds the thin jar and fetches bld here. Build needs only a
-// JDK + curl.
 import bldr
+import bldr (dep, dep_artifact)
 import java
-import java (jar_pinned, javac, no_module_info, thin_jar, main_class, class_path)
-
+import java (jar_name, from_classes, main_class)
 main() {
     bldr.build() {
-        java.jar_pinned("com.uwyn.rife2:bld:2.3.0",
-                        "762d7809f62ab93528bcfc9558c103b22f5f080c948b68649b155639e957858f")
-
-        java.javac() {
-            no_module_info()
-        }
-
-        java.thin_jar("aeb-resolve.jar") {
+        dep("tools/resolver/.build.ae")
+        java.package_jar() {
+            jar_name("aeb-resolve.jar")
             main_class("aeb.maven.BldResolve")
-            class_path("bld-2.3.0.jar")
+            from_classes(dep_artifact("tools/resolver/.build.ae", "jvm_classpath_deps_including_transitive"))
         }
     }
 }

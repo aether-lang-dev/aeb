@@ -1874,6 +1874,39 @@ _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
         content, _rerr = io.read_file(p)
         return content
     }
+    // Same-dir sibling dep. A bare-basename build-file label — dep(".build.ae")
+    // / dep(".dist.ae") — carries no directory, so _dep_target_dir strips it to
+    // dir="." and computes target/<type>/. (root-relative), missing a producer
+    // that wrote under target/<type>/<this-node's-dir>. dep() itself resolves
+    // the sibling fine for the build DAG; only this artifact READ missed it.
+    // When the label is a directoryless ".<type>.ae", the sibling shares THIS
+    // node's module dir — retarget the lookup there.
+    dm_slash = _last_slash(dep_module)
+    dm_base = dep_module
+    if dm_slash >= 0 { dm_base = string.substring(dep_module, dm_slash + 1, string.length(dep_module)) }
+    if dm_slash < 0 {
+        if string.index_of(dm_base, ".") == 0 {
+            if string.ends_with(dm_base, ".ae") == 1 {
+                stem = string.substring(dm_base, 1, string.length(dm_base) - 3)  // ".<type>.ae" → "<type>"
+                if string.length(stem) > 0 {
+                    md = _get(ctx, "module_dir")
+                    // module_dir is "<buildtype>:<dir>" (e.g. "dist:tools/resolver")
+                    // — strip the "<type>:" prefix to the bare dir the sibling's
+                    // target/<stem>/<dir> uses.
+                    colon = string.index_of(md, ":")
+                    if colon >= 0 { md = string.substring(md, colon + 1, string.length(md)) }
+                    if string.length(md) > 0 {
+                        sib = path.join(path.join(path.join(root, "target"), stem), md)
+                        sp = path.join(sib, artifact)
+                        if file.exists(sp) == 1 {
+                            csib, _serr = io.read_file(sp)
+                            return csib
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Cross-buildtype fallback. _dep_target_dir derives the buildtype from a
     // trailing ".<type>.ae" on dep_module — but by the time a builder reads
     // its deps, the orchestrator has rewritten ctx["deps"] to BARE DIRS (the
