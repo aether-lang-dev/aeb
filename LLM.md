@@ -445,6 +445,22 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
 
 ## Idioms that keep biting
 
+- **Never end a test-runner command with `| tee`. Use `bldr._sh_tee`.** A
+  pipeline exits with the status of its LAST command, so `cmd 2>&1 | tee log`
+  returns tee's `0` and reports a failing suite — or a compile that produced no
+  binary at all — as a PASS. Nine builders across seven SDKs shipped with that
+  bug (cpp, d, swift, dart, gleam, jest, moonbit, and both java JUnit runners);
+  it was caught in the wild by the sibling servirtium-vcr repo, where a D
+  binding that did not compile reported `1/1 PASS`. `bldr._sh_tee(cmd,
+  out_path, rc_file)` keeps the tee'd log (the summary parsers read it) and
+  returns the command's real status via an rc file. It **fails closed**: the rc
+  file is deleted first so a stale `0` is never inherited, and a missing or
+  unparseable rc reports failure. `set -o pipefail` is NOT an option — `_sh`
+  goes through `os.system` → `/bin/sh`, which is dash on Debian/Ubuntu.
+  If you add a builder that runs someone's tests, route it through this helper
+  and then **prove it reddens** by breaking a real test once. A build runner may
+  cry wolf; it may not stay quiet.
+
 - **Build scripts can share a source module across directories via a
   root-relative dotted import.** A `.build.ae` in one dir can import an
   Aether source module living in another dir by naming it as a path from

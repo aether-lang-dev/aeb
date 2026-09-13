@@ -1492,6 +1492,43 @@ _sh(cmd: string) {
     return rc
 }
 
+// _sh_tee_cmd(cmd, out_path, rc_file) — the shell text that runs `cmd`, tees
+// its combined output to out_path (for the summary parsers and a durable
+// post-build record), and records the COMMAND's exit status in rc_file.
+// Pure; tested in tests/test_sh_tee_cmd.ae.
+//
+// Why the rc file instead of the obvious `cmd 2>&1 | tee log`: a pipeline
+// reports the exit status of its LAST command, so that shape returns TEE's
+// status — always 0 — and a failing test binary, or a compiler that never
+// produced one, is reported as a PASS. That is the worst failure a build
+// runner can have: it is silent, and it is green. `set -o pipefail` is not an
+// option because _sh runs through os.system → /bin/sh, which is dash on
+// Debian/Ubuntu. The subshell writes the real status to a file the caller
+// reads back, which is POSIX everywhere.
+_sh_tee_cmd(cmd: string, out_path: string, rc_file: string) {
+    return "( ${cmd} 2>&1; echo $? > \"${rc_file}\" ) | tee \"${out_path}\""
+}
+
+// _sh_tee(cmd, out_path, rc_file) — run _sh_tee_cmd and return the COMMAND's
+// exit code, not tee's.
+//
+// Fails CLOSED. The rc file is deleted first, so a stale 0 from an earlier run
+// can never be mistaken for this run's verdict; and if it is then missing,
+// unreadable or unparseable, the command's fate is UNKNOWN, which this reports
+// as failure (1) rather than inventing a pass. A build runner may cry wolf; it
+// may not stay quiet.
+_sh_tee(cmd: string, out_path: string, rc_file: string) {
+    _d = fs.delete(rc_file)
+    _ig = _sh(_sh_tee_cmd(cmd, out_path, rc_file))
+    if file.exists(rc_file) == 0 { return 1 }
+    rc_txt, rerr = io.read_file(rc_file)
+    if string.length(rerr) > 0 { return 1 }
+    trimmed = string.trim(rc_txt)
+    if string.length(trimmed) == 0 { return 1 }
+    code, _e = string.to_int(trimmed)
+    return code
+}
+
 // _sh_capture(cmd) — os.exec variant of _sh. Same temp-script mechanism;
 // returns (stdout, err) like os.exec.
 _sh_capture(cmd: string) {

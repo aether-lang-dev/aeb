@@ -136,8 +136,10 @@ builder test(): int {
         println("${mod_dir}: dmd -run ${f}")
         cmd = string.concat(envp, run_test_cmd(dmd, source_dir, flags, sources, f))
         out_path = path.join(target_dir, string.concat("test_output_", string.concat(bldr._basename(f), ".log")))
-        full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-        exit_code = bldr._sh(full_cmd)
+        // Real exit code, not tee's — see bldr._sh_tee. A bare `cmd | tee log`
+        // reports tee's 0 and turns a failing suite green.
+        rc_file = path.join(target_dir, "test_exit.rc")
+        exit_code = bldr._sh_tee(cmd, out_path, rc_file)
         if exit_code != 0 {
             total_fail = total_fail + 1
             bldr._record_test_result(ctx, total_pass, total_fail)

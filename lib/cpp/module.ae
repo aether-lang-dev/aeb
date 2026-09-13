@@ -331,7 +331,10 @@ builder tests(): int {
 
     println("${mod_dir}: running tests")
     out_path = path.join(target_dir, "test_output.log")
-    rc = bldr._sh("'${test_bin}' 2>&1 | tee '${out_path}'")
+    // Real exit code, not tee's — see bldr._sh_tee. A bare `cmd | tee log`
+    // reports tee's 0, which turned a failing C++ suite green in the field.
+    rc_file = path.join(target_dir, "test_exit.rc")
+    rc = bldr._sh_tee("'${test_bin}'", out_path, rc_file)
     if rc != 0 {
         bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")

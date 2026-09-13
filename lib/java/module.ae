@@ -1523,8 +1523,10 @@ builder junit(): int {
     // "Tests run: N,  Failures: F" on failure.
     bldr._mkdirs(target_dir)
     out_path = path.join(target_dir, "test_output.log")
-    full_cmd = string.concat(string.concat(cmd, " 2>&1 | tee "), out_path)
-    exit_code = bldr._sh(full_cmd)
+    // Real exit code, not tee's — see bldr._sh_tee. A bare `cmd | tee log`
+    // reports tee's 0 and turns a failing suite green.
+    rc_file = path.join(target_dir, "test_exit.rc")
+    exit_code = bldr._sh_tee(cmd, out_path, rc_file)
     out_text, _orerr = fs.read(out_path)
     p4, f4 = _parse_junit4_counts(out_text)
     bldr._record_test_result(ctx, p4, f4)
@@ -1705,19 +1707,16 @@ builder junit5() {
     cmd = junit5_cmd(classpath, test_classes, ld_path, _builder)
     // Run from the module's source dir (like surefire) so tests that resolve
     // relative resource/file paths (e.g. src/test/resources/...) find them.
-    // Tee to target/<module>/test_output.log for the summary parser + a
-    // durable post-build record. Capture the runner's REAL exit via an rc
-    // file — a bare `cmd | tee` reports tee's exit (always 0), masking
-    // failures. Honors env(K,V) via the export prefix.
+    // bldr._sh_tee tees to target/<module>/test_output.log for the summary
+    // parser + a durable post-build record, and returns the runner's REAL
+    // exit via an rc file — a bare `cmd | tee` reports tee's exit (always 0),
+    // masking failures. Honors env(K,V) via the export prefix.
     bldr._mkdirs(target_dir)
     source_dir = bldr._get(ctx, "source_dir")
     out_path = path.join(target_dir, "test_output.log")
     rc_file = path.join(target_dir, "test_exit.rc")
-    inner = "cd \"${source_dir}\" && ( ${cmd} 2>&1; echo $? > \"${rc_file}\" ) | tee \"${out_path}\""
-    full_cmd = string.concat(bldr._env_export_prefix(_builder), inner)
-    _ig = bldr._sh(full_cmd)
-    rc_txt, _rcerr = io.read_file(rc_file)
-    exit_code, _ec = string.to_int(string.trim(rc_txt))
+    inner = string.concat(bldr._env_export_prefix(_builder), "cd \"${source_dir}\" && ${cmd}")
+    exit_code = bldr._sh_tee(inner, out_path, rc_file)
     out_text, _orerr = fs.read(out_path)
     if exit_code == 124 {
         bldr._record_test_result(ctx, 0, 1)

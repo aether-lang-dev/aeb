@@ -2,6 +2,32 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Nine test-runner builders across seven SDKs reported PASS on a failing
+  suite.** `cpp.tests`, `d.test`, `swift.test`, `dart.test`, `gleam.test`,
+  `jest.test`, `moonbit.test` and both JUnit runners in `java` ran the runner as
+  `cmd 2>&1 | tee <log>` and took the PIPELINE's exit status as the verdict — and
+  a pipeline exits with the status of its LAST command, which is `tee`, which is
+  always `0`. A failing test binary, and a compiler that never produced one at
+  all, both came back green. Found in the wild in the sibling servirtium-vcr
+  repo: a C++ suite printed `FAILED: 1 cpp test(s)` while the leaf reported
+  `1/1 PASS`, and a D binding that did not compile (an `extern(C)`
+  function-pointer linkage error) also reported `1/1 PASS`, with dmd's errors
+  sitting unread in the tee'd log.
+
+  All nine now go through the new `bldr._sh_tee(cmd, out_path, rc_file)`, which
+  keeps the tee'd log the summary parsers read (`swift`, `zig`, `java`, `dart`,
+  `gleam` all parse counts out of it) but returns the COMMAND's status via an rc
+  file. `set -o pipefail` is not available: `_sh` runs through `os.system` →
+  `/bin/sh`, which is dash on Debian/Ubuntu. It **fails closed** — the rc file is
+  deleted first so a stale `0` can't be inherited, and a missing or unparseable
+  rc reports failure rather than inventing a pass. `java` already had this idiom
+  hand-rolled inline; it now shares the helper so the two cannot drift. The pure
+  string builder is covered by `tests/test_sh_tee_cmd.ae`, and the fix was
+  verified end-to-end by making a real suite fail two ways (bad assertion,
+  compile error) and confirming both now redden.
+
 ### Changed
 
 - **The whole test suite propagates `std.spec`'s verdict:

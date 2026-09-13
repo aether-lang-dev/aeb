@@ -1,0 +1,59 @@
+// Tests for bldr._sh_tee_cmd — the shell text behind honest test-runner exit
+// codes.
+//
+// The bug this guards against: `cmd 2>&1 | tee log` returns TEE's status
+// (always 0), so a failing test binary — or a compiler that never produced one
+// — is reported as a PASS. Nine builders across seven SDKs had that shape.
+// The fix records the command's real status in an rc file the caller reads
+// back; `set -o pipefail` is not available because _sh runs through
+// os.system -> /bin/sh, which is dash on Debian/Ubuntu.
+//
+// What matters in the emitted string, and what these assert:
+//   * the command runs in a SUBSHELL whose status is captured by `echo $?`,
+//     and the capture happens BEFORE the pipe, not after it;
+//   * the rc path and the log path are quoted (spaces in target dirs);
+//   * tee still writes the log, because the summary parsers read it.
+import std.spec
+import std.string
+import bldr
+import bldr (_sh_tee_cmd)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "_sh_tee_cmd") {
+        spec.it("captures the command's status, not tee's") callback {
+            spec.assert_str_eq(
+                _sh_tee_cmd("make test", "/t/out.log", "/t/exit.rc"),
+                "( make test 2>&1; echo $? > \"/t/exit.rc\" ) | tee \"/t/out.log\"",
+                "rc captured inside the subshell, before the pipe")
+        }
+
+        spec.it("still tees the log the summary parsers read") callback {
+            cmd = _sh_tee_cmd("swift test", "/t/test_output.log", "/t/test_exit.rc")
+            spec.assert_true(string.index_of(cmd, "| tee \"/t/test_output.log\"") >= 0,
+                "log is still written")
+        }
+
+        spec.it("quotes both paths (target dirs may contain spaces)") callback {
+            cmd = _sh_tee_cmd("./t", "/a b/out.log", "/a b/exit.rc")
+            spec.assert_true(string.index_of(cmd, "\"/a b/exit.rc\"") >= 0, "rc path quoted")
+            spec.assert_true(string.index_of(cmd, "\"/a b/out.log\"") >= 0, "log path quoted")
+        }
+
+        spec.it("passes a compound command through intact") callback {
+            spec.assert_str_eq(
+                _sh_tee_cmd("cd '/proj' && 'dmd' -run 't.d'", "/t/o.log", "/t/e.rc"),
+                "( cd '/proj' && 'dmd' -run 't.d' 2>&1; echo $? > \"/t/e.rc\" ) | tee \"/t/o.log\"",
+                "caller's cd/&& chain is not re-quoted")
+        }
+
+        spec.it("does not use pipefail (dash is /bin/sh on Debian)") callback {
+            cmd = _sh_tee_cmd("./t", "/t/o.log", "/t/e.rc")
+            spec.assert_true(string.index_of(cmd, "pipefail") < 0,
+                "no bashism — _sh runs through os.system -> /bin/sh")
+        }
+    }
+
+    return spec.run_summary(fw)
+}
