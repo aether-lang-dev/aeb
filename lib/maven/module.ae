@@ -318,9 +318,19 @@ resolve(ctx: ptr) {
     // Cache miss (or cache disabled) — fall through to the live
     // resolver invocation.
 
-    // Build the resolver command
+    // Build the resolver command. aeb-resolve.jar ships as a release asset, not
+    // in the tarball, so a binary install fetches it on first JVM use (or the
+    // get.sh java-present pre-fetch already placed it). Fail LOUD if it can't be
+    // obtained, rather than letting `java -jar <missing>` emit a raw
+    // "Unable to access jarfile".
     aeb_home = os.getenv("AEB_HOME")
-    resolver_jar = path.join(aeb_home, "tools/aeb-resolve.jar")
+    resolver_jar = bldr._ensure_resolver_jar(aeb_home)
+    if string.length(resolver_jar) == 0 {
+        println("${mod_dir}: aeb-resolve.jar not found and could not be fetched.")
+        println("  Build it: aeb tools/resolver/.dist.ae  (needs a JDK), or install a release build.")
+        bldr.fail(ctx, "aeb-resolve.jar unavailable")
+        return ""
+    }
 
     bom_files = null
     if map.has(ctx, "_bom_files") == 1 {

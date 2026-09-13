@@ -316,6 +316,34 @@ jobs:
             || { echo "installed aeb did not reach a green build"; exit 1; }
           echo "make install OK: $INST/bin/aeb builds green from an unrelated dir"
 
+      - name: Build aeb-resolve.jar (fat, published as its own asset)
+        run: |
+          set -euo pipefail
+          # aeb-resolve.jar is aeb's Maven resolver — a single FAT jar (bld folded
+          # in; bld:2.3.0 is a build-time-only input). It is deliberately NOT in
+          # the source tarball (7 MB on a ~440 KB payload, and only lib/maven +
+          # aeb-sbom use it); it ships as its own release asset that a binary
+          # install fetches. Build it here with the aeb we just cold-bootstrapped
+          # + the Aether it fetched. Needs a JDK — ubuntu-22.04 runners have one.
+          WORK="$(mktemp -d)"; tar xzf aeb-bootstrap.tar.gz -C "$WORK"
+          HOME_DIR="$WORK/aeb-bootstrap"
+          command -v javac >/dev/null || { echo "no JDK on the runner — cannot build the resolver"; exit 1; }
+          # Build from the SOURCE checkout (payload staging strips tools/resolver;
+          # the checked-out repo still has it).
+          AETHER=/tmp/aeth/bin/ae AEB_HOME="$HOME_DIR" "$HOME_DIR/aeb" tools/resolver/.dist.ae \
+            >/tmp/resolver_build.log 2>&1 \
+            || { echo "resolver build FAILED:"; tail -30 /tmp/resolver_build.log; exit 1; }
+          RJAR="$(ls -t target/dist/tools/resolver/aeb-resolve.jar target/dist/tools/resolver/bin/aeb-resolve.jar 2>/dev/null | head -1)"
+          test -n "$RJAR" || { echo "no aeb-resolve.jar produced"; exit 1; }
+          # Prove it works: resolve a coordinate via `java -jar`, no sibling jar.
+          java -jar "$RJAR" --output classpath org.apache.commons:commons-lang3:3.14.0 \
+            | grep -q 'commons-lang3-3.14.0.jar' \
+            || { echo "fat aeb-resolve.jar did not resolve a coordinate"; exit 1; }
+          cp -f "$RJAR" aeb-resolve.jar
+          sha256sum aeb-resolve.jar | tee aeb-resolve.jar.sha256
+          echo "RESOLVER_ASSET=aeb-resolve.jar" >> "$GITHUB_ENV"
+          echo "resolver asset ready: $(du -h aeb-resolve.jar | cut -f1) $(cut -d' ' -f1 aeb-resolve.jar.sha256)"
+
       # Published with `gh release create`, NOT softprops/action-gh-release.
       #
       # WHY: that was the only third-party action in this repo, and it ran
@@ -717,12 +745,20 @@ jobs:
           # the optional convenience path. Unquoted on purpose — a
           # space-separated list of paths, each an existing file from the
           # bundles step (empty = source-only, unchanged behaviour).
+          #
+          # aeb-resolve.jar (fat Maven resolver) rides as its own asset — kept
+          # OUT of the source tarball, fetched by binary installs. Its build step
+          # exported $RESOLVER_ASSET; include it + its sha when present.
+          RESOLVER_FILES=""
+          if [ -n "${RESOLVER_ASSET:-}" ] && [ -f "$RESOLVER_ASSET" ]; then
+            RESOLVER_FILES="$RESOLVER_ASSET $RESOLVER_ASSET.sha256"
+          fi
           gh release create "$TAG" \
             --title "aeb $TAG" \
             --notes-file /tmp/notes.md \
             --repo "$GITHUB_REPOSITORY" \
-            "$ASSET" "$ASSET.sha256" $BUNDLE_ZIPS \
-          || gh release upload "$TAG" "$ASSET" "$ASSET.sha256" $BUNDLE_ZIPS \
+            "$ASSET" "$ASSET.sha256" $BUNDLE_ZIPS $RESOLVER_FILES \
+          || gh release upload "$TAG" "$ASSET" "$ASSET.sha256" $BUNDLE_ZIPS $RESOLVER_FILES \
                --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Summary

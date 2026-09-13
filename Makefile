@@ -121,8 +121,14 @@ install: $(INSTALL_TOOLS)
 	cp -R lib $(SHAREDIR)/lib
 	cp -R tools $(SHAREDIR)/tools
 	@# Prefer a freshly built resolver from target/dist; else put the stash back.
-	@if ls target/dist/tools/resolver/bin/*.jar >/dev/null 2>&1; then \
-	    cp -p target/dist/tools/resolver/bin/*.jar $(SHAREDIR)/tools/ && echo "  install tools/*.jar (freshly built resolver)"; \
+	@# package_jar (the fat-jar .dist.ae) writes aeb-resolve.jar at the node target
+	@# ROOT (target/dist/tools/resolver/); the older thin_jar wrote it under bin/
+	@# with a co-located bld-<v>.jar sibling. Glob both so either layout is found,
+	@# newest first, and copy just aeb-resolve.jar (the fat jar needs no sibling).
+	@_rjar=$$(ls -t target/dist/tools/resolver/aeb-resolve.jar target/dist/tools/resolver/bin/aeb-resolve.jar 2>/dev/null | head -1); \
+	if [ -n "$$_rjar" ]; then \
+	    cp -p "$$_rjar" $(SHAREDIR)/tools/aeb-resolve.jar && echo "  install tools/aeb-resolve.jar (freshly built resolver)"; \
+	    ls target/dist/tools/resolver/bin/bld-*.jar >/dev/null 2>&1 && cp -p target/dist/tools/resolver/bin/bld-*.jar $(SHAREDIR)/tools/ 2>/dev/null || true; \
 	elif ls $(SHAREDIR)/.tools-jar-stash/*.jar >/dev/null 2>&1; then \
 	    cp -p $(SHAREDIR)/.tools-jar-stash/*.jar $(SHAREDIR)/tools/ && echo "  restore tools/*.jar (out-of-band artifacts preserved)"; \
 	else \

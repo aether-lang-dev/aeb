@@ -55,12 +55,15 @@ main() {
     }
 
     // --- resolve to the transitive closure via aeb-resolve.jar --output sbom ---
-    resolver_jar = path.join(aeb_home, "tools/aeb-resolve.jar")
+    // The fat resolver jar ships as a release asset, not in the tarball, so a
+    // binary install fetches it on first use (or get.sh pre-fetched it).
+    resolver_jar = bldr._ensure_resolver_jar(aeb_home)
     resolved = list.new()
     rseen = map.new()
     if list.size(coords) > 0 {
-        if file.exists(resolver_jar) == 0 {
-            println("aeb-sbom: resolver not found: ${resolver_jar}")
+        if string.length(resolver_jar) == 0 {
+            println("aeb-sbom: aeb-resolve.jar not found and could not be fetched.")
+            println("  Build it: aeb tools/resolver/.dist.ae (needs a JDK), or install a release build.")
             exit(3)
         }
         cmd = "java -jar '${resolver_jar}' --output sbom"

@@ -2161,6 +2161,37 @@ run_post_build(ctx: ptr) {
     return 0
 }
 
+// _ensure_resolver_jar(aeb_home) — return an existing $AEB_HOME/tools/aeb-resolve.jar,
+// else FETCH it (once) as a release asset keyed to this aeb's own tag, else "".
+// The fat resolver jar is published as a gh-release asset and kept OUT of the
+// source tarball, so a BINARY install may not have it until first JVM use; this
+// is that first-use fetch (the get.sh java-present pre-fetch is the earlier,
+// offline-friendly path — this is the backstop when that didn't run). The tag
+// comes from AEB_STAMP's `version` field (a released install); a dev/source tree
+// has no such field → no asset to key → "" (caller falls back / fails loud).
+// sha256-verified when a sidecar exists; a mismatch yields "" (never a bad jar).
+_ensure_resolver_jar(aeb_home: string) {
+    jar = path.join(aeb_home, "tools/aeb-resolve.jar")
+    if file.exists(jar) == 1 { return jar }
+    stamp = path.join(aeb_home, "AEB_STAMP")
+    if file.exists(stamp) == 0 { return "" }
+    tag_raw, _terr = _sh_capture("awk '$1==\"version\"{print $2}' '${stamp}' 2>/dev/null")
+    tag = string.trim(tag_raw)
+    if string.length(tag) == 0 { return "" }   // dev/source install — no released asset
+    url = "https://github.com/aether-lang-dev/aeb/releases/download/${tag}/aeb-resolve.jar"
+    println("resolving: fetching aeb-resolve.jar (${tag}) — first JVM build on this install")
+    // Download to a temp file, sha-verify if a sidecar exists, then atomically
+    // move into tools/. Best-effort: any failure returns "" (caller decides).
+    tools_dir = path.join(aeb_home, "tools")
+    _mkdirs(tools_dir)
+    fetch = "_td=$(mktemp -d); if curl -fsSL '${url}' -o \"$_td/j\" 2>/dev/null; then if curl -fsSL '${url}.sha256' -o \"$_td/s\" 2>/dev/null; then _w=$(awk '{print $1}' \"$_td/s\"); _g=$(sha256sum \"$_td/j\" 2>/dev/null | awk '{print $1}'); if [ -n \"$_g\" ] && [ \"$_w\" != \"$_g\" ]; then rm -rf \"$_td\"; exit 3; fi; fi; mv -f \"$_td/j\" '${jar}'; rm -rf \"$_td\"; exit 0; else rm -rf \"$_td\"; exit 1; fi"
+    rc = _sh(fetch)
+    if rc == 0 {
+        if file.exists(jar) == 1 { return jar }
+    }
+    return ""
+}
+
 // --- Public artifact handoff across a dep() edge ---
 //
 // The producer/consumer pair that lets a node read what a dep it

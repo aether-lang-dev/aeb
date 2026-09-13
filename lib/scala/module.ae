@@ -135,7 +135,12 @@ _compiler_classpath(ctx: ptr) {
     }
 
     aeb_home = os.getenv("AEB_HOME")
-    resolver_jar = path.join(aeb_home, "tools/aeb-resolve.jar")
+    resolver_jar = bldr._ensure_resolver_jar(aeb_home)
+    if string.length(resolver_jar) == 0 {
+        println("scala: aeb-resolve.jar not found and could not be fetched — build it: aeb tools/resolver/.dist.ae (needs a JDK), or install a release build.")
+        bldr.fail(ctx, "aeb-resolve.jar unavailable")
+        return ""
+    }
     cmd = "java -jar ${resolver_jar} --output classpath org.scala-lang:scala3-compiler_3:${ver}"
     r_raw, _er = bldr._sh_capture(cmd)
     result = string.trim(r_raw)
@@ -156,7 +161,12 @@ _library_classpath(ctx: ptr) {
     }
 
     aeb_home = os.getenv("AEB_HOME")
-    resolver_jar = path.join(aeb_home, "tools/aeb-resolve.jar")
+    resolver_jar = bldr._ensure_resolver_jar(aeb_home)
+    if string.length(resolver_jar) == 0 {
+        println("scala: aeb-resolve.jar not found and could not be fetched — build it: aeb tools/resolver/.dist.ae (needs a JDK), or install a release build.")
+        bldr.fail(ctx, "aeb-resolve.jar unavailable")
+        return ""
+    }
     cmd = "java -jar ${resolver_jar} --output classpath org.scala-lang:scala3-library_3:${ver}"
     r_raw, _er = bldr._sh_capture(cmd)
     result = string.trim(r_raw)

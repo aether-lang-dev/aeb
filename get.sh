@@ -231,6 +231,47 @@ aebget_install_aeb_binary() {
     fi
     rm -rf "$_td"
     [ -x "$_prefix/bin/aeb" ] || { say "  aeb not at $_prefix/bin/aeb after install — will build from source"; return 1; }
+    aebget_prefetch_resolver "$_tag" "$_os" "$_prefix"
+    return 0
+}
+
+# aebget_prefetch_resolver TAG OS PREFIX : opportunistically fetch aeb-resolve.jar
+# (the fat Maven resolver, published as its own release asset) into the installed
+# tree's tools/, so a Maven/Scala/Java build works OFFLINE later — the point being
+# a `curl…|sh`-built container has the resolver baked into its image before the
+# network goes away.
+#
+# BEST-EFFORT and JAVA-GATED: the jar is only ever run by `java -jar`, so with no
+# java on PATH nothing here would ever use it — skip silently (a box that will do
+# JVM builds has java). And a fetch failure (offline at install, no asset on this
+# tag) must NEVER fail the aeb install: a binary install without the jar still
+# works, and lib/maven's first-use fetch is the backstop. sha256-verified when a
+# sidecar is present; a mismatch is refused (a bad jar is worse than none).
+aebget_prefetch_resolver() {
+    _rtag="$1"; _ros="$2"; _rprefix="$3"
+    have java || { say "  (no java on PATH — skipping aeb-resolve.jar pre-fetch; a JVM build will fetch it on first use)"; return 0; }
+    have curl || return 0
+    _rhome="$_rprefix/share/aeb"
+    [ -d "$_rhome/tools" ] || return 0
+    _rjar="$_rhome/tools/aeb-resolve.jar"
+    [ -f "$_rjar" ] && return 0   # already present (bundled or a prior run)
+    _rurl="https://github.com/$AEBGET_AEB_REPO/releases/download/$_rtag/aeb-resolve.jar"
+    _rtd="$(mktemp -d)"
+    if ! curl -fsSL "$_rurl" -o "$_rtd/aeb-resolve.jar" 2>/dev/null; then
+        rm -rf "$_rtd"
+        say "  (no aeb-resolve.jar asset @ $_rtag — a JVM build will fetch/build it on first use)"
+        return 0
+    fi
+    if curl -fsSL "$_rurl.sha256" -o "$_rtd/aeb-resolve.jar.sha256" 2>/dev/null; then
+        _rwant="$(awk '{print $1}' "$_rtd/aeb-resolve.jar.sha256")"; _rgot="$(sha256_of "$_rtd/aeb-resolve.jar")"
+        if [ -n "$_rgot" ] && [ "$_rwant" != "$_rgot" ]; then
+            rm -rf "$_rtd"; say "  (aeb-resolve.jar checksum mismatch @ $_rtag — skipping pre-fetch)"; return 0
+        fi
+    fi
+    if cp -f "$_rtd/aeb-resolve.jar" "$_rjar" 2>/dev/null; then
+        say "  pre-fetched aeb-resolve.jar into $_rhome/tools (offline JVM builds ready)"
+    fi
+    rm -rf "$_rtd"
     return 0
 }
 
