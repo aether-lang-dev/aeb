@@ -428,6 +428,17 @@ builder scalac_test(): int {
 
     // Build classpath: test-classes + prod deps + library + maven
     compiler_cp = _compiler_classpath(ctx)
+    // Guard: an empty compiler classpath means the resolver never produced one
+    // (jar missing / resolve failed). Handing "" to `java -cp '' dotty.tools.dotc.Main`
+    // surfaces as "Could not find or load main class dotty.tools.dotc.Main" — which
+    // reads like a broken Scala install and sends you looking at the wrong thing.
+    // Fail with the real reason instead. (_compiler_classpath already printed the
+    // resolver hint + bldr.fail'd; this stops us from running a doomed scalac.)
+    if string.length(string.trim(compiler_cp)) == 0 {
+        println("${mod_dir}: scalac_test: could not resolve the Scala compiler classpath — see the resolver message above")
+        bldr.fail(ctx, "scalac_test: empty Scala compiler classpath")
+        return 1
+    }
     library_cp = _library_classpath(ctx)
     dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
