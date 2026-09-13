@@ -317,28 +317,34 @@ jobs:
           echo "make install OK: $INST/bin/aeb builds green from an unrelated dir"
 
       - name: Build aeb-resolve.jar (fat, published as its own asset)
+        continue-on-error: true
         run: |
-          set -euo pipefail
-          # aeb-resolve.jar is aeb's Maven resolver — a single FAT jar (bld folded
-          # in; bld:2.3.0 is a build-time-only input). It is deliberately NOT in
-          # the source tarball (7 MB on a ~440 KB payload, and only lib/maven +
-          # aeb-sbom use it); it ships as its own release asset that a binary
-          # install fetches. Build it here with the aeb we just cold-bootstrapped
-          # + the Aether it fetched. Needs a JDK — ubuntu-22.04 runners have one.
+          # BEST-EFFORT — must NEVER fail the release. aeb-resolve.jar is a
+          # convenience asset (aeb's Maven resolver, a single FAT jar with bld
+          # folded in; bld:2.3.0 is a build-time-only input). It is deliberately
+          # NOT in the source tarball; it ships as its OWN asset that a binary
+          # install fetches. If building it here fails, the release still ships —
+          # a JVM build then fetches from an earlier tag's asset, or the
+          # get.sh/first-use path builds it on the box. So this step never
+          # `exit 1`s on a build problem: it sets RESOLVER_ASSET only on full
+          # success, and the Publish step includes the asset only when set.
+          # (set -u/pipefail, but NOT -e: we handle failures ourselves.)
+          set -uo pipefail
           WORK="$(mktemp -d)"; tar xzf aeb-bootstrap.tar.gz -C "$WORK"
           HOME_DIR="$WORK/aeb-bootstrap"
-          command -v javac >/dev/null || { echo "no JDK on the runner — cannot build the resolver"; exit 1; }
+          if ! command -v javac >/dev/null; then
+            echo "no JDK on the runner — skipping aeb-resolve.jar (release continues)"; exit 0
+          fi
           # Build from the SOURCE checkout (payload staging strips tools/resolver;
           # the checked-out repo still has it).
-          AETHER=/tmp/aeth/bin/ae AEB_HOME="$HOME_DIR" "$HOME_DIR/aeb" tools/resolver/.dist.ae \
-            >/tmp/resolver_build.log 2>&1 \
-            || { echo "resolver build FAILED:"; tail -30 /tmp/resolver_build.log; exit 1; }
+          if ! AETHER=/tmp/aeth/bin/ae AEB_HOME="$HOME_DIR" "$HOME_DIR/aeb" tools/resolver/.dist.ae >/tmp/resolver_build.log 2>&1; then
+            echo "resolver build failed — skipping the asset (release continues):"; tail -40 /tmp/resolver_build.log; exit 0
+          fi
           RJAR="$(ls -t target/dist/tools/resolver/aeb-resolve.jar target/dist/tools/resolver/bin/aeb-resolve.jar 2>/dev/null | head -1)"
-          test -n "$RJAR" || { echo "no aeb-resolve.jar produced"; exit 1; }
-          # Prove it works: resolve a coordinate via `java -jar`, no sibling jar.
-          java -jar "$RJAR" --output classpath org.apache.commons:commons-lang3:3.14.0 \
-            | grep -q 'commons-lang3-3.14.0.jar' \
-            || { echo "fat aeb-resolve.jar did not resolve a coordinate"; exit 1; }
+          if [ -z "$RJAR" ]; then echo "no aeb-resolve.jar produced — skipping (release continues)"; exit 0; fi
+          if ! java -jar "$RJAR" --output classpath org.apache.commons:commons-lang3:3.14.0 | grep -q 'commons-lang3-3.14.0.jar'; then
+            echo "fat aeb-resolve.jar did not resolve a coordinate — skipping (release continues)"; exit 0
+          fi
           cp -f "$RJAR" aeb-resolve.jar
           sha256sum aeb-resolve.jar | tee aeb-resolve.jar.sha256
           echo "RESOLVER_ASSET=aeb-resolve.jar" >> "$GITHUB_ENV"
