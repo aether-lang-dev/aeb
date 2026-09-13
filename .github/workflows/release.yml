@@ -316,6 +316,18 @@ jobs:
             || { echo "installed aeb did not reach a green build"; exit 1; }
           echo "make install OK: $INST/bin/aeb builds green from an unrelated dir"
 
+      # bld:2.3.0's class files are Java-17 (major 61), so building aeb-resolve.jar
+      # needs a JDK >= 17. ubuntu-22.04's DEFAULT javac is older than that, which
+      # is why the resolver build failed in CI ("cannot find symbol" for bld's
+      # classes) while it compiled fine locally on a modern JDK. Pin one — never
+      # rely on the runner default.
+      - name: Set up JDK 21 (to build aeb-resolve.jar)
+        continue-on-error: true
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
       - name: Build aeb-resolve.jar (fat, published as its own asset)
         continue-on-error: true
         run: |
