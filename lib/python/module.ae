@@ -32,7 +32,28 @@ import std.dir
 
 // --- DSL setters ---
 
+// _reject_node_call — pip()/requirements_file() are BLOCK SETTERS of
+// python.install(); they live only inside `python.install() { … }`. Called at
+// top level — `python.pip("pytest")` as its own statement — the setter's _ctx is
+// the graph build ctx, not install()'s block map, so install() never sees the
+// dep and SILENTLY installs nothing (the deps vanish; the venv gets only base
+// pip). Before v0.308's tee fix this even read as PASS. Discriminator: install()'s
+// block map is a fresh map_new() with none of the graph-ctx keys; a graph ctx
+// carries "target_dir". So _ctx holding "target_dir" means the setter was called
+// in node position — abort with the migration hint. (Same class + guard as
+// lib/ruby's _reject_node_call.)
+_reject_node_call(_ctx: ptr, verb: string) {
+    if _ctx == null { return 0 }
+    if map.has(_ctx, "target_dir") == 0 { return 0 }   // fresh block map → correct use
+    println("python.${verb}(...) is a block setter of python.install(), not a builder.")
+    println("  Put it inside the install block:")
+    println("      python.install() { ${verb}(...) }")
+    println("  (a top-level python.${verb}(...) installs NOTHING — the dep is silently dropped.)")
+    os.exit(1)
+}
+
 pip(_ctx: ptr, pkg: string) {
+    _r = _reject_node_call(_ctx, "pip")
     if map.has(_ctx, "pip_deps") == 0 {
         _e1 = map.put(_ctx, "pip_deps", list.new())
     }
@@ -41,6 +62,7 @@ pip(_ctx: ptr, pkg: string) {
 }
 
 requirements_file(_ctx: ptr, path: string) {
+    _r = _reject_node_call(_ctx, "requirements_file")
     _e = map.put(_ctx, "requirements_file", path)
 }
 

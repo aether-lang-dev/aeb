@@ -3,6 +3,24 @@
 **Filed by**: selaenium Claude, 2026-09-13, on aeb v0.309 / ae 0.666.0
 (`~/scm/selenium`, node `python/.tests.ae`).
 
+> **RESOLVED (2026-09-13).** ROOT CAUSE was not the venv or pip's environment —
+> it was a **setter called in node position**. `pip()` is a BLOCK SETTER of
+> `python.install()`; the node used it at TOP LEVEL:
+>
+> ```aether
+> python.pip("pytest")   // top-level → _ctx is the GRAPH ctx, not install()'s block map
+> python.install()       // reads its own block map → pip_deps absent → installs nothing
+> ```
+>
+> So `install()` never saw the dep and installed only base pip — exactly the
+> symptom. The correct grammar is `python.install() { pip("pytest") }` (verified:
+> pytest installs, suite 65/65-style PASS). This is the same class as lib/ruby's
+> setter-as-node footgun. FIX: added `_reject_node_call` to `pip()` and
+> `requirements_file()` — a top-level call now FAILS LOUD ("python.pip(...) is a
+> block setter of python.install() … installs NOTHING") instead of silently
+> dropping the dep. Verified both ways; full suite 136/136. (The `_sh`/pip
+> environment is fine; `<venv>/bin/pip install` works under aeb's `sh -c`.)
+
 ## Symptom
 
 The node declares its test dependency the documented way:
