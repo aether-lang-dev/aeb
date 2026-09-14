@@ -66,8 +66,11 @@ _pharo_bin() {
 _pharo_image(source_dir: string) {
     pdir = os.getenv("PHARO_DIR")
     if string.length(pdir) == 0 { pdir = path.join(os.getenv("HOME"), ".local/pharo") }
-    raw, _e = bldr._sh_capture("ls '${pdir}'/*.image '${source_dir}'/*.image 2>/dev/null | head -1")
-    return string.trim(raw)
+    // ls lists the pdir matches before the source_dir ones, so pdir wins the
+    // `head -1`; try it first, then fall back to source_dir.
+    hit = bldr._glob_first("${pdir}/*.image")
+    if string.length(hit) == 0 { hit = bldr._glob_first("${source_dir}/*.image") }
+    return hit
 }
 
 // pharo.sunit(b) — load a Tonel package into a THROWAWAY copy of a Pharo image

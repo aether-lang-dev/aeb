@@ -1870,6 +1870,48 @@ _colon_to_nl(s: string) -> string {
     return out
 }
 
+// _glob_first(pattern) — the first (lexically-sorted) path matching a glob
+// pattern, or "" if none. Native replacement for `ls '${glob}' | head -1`:
+// fs.glob returns absolute paths in the same lexical order `ls` prints, so
+// element 0 is the `head -1`. No `ls`/`head` fork, and the pattern is passed
+// as data (no interpolation into a shell). Callers that need newest-by-version
+// (`sort -Vr`) must NOT use this — glob order is lexical.
+_glob_first(pattern: string) -> string {
+    list, err = fs.glob(pattern)
+    if string.length(err) > 0 { return "" }
+    if list == null { return "" }
+    hit = ""
+    if fs.dir_list_count(list) > 0 {
+        hit = string.concat(fs.dir_list_get(list, 0), "")
+    }
+    fs.dir_list_free(list)
+    return hit
+}
+
+// _glob_first_excluding(pattern, skip_suffix) — the first (lexical) glob match
+// whose path does NOT end in skip_suffix, or "". Native form of
+// `ls '${glob}' | grep -v '<suffix>$' | head -1` (e.g. pick the .nupkg that is
+// not the .symbols.nupkg).
+_glob_first_excluding(pattern: string, skip_suffix: string) -> string {
+    list, err = fs.glob(pattern)
+    if string.length(err) > 0 { return "" }
+    if list == null { return "" }
+    hit = ""
+    n = fs.dir_list_count(list)
+    i = 0
+    while i < n {
+        p = fs.dir_list_get(list, i)
+        if string.ends_with(p, skip_suffix) == 0 {
+            hit = string.concat(p, "")
+            i = n
+        } else {
+            i = i + 1
+        }
+    }
+    fs.dir_list_free(list)
+    return hit
+}
+
 // _unzip_to_dir(archive_path, dest_dir) — extract every entry of a .zip/.jar/.whl
 // (all PKZIP containers) into dest_dir, using std.zip (0.667.0+). Returns "" on
 // success, an error string otherwise. Replaces `unzip -qq -o … -d …` shell-outs
@@ -2099,13 +2141,12 @@ _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
         if string.ends_with(base, ".ae") == 1 { is_build_file = 1 }
     }
     if is_build_file == 0 {
-        // target/*/<dir>/<artifact> — one wildcard segment (the buildtype). Use
-        // a shell glob via _sh_capture (fs.glob's mid-path `*` is unreliable
-        // here); `ls` the candidates, take the first existing one.
+        // target/*/<dir>/<artifact> — one wildcard segment (the buildtype).
+        // fs.glob handles the mid-path `*` (verified on 0.670); take the first
+        // (lexical) match, matching the old `ls -1 … | head -1`.
         tdir = path.join(root, "target")
         glob = path.join(path.join(tdir, "*"), path.join(dep_module, artifact))
-        hit_raw, _herr = _sh_capture("ls -1 ${glob} 2>/dev/null | head -1")
-        hit = string.trim(hit_raw)
+        hit = _glob_first(glob)
         if string.length(hit) > 0 {
             if file.exists(hit) == 1 {
                 content2, _rerr2 = io.read_file(hit)

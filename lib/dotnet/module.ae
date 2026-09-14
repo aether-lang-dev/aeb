@@ -787,11 +787,9 @@ builder build_project(): int {
         dep_dir = path.join(root, dp)
         rel_raw, _erel = bldr._sh_capture("python3 -c \"import os; print(os.path.relpath('${dep_dir}', '${source_dir}'))\"")
         rel = string.trim(rel_raw)
-        dc_raw, _edc = bldr._sh_capture("ls '${dep_dir}'/.*.generated.csproj 2>/dev/null | head -1")
-        dep_csproj = string.trim(dc_raw)
+        dep_csproj = bldr._glob_first("${dep_dir}/.*.generated.csproj")
         if string.length(dep_csproj) == 0 {
-            dc2_raw, _edc2 = bldr._sh_capture("ls '${dep_dir}'/*.csproj 2>/dev/null | head -1")
-            dep_csproj = string.trim(dc2_raw)
+            dep_csproj = bldr._glob_first("${dep_dir}/*.csproj")
         }
         if string.length(dep_csproj) > 0 {
             cn_raw, _ecn = bldr._sh_capture("basename '${dep_csproj}'")
@@ -992,11 +990,9 @@ builder test(): int {
     bldr._mkdirs(target_dir)
     println("${mod_dir}: running tests (dotnet)")
 
-    cs_raw, _ecs = bldr._sh_capture("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
-    csproj = string.trim(cs_raw)
+    csproj = bldr._glob_first("${source_dir}/.*.generated.csproj")
     if string.length(csproj) == 0 {
-        cs2_raw, _ecs2 = bldr._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
-        csproj = string.trim(cs2_raw)
+        csproj = bldr._glob_first("${source_dir}/*.csproj")
     }
 
     config = "Release"
@@ -1165,11 +1161,9 @@ builder pack(): int {
         csproj = path.join(source_dir, ".${project_name}.generated.csproj")
         _ew = io.write_file(csproj, xml)
     } else {
-        cs_raw, _ecs = bldr._sh_capture("ls '${source_dir}'/.*.generated.csproj 2>/dev/null | head -1")
-        csproj = string.trim(cs_raw)
+        csproj = bldr._glob_first("${source_dir}/.*.generated.csproj")
         if string.length(csproj) == 0 {
-            cs2_raw, _ecs2 = bldr._sh_capture("ls '${source_dir}'/*.csproj 2>/dev/null | head -1")
-            csproj = string.trim(cs2_raw)
+            csproj = bldr._glob_first("${source_dir}/*.csproj")
         }
     }
     if string.length(csproj) == 0 {
@@ -1192,8 +1186,7 @@ builder pack(): int {
 
     // Locate the produced .nupkg (exclude .symbols.nupkg) and publish
     // its absolute path as the `nupkg` artifact.
-    np_raw, _enp = bldr._sh_capture("ls '${out_dir}'/*.nupkg 2>/dev/null | grep -v '\\.symbols\\.nupkg$' | head -1")
-    nupkg = string.trim(np_raw)
+    nupkg = bldr._glob_first_excluding("${out_dir}/*.nupkg", ".symbols.nupkg")
     if string.length(nupkg) == 0 {
         println("${mod_dir}: pack: dotnet pack produced no .nupkg in ${out_dir}")
         return 1

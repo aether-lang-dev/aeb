@@ -482,8 +482,7 @@ builder image(): int {
     // Detect artifact to package
     artifact = ""
     jar_pat = path.join(target_dir, "bin/*.jar")
-    jl_raw, _e1 = bldr._sh_capture("ls ${jar_pat} 2>/dev/null | head -1")
-    jar_list = string.trim(jl_raw)
+    jar_list = bldr._glob_first(jar_pat)
     if string.length(jar_list) > 0 {
         artifact = jar_list
         // Auto-set base and entrypoint for Java if user provided a config block
