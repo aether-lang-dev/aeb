@@ -147,7 +147,17 @@ _compiler_classpath(ctx: ptr) {
     cmd = "java -jar ${resolver_jar} --output classpath org.scala-lang:scala3-compiler_3:${ver}"
     r_raw, _er = bldr._sh_capture(cmd)
     result = string.trim(r_raw)
-    _e = map.put(ctx, "_scala_compiler_cp", result)
+    // Store an OWNED copy: `result` is a heap-local that the unwind tracker
+    // frees when this function returns, and map.put keeps the POINTER. The
+    // buffer is then recycled by the next heap-string allocation and the cache
+    // silently starts reading somebody else's bytes. Concretely, in
+    // selaenium's scala/.tests.ae the next allocation was bldr.env()'s
+    // `K='V'` fragment, so the cached compiler classpath became
+    // `SELENIUM_CORE_LIB='/…/libselenium_core.so'` and scalac_test ran
+    // `java -cp 'SELENIUM_CORE_LIB=…' dotty.tools.dotc.Main` — surfacing as
+    // "Could not find or load main class dotty.tools.dotc.Main".
+    // string.concat(x, "") is this codebase's owned-heap-string idiom.
+    _e = map.put(ctx, "_scala_compiler_cp", string.concat(result, ""))
     return result
 }
 
@@ -173,7 +183,8 @@ _library_classpath(ctx: ptr) {
     cmd = "java -jar ${resolver_jar} --output classpath org.scala-lang:scala3-library_3:${ver}"
     r_raw, _er = bldr._sh_capture(cmd)
     result = string.trim(r_raw)
-    _e = map.put(ctx, "_scala_library_cp", result)
+    // Owned copy — see _compiler_classpath above for why.
+    _e = map.put(ctx, "_scala_library_cp", string.concat(result, ""))
     return result
 }
 

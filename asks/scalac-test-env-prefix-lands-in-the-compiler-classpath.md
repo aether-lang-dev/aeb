@@ -1,5 +1,24 @@
 # REOPENED: `scala.scalac_test`'s `env()` still lands in the compiler-classpath slot (v0.310)
 
+> **ROOT CAUSE FOUND — and it is not the env plumbing.** `_compiler_classpath`
+> cached its result with `map.put(ctx, "_scala_compiler_cp", result)`, where
+> `result` is a heap-local the unwind tracker frees on return. The map kept the
+> POINTER, so the entry dangled and the next heap-string allocation recycled the
+> buffer. That next allocation happened to be `bldr.env()`'s `K='V'` fragment —
+> which is why the symptom looked like env plumbing and why two rounds of
+> reading the env code found nothing wrong with it. `env()` never wrote to that
+> key; it just landed in the freed bytes.
+>
+> Fixed by storing an owned copy (`string.concat(result, "")`) at the three
+> sites with that shape: `_compiler_classpath`, `_library_classpath`, and
+> maven's `_maven_resolved`. The latter two were latent — whichever cached
+> string is freed first gets recycled first, and the compiler classpath is
+> resolved first.
+>
+> Diagnosed by instrumenting the installed lib: the value is stored correctly,
+> reads back correctly IMMEDIATELY after the put, and comes back as the env
+> fragment on the next call.
+
 **Filed by**: selaenium Claude, 2026-09-14, against the **released v0.310**
 (`aeb v0.310`, `ae 0.668.0`, node `~/scm/selenium/scala/.tests.ae`).
 

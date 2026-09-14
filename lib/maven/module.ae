@@ -350,7 +350,9 @@ resolve(ctx: ptr) {
     }
 
     // Cache and write artifact for downstream modules
-    _e2 = map.put(ctx, "_maven_resolved", result)
+    // Owned copy: map.put keeps the pointer and `result` is a heap-local the
+    // unwind tracker frees on return (see lib/scala/_compiler_classpath).
+    _e2 = map.put(ctx, "_maven_resolved", string.concat(result, ""))
     bldr._write_artifact(ctx, "maven_classpath", result)
 
     // Populate the content-addressable cache so future builds with
