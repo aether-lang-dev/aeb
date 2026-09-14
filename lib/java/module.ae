@@ -644,9 +644,7 @@ builder jar_registry_finalize(): int {
     }
 
     // Convert colon-separated to newline-separated for the classpath artifact
-    cp_raw, _ecp = bldr._sh_capture("echo '${cp}' | tr ':' '\\n'")
-    cp_nl = string.trim(cp_raw)
-    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", cp_nl)
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", bldr._colon_to_nl(cp))
     println("${mod_dir}: fetched maven deps")
     return 0
 }
@@ -956,8 +954,7 @@ builder javac(): int {
     own_cp = ""
     own_body, own_err = fs.read(path.join(target_dir, "jvm_classpath_deps_including_transitive"))
     if string.length(own_err) == 0 {
-        oc, _oe = bldr._sh_capture("printf '%s' '${own_body}' | tr '\n' ':' | sed 's/:$//'")
-        own_cp = string.trim(oc)
+        own_cp = bldr._nl_to_colon(own_body)
     }
     classpath = classes_dir
     classpath = bldr._cp_append(classpath, dep_cp)

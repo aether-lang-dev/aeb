@@ -777,8 +777,7 @@ builder munit(): int {
         return 0
     }
 
-    c_raw, _ec = bldr._sh_capture("echo '${class_list}' | tr '\\n' ' '")
-    classes = string.trim(c_raw)
+    classes = string.trim(string.replace_all(class_list, "\n", " "))
     cmd = munit_cmd(cp, classes)
 
     exit_code = bldr._sh(cmd)

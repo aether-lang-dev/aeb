@@ -268,8 +268,7 @@ builder compile(): int {
     // dependent test node inherits them by depping THIS build node alone.
     jvm_dep_cp = bldr._build_dep_classpath(ctx)
     if string.length(jvm_dep_cp) > 0 {
-        nl_raw, _enl = bldr._sh_capture("printf '%s' '${jvm_dep_cp}' | tr ':' '\n'")
-        bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", string.trim(nl_raw))
+        bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", bldr._colon_to_nl(jvm_dep_cp))
     }
 
     // Build classpath: own src + classes + dep src + jvm jars + maven deps

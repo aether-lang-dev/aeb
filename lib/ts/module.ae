@@ -394,8 +394,7 @@ builder tsc_files(): int {
     if file.exists(npm_file) == 1 {
         npm_content, _ernc = io.read_file(npm_file)
         if string.length(npm_content) > 0 {
-            na_raw, _ena = bldr._sh_capture("echo '${npm_content}' | tr '\n' ' '")
-            npm_args = string.trim(na_raw)
+            npm_args = string.trim(string.replace_all(npm_content, "\n", " "))
             ts_raw, _ets = bldr._sh_capture("echo '${target_dir}' | sed 's|.*/target/||'")
             tgt_suffix = string.trim(ts_raw)
             npm_cmd = "${root}/shared-build-scripts/add-npm-deps-to-base-tsconfig-json.sh ${root} ${mod_name} ${tgt_suffix} ${npm_args}"
@@ -435,8 +434,7 @@ builder mocha(test_file: string): int {
         dm9 = bldr._strip_lang(dp9)
         dep_td = bldr._read_dep_artifact(ctx, dm9, "typescript_module_deps_including_transitive")
         if string.length(dep_td) > 0 {
-            df_raw, _edf = bldr._sh_capture("echo '${dep_td}' | tr '\n' ':' | sed 's/:$//'")
-            dep_td_flat = string.trim(df_raw)
+            dep_td_flat = bldr._nl_to_colon(dep_td)
             node_path = string.concat(string.concat(node_path, ":"), dep_td_flat)
         }
         i = i + 1
