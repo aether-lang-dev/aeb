@@ -390,8 +390,7 @@ main() {
     // --- Choose parallel (make) or sequential ---
     jobs = os.getenv("AEB_JOBS")
     if string.length(jobs) == 0 {
-        np, _npe = bldr._sh_capture("nproc 2>/dev/null || echo 4")
-        jobs = string.trim(np)
+        jobs = "${os.cpu_count()}"   // native nproc (always >= 1)
     }
     // AEB_SCHED=native opts into the in-process ready-queue scheduler
     // (os.spawn_proc/wait_any) instead of shelling out to `make -jN`.

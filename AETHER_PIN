@@ -137,4 +137,14 @@
 # dependency. Verified against the real 0.668.0 linux tarball: aeb builds clean,
 # full suite 136/136, _unzip_to_dir extracts byte-identical to `unzip -qq -o`, fat
 # aeb-resolve.jar builds + resolves; glibc floor GLIBC_2.34 (Debian-12 safe).
-0.668.0
+#
+# Raised 0.668.0 -> 0.670.0 (2026-09-14). A REAL floor move: aeb now calls the
+# std "command-alike" primitives added in 0.670.0 (fs.copy_tree/remove_tree/
+# make_temp_dir/make_temp_file/find_ext/find_ext_excluding, os.cpu_count,
+# cryptography.sha256_file, string.lines) to replace its cp -R / rm -rf / mktemp
+# / find / sha256sum / nproc shell-outs — so it cannot compile on an older
+# Aether. (These are the primitives aeb's own census motivated; scaffolded here,
+# merged upstream as PR #2017, shipped in 0.670.0.) Verified against the real
+# 0.670.0 linux tarball: aeb builds clean, full suite green; glibc floor
+# GLIBC_2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
+0.670.0

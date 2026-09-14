@@ -491,13 +491,11 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     // disk-bound tests, so substitute via shell.
     jobs_arg = jobs_str
     if string.equals(jobs_str, "0") == 1 {
-        np_raw, _np = bldr._sh_capture("nproc 2>/dev/null || echo 2")
-        np_str = string.trim(np_raw)
-        np_cmd = "echo $(( ${np_str} / 2 ))"
-        if np_str == "1" { np_cmd = "echo 1" }
-        ja_raw, _ja = bldr._sh_capture(np_cmd)
-        jobs_arg = string.trim(ja_raw)
-        if string.length(jobs_arg) == 0 { jobs_arg = "1" }
+        // "0" = half the CPUs (disk-bound tests), min 1. Native os.cpu_count
+        // (>= 1) + integer halving — no `nproc`/`echo $(( ))` shell-out.
+        half = os.cpu_count() / 2
+        if half < 1 { half = 1 }
+        jobs_arg = "${half}"
     }
 
     // Build newline-separated "basename|fullpath" list. Basename is

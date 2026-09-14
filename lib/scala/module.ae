@@ -273,12 +273,12 @@ builder scalac(): int {
 
     println("${mod_dir}: compiling (scalac)")
 
-    // Find .scala source files (exclude test files)
+    // Find .scala source files (exclude test files) — native fs.find_ext, no
+    // `find` shell-out. The exclude suffixes are the `! -name '*Test.scala'`
+    // filters; this discovery is what scoped the in-tree suite correctly.
     argfile = path.join(target_dir, "scalac_sources.txt")
-    bldr._sh("find '${source_dir}' -name '*.scala' ! -name '*.test.scala' ! -name '*Test.scala' ! -name '*Tests.scala' > '${argfile}' 2>/dev/null || true")
-
-    af_raw, _eaf = bldr._sh_capture("cat '${argfile}'")
-    argfile_content = string.trim(af_raw)
+    argfile_content = fs.find_ext_excluding(source_dir, ".scala", ".test.scala\nTest.scala\nTests.scala")
+    _wa = io.write_file(argfile, argfile_content)
     if string.length(argfile_content) == 0 {
         println("${mod_dir}: no .scala source files found")
         _ew = io.write_file(path.join(target_dir, ".timestamp"), "")

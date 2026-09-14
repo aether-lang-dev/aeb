@@ -339,7 +339,7 @@ builder go_build(): int {
 
     // Source set for the cache key (every .go under source_dir).
     argfile = path.join(target_dir, "go_sources.txt")
-    bldr._sh("find '${source_dir}' -name '*.go' > '${argfile}' 2>/dev/null || true")
+    _wa = io.write_file(argfile, fs.find_ext(source_dir, ".go"))
 
     // Cache check: the output is a single file, restored directly on a
     // hit (no tar). exit_code sentinel: 0 = hit, -1 = build below.

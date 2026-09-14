@@ -159,4 +159,10 @@
 # error; 0.668 is fixes. Verified against the real 0.668.0 tarball: aeb builds
 # clean, full suite 136/136, _unzip_to_dir byte-identical to `unzip -qq -o`, fat
 # aeb-resolve.jar builds + resolves; glibc floor GLIBC_2.34 (Debian-12 safe).
-0.668.0
+#
+# Raised 0.668.0 -> 0.670.0 (2026-09-14). Real floor move: aeb calls the 0.670.0
+# std command-alike primitives (fs.copy_tree/remove_tree/make_temp_*/find_ext,
+# os.cpu_count, sha256_file, string.lines) in place of its coreutil shell-outs.
+# Verified against the real 0.670.0 tarball: aeb builds clean, full suite green;
+# glibc floor GLIBC_2.34 (Debian-12 safe). PIN in lockstep.
+0.670.0

@@ -288,7 +288,7 @@ builder compile(): int {
 
             // Source set for the cache key (every .clj under src/).
             argfile = path.join(target_dir, "clj_sources.txt")
-            bldr._sh("find '${src_root}' -name '*.clj' > '${argfile}' 2>/dev/null || true")
+            _wa = io.write_file(argfile, fs.find_ext(src_root, ".clj"))
 
             // Cache check: restore the AOT classes/ tree on hit.
             cache_key = ""

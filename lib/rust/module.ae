@@ -1185,7 +1185,7 @@ builder cargo_project(): int {
     }
 
     argfile = path.join(target_dir, "cargo_sources.txt")
-    bldr._sh("find '${source_dir}' -name '*.rs' > '${argfile}' 2>/dev/null || true")
+    _wa = io.write_file(argfile, fs.find_ext(source_dir, ".rs"))
 
     cache_key = ""
     exit_code = -1
@@ -1521,7 +1521,7 @@ builder cargo_build(): int {
 
     // Source set for the cache key (every .rs under source_dir).
     argfile = path.join(target_dir, "cargo_sources.txt")
-    bldr._sh("find '${source_dir}' -name '*.rs' > '${argfile}' 2>/dev/null || true")
+    _wa = io.write_file(argfile, fs.find_ext(source_dir, ".rs"))
 
     // Cache check: single-file restore of the .so. exit_code sentinel:
     // 0 = hit, -1 = build below.
