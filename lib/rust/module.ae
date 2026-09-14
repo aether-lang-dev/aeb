@@ -230,8 +230,7 @@ cargo_toml_content(opts: ptr) {
                 ver = _split_first(rest, "~")
                 feats = _split_second(rest, "~")
                 // Convert comma-separated to ["f1", "f2"]
-                _feat_toml_raw, _efeat_toml = bldr._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
-                feat_toml = string.trim(_feat_toml_raw)
+                feat_toml = string.replace_all(feats, ",", "\", \"")
                 toml = string.concat(toml, "${name} = { version = \"${ver}\", features = [\"${feat_toml}\"] }\n")
                 i = i + 1
             }
@@ -369,8 +368,7 @@ cargo_workspace_toml_content(opts: ptr) {
     if opts != null {
         if map.has(opts, "exclude") == 1 {
             exc, _ = map.get(opts, "exclude")
-            _exc_toml_raw, _eexc_toml = bldr._sh_capture("echo '${exc}' | sed 's/,/\", \"/g'")
-            exc_toml = string.trim(_exc_toml_raw)
+            exc_toml = string.replace_all(exc, ",", "\", \"")
             toml = string.concat(toml, "exclude = [\"${exc_toml}\"]\n")
         }
     }
@@ -430,14 +428,12 @@ cargo_workspace_toml_content(opts: ptr) {
         }
         if map.has(opts, "keywords") == 1 {
             kw, _ = map.get(opts, "keywords")
-            _kw_toml_raw, _ekw_toml = bldr._sh_capture("echo '${kw}' | sed 's/,/\", \"/g'")
-            kw_toml = string.trim(_kw_toml_raw)
+            kw_toml = string.replace_all(kw, ",", "\", \"")
             toml = string.concat(toml, "keywords = [\"${kw_toml}\"]\n")
         }
         if map.has(opts, "categories") == 1 {
             cats, _ = map.get(opts, "categories")
-            _cats_toml_raw, _ecats_toml = bldr._sh_capture("echo '${cats}' | sed 's/,/\", \"/g'")
-            cats_toml = string.trim(_cats_toml_raw)
+            cats_toml = string.replace_all(cats, ",", "\", \"")
             toml = string.concat(toml, "categories = [\"${cats_toml}\"]\n")
         }
     }
@@ -478,8 +474,7 @@ cargo_workspace_toml_content(opts: ptr) {
                 rest = _split_second(entry, "~")
                 ver = _split_first(rest, "~")
                 feats = _split_second(rest, "~")
-                _feat_toml_raw, _efeat_toml = bldr._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
-                feat_toml = string.trim(_feat_toml_raw)
+                feat_toml = string.replace_all(feats, ",", "\", \"")
                 toml = string.concat(toml, "${name} = { version = \"${ver}\", features = [\"${feat_toml}\"] }\n")
                 i = i + 1
             }
@@ -519,8 +514,7 @@ cargo_workspace_toml_content(opts: ptr) {
                     if first_field == 0 {
                         line = string.concat(line, ", ")
                     }
-                    _f_feat_toml_raw, _ef_feat_toml = bldr._sh_capture("echo '${f_feats}' | sed 's/,/\", \"/g'")
-                    f_feat_toml = string.trim(_f_feat_toml_raw)
+                    f_feat_toml = string.replace_all(f_feats, ",", "\", \"")
                     line = string.concat(line, "features = [\"${f_feat_toml}\"]")
                     first_field = 0
                 }
@@ -673,8 +667,7 @@ cargo_crate_toml_content(opts: ptr) {
                 rest = _split_second(entry, "~")
                 ver = _split_first(rest, "~")
                 feats = _split_second(rest, "~")
-                _feat_toml_raw, _efeat_toml = bldr._sh_capture("echo '${feats}' | sed 's/,/\", \"/g'")
-                feat_toml = string.trim(_feat_toml_raw)
+                feat_toml = string.replace_all(feats, ",", "\", \"")
                 toml = string.concat(toml, "${name} = { version = \"${ver}\", features = [\"${feat_toml}\"] }\n")
                 i = i + 1
             }
@@ -722,8 +715,7 @@ cargo_crate_toml_content(opts: ptr) {
         if map.has(opts, "_default_features") == 1 {
             df, _ = map.get(opts, "_default_features")
             // Convert comma-separated to "a", "b", "c"
-            _df_toml_raw, _edf_toml = bldr._sh_capture("echo '${df}' | sed 's/,/\", \"/g'")
-            df_toml = string.trim(_df_toml_raw)
+            df_toml = string.replace_all(df, ",", "\", \"")
             toml = string.concat(toml, "default = [\"${df_toml}\"]\n")
         }
         // Individual feature declarations
@@ -738,8 +730,7 @@ cargo_crate_toml_content(opts: ptr) {
                 if string.length(fdeps_csv) == 0 {
                     toml = string.concat(toml, "${fname} = []\n")
                 } else {
-                    _fdeps_toml_raw, _efdeps_toml = bldr._sh_capture("echo '${fdeps_csv}' | sed 's/,/\", \"/g'")
-                    fdeps_toml = string.trim(_fdeps_toml_raw)
+                    fdeps_toml = string.replace_all(fdeps_csv, ",", "\", \"")
                     toml = string.concat(toml, "${fname} = [\"${fdeps_toml}\"]\n")
                 }
                 fi = fi + 1
