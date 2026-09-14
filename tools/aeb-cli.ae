@@ -94,8 +94,8 @@ _print_version(aeb_home: string) {
     }
     aether = os.getenv("AETHER")
     if string.length(aether) == 0 { aether = "ae" }
-    av, _ae = bldr._sh_capture("${aether} --version 2>/dev/null | head -1")
-    av_t = string.trim(av)
+    av, _ae = bldr._sh_capture("${aether} --version 2>/dev/null")
+    av_t = string.trim(bldr._first_line(av))
     if string.length(av_t) > 0 { println(av_t) }
 }
 

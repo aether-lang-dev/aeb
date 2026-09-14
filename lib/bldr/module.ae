@@ -1806,6 +1806,18 @@ _drop_empty(x: string) -> int {
     return 1
 }
 
+// _first_line(s) — the first line of s, native (replaces `… | head -1`). "" → "".
+// NB string.seq_head returns a BORROWED pointer into the seq; copy it before
+// string.seq_free frees the seq, or the return dangles.
+_first_line(s: string) -> string {
+    if string.length(s) == 0 { return "" }
+    l = string.lines(s)
+    h = string.seq_head(l)
+    hc = string.concat(h, "")
+    string.seq_free(l)
+    return hc
+}
+
 // _nl_to_colon(s) / _colon_to_nl(s) — convert between the two classpath list
 // forms aeb passes around: newline-separated (the artifact form written to
 // jvm_classpath_deps_including_transitive) and colon-separated (a `-cp` arg).

@@ -182,8 +182,8 @@ _nl_to_colon(s: string) {
 _groovyc_version(groovyc_bin: string) {
     cached = os.getenv("_AEB_GROOVYC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = os.exec("'${groovyc_bin}' --version 2>&1 | head -1")
-    return string.trim(raw)
+    raw, _err = os.exec("'${groovyc_bin}' --version 2>&1")
+    return string.trim(bldr._first_line(raw))
 }
 
 // _cache_key_for_groovyc — cache key for a groovyc compile action.

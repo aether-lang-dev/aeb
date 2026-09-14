@@ -491,7 +491,7 @@ _last_index_of(s: string, needle: string) {
 _dotnet_version() {
     cached = os.getenv("_AEB_DOTNET_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = bldr._sh_capture("dotnet --version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("dotnet --version 2>&1")
     return string.trim(raw)
 }
 

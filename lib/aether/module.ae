@@ -551,7 +551,7 @@ _toolchain_version() {
     cached = os.getenv("_AEB_AETHER_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
     ae_bin = _ae_bin()
-    raw, _err = bldr._sh_capture("${ae_bin} --version 2>/dev/null | head -1")
+    raw, _err = bldr._sh_capture("${ae_bin} --version 2>/dev/null")
     ver = string.trim(raw)
     if string.length(ver) > 0 { _s = os.setenv("_AEB_AETHER_VERSION_CACHE", ver) }
     return ver

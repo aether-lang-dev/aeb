@@ -195,8 +195,8 @@ _library_classpath(ctx: ptr) {
 _java_version() {
     cached = os.getenv("_AEB_JAVA_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = bldr._sh_capture("java -version 2>&1 | head -1")
-    return string.trim(raw)
+    raw, _err = bldr._sh_capture("java -version 2>&1")
+    return string.trim(bldr._first_line(raw))
 }
 
 // _cache_key_for_scalac — cache key for a scalac compile action.

@@ -190,7 +190,7 @@ go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
 _go_version() {
     cached = os.getenv("_AEB_GO_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = bldr._sh_capture("go version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("go version 2>&1")
     return string.trim(raw)
 }
 

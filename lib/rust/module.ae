@@ -836,14 +836,14 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
 _cargo_version() {
     cached = os.getenv("_AEB_CARGO_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = bldr._sh_capture("cargo --version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("cargo --version 2>&1")
     return string.trim(raw)
 }
 
 _rustc_version() {
     cached = os.getenv("_AEB_RUSTC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = bldr._sh_capture("rustc --version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("rustc --version 2>&1")
     return string.trim(raw)
 }
 

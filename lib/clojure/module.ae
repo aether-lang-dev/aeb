@@ -176,8 +176,8 @@ _dep_src_classpath(ctx: ptr) {
 _clj_java_version() {
     cached = os.getenv("_AEB_JAVA_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = bldr._sh_capture("java -version 2>&1 | head -1")
-    return string.trim(raw)
+    raw, _err = bldr._sh_capture("java -version 2>&1")
+    return string.trim(bldr._first_line(raw))
 }
 
 // _cache_key_for_clj — cache key for a Clojure AOT compile (only the

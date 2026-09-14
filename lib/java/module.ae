@@ -725,7 +725,7 @@ builder mvn_project(): int {
 _jdk_version() {
     cached = os.getenv("_AEB_JAVAC_VERSION_CACHE")
     if string.length(cached) > 0 { return cached }
-    raw, _err = bldr._sh_capture("javac -version 2>&1 | head -1")
+    raw, _err = bldr._sh_capture("javac -version 2>&1")
     return string.trim(raw)
 }
 
@@ -883,7 +883,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
         if map.has(builder_map, "_selected_jdk_home") == 1 {
             sel_home, _ = map.get(builder_map, "_selected_jdk_home")
             sel_javac = path.join(sel_home, "bin/javac")
-            jv_raw, _jverr = bldr._sh_capture("'${sel_javac}' -version 2>&1 | head -1")
+            jv_raw, _jverr = bldr._sh_capture("'${sel_javac}' -version 2>&1")
             jdk_ver = string.concat(string.concat(sel_home, "|"), string.trim(jv_raw))
         }
     }
