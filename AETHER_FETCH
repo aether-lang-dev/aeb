@@ -152,4 +152,11 @@
 # against the real 0.666.0 tarball: aeb builds clean, full suite 136/136, fat
 # aeb-resolve.jar builds + resolves; glibc floor GLIBC_2.34 (Debian-12 safe).
 # PIN in lockstep.
-0.666.0
+#
+# Raised 0.666.0 -> 0.668.0 (2026-09-14). A real floor move: aeb imports std.zip
+# (added 0.667.0) in lib/bldr's _unzip_to_dir, replacing the SDK's `unzip`
+# shell-outs. 0.667 added std.zip + the E0200 setter-in-builder-position compile
+# error; 0.668 is fixes. Verified against the real 0.668.0 tarball: aeb builds
+# clean, full suite 136/136, _unzip_to_dir byte-identical to `unzip -qq -o`, fat
+# aeb-resolve.jar builds + resolves; glibc floor GLIBC_2.34 (Debian-12 safe).
+0.668.0

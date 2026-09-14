@@ -180,6 +180,8 @@ tar_extract_cmd(archive_path: string, dest_dir: string, flags: string, strip: in
     return base
 }
 
+// DEPRECATED (0.667.0+): fetch.archive now extracts zips via bldr._unzip_to_dir
+// (std.zip, no `unzip` binary). Kept only for tests/test_fetch_cmd.ae.
 // zip_extract_cmd — `unzip -q -o <archive> -d <dest>`. `-q` quiet,
 // `-o` overwrite without prompting. Pure.
 zip_extract_cmd(archive_path: string, dest_dir: string) {
@@ -498,14 +500,18 @@ builder archive(): int {
     }
 
     bldr._mkdirs(ex_abs)
-    extract_cmd = ""
-    if is_zip == 1 {
-        extract_cmd = zip_extract_cmd(archive_path, ex_abs)
-    } else {
-        extract_cmd = tar_extract_cmd(archive_path, ex_abs, flags, strip)
-    }
     println("${mod_dir}: extracting ${archive_name} → ${ex_rel}")
-    rc_ex = bldr._sh(extract_cmd)
+    rc_ex = 0
+    if is_zip == 1 {
+        // std.zip extraction — no `unzip` binary dependency (0.667.0+).
+        uz_err = bldr._unzip_to_dir(archive_path, ex_abs)
+        if string.length(uz_err) > 0 {
+            println("${mod_dir}: fetch.archive: zip extraction failed: ${uz_err}")
+            rc_ex = 1
+        }
+    } else {
+        rc_ex = bldr._sh(tar_extract_cmd(archive_path, ex_abs, flags, strip))
+    }
     if rc_ex != 0 {
         println("${mod_dir}: fetch.archive: extraction failed")
         return rc_ex

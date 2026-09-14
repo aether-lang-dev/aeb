@@ -127,4 +127,14 @@
 # against the real 0.666.0 linux tarball: aeb builds clean, full suite 136/136,
 # the fat aeb-resolve.jar builds + resolves; glibc floor GLIBC_2.34 (Debian-12
 # safe). PIN moves in lockstep with FETCH (no-back-compat DSL policy).
-0.666.0
+#
+# Raised 0.666.0 -> 0.668.0 (2026-09-14). This is a REAL floor move: aeb now
+# imports std.zip (added in 0.667.0) in lib/bldr's _unzip_to_dir, so it cannot
+# compile on an older Aether. 0.667 added std.zip (a buffer ZIP reader) + the
+# E0200 setter-in-builder-position compile error; 0.668 is fixes. The SDK's
+# `unzip`-shell-out sites (java shade/package_jar, scala/clojure assembly, fetch)
+# now extract via std.zip through bldr._unzip_to_dir — dropping the `unzip` binary
+# dependency. Verified against the real 0.668.0 linux tarball: aeb builds clean,
+# full suite 136/136, _unzip_to_dir extracts byte-identical to `unzip -qq -o`, fat
+# aeb-resolve.jar builds + resolves; glibc floor GLIBC_2.34 (Debian-12 safe).
+0.668.0

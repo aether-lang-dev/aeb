@@ -1249,7 +1249,8 @@ builder package_jar(): int {
                     if file.exists(entry) == 1 {
                         if string.ends_with(entry, ".jar") == 1 {
                             // explode the jar into the stage (fat jar, non-shaded)
-                            bldr._sh("unzip -qq -o '${entry}' -d '${stage}' >/dev/null 2>&1 || true")
+                            // via std.zip — no `unzip` binary dependency.
+                            _uz = bldr._unzip_to_dir(entry, stage)
                         } else {
                             bldr._sh("cp -f '${entry}' '${stage}/' 2>/dev/null || true")
                         }
@@ -1996,17 +1997,30 @@ shade(_ctx: ptr, main_class: string, jar_name: string) {
     // alone; Aether vars are spliced via interpolation. cp_content and
     // ld_content are newline+colon-separated path lists; `tr ':' '\n'`
     // normalises to one entry per line.
-    sh = "set -e; st='${stage_dir}'; rm -rf \"$st\"; mkdir -p \"$st\"; "
-    // Classpath deps (includes this module's OWN classes dir as the first
-    // entry of its build node's classpath artifact): extract .jar entries,
-    // copy class dirs.
+    bldr._sh("rm -rf '${stage_dir}' && mkdir -p '${stage_dir}'")
+    // Classpath deps (includes this module's OWN classes dir as the first entry
+    // of its build node's classpath artifact): explode each .jar entry into the
+    // stage via std.zip (no `unzip` binary), copy each class dir. Iterated in
+    // Aether — cp_content is newline+colon-separated (tr both to one-per-line).
     if string.length(cp_content) > 0 {
-        sh = string.concat(sh, "printf '%s\\n' '")
-        sh = string.concat(sh, cp_content)
-        sh = string.concat(sh, "' | tr ':' '")
-        sh = string.concat(sh, "\\n")
-        sh = string.concat(sh, "' | while IFS= read -r e; do [ -z \"$e\" ] && continue; case \"$e\" in *.jar) [ -f \"$e\" ] && unzip -qq -o \"$e\" -d \"$st\" >/dev/null 2>&1 ;; *) [ -d \"$e\" ] && cp -a \"$e/.\" \"$st\"/ 2>/dev/null ;; esac; done; ")
+        norm_raw, _nce = bldr._sh_capture("printf '%s' '${cp_content}' | tr ':' '\n'")
+        entries = string.split(string.trim(norm_raw), "\n")
+        ne = string.array_size(entries)
+        ei = 0
+        while ei < ne {
+            e = string.trim(string.array_get(entries, ei))
+            ei = ei + 1
+            if string.length(e) > 0 {
+                if string.ends_with(e, ".jar") == 1 {
+                    if file.exists(e) == 1 { _uz = bldr._unzip_to_dir(e, stage_dir) }
+                } else {
+                    if dir.exists(e) == 1 { bldr._sh("cp -a '${e}/.' '${stage_dir}'/ 2>/dev/null || true") }
+                }
+            }
+        }
     }
+    // The remaining staging steps run as one shell script.
+    sh = "set -e; st='${stage_dir}'; "
     // Native libs at the jar root.
     if string.length(ld_content) > 0 {
         sh = string.concat(sh, "printf '%s\\n' '")

@@ -23,6 +23,7 @@ import std.list
 import std.map
 import std.path
 import std.dir
+import std.zip
 
 // --- Session (shared across all modules in one build) ---
 
@@ -1751,6 +1752,63 @@ _mkdirs(dir_path: string) {
     // the same primitive lib/cache and _untar_into already use; cross-platform,
     // faster, no quoting hazard.
     _m = fs.mkdir_p(dir_path)
+}
+
+// _unzip_to_dir(archive_path, dest_dir) — extract every entry of a .zip/.jar/.whl
+// (all PKZIP containers) into dest_dir, using std.zip (0.667.0+). Returns "" on
+// success, an error string otherwise. Replaces `unzip -qq -o … -d …` shell-outs
+// across the SDK (java shade/package_jar, scala/clojure assembly, python wheel,
+// fetch): no `unzip` binary dependency, no shell-quoting hazard, and it fails
+// with a real reason instead of a swallowed rc. std.zip decompresses + CRC-checks
+// each entry.
+//
+// Path-traversal guard: an entry name with a leading '/' or a '..' segment (a
+// zip-slip attack, or a malformed archive) is refused — std.zip is a reader and
+// deliberately leaves this to the extract layer.
+_unzip_to_dir(archive_path: string, dest_dir: string) {
+    data, dlen, rerr = fs.read_binary(archive_path)
+    if string.length(rerr) > 0 { return string.concat("read failed: ", rerr) }
+    if dlen <= 0 { return "empty or unreadable archive" }
+    ar, oerr = zip.open(data, dlen)
+    if string.equals(oerr, "") == 0 { return string.concat("not a zip: ", oerr) }
+    _mkdirs(dest_dir)
+    n = zip.count(ar)
+    i = 0
+    out_err = ""
+    while i < n {
+        name = zip.entry_name(ar, i)
+        // zip-slip guard: no absolute paths, no parent escapes.
+        bad = 0
+        if string.length(name) > 0 {
+            if string.index_of(name, "/") == 0 { bad = 1 }
+            if string.index_of(name, "..") >= 0 { bad = 1 }
+        }
+        if bad == 1 {
+            out_err = string.concat("unsafe entry name in archive: ", name)
+            i = n
+        } else {
+            dest = path.join(dest_dir, name)
+            if zip.entry_is_dir(ar, i) == 1 {
+                _mkdirs(dest)
+            } else {
+                _mkdirs(_dirname_of(dest))
+                body, blen, eerr = zip.entry_read(ar, i)
+                if string.equals(eerr, "") == 0 {
+                    out_err = string.concat(string.concat("entry '", name), string.concat("': ", eerr))
+                    i = n
+                } else {
+                    werr = fs.write_binary(dest, body, blen)
+                    if string.length(werr) > 0 {
+                        out_err = string.concat(string.concat("write '", dest), string.concat("': ", werr))
+                        i = n
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    zip.close(ar)
+    return out_err
 }
 
 _get(_ctx: ptr, key: string) {

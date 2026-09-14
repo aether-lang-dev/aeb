@@ -96,6 +96,8 @@ clj_test_cmd(classpath: string, quoted_namespaces: string, test_timeout: string)
     return cmd
 }
 
+// DEPRECATED (0.667.0+): the uberjar builder now extracts via bldr._unzip_to_dir
+// (std.zip, no `unzip` binary). Kept only for the test's string assertions.
 // uber_unzip_jar_cmd — unzip one classpath .jar into the staging
 // dir. `unzip -qq -o` quiet + overwrite. Pure.
 uber_unzip_jar_cmd(jar_src: string, stage_dir: string) {
@@ -724,12 +726,12 @@ builder uberjar(): int {
             entry = string.array_get(parts, pi)
             if string.length(entry) > 0 {
                 if _ends_with_jar(entry) == 1 {
-                    rc_uz = bldr._sh(uber_unzip_jar_cmd(entry, stage_dir))
-                    if rc_uz != 0 {
-                        println("${mod_dir}: clojure.uberjar: unzipping ${entry} failed")
+                    uz_err = bldr._unzip_to_dir(entry, stage_dir)
+                    if string.length(uz_err) > 0 {
+                        println("${mod_dir}: clojure.uberjar: unzipping ${entry} failed: ${uz_err}")
                         bldr.fail(ctx, "clojure.uberjar: unzipping ${entry} failed")
                         string.array_free(parts)
-                        return rc_uz
+                        return 1
                     }
                 }
             }

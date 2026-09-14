@@ -96,6 +96,9 @@ munit_cmd(classpath: string, class_names: string) {
     return "java -cp '${classpath}' org.junit.runner.JUnitCore ${class_names}"
 }
 
+// DEPRECATED (0.667.0+): the assembly builder now extracts via bldr._unzip_to_dir
+// (std.zip, no `unzip` binary). Kept only for tests/test_scala_cmd.ae's string
+// assertions; no builder calls it.
 // assembly_unzip_jar_cmd — unzip a single classpath .jar into the
 // staging directory so its `.class` files lay flat under stage_dir/.
 // `unzip -qq -o` is quiet + overwrite-without-prompt. Pure.
@@ -679,12 +682,12 @@ builder assembly(): int {
         entry = string.array_get(parts, pi)
         if string.length(entry) > 0 {
             if _ends_with_jar(entry) == 1 {
-                rc_uz = bldr._sh(assembly_unzip_jar_cmd(entry, stage_dir))
-                if rc_uz != 0 {
-                    println("${mod_dir}: scala.assembly: unzipping ${entry} failed")
+                uz_err = bldr._unzip_to_dir(entry, stage_dir)
+                if string.length(uz_err) > 0 {
+                    println("${mod_dir}: scala.assembly: unzipping ${entry} failed: ${uz_err}")
                     bldr.fail(ctx, "scala.assembly: unzipping ${entry} failed")
                     string.array_free(parts)
-                    return rc_uz
+                    return 1
                 }
             } else {
                 if dir.exists(entry) == 1 {
