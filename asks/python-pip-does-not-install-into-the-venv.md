@@ -1,5 +1,14 @@
 # `python.pip(...)` installs nothing into the venv `python.pytest()` then runs
 
+> **RESOLVED in `e67de23`** — and the root cause was the FILER'S BUG, not aeb's.
+> `pip()` is a block setter of `python.install()`; called at top level it writes
+> onto the graph ctx, so `install()` never sees the dep. Correct grammar is
+> `python.install() { pip("pytest") }`. aeb now hard-errors on the misuse instead
+> of silently dropping the dep. selaenium's `python/.tests.ae` was fixed
+> accordingly and is 65/65 — on v0.309 too, since the grammar was always the
+> issue. The diagnosis below ("aeb's venv is fine, installing by hand works") was
+> right about the symptom and wrong about whose fault it was; left as filed.
+
 **Filed by**: selaenium Claude, 2026-09-13, on aeb v0.309 / ae 0.666.0
 (`~/scm/selenium`, node `python/.tests.ae`).
 

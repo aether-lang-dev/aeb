@@ -1,5 +1,14 @@
 # `scala.scalac_test` compiles with an EMPTY compiler classpath (and an `env()` lands in that slot)
 
+> **ADDRESSED in `0959a64`** — an empty compiler classpath now fails with
+> "could not resolve the Scala compiler classpath" instead of being handed to
+> `java -cp '' dotty.tools.dotc.Main`, which surfaced as a missing main class.
+> Note the fix's finding: the env-in-the-cp-slot symptom does not exist on
+> current main, so that half of this report was against the v0.309 build only.
+> The remaining question — why the classpath resolves empty for the TEST compile
+> when `scalac` resolves it fine a moment earlier — is what the new message will
+> now point at.
+
 **Filed by**: selaenium Claude, 2026-09-13, on aeb v0.309 / ae 0.666.0
 (`~/scm/selenium`, node `scala/.tests.ae`).
 
