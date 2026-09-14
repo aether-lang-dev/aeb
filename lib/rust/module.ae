@@ -771,18 +771,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
             _e = map.put(_ctx, "_ws_deps", list.new())
         }
         deps, _ = map.get(_ctx, "_ws_deps")
-        si = 1
-        sline = ""
-        while si <= 500 {
-            _sline_raw, _esline = bldr._sh_capture("echo '${simple}' | sed -n '${si}p'")
-            sline = string.trim(_sline_raw)
-            if string.length(sline) == 0 {
-                si = 999
-            } else {
-                _e = list.add(deps, sline)
-                si = si + 1
-            }
-        }
+        bldr._append_lines(deps, simple)
     }
 
     // Extract feature deps: workspace_dep_features("name", "ver", "feat1,feat2")
@@ -793,18 +782,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
             _e = map.put(_ctx, "_ws_deps_features", list.new())
         }
         fdeps, _ = map.get(_ctx, "_ws_deps_features")
-        fi = 1
-        fline = ""
-        while fi <= 500 {
-            _fline_raw, _efline = bldr._sh_capture("echo '${featured}' | sed -n '${fi}p'")
-            fline = string.trim(_fline_raw)
-            if string.length(fline) == 0 {
-                fi = 999
-            } else {
-                _e = list.add(fdeps, fline)
-                fi = fi + 1
-            }
-        }
+        bldr._append_lines(fdeps, featured)
     }
 
     // Extract full deps: workspace_dep_full("name", "ver", "feats", "pkg", "nodef")
@@ -815,18 +793,7 @@ load_workspace_deps(_ctx: ptr, rel_path: string) {
             _e = map.put(_ctx, "_ws_deps_full", list.new())
         }
         full_deps, _ = map.get(_ctx, "_ws_deps_full")
-        fui = 1
-        fuline = ""
-        while fui <= 500 {
-            _fuline_raw, _efuline = bldr._sh_capture("echo '${full}' | sed -n '${fui}p'")
-            fuline = string.trim(_fuline_raw)
-            if string.length(fuline) == 0 {
-                fui = 999
-            } else {
-                _e = list.add(full_deps, fuline)
-                fui = fui + 1
-            }
-        }
+        bldr._append_lines(full_deps, full)
     }
     return 1
 }
@@ -1083,17 +1050,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
                 _e = map.put(bld, "_path_deps", list.new())
             }
             pd_list, _ = map.get(bld, "_path_deps")
-            i = 1
-            while i <= 200 {
-                _line_raw, _eline = bldr._sh_capture("printf '%s\\n' '${raw_path}' | sed -n '${i}p'")
-                line = string.trim(_line_raw)
-                if string.length(line) == 0 {
-                    i = 999
-                } else {
-                    _e = list.add(pd_list, line)
-                    i = i + 1
-                }
-            }
+            bldr._append_lines(pd_list, raw_path)
         }
 
         // --- simple registry deps ---
@@ -1103,17 +1060,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
                 _e = map.put(bld, "_crate_deps", list.new())
             }
             cd_list, _ = map.get(bld, "_crate_deps")
-            j = 1
-            while j <= 200 {
-                _rline_raw, _erline = bldr._sh_capture("printf '%s\\n' '${raw_reg}' | sed -n '${j}p'")
-                rline = string.trim(_rline_raw)
-                if string.length(rline) == 0 {
-                    j = 999
-                } else {
-                    _e = list.add(cd_list, rline)
-                    j = j + 1
-                }
-            }
+            bldr._append_lines(cd_list, raw_reg)
         }
 
         // --- feature registry deps ---
@@ -1123,17 +1070,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
                 _e = map.put(bld, "_crate_deps_features", list.new())
             }
             fd_list, _ = map.get(bld, "_crate_deps_features")
-            k = 1
-            while k <= 200 {
-                _fline_raw, _efline = bldr._sh_capture("printf '%s\\n' '${raw_feat}' | sed -n '${k}p'")
-                fline = string.trim(_fline_raw)
-                if string.length(fline) == 0 {
-                    k = 999
-                } else {
-                    _e = list.add(fd_list, fline)
-                    k = k + 1
-                }
-            }
+            bldr._append_lines(fd_list, raw_feat)
         }
 
         di = di + 1

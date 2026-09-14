@@ -741,17 +741,7 @@ builder build_project(): int {
         dm_n = bldr._strip_lang(dp_n)
         raw_n = bldr._read_dep_artifact(ctx, dm_n, "dotnet_nuget_deps_including_transitive")
         if string.length(raw_n) > 0 {
-            ni = 1
-            while ni <= 200 {
-                ln_raw, _eln = bldr._sh_capture("printf '%s\\n' '${raw_n}' | sed -n '${ni}p'")
-                line_n = string.trim(ln_raw)
-                if string.length(line_n) == 0 {
-                    ni = 999
-                } else {
-                    _e_pn = list.add(pkgrefs, line_n)
-                    ni = ni + 1
-                }
-            }
+            bldr._append_lines(pkgrefs, raw_n)
         }
         dli = dli + 1
     }

@@ -1806,6 +1806,22 @@ _drop_empty(x: string) -> int {
     return 1
 }
 
+// _append_lines(dst, raw) — split raw on newlines and append each trimmed,
+// non-empty line (order preserved) to list `dst`. Native replacement for the
+// `while … echo '${raw}' | sed -n '${i}p' … list.add` loop that recurs across
+// the dep-parsing paths — no per-line `sed`/`echo` fork, and no interpolating
+// captured text back into a shell (embedded quotes/newlines no longer corrupt
+// it). Each stored line is an owned copy (string.copy).
+_append_lines(dst: ptr, raw: string) {
+    lines = string.lines(string.trim(raw))
+    string.seq_each(lines, |ln: string| {
+        t = string.trim(ln)
+        if string.length(t) > 0 {
+            _e = list.add(dst, string.copy(t))
+        }
+    })
+}
+
 // _first_line(s) — the first line of s, native (replaces `… | head -1`). "" → "".
 // NB string.seq_head returns a BORROWED pointer into the seq; copy it before
 // string.seq_free frees the seq, or the return dangles.
