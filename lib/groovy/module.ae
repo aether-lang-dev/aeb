@@ -168,10 +168,9 @@ _groovy_jars_nl(groovy_home: string) {
 }
 
 // _nl_to_colon(s) — newline-separated → colon-separated (classpath form).
+// Delegates to bldr's shared native helper (std.string, no tr/sed shell-out).
 _nl_to_colon(s: string) {
-    if string.length(s) == 0 { return "" }
-    out, _e = bldr._sh_capture("printf '%s' '${s}' | tr '\n' ':' | sed 's/:$//'")
-    return string.trim(out)
+    return bldr._nl_to_colon(s)
 }
 
 // --- Content-addressed cache ---
@@ -789,8 +788,7 @@ _source_files(builder_map: ptr, source_dir: string, maven_subdir: string) {
 }
 
 // _colon_to_nl(s) — colon-separated → newline-separated (artifact form).
+// Delegates to bldr's shared native helper (std.string, no tr shell-out).
 _colon_to_nl(s: string) {
-    if string.length(s) == 0 { return "" }
-    out, _e = bldr._sh_capture("printf '%s' '${s}' | tr ':' '\n'")
-    return string.trim(out)
+    return bldr._colon_to_nl(s)
 }

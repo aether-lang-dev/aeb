@@ -1800,6 +1800,48 @@ with_temp_file(hold: ptr, body: fn) {
     return 0
 }
 
+// _drop_empty(x) — seq_filter predicate: keep non-empty strings.
+_drop_empty(x: string) -> int {
+    if string.length(x) == 0 { return 0 }
+    return 1
+}
+
+// _nl_to_colon(s) / _colon_to_nl(s) — convert between the two classpath list
+// forms aeb passes around: newline-separated (the artifact form written to
+// jvm_classpath_deps_including_transitive) and colon-separated (a `-cp` arg).
+// Native std.string — no `echo | tr '\n' ':' | sed 's/:$//'` shell-out, so no
+// dependency on tr/sed being on PATH (Windows). Empty segments are dropped so
+// the result never carries a trailing/empty classpath entry (the `sed 's/:$//'`
+// the old idiom needed), and "" maps to "".
+_nl_to_colon(s: string) -> string {
+    if string.length(s) == 0 { return "" }
+    parts = string.lines(s)
+    kept = string.seq_filter(parts, _drop_empty)
+    out = string.join(kept, ":")
+    string.seq_free(parts)
+    string.seq_free(kept)
+    return out
+}
+_colon_to_nl(s: string) -> string {
+    if string.length(s) == 0 { return "" }
+    parts = string.split(s, ":")
+    // reassemble one-per-line, dropping empties (mirrors the old tr + trim)
+    out = ""
+    n = string.array_size(parts)
+    i = 0
+    first = 1
+    while i < n {
+        seg = string.array_get(parts, i)
+        i = i + 1
+        if string.length(seg) == 0 { continue }
+        if first == 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, seg)
+        first = 0
+    }
+    string.array_free(parts)
+    return out
+}
+
 // _unzip_to_dir(archive_path, dest_dir) — extract every entry of a .zip/.jar/.whl
 // (all PKZIP containers) into dest_dir, using std.zip (0.667.0+). Returns "" on
 // success, an error string otherwise. Replaces `unzip -qq -o … -d …` shell-outs
