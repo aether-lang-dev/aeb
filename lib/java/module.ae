@@ -1047,26 +1047,28 @@ builder javac(): int {
         ck, kerr = _cache_key_for_javac(ctx, _builder, argfile, cmd)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = bldr._sh_capture("mktemp")
-            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
-            if string.length(tmp_tar) > 0 {
-                grc = cache.get(cache_key, tmp_tar)
-                if string.length(grc) == 0 {
-                    uerr = bldr._untar_into(tmp_tar, classes_dir)
-                    bldr._sh("rm -f '${tmp_tar}'")
-                    if string.length(uerr) == 0 {
-                        println("${mod_dir}: javac cache hit ${cache_key}")
-                        bldr._record_cache(ctx, "hit")
-                        exit_code = 0
-                    } else {
-                        // Untar failed — clean up and fall through.
-                        bldr._sh("rm -rf '${classes_dir}'")
-                        bldr._mkdirs(classes_dir)
-                        bldr._mkdirs(ts_dir)
+            // Scoped temp tarball: the two cache branches used to each rm the
+            // mktemp'd file by hand; with_temp_file cleans it up on every exit.
+            _tmph = map.new()
+            bldr.with_temp_file(_tmph) callback {
+                tmp_tar, _ = map.get(_tmph, "path")
+                if string.length(tmp_tar) > 0 {
+                    grc = cache.get(cache_key, tmp_tar)
+                    if string.length(grc) == 0 {
+                        uerr = bldr._untar_into(tmp_tar, classes_dir)
+                        if string.length(uerr) == 0 {
+                            println("${mod_dir}: javac cache hit ${cache_key}")
+                            bldr._record_cache(ctx, "hit")
+                            exit_code = 0
+                        } else {
+                            // Untar failed — clean up and fall through.
+                            bldr._sh("rm -rf '${classes_dir}'")
+                            bldr._mkdirs(classes_dir)
+                            bldr._mkdirs(ts_dir)
+                        }
                     }
-                } else {
-                    bldr._sh("rm -f '${tmp_tar}'")
                 }
+                return 0
             }
         }
     }

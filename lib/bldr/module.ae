@@ -1754,6 +1754,52 @@ _mkdirs(dir_path: string) {
     _m = fs.mkdir_p(dir_path)
 }
 
+// --- Scoped temp resources (RAII) --------------------------------------------
+//
+// aeb hand-pairs `mktemp` … `rm` all over the SDK, and the cleanup is easy to
+// leak: an early `return`, a `bldr.fail()`, or a second code path added later
+// between the create and the `rm` orphans the temp — and where the cleanup is
+// duplicated across if/else branches (scala/kotlin/java cache restore), a new
+// branch silently forgets it. These scopes make teardown UNCONDITIONAL: the
+// block runs as its own fn (a trailing `callback { … }` closure), so its early
+// `return` returns from the BLOCK, `call(body)` returns normally, and the
+// teardown after it always fires — the std.spec it()/after pattern.
+//
+// The block reads the created path from the holder map the scope fills (Aether
+// closures are zero-arg and capture their enclosing scope), keyed "path":
+//
+//     h = map.new()
+//     bldr.with_temp_dir(h) callback {
+//         t, _ = map.get(h, "path")
+//         … use t …            // any early return here is fine — t is cleaned up
+//     }
+//
+// Teardown still shells `rm -rf`/`rm -f`: std.fs.delete_dir is rmdir (empty
+// only), and there is no recursive-remove primitive yet (a Tier-2 stdlib
+// addition, fs.remove_tree, would let these go fully shell-free).
+
+// with_temp_dir(hold, body) — create a fresh temp DIRECTORY, put its path in
+// hold["path"], run body, then remove the whole tree on every exit.
+with_temp_dir(hold: ptr, body: fn) {
+    raw, _e = _sh_capture("mktemp -d")
+    td = _to_native_path(string.trim(raw))
+    _p = map.put(hold, "path", td)
+    call(body)
+    if string.length(td) > 0 { _r = _sh("rm -rf '${td}'") }
+    return 0
+}
+
+// with_temp_file(hold, body) — create a fresh temp FILE, put its path in
+// hold["path"], run body, then delete it on every exit.
+with_temp_file(hold: ptr, body: fn) {
+    raw, _e = _sh_capture("mktemp")
+    tf = _to_native_path(string.trim(raw))
+    _p = map.put(hold, "path", tf)
+    call(body)
+    if string.length(tf) > 0 { _r = _sh("rm -f '${tf}'") }
+    return 0
+}
+
 // _unzip_to_dir(archive_path, dest_dir) — extract every entry of a .zip/.jar/.whl
 // (all PKZIP containers) into dest_dir, using std.zip (0.667.0+). Returns "" on
 // success, an error string otherwise. Replaces `unzip -qq -o … -d …` shell-outs
