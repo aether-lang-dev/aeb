@@ -2236,7 +2236,8 @@ builder consumer_example(): int {
         return 1
     }
     if string.length(asset) > 0 {
-        if bldr._sh("cd '${consumer}' && jar tf app.jar 2>/dev/null | grep -q '${asset}'") != 0 {
+        jtf, _jtferr = bldr._sh_capture("cd '${consumer}' && jar tf app.jar 2>/dev/null")
+        if string.index_of(jtf, asset) < 0 {
             println("${mod_dir}: jar missing bundled ${asset}")
             bldr.fail(ctx, "bundled asset missing in jar")
             return 1

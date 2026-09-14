@@ -100,7 +100,8 @@ _lua54_interp() {
     // `lua` present AND actually 5.4 — the version check runs the binary, so it
     // stays a shell-out; the presence half is os.which.
     if string.length(os.which("lua")) > 0 {
-        if bldr._sh("lua -v 2>&1 | grep -q 'Lua 5.4'") == 0 { return "lua" }
+        lv, _lverr = bldr._sh_capture("lua -v 2>&1")
+        if string.index_of(lv, "Lua 5.4") >= 0 { return "lua" }
     }
     return ""
 }
