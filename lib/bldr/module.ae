@@ -2755,9 +2755,14 @@ _untar_into(tar_path: string, dest_dir: string) {
 // real output landed elsewhere). Shared by ts, dotnet, clojure.
 _dir_nonempty(d: string) {
     if dir.exists(d) == 0 { return 0 }
-    raw, _err = _sh_capture("find '${d}' -type f 2>/dev/null | head -1")
-    if string.length(string.trim(raw)) > 0 { return 1 }
-    return 0
+    // Native recursive walk (kind 1 = regular file) — no `find … | head -1`
+    // fork and no MSYS `find` dependency on Windows. Any file sets the flag.
+    found = 0
+    _n, _werr = fs.walk(d, |p: string, kind: int, depth: int| {
+        if kind == 1 { found = 1 }
+        return 0
+    })
+    return found
 }
 
 // _record_test_result(ctx, passed, failed) — SDK test builders
@@ -4382,6 +4387,31 @@ _collect_file_list(pattern: string) {
     }
     dir_list_free(files)
     return result
+}
+
+// _dedup_dirnames(nl) — for each non-empty line of nl, take its dirname; return
+// the unique dirnames colon-joined (first-seen order preserved). Native form of
+// `echo '${nl}' | while read l; do dirname "$l"; done | sort -u | tr '\n' ':' |
+// sed 's/:$//'` — used to build an LD_LIBRARY_PATH from a shared-lib list.
+// (sort -u also sorted lexically; a dedup'd dir search path is order-tolerant,
+// so first-seen order is kept rather than pulling in a sort primitive.)
+_dedup_dirnames(nl: string) -> string {
+    out = ""
+    lines = string.lines(string.trim(nl))
+    string.seq_each(lines, |ln: string| {
+        t = string.trim(ln)
+        if string.length(t) > 0 {
+            d = path.dirname(t)
+            // membership check against ":<out>:" so a substring can't false-hit
+            probe = string.concat(string.concat(":", out), ":")
+            needle = string.concat(string.concat(":", d), ":")
+            if string.index_of(probe, needle) < 0 {
+                if string.length(out) > 0 { out = string.concat(out, ":") }
+                out = string.concat(out, d)
+            }
+        }
+    })
+    return out
 }
 
 // _collect_file_list_recursive(root, ext) — every file under root ending in

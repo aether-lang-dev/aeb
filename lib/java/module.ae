@@ -217,8 +217,7 @@ _collect_ldlibdeps(ctx: ptr) {
         dm = bldr._strip_lang(dp)
         dep_ld = bldr._read_dep_artifact(ctx, dm, "ldlibdeps")
         if string.length(dep_ld) > 0 {
-            ld_raw, _eld = bldr._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
-            ld_dirs = string.trim(ld_raw)
+            ld_dirs = bldr._dedup_dirnames(dep_ld)
             if string.length(ld_dirs) > 0 {
                 if string.length(ld_path) > 0 {
                     ld_path = string.concat(string.concat(ld_path, ":"), ld_dirs)
@@ -1540,8 +1539,7 @@ builder junit(): int {
         dm3 = bldr._strip_lang(dp3)
         dep_ld = bldr._read_dep_artifact(ctx, dm3, "ldlibdeps")
         if string.length(dep_ld) > 0 {
-            ld_raw, _eld = bldr._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
-            ld_dirs = string.trim(ld_raw)
+            ld_dirs = bldr._dedup_dirnames(dep_ld)
             if string.length(ld_dirs) > 0 {
                 if string.length(ld_path) > 0 {
                     ld_path = string.concat(string.concat(ld_path, ":"), ld_dirs)
@@ -1728,8 +1726,7 @@ builder junit5() {
         dm3 = bldr._strip_lang(dp3)
         dep_ld = bldr._read_dep_artifact(ctx, dm3, "ldlibdeps")
         if string.length(dep_ld) > 0 {
-            ld_raw, _eld = bldr._sh_capture("echo '${dep_ld}' | while read -r line; do [ -n \"$line\" ] && dirname \"$line\"; done | sort -u | tr '\n' ':' | sed 's/:$//'")
-            ld_dirs = string.trim(ld_raw)
+            ld_dirs = bldr._dedup_dirnames(dep_ld)
             if string.length(ld_dirs) > 0 {
                 if string.length(ld_path) > 0 {
                     ld_path = string.concat(string.concat(ld_path, ":"), ld_dirs)
