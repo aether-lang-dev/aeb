@@ -969,18 +969,18 @@ builder javac(): int {
 
     // Write source file list to an argfile (avoids command-line length limits)
     argfile = path.join(target_dir, "javac_sources.txt")
+    argfile_content = ""
     if map.has(_builder, "source_layout") == 1 {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/main/java")
-            bldr._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
+            argfile_content = fs.find_ext(src_root, ".java")
         }
     } else {
-        bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
+        argfile_content = bldr._glob_lines("${source_dir}/*.java")
     }
-
-    af_raw, _eaf = io.read_file(argfile)
-    argfile_content = string.trim(af_raw)
+    argfile_content = string.trim(argfile_content)
+    _ew_af = io.write_file(argfile, argfile_content)
     if string.length(argfile_content) == 0 {
         println("${mod_dir}: no Java source files found")
         return 0
@@ -1268,12 +1268,12 @@ builder package_jar(): int {
         // (b) self-compile src/main/java (maven layout) into the staging dir.
         src_root = path.join(source_dir, "src/main/java")
         argfile = path.join(target_dir, "package_jar_sources.txt")
-        bldr._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
-        af_raw, _eaf = io.read_file(argfile)
-        if string.length(string.trim(af_raw)) == 0 {
+        pj_content = string.trim(fs.find_ext(src_root, ".java"))
+        if string.length(pj_content) == 0 {
             // fall back to a flat top-level scan (non-maven layout).
-            bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
+            pj_content = string.trim(bldr._glob_lines("${source_dir}/*.java"))
         }
+        _ew_pj = io.write_file(argfile, pj_content)
         release_flag = ""
         if _builder != null {
             if map.has(_builder, "release") == 1 {
@@ -1373,18 +1373,18 @@ builder javac_test(): int {
 
     // Write source file list to an argfile (avoids command-line length limits)
     argfile = path.join(target_dir, "javac_test_sources.txt")
+    argfile_content = ""
     if map.has(_builder, "source_layout") == 1 {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/test/java")
-            bldr._sh("find '${src_root}' -name '*.java' > '${argfile}' 2>/dev/null || true")
+            argfile_content = fs.find_ext(src_root, ".java")
         }
     } else {
-        bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.java' > '${argfile}' 2>/dev/null || true")
+        argfile_content = bldr._glob_lines("${source_dir}/*.java")
     }
-
-    af_raw, _eaf = io.read_file(argfile)
-    argfile_content = string.trim(af_raw)
+    argfile_content = string.trim(argfile_content)
+    _ew_taf = io.write_file(argfile, argfile_content)
     if string.length(argfile_content) == 0 {
         println("${mod_dir}: no test source files found")
         return 0

@@ -320,18 +320,18 @@ builder kotlinc(): int {
 
     // Write source file list to argfile
     argfile = path.join(target_dir, "kotlinc_sources.txt")
+    argfile_content = ""
     if map.has(_builder, "source_layout") == 1 {
         layout, _ = map.get(_builder, "source_layout")
         if layout == "maven idiomatic" {
             src_root = path.join(source_dir, "src/main/kotlin")
-            bldr._sh("find '${src_root}' -name '*.kt' > '${argfile}' 2>/dev/null || true")
+            argfile_content = fs.find_ext(src_root, ".kt")
         }
     } else {
-        bldr._sh("find '${source_dir}' -maxdepth 1 -name '*.kt' > '${argfile}' 2>/dev/null || true")
+        argfile_content = bldr._glob_lines("${source_dir}/*.kt")
     }
-
-    af_raw, _eaf = io.read_file(argfile)
-    argfile_content = string.trim(af_raw)
+    argfile_content = string.trim(argfile_content)
+    _ew_af = io.write_file(argfile, argfile_content)
     if string.length(argfile_content) == 0 {
         println("${mod_dir}: no Kotlin source files found")
         return 0

@@ -4389,6 +4389,29 @@ _collect_file_list(pattern: string) {
     return result
 }
 
+// _glob_lines(pattern) — one glob match per line (newline-joined, no trailing
+// newline). The argfile-ready (single directory level) form: native
+// `find '${dir}' -maxdepth 1 -name '<pat>'`, i.e. a shallow scan. "" for none.
+// (fs.find_ext is the recursive counterpart, already newline-joined.)
+_glob_lines(pattern: string) -> string {
+    files, _gerr = fs.glob(pattern)
+    if files == null { return "" }
+    count = dir_list_count(files)
+    result = ""
+    i = 0
+    while i < count {
+        f = dir_list_get(files, i)
+        if i == 0 {
+            result = string.concat(f, "")
+        } else {
+            result = string.concat(string.concat(result, "\n"), f)
+        }
+        i = i + 1
+    }
+    dir_list_free(files)
+    return result
+}
+
 // _dedup_dirnames(nl) — for each non-empty line of nl, take its dirname; return
 // the unique dirnames colon-joined (first-seen order preserved). Native form of
 // `echo '${nl}' | while read l; do dirname "$l"; done | sort -u | tr '\n' ':' |
