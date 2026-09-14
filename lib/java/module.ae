@@ -32,6 +32,7 @@ import std.list
 import std.map
 import std.path
 import std.dir
+import std.cryptography
 
 // --- Java DSL setters ---
 
@@ -608,8 +609,7 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
     }
     if got == 0 { return "" }
 
-    actual_raw, _es = bldr._sh_capture("sha256sum '${tmp}' | cut -d' ' -f1")
-    actual = string.trim(actual_raw)
+    actual, _es = cryptography.sha256_file(tmp)
     if string.equals(actual, sha256) == 0 {
         _rm2 = bldr._sh("rm -f '${tmp}'")
         return ""
@@ -1230,14 +1230,15 @@ builder package_jar(): int {
         // read via dep_artifact() — the common case). Normalise newlines to
         // colons first so cut sees one entry per field either way; without this
         // a newline-joined "classes\n<jar>" is treated as ONE bogus entry.
-        from_cp_norm, _fce = bldr._sh_capture("printf '%s' '${from_cp}' | tr '\n' ':' | sed 's/:$//'")
-        from_cp_norm = string.trim(from_cp_norm)
+        from_cp_norm = bldr._nl_to_colon(from_cp)
         staged_any = 0
-        ci = 1
-        while ci <= 200 {
-            e_raw, _ece = bldr._sh_capture("printf '%s' '${from_cp_norm}' | cut -d: -f${ci}")
-            entry = string.trim(e_raw)
-            if string.length(entry) == 0 { ci = 999 }
+        cp_parts = string.split(from_cp_norm, ":")
+        cp_n = string.array_size(cp_parts)
+        ci = 0
+        while ci < cp_n {
+            entry = string.trim(string.array_get(cp_parts, ci))
+            ci = ci + 1
+            if string.length(entry) == 0 { continue }
             else {
                 if dir.exists(entry) == 1 {
                     // copy the directory's CONTENTS (classes tree) into the stage.
@@ -1255,9 +1256,9 @@ builder package_jar(): int {
                         staged_any = 1
                     }
                 }
-                ci = ci + 1
             }
         }
+        string.array_free(cp_parts)
         if staged_any == 0 {
             println("${mod_dir}: package_jar: from_classes('${from_cp}') resolved no classes dir or jar")
             bldr.fail(ctx, "package_jar: from_classes path had nothing to package")
