@@ -756,13 +756,9 @@ builder build_project(): int {
         dm_r = bldr._strip_lang(dp_r)
         raw_r = bldr._read_dep_artifact(ctx, dm_r, "dotnet_vendored_refs_including_transitive")
         if string.length(raw_r) > 0 {
-            ri = 1
-            while ri <= 200 {
-                lr_raw, _elr = bldr._sh_capture("printf '%s\\n' '${raw_r}' | sed -n '${ri}p'")
-                line_r = string.trim(lr_raw)
-                if string.length(line_r) == 0 {
-                    ri = 999
-                } else {
+            string.seq_each(string.lines(string.trim(raw_r)), |ln: string| {
+                line_r = string.trim(ln)
+                if string.length(line_r) > 0 {
                     if string.contains(line_r, "~") == 1 {
                         idx = string.index_of(line_r, "~")
                         r_name = string.substring(line_r, 0, idx)
@@ -773,9 +769,8 @@ builder build_project(): int {
                         entry = string.concat(entry, hint_rel)
                         _e_vr = list.add(vendored_refs, entry)
                     }
-                    ri = ri + 1
                 }
-            }
+            })
         }
         dli2 = dli2 + 1
     }

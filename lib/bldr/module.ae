@@ -4441,17 +4441,7 @@ load_third_party_deps(_ctx: ptr, rel_path: string) {
     }
 
     npm_deps_list, _ = map.get(ctx, "npm_deps")
-    line_idx = 1
-    while line_idx <= 500 {
-        line_raw, _e3 = _sh_capture("echo '${parsed}' | sed -n '${line_idx}p'")
-        line = string.trim(line_raw)
-        if string.length(line) == 0 {
-            line_idx = 501
-        } else {
-            _e4 = list.add(npm_deps_list, line)
-            line_idx = line_idx + 1
-        }
-    }
+    _append_lines(npm_deps_list, parsed)
     return 1
 }
 

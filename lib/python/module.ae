@@ -222,6 +222,28 @@ pip_install_cmd(pip_bin: string, spec: string) {
     return "'${pip_bin}' install -q '${spec}'"
 }
 
+// _pip_spec(entry) — turn a "name~spec" dep entry into a pip-install arg.
+// Native replacement for the per-line `awk -F'~'` that ran once per dep:
+//   "requests~2.31.0"     -> "requests==2.31.0"  (bare version -> pinned ==)
+//   "setuptools~>=70,<81" -> "setuptools>=70,<81" (comparator kept as-is)
+//   "django~" / "django"  -> "django"            (no version)
+// A comparator is any of < > = ! ~ leading the version. Pure.
+_pip_spec(entry: string) {
+    tilde = string.index_of(entry, "~")
+    if tilde < 0 { return entry }
+    name = string.substring(entry, 0, tilde)
+    ver = string.substring(entry, tilde + 1, string.length(entry))
+    if string.length(ver) == 0 { return name }
+    c = string.char_at(ver, 0)
+    // '<'=60 '='=61 '>'=62 '!'=33 '~'=126
+    if c == 60 { return string.concat(name, ver) }
+    if c == 61 { return string.concat(name, ver) }
+    if c == 62 { return string.concat(name, ver) }
+    if c == 33 { return string.concat(name, ver) }
+    if c == 126 { return string.concat(name, ver) }
+    return string.concat(string.concat(name, "=="), ver)
+}
+
 // pip_install_requirements_cmd — install from requirements file. Pure.
 pip_install_requirements_cmd(pip_bin: string, req_path: string) {
     return "'${pip_bin}' install -q -r '${req_path}'"
@@ -468,41 +490,23 @@ builder install(): int {
         dm_w = bldr._strip_lang(dp_w)
         raw_pypi = bldr._read_dep_artifact(ctx, dm_w, "python_pypi_deps_including_transitive")
         if string.length(raw_pypi) > 0 {
-            pi = 1
-            while pi <= 200 {
-                pr_raw, _epr = bldr._sh_capture("printf '%s\\n' '${raw_pypi}' | sed -n '${pi}p'")
-                pline = string.trim(pr_raw)
-                if string.length(pline) == 0 {
-                    pi = 999
-                } else {
-                    // Translate "name~spec" to a pip-install arg:
-                    //   "requests~2.31.0"      → "requests==2.31.0"
-                    //   "setuptools~>=70,<81" → "setuptools>=70,<81" (no == prefix)
-                    //   "django~"              → "django" (no version)
-                    // Rule: if spec starts with a comparator char (<>=~!), use as-is;
-                    //       otherwise default to == for exact version pinning.
-                    ps_raw, _eps = bldr._sh_capture("printf '%s' '${pline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
-                    pip_spec = string.trim(ps_raw)
-                    bldr._sh(pip_install_cmd(pip_bin, pip_spec))
-                    pi = pi + 1
+            // Translate each "name~spec" entry to a pip-install arg (see _pip_spec).
+            string.seq_each(string.lines(string.trim(raw_pypi)), |ln: string| {
+                pline = string.trim(ln)
+                if string.length(pline) > 0 {
+                    bldr._sh(pip_install_cmd(pip_bin, _pip_spec(pline)))
                 }
-            }
+            })
         }
         raw_whl = bldr._read_dep_artifact(ctx, dm_w, "python_vendored_wheels_including_transitive")
         if string.length(raw_whl) > 0 {
-            wi = 1
-            while wi <= 200 {
-                wr_raw, _ewr = bldr._sh_capture("printf '%s\\n' '${raw_whl}' | sed -n '${wi}p'")
-                wline = string.trim(wr_raw)
-                if string.length(wline) == 0 {
-                    wi = 999
-                } else {
+            string.seq_each(string.lines(string.trim(raw_whl)), |ln: string| {
+                wline = string.trim(ln)
+                if string.length(wline) > 0 {
                     // wline is a path relative to project root
-                    wheel_full = path.join(root, wline)
-                    bldr._sh(pip_install_cmd(pip_bin, wheel_full))
-                    wi = wi + 1
+                    bldr._sh(pip_install_cmd(pip_bin, path.join(root, wline)))
                 }
-            }
+            })
         }
         dli = dli + 1
     }
@@ -759,19 +763,12 @@ builder package(): int {
         pdm = bldr._strip_lang(pdp)
         raw_p = bldr._read_dep_artifact(ctx, pdm, "python_pypi_deps_including_transitive")
         if string.length(raw_p) > 0 {
-            ppi = 1
-            while ppi <= 200 {
-                pl_raw, _epl = bldr._sh_capture("printf '%s\\n' '${raw_p}' | sed -n '${ppi}p'")
-                plline = string.trim(pl_raw)
-                if string.length(plline) == 0 {
-                    ppi = 999
-                } else {
-                    ps_raw, _eps = bldr._sh_capture("printf '%s' '${plline}' | awk -F'~' '{n=$1; v=$2; if(v==\"\") print n; else if(v ~ /^[<>=!~]/) print n v; else print n \"==\" v}'")
-                    pip_spec = string.trim(ps_raw)
-                    _e_b = list.add(dep_specs, pip_spec)
-                    ppi = ppi + 1
+            string.seq_each(string.lines(string.trim(raw_p)), |ln: string| {
+                plline = string.trim(ln)
+                if string.length(plline) > 0 {
+                    _e_b = list.add(dep_specs, _pip_spec(plline))
                 }
-            }
+            })
         }
         pdi = pdi + 1
     }

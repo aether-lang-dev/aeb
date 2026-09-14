@@ -290,20 +290,15 @@ _merge_npm_registry_deps(ctx: ptr) {
         dm = bldr._strip_lang(dp)
         raw = bldr._read_dep_artifact(ctx, dm, "npm_registry_deps_including_transitive")
         if string.length(raw) > 0 {
-            i = 1
-            while i <= 200 {
-                l_raw, _el = bldr._sh_capture("printf '%s\\n' '${raw}' | sed -n '${i}p'")
-                line = string.trim(l_raw)
-                if string.length(line) == 0 {
-                    i = 999
-                } else {
+            lines = string.lines(string.trim(raw))
+            string.seq_each(lines, |ln: string| {
+                line = string.trim(ln)
+                if string.length(line) > 0 {
                     // Translate "name~version" to "name:version" for pnpm.resolve
-                    c_raw, _ec = bldr._sh_capture("printf '%s' '${line}' | sed 's/~/:/'")
-                    colonized = string.trim(c_raw)
+                    colonized = string.replace(line, "~", ":")
                     _ea = list.add(npm_deps_list, colonized)
-                    i = i + 1
                 }
-            }
+            })
         }
         di = di + 1
     }
