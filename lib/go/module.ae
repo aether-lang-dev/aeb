@@ -416,8 +416,7 @@ builder go_test(): int {
         dm5 = bldr._strip_lang(dp5)
         dep_sh = bldr._read_dep_artifact(ctx, dm5, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
-            sh_raw, _esh = bldr._sh_capture("dirname ${dep_sh} | head -1")
-            sh_dir = string.trim(sh_raw)
+            sh_dir = path.dirname(bldr._first_line(dep_sh))
             if string.length(ld_path) > 0 {
                 ld_path = string.concat(string.concat(ld_path, ":"), sh_dir)
             } else {
