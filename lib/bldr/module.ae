@@ -4412,6 +4412,55 @@ _glob_lines(pattern: string) -> string {
     return result
 }
 
+// _walk_collect(root, ext, name_excludes, path_excludes) — every file under
+// root (recursively) that ends in ext, minus any whose name ends in one of the
+// newline-listed name_excludes or whose path contains one of the newline-listed
+// path_excludes segments. Newline-joined (argfile-ready), "" for none. ext ""
+// matches every file (find -type f). Native form of
+// `find '${root}' [-name '*<ext>'] ! -name '<n>' ! -path '*<p>*'` — the
+// path-segment exclusion fs.find_ext_excluding (name-suffix only) can't express.
+//
+// NB this WALKS the excluded subtree and drops its files rather than pruning at
+// descent — correct, but it still enters e.g. node_modules. A prune signal on
+// fs.walk would let us skip the descent; see aether ask
+// fs-walk-prune-signal-for-directory-exclusion.md. For the trees these callers
+// scan (dotnet bin/obj, a project's own node_modules) the cost is acceptable.
+_walk_collect(root: string, ext: string, name_excludes: string, path_excludes: string) -> string {
+    ne = string.split(name_excludes, "\n")
+    pe = string.split(path_excludes, "\n")
+    ne_n = string.array_size(ne)
+    pe_n = string.array_size(pe)
+    out = ""
+    _n, _werr = fs.walk(root, |p: string, kind: int, depth: int| {
+        if kind != 1 { return 0 }
+        if string.length(ext) > 0 {
+            if string.ends_with(p, ext) == 0 { return 0 }
+        }
+        j = 0
+        while j < ne_n {
+            s = string.array_get(ne, j)
+            if string.length(s) > 0 {
+                if string.ends_with(p, s) == 1 { return 0 }
+            }
+            j = j + 1
+        }
+        k = 0
+        while k < pe_n {
+            s2 = string.array_get(pe, k)
+            if string.length(s2) > 0 {
+                if string.index_of(p, s2) >= 0 { return 0 }
+            }
+            k = k + 1
+        }
+        if string.length(out) > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, p)
+        return 0
+    })
+    string.array_free(ne)
+    string.array_free(pe)
+    return out
+}
+
 // _dedup_dirnames(nl) — for each non-empty line of nl, take its dirname; return
 // the unique dirnames colon-joined (first-seen order preserved). Native form of
 // `echo '${nl}' | while read l; do dirname "$l"; done | sort -u | tr '\n' ':' |

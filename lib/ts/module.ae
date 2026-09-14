@@ -539,7 +539,7 @@ builder tsc(): int {
     // Source set for the cache key: every .ts under source_dir except
     // declaration files and anything inside node_modules.
     argfile = path.join(target_dir, "tsc_sources.txt")
-    bldr._sh("find '${source_dir}' -name '*.ts' ! -name '*.d.ts' ! -path '*/node_modules/*' > '${argfile}' 2>/dev/null || true")
+    _ew_af = io.write_file(argfile, bldr._walk_collect(source_dir, ".ts", ".d.ts", "/node_modules/"))
 
     // Cache check: restore the out-dir tree on hit (sans *.tsbuildinfo)
     // and skip tsc. exit_code sentinel: 0 = cache hit, -1 = run tsc.

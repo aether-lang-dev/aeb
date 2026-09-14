@@ -440,7 +440,10 @@ _append_content_inputs(bld: ptr, argfile: string, source_dir: string, root: stri
             // leading dir; a plain path lists just that path. Either way,
             // expand relative to source_dir and append real files.
             lead = _glob_lead_dir(glob)
-            bldr._sh("find '${source_dir}/${lead}' -type f ! -path '*/bin/*' ! -path '*/obj/*' >> '${argfile}' 2>/dev/null || true")
+            found = bldr._walk_collect(path.join(source_dir, lead), "", "", "/bin/\n/obj/")
+            if string.length(found) > 0 {
+                _ea = io.append_file(argfile, string.concat("\n", found))
+            }
             i = i + 1
         }
     }
@@ -829,7 +832,7 @@ builder build_project(): int {
     cached = 0
     if is_test == 0 {
         argfile = path.join(target_dir, "dotnet_sources.txt")
-        bldr._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        _ew_af = io.write_file(argfile, bldr._walk_collect(source_dir, ".cs", "", "/bin/\n/obj/"))
         _append_content_inputs(_builder, argfile, source_dir, root)
         cached = _dotnet_cache_restore(ctx, argfile, xml, config, source_dir, root)
         if cached == 1 {
@@ -948,7 +951,7 @@ builder build_project_existing(): int {
         fp_raw, _efp = io.read_file(csproj)
         fingerprint = string.trim(fp_raw)
         argfile = path.join(target_dir, "dotnet_sources.txt")
-        bldr._sh("find '${source_dir}' -name '*.cs' ! -path '*/bin/*' ! -path '*/obj/*' > '${argfile}' 2>/dev/null || true")
+        _ew_af = io.write_file(argfile, bldr._walk_collect(source_dir, ".cs", "", "/bin/\n/obj/"))
         _append_content_inputs(_builder, argfile, source_dir, root)
         cached = _dotnet_cache_restore(ctx, argfile, fingerprint, config, source_dir, root)
         if cached == 1 {
