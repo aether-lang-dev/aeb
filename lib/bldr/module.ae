@@ -4384,6 +4384,18 @@ _collect_file_list(pattern: string) {
     return result
 }
 
+// _collect_file_list_recursive(root, ext) — every file under root ending in
+// ext (recursively), as a single space-separated list. The recursive
+// counterpart of _collect_file_list (which globs one directory level): native
+// form of `find '${root}' -name '*<ext>' | tr '\n' ' '`. fs.find_ext returns
+// the matches newline-joined; we just flip the separators. "" when none.
+_collect_file_list_recursive(root: string, ext: string) -> string {
+    nl = fs.find_ext(root, ext)
+    t = string.trim(nl)
+    if string.length(t) == 0 { return "" }
+    return string.replace_all(t, "\n", " ")
+}
+
 _build_dep_classpath(ctx: ptr) {
     deps, _ = map.get(ctx, "deps")
     cp = ""

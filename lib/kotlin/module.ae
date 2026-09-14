@@ -495,8 +495,13 @@ builder kotlinc_test(): int {
         // then compiles the .java against those .kt classes. Harmless when the
         // sources don't cross-reference (kotlinc still emits only .kt).
         jsrc = path.join(source_dir, "src/test/java")
-        fl_raw, _efl = bldr._sh_capture("{ find '${tsrc}' -name '*.kt' 2>/dev/null ; find '${jsrc}' -name '*.java' 2>/dev/null ; } | tr '\n' ' '")
-        file_list = string.trim(fl_raw)
+        kt_files = bldr._collect_file_list_recursive(tsrc, ".kt")
+        java_files = bldr._collect_file_list_recursive(jsrc, ".java")
+        file_list = kt_files
+        if string.length(java_files) > 0 {
+            if string.length(file_list) > 0 { file_list = string.concat(file_list, " ") }
+            file_list = string.concat(file_list, java_files)
+        }
     } else {
         kt_pat = path.join(source_dir, "*.kt")
         file_list = bldr._collect_file_list(kt_pat)

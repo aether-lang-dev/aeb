@@ -781,10 +781,11 @@ _source_files(builder_map: ptr, source_dir: string, maven_subdir: string) {
     }
     root = source_dir
     if use_maven == 1 { root = path.join(source_dir, maven_subdir) }
-    depth = ""
-    if use_maven == 0 { depth = "-maxdepth 1 " }
-    raw, _e = bldr._sh_capture("find '${root}' ${depth}-name '*.groovy' 2>/dev/null | tr '\n' ' '")
-    return string.trim(raw)
+    // maven layout: recurse the whole tree; flat layout: top level only.
+    if use_maven == 1 {
+        return bldr._collect_file_list_recursive(root, ".groovy")
+    }
+    return bldr._collect_file_list(path.join(root, "*.groovy"))
 }
 
 // _colon_to_nl(s) — colon-separated → newline-separated (artifact form).
