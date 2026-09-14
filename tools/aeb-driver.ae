@@ -429,8 +429,7 @@ main() {
     have_make = 0
     if want_native == 0 {
         if string.equals(jobs, "1") == 0 {
-            mk_probe, _mpe = bldr._sh_capture("command -v make >/dev/null 2>&1 && echo y || echo n")
-            if string.equals(string.trim(mk_probe), "y") == 1 { have_make = 1 }
+            if string.length(os.which("make")) > 0 { have_make = 1 }
         }
     }
 

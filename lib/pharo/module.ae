@@ -50,8 +50,7 @@ suite(_ctx: ptr, name: string) {
 // downloaded — a runner that installs a VM behind your back is worse than a
 // clear skip.
 _pharo_bin() {
-    p, _e = bldr._sh_capture("command -v pharo 2>/dev/null")
-    onpath = string.trim(p)
+    onpath = os.which("pharo")
     if string.length(onpath) > 0 { return onpath }
     pdir = os.getenv("PHARO_DIR")
     if string.length(pdir) == 0 { pdir = path.join(os.getenv("HOME"), ".local/pharo") }

@@ -96,10 +96,12 @@ _lua54_flags() {
 // _lua54_interp() — a `lua5.4` / `lua`(5.4) interpreter on PATH, else "".
 // (A built ./lua54 host is checked by the caller after building it.)
 _lua54_interp() {
-    rc = bldr._sh("command -v lua5.4 >/dev/null 2>&1")
-    if rc == 0 { return "lua5.4" }
-    rc2 = bldr._sh("command -v lua >/dev/null 2>&1 && lua -v 2>&1 | grep -q 'Lua 5.4'")
-    if rc2 == 0 { return "lua" }
+    if string.length(os.which("lua5.4")) > 0 { return "lua5.4" }
+    // `lua` present AND actually 5.4 — the version check runs the binary, so it
+    // stays a shell-out; the presence half is os.which.
+    if string.length(os.which("lua")) > 0 {
+        if bldr._sh("lua -v 2>&1 | grep -q 'Lua 5.4'") == 0 { return "lua" }
+    }
     return ""
 }
 

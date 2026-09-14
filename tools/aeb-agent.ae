@@ -711,8 +711,7 @@ _agent_aether_std() {
     aetherc = _agent_aetherc()
     // If it's a bare name, resolve to an absolute path the same way aetherc
     // resolves its own argv0 (PATH lookup) so the prefix matches what it emits.
-    resolved, _e = bldr._sh_capture(string.concat("command -v ", string.concat(aetherc, " 2>/dev/null")))
-    resolved = string.trim(resolved)
+    resolved = os.which(aetherc)
     if string.length(resolved) == 0 { return "" }
     bindir = path.dirname(resolved)
     if string.length(bindir) == 0 { return "" }

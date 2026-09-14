@@ -23,6 +23,7 @@ import std.list
 import std.map
 import std.path
 import std.io
+import std.os
 
 // src("src/foo.lfe") — an LFE source module to lfec-compile (repeatable).
 src(_ctx: ptr, path: string) {
@@ -88,13 +89,13 @@ builder test(): int {
     bldr._mkdirs(target_dir)
 
     // toolchain gate: lfec + lfe, else SKIP.
-    if bldr._sh("command -v lfec >/dev/null 2>&1") != 0 {
+    if string.length(os.which("lfec")) == 0 {
         reason = "lfec not on PATH (install LFE)"
         println("${mod_dir}: SKIPPED — ${reason}")
         bldr._record_skip(ctx, reason)
         return 0
     }
-    if bldr._sh("command -v lfe >/dev/null 2>&1") != 0 {
+    if string.length(os.which("lfe")) == 0 {
         reason = "lfe not on PATH (install LFE)"
         println("${mod_dir}: SKIPPED — ${reason}")
         bldr._record_skip(ctx, reason)

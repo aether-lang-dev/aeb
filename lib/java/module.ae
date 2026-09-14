@@ -668,8 +668,7 @@ builder mvn_project(): int {
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
 
-    have = os.system("command -v mvn >/dev/null 2>&1")
-    if have != 0 {
+    if string.length(os.which("mvn")) == 0 {
         println("${mod_dir}: mvn_project SKIPPED — mvn not on PATH")
         return 0
     }

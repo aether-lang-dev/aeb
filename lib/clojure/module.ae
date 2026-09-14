@@ -411,8 +411,9 @@ _clojure_runtime_jars() {
 // _clojure_cli() — the `clojure` or `clj` CLI path, or "". It brings its own
 // runtime, so it's the fallback when no jars are found.
 _clojure_cli() {
-    c, _e = bldr._sh_capture("command -v clojure 2>/dev/null || command -v clj 2>/dev/null")
-    return string.trim(c)
+    c = os.which("clojure")
+    if string.length(c) > 0 { return c }
+    return os.which("clj")
 }
 
 // clojure.run_main(b) — run a Clojure `-main` namespace as a conformance suite,

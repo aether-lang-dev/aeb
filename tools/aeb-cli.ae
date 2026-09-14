@@ -290,8 +290,7 @@ main() {
         }
         // Absolute aether path for the restricted-env run (mirror bash's
         // `command -v $AETHER`); fall back to the bare name if not resolvable.
-        aether_abs, _ae = bldr._sh_capture("command -v '${aether}' 2>/dev/null")
-        aether_abs = string.trim(aether_abs)
+        aether_abs = os.which(aether)
         if string.length(aether_abs) == 0 { aether_abs = string.concat(aether, "") }
         prog = string.concat(sandbox_bin, "")
         _s0 = list.add(argv, string.concat(aether_abs, ""))

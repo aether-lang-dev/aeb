@@ -2859,8 +2859,7 @@ _java_ge(want: string) {
         line = string.trim(line)
         if string.length(line) > 0 { list.add(cands, line) }
     }
-    pathj, _pe = _sh_capture("command -v java 2>/dev/null")
-    pj = string.trim(pathj)
+    pj = os.which("java")
     if string.length(pj) > 0 { list.add(cands, pj) }
 
     n = list.size(cands)

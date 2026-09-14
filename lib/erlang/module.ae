@@ -146,13 +146,13 @@ builder nif(): int {
     bldr._mkdirs(target_dir)
 
     // toolchain: erlc + erl + a C compiler, else SKIP.
-    if bldr._sh("command -v erlc >/dev/null 2>&1") != 0 {
+    if string.length(os.which("erlc")) == 0 {
         reason = "erlc not on PATH (install erlang)"
         println("${mod_dir}: SKIPPED — ${reason}")
         bldr._record_skip(ctx, reason)
         return 0
     }
-    if bldr._sh("command -v erl >/dev/null 2>&1") != 0 {
+    if string.length(os.which("erl")) == 0 {
         reason = "erl not on PATH (install erlang)"
         println("${mod_dir}: SKIPPED — ${reason}")
         bldr._record_skip(ctx, reason)

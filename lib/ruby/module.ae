@@ -307,8 +307,7 @@ _rbenv_version_prefix(builder_map: ptr) {
 // shims are typically NOT on PATH): PATH `rbenv`, then $RBENV_ROOT/bin/rbenv,
 // then ~/.rbenv/bin/rbenv. "" if none found.
 _rbenv_bin() {
-    p, _e = bldr._sh_capture("command -v rbenv 2>/dev/null")
-    tp = string.trim(p)
+    tp = os.which("rbenv")
     if tp != "" { return tp }
     r, _re = bldr._sh_capture("if [ -n \"$RBENV_ROOT\" ] && [ -x \"$RBENV_ROOT/bin/rbenv\" ]; then printf %s \"$RBENV_ROOT/bin/rbenv\"; elif [ -x \"$HOME/.rbenv/bin/rbenv\" ]; then printf %s \"$HOME/.rbenv/bin/rbenv\"; fi")
     return string.trim(r)
@@ -359,8 +358,7 @@ _resolve_ruby_tool(builder_map: ptr, tool: string) {
         // rbenv declared but couldn't resolve — fall through to PATH so the
         // failure surfaces at the command, but the builder already announced it.
     }
-    p, _e = bldr._sh_capture("command -v ${tool} 2>/dev/null")
-    return string.trim(p)
+    return os.which(tool)
 }
 
 // Resolve `bundle`: declared manager first, then PATH, then RubyGems' Gem.bin_path

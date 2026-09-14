@@ -119,11 +119,10 @@ _probe_binary(tc: string) {
     return tc
 }
 
-// 1 if the binary is on PATH, else 0. Uses `command -v` (a POSIX shell builtin
-// cmd.exe lacks) through the build chokepoint, so it's Windows-correct.
+// 1 if the binary is on PATH, else 0. Uses os.which (a native stdlib PATH
+// lookup — cross-platform, no `command -v` shell-out to wrap for Windows).
 _binary_present(bin: string) {
-    out, _e = bldr._sh_capture(string.concat("command -v ", string.concat(bin, " >/dev/null 2>&1 && echo Y || echo N")))
-    if string.index_of(out, "Y") >= 0 { return 1 }
+    if string.length(os.which(bin)) > 0 { return 1 }
     return 0
 }
 

@@ -15,6 +15,7 @@ import std.string
 import std.map
 import std.path
 import std.io
+import std.os
 
 // spec_path("spec") — the spec dir/file to run (default "spec"). Scalar.
 spec_path(_ctx: ptr, path: string) {
@@ -55,7 +56,7 @@ builder test(): int {
 
     crystal = _crystal_of(_builder)
 
-    if bldr._sh("command -v ${crystal} >/dev/null 2>&1") != 0 {
+    if string.length(os.which(crystal)) == 0 {
         reason = "crystal not on PATH (install Crystal)"
         println("${mod_dir}: SKIPPED — ${reason}")
         bldr._record_skip(ctx, reason)

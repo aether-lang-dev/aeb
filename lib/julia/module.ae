@@ -18,6 +18,7 @@ import std.string
 import std.map
 import std.path
 import std.io
+import std.os
 
 // script("test/foo.jl") — the Julia test script to run (relative to source_dir).
 // Scalar; required.
@@ -60,7 +61,7 @@ builder test(): int {
     julia = _julia_of(_builder)
 
     // toolchain gate: no julia -> SKIP (green).
-    if bldr._sh("command -v ${julia} >/dev/null 2>&1") != 0 {
+    if string.length(os.which(julia)) == 0 {
         reason = "julia not on PATH (install Julia)"
         println("${mod_dir}: SKIPPED — ${reason}")
         bldr._record_skip(ctx, reason)
