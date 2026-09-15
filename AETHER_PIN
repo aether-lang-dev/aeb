@@ -147,4 +147,13 @@
 # merged upstream as PR #2017, shipped in 0.670.0.) Verified against the real
 # 0.670.0 linux tarball: aeb builds clean, full suite green; glibc floor
 # GLIBC_2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
-0.670.0
+#
+# Raised 0.670.0 -> 0.672.0 (2026-09-15). A REAL floor move: aeb now calls
+# string.version_compare (0.672.0, filevercmp/sort -V semantics, extension-aware)
+# in bldr._newest_jar to pick the newest runtime jar off disk, replacing the
+# clojure finders' `ls <globs> | grep -v sources | sort -Vr | head -1` shell-out
+# — so it cannot compile on an older Aether. (aeb's own ask motivated the
+# primitive; merged upstream as PR #2021, shipped in 0.672.0.) Verified against
+# the real 0.672.0 linux tarball: aeb builds clean, full suite green; glibc floor
+# GLIBC_2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
+0.672.0

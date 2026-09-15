@@ -1870,6 +1870,72 @@ _colon_to_nl(s: string) -> string {
     return out
 }
 
+// _newest_jar(patterns_nl, exclude_nl) — across every glob pattern in the
+// newline-list patterns_nl, the single match with the highest version, or "".
+// A candidate is dropped if its path contains any newline-listed exclude
+// substring (e.g. "sources", "indy"). "Highest version" = max by
+// string.version_compare on the BASENAME (not the full path — a leading
+// /usr/share vs $HOME/.m2 would dominate the compare). Native replacement for
+// `ls <globs> | grep -v <x> | sort -Vr | head -1`: fs.glob per pattern (handles
+// the mid-path `*` on 0.670+), no ls/grep/sort fork, no MSYS deps on Windows.
+//
+// CALLER CONTRACT: the patterns must resolve to ONE artifact family.
+// version_compare is prefix-first, so groovy-4.0.15 < groovy-all-2.4.21 (a newer
+// plain jar ranks below an older -all); a mixed set would pick the wrong jar.
+// The finders keep this single-family by construction (clojure-*/spec.alpha-*
+// are distinct artifacts; groovy's glob is `groovy-[0-9]*` — the [0-9] anchor
+// excludes groovy-all-*, and IS LOAD-BEARING: do not relax it to groovy-*.jar).
+_newest_jar(patterns_nl: string, exclude_nl: string) -> string {
+    pats = string.split(string.trim(patterns_nl), "\n")
+    pats_n = string.array_size(pats)
+    exc = string.split(exclude_nl, "\n")
+    exc_n = string.array_size(exc)
+    newest = ""
+    newest_base = ""
+    pi = 0
+    // explicit loops (no closure): an accumulator string reassigned inside a
+    // seq_each closure did not survive the callback boundary (returned garbage).
+    while pi < pats_n {
+        p = string.trim(string.array_get(pats, pi))
+        pi = pi + 1
+        if string.length(p) == 0 { continue }
+        list, gerr = fs.glob(p)
+        if string.length(gerr) > 0 { continue }
+        if list == null { continue }
+        cnt = fs.dir_list_count(list)
+        i = 0
+        while i < cnt {
+            cand = string.concat(fs.dir_list_get(list, i), "")
+            i = i + 1
+            skip = 0
+            e = 0
+            while e < exc_n {
+                ex = string.array_get(exc, e)
+                if string.length(ex) > 0 {
+                    if string.index_of(cand, ex) >= 0 { skip = 1 }
+                }
+                e = e + 1
+            }
+            if skip == 0 {
+                cb = _basename(cand)
+                if string.length(newest) == 0 {
+                    newest = cand
+                    newest_base = cb
+                } else {
+                    if string.version_compare(cb, newest_base) > 0 {
+                        newest = cand
+                        newest_base = cb
+                    }
+                }
+            }
+        }
+        fs.dir_list_free(list)
+    }
+    string.array_free(pats)
+    string.array_free(exc)
+    return newest
+}
+
 // _glob_first(pattern) — the first (lexically-sorted) path matching a glob
 // pattern, or "" if none. Native replacement for `ls '${glob}' | head -1`:
 // fs.glob returns absolute paths in the same lexical order `ls` prints, so

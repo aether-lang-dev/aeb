@@ -165,4 +165,10 @@
 # os.cpu_count, sha256_file, string.lines) in place of its coreutil shell-outs.
 # Verified against the real 0.670.0 tarball: aeb builds clean, full suite green;
 # glibc floor GLIBC_2.34 (Debian-12 safe). PIN in lockstep.
-0.670.0
+#
+# Raised 0.670.0 -> 0.672.0 (2026-09-15). Real floor move: aeb calls 0.672.0's
+# string.version_compare in bldr._newest_jar to replace the clojure runtime-jar
+# `sort -Vr | head -1` finders. (aeb ask -> PR #2021, shipped in 0.672.0.)
+# Verified against the real 0.672.0 tarball: aeb builds clean, full suite green;
+# glibc floor GLIBC_2.34 (Debian-12 safe). PIN in lockstep.
+0.672.0

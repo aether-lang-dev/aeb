@@ -390,18 +390,20 @@ _clojure_runtime_jars() {
     // the runtime + spec) — the wrapper resolves to `java -cp <this> clojure.main`,
     // so pointing our OWN verified `java` at it is cleaner than the wrapper (it
     // hardcodes its own java and drops jvm flags). Checked before the m2 trio.
-    sys_raw, _es = bldr._sh_capture("ls /usr/share/java/clojure-*.jar /usr/share/java/clojure.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
-    sys = string.trim(sys_raw)
+    // Newest by version across the candidate globs, dropping -sources jars.
+    // Native (fs.glob + string.version_compare) — no ls|grep|sort -Vr|head -1
+    // shell-out. Each artifact is its own family, so version_compare on the
+    // basename orders purely by version. HOME must be resolved for the glob
+    // (fs.glob doesn't expand $HOME the way the shell did).
+    home = os.getenv("HOME")
+    sys = bldr._newest_jar("/usr/share/java/clojure-*.jar\n/usr/share/java/clojure.jar", "sources")
     if string.length(sys) > 0 { return sys }
 
     // clojure-<ver>.jar + its two spec deps, all three or nothing.
-    cj_raw, _e1 = bldr._sh_capture("ls $HOME/.m2/repository/org/clojure/clojure/*/clojure-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/clojure/*/*/clojure-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
-    cj = string.trim(cj_raw)
+    cj = bldr._newest_jar("${home}/.m2/repository/org/clojure/clojure/*/clojure-*.jar\n${home}/.gradle/caches/modules-2/files-2.1/org.clojure/clojure/*/*/clojure-*.jar", "sources")
     if string.length(cj) == 0 { return "" }
-    sa_raw, _e2 = bldr._sh_capture("ls $HOME/.m2/repository/org/clojure/spec.alpha/*/spec.alpha-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/spec.alpha/*/*/spec.alpha-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
-    sa = string.trim(sa_raw)
-    cs_raw, _e3 = bldr._sh_capture("ls $HOME/.m2/repository/org/clojure/core.specs.alpha/*/core.specs.alpha-*.jar $HOME/.gradle/caches/modules-2/files-2.1/org.clojure/core.specs.alpha/*/*/core.specs.alpha-*.jar 2>/dev/null | grep -v sources | sort -Vr | head -1")
-    cs = string.trim(cs_raw)
+    sa = bldr._newest_jar("${home}/.m2/repository/org/clojure/spec.alpha/*/spec.alpha-*.jar\n${home}/.gradle/caches/modules-2/files-2.1/org.clojure/spec.alpha/*/*/spec.alpha-*.jar", "sources")
+    cs = bldr._newest_jar("${home}/.m2/repository/org/clojure/core.specs.alpha/*/core.specs.alpha-*.jar\n${home}/.gradle/caches/modules-2/files-2.1/org.clojure/core.specs.alpha/*/*/core.specs.alpha-*.jar", "sources")
     if string.length(sa) == 0 { return "" }
     if string.length(cs) == 0 { return "" }
     return string.concat(cj, string.concat(":", string.concat(sa, string.concat(":", cs))))
