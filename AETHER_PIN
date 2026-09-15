@@ -157,13 +157,24 @@
 # the real 0.672.0 linux tarball: aeb builds clean, full suite green; glibc floor
 # GLIBC_2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
 #
-# Raised 0.672.0 -> 0.675.0 (2026-09-15). A REAL floor move: aeb now calls
-# std.strarr (new/push_copy/get/set/size/array/free) + std.sort.strings_by with
-# string.version_compare in bldr._glob_sorted_desc to sort the groovy runtime-jar
-# and /usr/lib/jvm JDK finders newest-version-first, replacing their
-# `ls <globs> | grep -v … | sort -Vr` shell-outs — so aeb cannot compile on an
-# older Aether. (aeb asks -> PR #2021 version_compare (0.672) + PR #2034 strarr/
-# push_copy + the closure-local-alloc UAF fix; #2034 first shipped in 0.675.0 —
-# NOT 0.674.0, which predated its merge.) Verified against the real 0.675.0 linux
-# tarball: aeb builds clean, full suite green; GLIBC floor 2.34. PIN lockstep FETCH.
+# Raised 0.672.0 -> 0.675.0 (2026-09-15). A real floor move: aeb now imports
+# std.strarr (new/push_copy/get/size/array/free) in bldr._glob_sorted_desc to
+# collect + version-sort the groovy runtime-jar and /usr/lib/jvm JDK finders
+# newest-first, replacing their `ls <globs> | grep -v … | sort -Vr` shell-outs.
+# std.strarr is 0.675-only (verified ABSENT in 0.673/0.674, PRESENT in 0.675 —
+# PR #2034, which first shipped in 0.675.0, NOT 0.674.0 which predated its merge),
+# so aeb genuinely cannot compile below 0.675. (The sort itself is an INLINE
+# insertion sort over string.version_compare, NOT sort.strings_by(fn) — a
+# comparator passed as a fn-VALUE from a separately-compiled library module is
+# DCE'd, aether issue #2037; strarr/push_copy still do the collection.)
+#
+# HONESTY NOTE: unlike the DSL-rework (0.593) or returned-verdict (0.612) bumps,
+# this floor move was ELECTIVE — the two finders worked fine via the shell
+# `sort -Vr`; converting them (to finish the coreutils→stdlib sweep + drop the
+# last MSYS deps on Windows) is what pulled the floor to a same-day release. Kept
+# deliberately (aeb has no downstream community yet; FETCH policy says near-HEAD
+# is cheap for now). If a consumer community forms, weigh reverting these two
+# finders to the shell to lower the floor, per the "don't chase a nicer release"
+# rule at the top of this file. Verified against the real 0.675.0 linux tarball:
+# aeb builds clean, full suite 136/136; GLIBC floor 2.34. PIN lockstep with FETCH.
 0.675.0
