@@ -1056,7 +1056,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
     if outputs == null { return 0 }
     if list.size(outputs) == 0 { return 0 }
     // Find newest input mtime across individual files.
-    newest_in = 0
+    long newest_in = 0
     if inputs != null {
         n = list.size(inputs)
         i = 0
@@ -1088,7 +1088,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
     // Find oldest output mtime; any-missing → 0.
     no = list.size(outputs)
     j = 0
-    oldest_out = 0
+    long oldest_out = 0
     while j < no {
         op, _ = list.get(outputs, j)
         abs_o = _codegen_resolve(cwd, op)
@@ -1112,12 +1112,12 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
 // Why not shell out to `find -printf '%T@'`: GNU-only, breaks on
 // macOS / BSD. The Aether-native recursion is portable as long as
 // std.dir.list is implemented for the host.
-_dir_newest_mtime(dir_abs: string) {
+_dir_newest_mtime(dir_abs: string) -> long {
     if dir.exists(dir_abs) == 0 { return 0 }
     entries, _ = dir.list(dir_abs)
     if entries == null { return 0 }
     n = dir_list_count(entries)
-    newest = 0
+    long newest = 0
     i = 0
     while i < n {
         name = dir_list_get(entries, i)

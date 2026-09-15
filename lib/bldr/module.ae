@@ -1810,11 +1810,6 @@ _reset_dir(d: string) {
     _m = fs.mkdir_p(d)
 }
 
-// _drop_empty(x) — seq_filter predicate: keep non-empty strings.
-_drop_empty(x: string) -> int {
-    if string.length(x) == 0 { return 0 }
-    return 1
-}
 
 // _append_lines(dst, raw) — split raw on newlines and append each trimmed,
 // non-empty line (order preserved) to list `dst`. Native replacement for the
@@ -1854,7 +1849,14 @@ _first_line(s: string) -> string {
 _nl_to_colon(s: string) -> string {
     if string.length(s) == 0 { return "" }
     parts = string.lines(s)
-    kept = string.seq_filter(parts, _drop_empty)
+    // The predicate MUST be a closure literal: seq_filter reads its second
+    // argument as an AeSeqClosure {fn, env}. Passing a bare function name here
+    // handed it a raw code pointer, which it dereferenced as that struct and
+    // then called — a SIGSEGV inside string_seq_filter, with an empty node log.
+    kept = string.seq_filter(parts, | x: string | {
+            if string.length(x) == 0 { return 0 }
+            return 1
+        })
     out = string.join(kept, ":")
     string.seq_free(parts)
     string.seq_free(kept)
