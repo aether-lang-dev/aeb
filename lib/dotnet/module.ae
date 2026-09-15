@@ -611,7 +611,7 @@ _dotnet_cache_restore(ctx: ptr, argfile: string, fingerprint: string, config: st
                 bldr._record_cache(ctx, "hit")
                 return 1
             }
-            bldr._sh("rm -rf '${bin_dir}'")
+            _rt = fs.remove_tree(bin_dir)
         } else {
             bldr._sh("rm -f '${tmp_tar}'")
         }

@@ -599,7 +599,7 @@ builder git(): int {
             println("${mod_dir}: fetch.git: ${into_rel} HEAD ${head} != pin ${commit_str} — re-cloning")
         }
         // Stale or unreadable tree: remove so the clone below is fresh.
-        bldr._sh("rm -rf '${into_abs}'")
+        _rt = fs.remove_tree(into_abs)
     } else {
         if file.exists(into_abs) == 1 {
             // `into` exists but isn't a git tree — refuse to clobber blindly.

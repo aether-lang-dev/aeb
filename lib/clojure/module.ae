@@ -308,7 +308,7 @@ builder compile(): int {
                                 bldr._record_cache(ctx, "hit")
                                 exit_code = 0
                             } else {
-                                bldr._sh("rm -rf '${classes_dir}'")
+                                _rt = fs.remove_tree(classes_dir)
                                 bldr._mkdirs(classes_dir)
                             }
                         } else {
@@ -683,7 +683,7 @@ builder uberjar(): int {
 
     // Fresh staging dir.
     stage_dir = path.join(target_dir, "_uber")
-    _e0 = bldr._sh("rm -rf '${stage_dir}'")
+    _e0 = fs.remove_tree(stage_dir)
     bldr._mkdirs(stage_dir)
 
     src_root = path.join(source_dir, "src")

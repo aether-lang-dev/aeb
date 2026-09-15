@@ -1058,7 +1058,7 @@ builder javac(): int {
                             exit_code = 0
                         } else {
                             // Untar failed — clean up and fall through.
-                            bldr._sh("rm -rf '${classes_dir}'")
+                            _rt = fs.remove_tree(classes_dir)
                             bldr._mkdirs(classes_dir)
                             bldr._mkdirs(ts_dir)
                         }
@@ -1103,7 +1103,7 @@ builder javac(): int {
         _rlayout, _ = map.get(_builder, "source_layout")
         if string.equals(_rlayout, "maven idiomatic") == 1 {
             main_res = path.join(source_dir, "src/main/resources")
-            bldr._sh("[ -d '${main_res}' ] && cp -R '${main_res}/.' '${classes_dir}/' 2>/dev/null || true")
+            if dir.exists(main_res) == 1 { _cr = fs.copy_tree(main_res, classes_dir) }
         }
     }
 
@@ -1241,7 +1241,7 @@ builder package_jar(): int {
             else {
                 if dir.exists(entry) == 1 {
                     // copy the directory's CONTENTS (classes tree) into the stage.
-                    bldr._sh("cp -R '${entry}/.' '${stage}/' 2>/dev/null || true")
+                    _cr = fs.copy_tree(entry, stage)
                     staged_any = 1
                 } else {
                     if file.exists(entry) == 1 {
@@ -1421,7 +1421,7 @@ builder javac_test(): int {
                         bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        bldr._sh("rm -rf '${test_classes}'")
+                        _rt = fs.remove_tree(test_classes)
                         bldr._mkdirs(test_classes)
                         bldr._mkdirs(ts_dir)
                     }
@@ -1464,7 +1464,7 @@ builder javac_test(): int {
         _trlayout, _ = map.get(_builder, "source_layout")
         if string.equals(_trlayout, "maven idiomatic") == 1 {
             test_res = path.join(source_dir, "src/test/resources")
-            bldr._sh("[ -d '${test_res}' ] && cp -R '${test_res}/.' '${test_classes}/' 2>/dev/null || true")
+            if dir.exists(test_res) == 1 { _cr = fs.copy_tree(test_res, test_classes) }
         }
     }
 
@@ -2010,7 +2010,7 @@ shade(_ctx: ptr, main_class: string, jar_name: string) {
                 if string.ends_with(e, ".jar") == 1 {
                     if file.exists(e) == 1 { _uz = bldr._unzip_to_dir(e, stage_dir) }
                 } else {
-                    if dir.exists(e) == 1 { bldr._sh("cp -a '${e}/.' '${stage_dir}'/ 2>/dev/null || true") }
+                    if dir.exists(e) == 1 { _cr = fs.copy_tree(e, stage_dir) }
                 }
             }
         }

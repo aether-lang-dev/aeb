@@ -561,7 +561,7 @@ builder tsc(): int {
                         bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        bldr._sh("rm -rf '${out_dir_c}'")
+                        _rt = fs.remove_tree(out_dir_c)
                     }
                 } else {
                     bldr._sh("rm -f '${tmp_tar}'")

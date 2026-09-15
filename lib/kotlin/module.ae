@@ -363,7 +363,7 @@ builder kotlinc(): int {
                         bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        bldr._sh("rm -rf '${classes_dir}'")
+                        _rt = fs.remove_tree(classes_dir)
                         bldr._mkdirs(classes_dir)
                         bldr._mkdirs(ts_dir)
                     }
@@ -551,7 +551,7 @@ builder kotlinc_test(): int {
                         bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        bldr._sh("rm -rf '${test_classes}'")
+                        _rt = fs.remove_tree(test_classes)
                         bldr._mkdirs(test_classes)
                         bldr._mkdirs(ts_dir)
                     }

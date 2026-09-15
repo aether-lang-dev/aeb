@@ -319,7 +319,7 @@ builder scalac(): int {
                         bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        bldr._sh("rm -rf '${classes_dir}'")
+                        _rt = fs.remove_tree(classes_dir)
                         bldr._mkdirs(classes_dir)
                     }
                 } else {
@@ -496,7 +496,7 @@ builder scalac_test(): int {
                         bldr._record_cache(ctx, "hit")
                         exit_code = 0
                     } else {
-                        bldr._sh("rm -rf '${test_classes}'")
+                        _rt = fs.remove_tree(test_classes)
                         bldr._mkdirs(test_classes)
                     }
                 } else {
@@ -643,7 +643,7 @@ builder assembly(): int {
     // Staging dir under target/<mod>/_assembly/. Nuke and recreate so
     // a previous run's leftovers don't bleed into this jar.
     stage_dir = path.join(target_dir, "_assembly")
-    _e1 = bldr._sh("rm -rf '${stage_dir}'")
+    _e1 = fs.remove_tree(stage_dir)
     bldr._mkdirs(stage_dir)
 
     // Stage this module's compiled classes first.

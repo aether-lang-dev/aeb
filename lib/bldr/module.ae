@@ -564,7 +564,7 @@ _git_dep(ctx: ptr, coord: string) {
             }
         }
         if have == 0 {
-            _r = _sh("rm -rf '${pkg_root}'")
+            _r = fs.remove_tree(pkg_root)
         }
     }
 
@@ -2810,7 +2810,7 @@ _tar_local_flag() {
 // stale files mixing with the cached set). Returns "" on success or
 // err string. Shared partner of _tar_dir.
 _untar_into(tar_path: string, dest_dir: string) {
-    _sh("rm -rf '${dest_dir}'")
+    _rt = fs.remove_tree(dest_dir)
     merr = fs.mkdir_p(dest_dir)
     if string.length(merr) > 0 { return merr }
     // --force-local: the native tar path is "C:/.." which GNU tar otherwise
