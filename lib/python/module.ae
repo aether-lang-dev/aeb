@@ -462,7 +462,12 @@ builder install(): int {
             req, _ = map.get(_builder, "requirements_file")
             req_path = path.join(root, req)
             if file.exists(req_path) == 1 {
-                bldr._sh(pip_install_requirements_cmd(pip_bin, req_path))
+                rc_req = bldr._sh(pip_install_requirements_cmd(pip_bin, req_path))
+                if rc_req != 0 {
+                    println("${mod_dir}: install FAILED — pip could not install from ${req}")
+                    bldr.fail(ctx, "pip install -r failed")
+                    return 1
+                }
             }
         }
     }
@@ -475,7 +480,12 @@ builder install(): int {
             i = 0
             while i < count {
                 pkg, _ = list.get(pkgs, i)
-                bldr._sh(pip_install_cmd(pip_bin, pkg))
+                rc_pkg = bldr._sh(pip_install_cmd(pip_bin, pkg))
+                if rc_pkg != 0 {
+                    println("${mod_dir}: install FAILED — pip could not install '${pkg}'")
+                    bldr.fail(ctx, "pip install failed")
+                    return 1
+                }
                 i = i + 1
             }
         }
@@ -491,22 +501,44 @@ builder install(): int {
         raw_pypi = bldr._read_dep_artifact(ctx, dm_w, "python_pypi_deps_including_transitive")
         if string.length(raw_pypi) > 0 {
             // Translate each "name~spec" entry to a pip-install arg (see _pip_spec).
-            string.seq_each(string.lines(string.trim(raw_pypi)), |ln: string| {
-                pline = string.trim(ln)
-                if string.length(pline) > 0 {
-                    bldr._sh(pip_install_cmd(pip_bin, _pip_spec(pline)))
+            coords = list.new()
+            bldr._append_lines(coords, raw_pypi)
+            nc = list.size(coords)
+            ci = 0
+            while ci < nc {
+                pline, _ = list.get(coords, ci)
+                spec = _pip_spec(pline)
+                rc_c = bldr._sh(pip_install_cmd(pip_bin, spec))
+                if rc_c != 0 {
+                    println("${mod_dir}: install FAILED — pip could not install '${spec}' (from ${dm_w})")
+                    list.free(coords)
+                    bldr.fail(ctx, "pip install of a dep-artifact coord failed")
+                    return 1
                 }
-            })
+                ci = ci + 1
+            }
+            list.free(coords)
         }
         raw_whl = bldr._read_dep_artifact(ctx, dm_w, "python_vendored_wheels_including_transitive")
         if string.length(raw_whl) > 0 {
-            string.seq_each(string.lines(string.trim(raw_whl)), |ln: string| {
-                wline = string.trim(ln)
-                if string.length(wline) > 0 {
-                    // wline is a path relative to project root
-                    bldr._sh(pip_install_cmd(pip_bin, path.join(root, wline)))
+            wheels = list.new()
+            bldr._append_lines(wheels, raw_whl)
+            nw = list.size(wheels)
+            wi = 0
+            while wi < nw {
+                wline, _ = list.get(wheels, wi)
+                // wline is a path relative to project root
+                whl_path = path.join(root, wline)
+                rc_w = bldr._sh(pip_install_cmd(pip_bin, whl_path))
+                if rc_w != 0 {
+                    println("${mod_dir}: install FAILED — pip could not install wheel ${wline} (from ${dm_w})")
+                    list.free(wheels)
+                    bldr.fail(ctx, "pip install of a vendored wheel failed")
+                    return 1
                 }
-            })
+                wi = wi + 1
+            }
+            list.free(wheels)
         }
         dli = dli + 1
     }

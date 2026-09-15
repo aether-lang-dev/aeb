@@ -350,10 +350,20 @@ aeb_ensure() {
             [0-9]*.[0-9]*)         _want="$AEB_REF.0" ;;
         esac
         if [ "$_have" = "0.0.0" ]; then
-            say "aeb (source build, unversioned) already on PATH — skipping floor check"
-            say "using aeb: $(command -v aeb)"; return 0
-        fi
-        if [ -n "$_want" ] && [ -n "$_have" ] && [ "$_want" != "$_have" ]; then
+            # A source build carries no comparable version, so there is no FLOOR to
+            # check — but an explicit AEB_REF is still a REQUEST for that exact
+            # version. Returning unconditionally here meant a source-built aeb could
+            # never be moved onto a pin: the bootstrap exited 0 claiming the pin was
+            # satisfied while leaving the old build in place, and AEB_FORCE could not
+            # help because it is only consulted in the downgrade branch below.
+            # See asks/get-sh-cannot-upgrade-an-unversioned-aeb.md.
+            if [ -z "$_want" ] && [ -z "${AEB_FORCE:-}" ]; then
+                say "aeb (source build, unversioned) already on PATH — skipping floor check"
+                say "using aeb: $(command -v aeb)"; return 0
+            fi
+            say "aeb (source build, unversioned) on PATH, but ${_want:+AEB_REF requests $_want}${_want:-AEB_FORCE is set} — installing ${_want:-latest}"
+            # fall through to the install below
+        elif [ -n "$_want" ] && [ -n "$_have" ] && [ "$_want" != "$_have" ]; then
             # Requested != installed. Upgrade freely; gate only a DOWNGRADE behind
             # AEB_FORCE (an explicit newer pin is what the user asked for).
             if version_ge "$_have" "$_want" && [ -z "${AEB_FORCE:-}" ]; then

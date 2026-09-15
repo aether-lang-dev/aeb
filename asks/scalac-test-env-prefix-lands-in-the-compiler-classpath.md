@@ -1,5 +1,9 @@
 # REOPENED: `scala.scalac_test`'s `env()` still lands in the compiler-classpath slot (v0.310)
 
+> **STATUS: FIXED — shipped in v0.311** (`9a1c520`, "cache an OWNED copy").
+> Re-verified 2026-09-15 on aeb v0.311: `aeb scala/.tests.ae` is **1/1 PASS**,
+> and the whole JVM family (java, scala, kotlin, clojure, groovy) is green.
+
 > **ROOT CAUSE FOUND — and it is not the env plumbing.** `_compiler_classpath`
 > cached its result with `map.put(ctx, "_scala_compiler_cp", result)`, where
 > `result` is a heap-local the unwind tracker frees on return. The map kept the
