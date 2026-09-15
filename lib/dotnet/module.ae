@@ -1176,7 +1176,7 @@ builder pack(): int {
     }
 
     out_dir = path.join(target_dir, "nupkg")
-    bldr._sh("rm -rf '${out_dir}' && mkdir -p '${out_dir}'")
+    bldr._reset_dir(out_dir)
 
     println("${mod_dir}: packing (dotnet pack)")
     cmd = dotnet_pack_cmd(csproj, config, out_dir)

@@ -684,7 +684,7 @@ builder consumer_example(): int {
     }
 
     gemhome = path.join(target_dir, "consumer-gems")
-    bldr._sh("rm -rf '${gemhome}' && mkdir -p '${gemhome}'")
+    bldr._reset_dir(gemhome)
     gi = bldr._sh("gem install --no-document --local --install-dir '${gemhome}' '${gem_dir}'/*.gem")
     if gi != 0 {
         println("${mod_dir}: gem install into clean dir failed")

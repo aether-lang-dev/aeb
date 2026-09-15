@@ -331,7 +331,7 @@ builder consumer_example(): int {
     bldr._mkdirs(target_dir)
 
     stageroot = path.join(target_dir, "stage")
-    bldr._sh("rm -rf '${stageroot}' && mkdir -p '${stageroot}'")
+    bldr._reset_dir(stageroot)
 
     // stage the declared file pairs.
     if _builder != null {

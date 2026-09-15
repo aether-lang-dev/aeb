@@ -23,6 +23,7 @@ import std.string
 import std.os
 import std.list
 import std.io
+import std.fs
 import std.path
 import std.map
 
@@ -168,7 +169,7 @@ builder pack(): int {
     }
 
     dest = path.join(target_dir, "pkgout")
-    bldr._sh("rm -rf '${dest}' && mkdir -p '${dest}'")
+    bldr._reset_dir(dest)
     println("${mod_dir}: packaging (npm pack)")
     cmd = "cd '${source_dir}' && npm pack --silent --pack-destination '${dest}'"
     rc = bldr._sh(string.concat(env_prefix, cmd))
@@ -243,7 +244,9 @@ builder consumer_example(): int {
     consumer = path.join(target_dir, "consumer")
     script_abs = path.join(source_dir, script)
     script_base = bldr._basename(script)
-    bldr._sh("rm -rf '${consumer}' && mkdir -p '${consumer}' && cp '${script_abs}' '${consumer}/' && printf '{\"name\":\"consumer\",\"private\":true,\"version\":\"0.0.0\"}' > '${consumer}/package.json'")
+    bldr._reset_dir(consumer)
+    _cp1, _ck1, _cm1 = fs.copy(script_abs, path.join(consumer, script_base))
+    _epj = io.write_file(path.join(consumer, "package.json"), "{\"name\":\"consumer\",\"private\":true,\"version\":\"0.0.0\"}")
     ni = bldr._sh("cd '${consumer}' && npm install --silent --no-audit --no-fund '${tarball_dir}'/*.tgz")
     if ni != 0 {
         println("${mod_dir}: npm install of the tarball failed")

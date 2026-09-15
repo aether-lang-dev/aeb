@@ -1775,29 +1775,38 @@ _mkdirs(dir_path: string) {
 //     }
 //
 // Teardown still shells `rm -rf`/`rm -f`: std.fs.delete_dir is rmdir (empty
-// only), and there is no recursive-remove primitive yet (a Tier-2 stdlib
-// addition, fs.remove_tree, would let these go fully shell-free).
+// only). fs.make_temp_dir/make_temp_file + fs.remove_tree (0.670) make these
+// fully shell-free.
 
 // with_temp_dir(hold, body) — create a fresh temp DIRECTORY, put its path in
 // hold["path"], run body, then remove the whole tree on every exit.
 with_temp_dir(hold: ptr, body: fn) {
-    raw, _e = _sh_capture("mktemp -d")
-    td = _to_native_path(string.trim(raw))
+    td, _e = fs.make_temp_dir("", "aeb")
+    td = _to_native_path(td)
     _p = map.put(hold, "path", td)
     call(body)
-    if string.length(td) > 0 { _r = _sh("rm -rf '${td}'") }
+    if string.length(td) > 0 { _r = fs.remove_tree(td) }
     return 0
 }
 
 // with_temp_file(hold, body) — create a fresh temp FILE, put its path in
 // hold["path"], run body, then delete it on every exit.
 with_temp_file(hold: ptr, body: fn) {
-    raw, _e = _sh_capture("mktemp")
-    tf = _to_native_path(string.trim(raw))
+    tf, _e = fs.make_temp_file("", "aeb")
+    tf = _to_native_path(tf)
     _p = map.put(hold, "path", tf)
     call(body)
-    if string.length(tf) > 0 { _r = _sh("rm -f '${tf}'") }
+    if string.length(tf) > 0 { _r = fs.remove_tree(tf) }
     return 0
+}
+
+// _reset_dir(d) — remove d entirely (if present) then recreate it empty. The
+// native form of `rm -rf '${d}' && mkdir -p '${d}'` — the "clean this output/
+// stage dir" idiom the SDKs use before writing into it. remove_tree is
+// idempotent (missing is fine); mkdir_p creates parents.
+_reset_dir(d: string) {
+    _r = fs.remove_tree(d)
+    _m = fs.mkdir_p(d)
 }
 
 // _drop_empty(x) — seq_filter predicate: keep non-empty strings.

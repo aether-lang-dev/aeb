@@ -1262,7 +1262,7 @@ builder consumer_example(): int {
 
     // clean site: unzip the wheel into a bare dir.
     site = path.join(target_dir, "consumer-site")
-    bldr._sh("rm -rf '${site}' && mkdir -p '${site}'")
+    bldr._reset_dir(site)
     uz = bldr._sh("cd '${site}' && for w in '${wheel_dir}'/*.whl; do python3 -c \"import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall('.')\" \"$w\"; done")
     if uz != 0 {
         println("${mod_dir}: clean-site wheel unpack failed")

@@ -122,7 +122,7 @@ builder sunit(): int {
     // Throwaway work dir (removed on the shell line's own trap). Copy image +
     // its .changes / .sources companions so the VM boots cleanly.
     work = path.join(target_dir, "pharo-work")
-    bldr._sh("rm -rf '${work}' && mkdir -p '${work}'")
+    bldr._reset_dir(work)
     bldr._sh("cp '${img}' '${work}/Work.image'")
     imgbase = string.substring(img, 0, string.length(img) - 6)
     bldr._sh("[ -f '${imgbase}.changes' ] && cp '${imgbase}.changes' '${work}/Work.changes' || true")

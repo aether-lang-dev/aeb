@@ -1208,7 +1208,7 @@ builder package_jar(): int {
     //    (b) no from_classes — self-compile src/main/java (maven layout, flat
     //        fallback). The fallback for a jar node with no upstream compile.
     stage = path.join(target_dir, "jar-classes")
-    bldr._sh("rm -rf '${stage}' && mkdir -p '${stage}'")
+    bldr._reset_dir(stage)
 
     from_cp = ""
     if _builder != null {
@@ -1993,7 +1993,7 @@ shade(_ctx: ptr, main_class: string, jar_name: string) {
     // alone; Aether vars are spliced via interpolation. cp_content and
     // ld_content are newline+colon-separated path lists; `tr ':' '\n'`
     // normalises to one entry per line.
-    bldr._sh("rm -rf '${stage_dir}' && mkdir -p '${stage_dir}'")
+    bldr._reset_dir(stage_dir)
     // Classpath deps (includes this module's OWN classes dir as the first entry
     // of its build node's classpath artifact): explode each .jar entry into the
     // stage via std.zip (no `unzip` binary), copy each class dir. Iterated in
@@ -2223,7 +2223,9 @@ builder consumer_example(): int {
     consumer = path.join(target_dir, "consumer")
     csrc_abs = path.join(source_dir, csrc)
     csrc_base = bldr._basename(csrc)
-    bldr._sh("rm -rf '${consumer}' && mkdir -p '${consumer}' && cp '${jar}' '${consumer}/app.jar' && cp '${csrc_abs}' '${consumer}/'")
+    bldr._reset_dir(consumer)
+    _cp1, _ck1, _cm1 = fs.copy(jar, path.join(consumer, "app.jar"))
+    _cp2, _ck2, _cm2 = fs.copy(csrc_abs, path.join(consumer, csrc_base))
     cc = bldr._sh("cd '${consumer}' && javac -cp app.jar '${csrc_base}'")
     if cc != 0 {
         println("${mod_dir}: consumer compile against the jar FAILED")
