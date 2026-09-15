@@ -378,7 +378,7 @@ builder file(): int {
         println("${mod_dir}: expected ${sha_str}; downloaded bytes hashed to something else")
         // Remove the bad file so the next run doesn't see a stale
         // bad blob and false-pass any subsequent staleness check.
-        bldr._sh("rm -f '${out_abs}'")
+        _rf = fs.remove_tree(out_abs)
         return 1
     }
     bldr._write_artifact(ctx, "fetched_file", out_abs)
@@ -477,7 +477,7 @@ builder archive(): int {
         rc_v2 = bldr._sh(sha256_verify_cmd(archive_path, sha_str))
         if rc_v2 != 0 {
             println("${mod_dir}: fetch.archive: sha256 verification FAILED for ${archive_name}")
-            bldr._sh("rm -f '${archive_path}'")
+            _rf = fs.remove_tree(archive_path)
             return 1
         }
     }

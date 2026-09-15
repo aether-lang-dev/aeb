@@ -1781,7 +1781,7 @@ _mkdirs(dir_path: string) {
 // with_temp_dir(hold, body) — create a fresh temp DIRECTORY, put its path in
 // hold["path"], run body, then remove the whole tree on every exit.
 with_temp_dir(hold: ptr, body: fn) {
-    td, _e = fs.make_temp_dir("", "aeb")
+    td, _e = fs.make_temp_dir(os.temp_dir(), "aeb")
     td = _to_native_path(td)
     _p = map.put(hold, "path", td)
     call(body)
@@ -1792,7 +1792,7 @@ with_temp_dir(hold: ptr, body: fn) {
 // with_temp_file(hold, body) — create a fresh temp FILE, put its path in
 // hold["path"], run body, then delete it on every exit.
 with_temp_file(hold: ptr, body: fn) {
-    tf, _e = fs.make_temp_file("", "aeb")
+    tf, _e = fs.make_temp_file(os.temp_dir(), "aeb")
     tf = _to_native_path(tf)
     _p = map.put(hold, "path", tf)
     call(body)
@@ -2771,7 +2771,7 @@ _read_argfile_lines(argfile_path: string) {
 // cache.put zlibs it on the way in. Shared by every dir-tree-caching
 // SDK (java, kotlin, scala, ts, dotnet, clojure).
 _tar_dir(src_dir: string) {
-    tmp_raw, _err = _sh_capture("mktemp")
+    tmp_raw, _err = fs.make_temp_file(os.temp_dir(), "aeb")
     // NATIVE FORM. `mktemp` is a shell tool and answers in the shell's
     // vocabulary — `/tmp/tmp.AtDQtjvxxs` on MSYS. That path is fine for the
     // `tar` below (a shell command), but the tarball it names is then handed

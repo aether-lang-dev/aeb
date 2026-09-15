@@ -316,7 +316,7 @@ builder groovyc(): int {
         ck, kerr = _cache_key_for_groovyc(ctx, argfile, cmd, groovy_jars_nl, groovyc_bin)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = os.exec("mktemp")
+            tmp_raw, _terr = fs.make_temp_file(os.temp_dir(), "aeb")
             tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
@@ -654,7 +654,7 @@ builder groovyc_test(): int {
         ck, kerr = _cache_key_for_groovyc(ctx, argfile, cmd, groovy_jars_nl, groovyc_bin)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = os.exec("mktemp")
+            tmp_raw, _terr = fs.make_temp_file(os.temp_dir(), "aeb")
             tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)

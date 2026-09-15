@@ -518,9 +518,9 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     // when the body contains $1, ${1%%|*}, etc.
     // Native form: both paths are written with fs.write_atomic below, a native
     // call that cannot see an MSYS `/tmp/...` path. See bldr._tar_dir's note.
-    list_file_raw, _lf = bldr._sh_capture("mktemp")
+    list_file_raw, _lf = fs.make_temp_file(os.temp_dir(), "aeb")
     list_file = bldr._to_native_path(string.trim(list_file_raw))
-    runner_raw, _rf = bldr._sh_capture("mktemp")
+    runner_raw, _rf = fs.make_temp_file(os.temp_dir(), "aeb")
     runner_file = bldr._to_native_path(string.trim(runner_raw))
 
     list_body = string.concat(items, "\n")
@@ -533,8 +533,8 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     pipe = bash_xargs_cmd(list_file, runner_file, jobs_arg)
 
     out, _err = bldr._sh_capture(pipe)
-    bldr._sh(string.concat("rm -f ", list_file))
-    bldr._sh(string.concat("rm -f ", runner_file))
+    _rf = fs.remove_tree(list_file)
+    _rf = fs.remove_tree(runner_file)
 
     // Parse output line by line, render in completion order, count.
     failed = _parse_xargs_output(out)

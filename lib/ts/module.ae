@@ -160,7 +160,7 @@ _ts_out_dir(builder_map: ptr, target_dir: string) {
 // incremental tsc). The cache key already captures every real input,
 // so incremental state is redundant. Returns (tar_path, "") or ("",err).
 _tar_out_dir_no_tsbuildinfo(src_dir: string) {
-    tmp_raw, _err = bldr._sh_capture("mktemp")
+    tmp_raw, _err = fs.make_temp_file(os.temp_dir(), "aeb")
     // Native form — the tarball is later read by cache.put via fs.read_binary,
     // which cannot see an MSYS `/tmp/...` path. See bldr._tar_dir's note.
     tmp = bldr._to_native_path(string.trim(tmp_raw))
@@ -549,13 +549,13 @@ builder tsc(): int {
         ck, kerr = _cache_key_for_tsc(ctx, argfile, tc, cmd, tsc_bin)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_raw, _terr = fs.make_temp_file(os.temp_dir(), "aeb")
             tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
                     uerr = bldr._untar_into(tmp_tar, out_dir_c)
-                    bldr._sh("rm -f '${tmp_tar}'")
+                    _rf = fs.remove_tree(tmp_tar)
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: tsc cache hit ${cache_key}")
                         bldr._record_cache(ctx, "hit")
@@ -564,7 +564,7 @@ builder tsc(): int {
                         _rt = fs.remove_tree(out_dir_c)
                     }
                 } else {
-                    bldr._sh("rm -f '${tmp_tar}'")
+                    _rf = fs.remove_tree(tmp_tar)
                 }
             }
         }
@@ -591,7 +591,7 @@ builder tsc(): int {
                 tar_path, terr = _tar_out_dir_no_tsbuildinfo(out_dir_c)
                 if string.length(terr) == 0 {
                     perr = cache.put(cache_key, tar_path)
-                    bldr._sh("rm -f '${tar_path}'")
+                    _rf = fs.remove_tree(tar_path)
                     if string.length(perr) > 0 {
                         println("${mod_dir}: tsc cache write failed: ${perr}")
                     }

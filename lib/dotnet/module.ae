@@ -600,20 +600,20 @@ _dotnet_cache_restore(ctx: ptr, argfile: string, fingerprint: string, config: st
     }
     map.put(ctx, "_dotnet_cache_key", ck)
     bin_dir = path.join(path.join(source_dir, "bin"), config)
-    tmp_raw, _terr = bldr._sh_capture("mktemp")
+    tmp_raw, _terr = fs.make_temp_file(os.temp_dir(), "aeb")
     tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
     if string.length(tmp_tar) > 0 {
         grc = cache.get(ck, tmp_tar)
         if string.length(grc) == 0 {
             uerr = bldr._untar_into(tmp_tar, bin_dir)
-            bldr._sh("rm -f '${tmp_tar}'")
+            _rf = fs.remove_tree(tmp_tar)
             if string.length(uerr) == 0 {
                 bldr._record_cache(ctx, "hit")
                 return 1
             }
             _rt = fs.remove_tree(bin_dir)
         } else {
-            bldr._sh("rm -f '${tmp_tar}'")
+            _rf = fs.remove_tree(tmp_tar)
         }
     }
     bldr._record_cache(ctx, "miss")
@@ -632,7 +632,7 @@ _dotnet_cache_store(ctx: ptr, config: string, source_dir: string) {
     tar_path, terr = bldr._tar_dir(bin_dir)
     if string.length(terr) == 0 {
         perr = cache.put(ck, tar_path)
-        bldr._sh("rm -f '${tar_path}'")
+        _rf = fs.remove_tree(tar_path)
     }
     return 0
 }

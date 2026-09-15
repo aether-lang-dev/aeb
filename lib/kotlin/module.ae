@@ -351,13 +351,13 @@ builder kotlinc(): int {
         ck, kerr = _cache_key_for_kotlinc(ctx, _builder, argfile, kc_cmd, stdlib_jar)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_raw, _terr = fs.make_temp_file(os.temp_dir(), "aeb")
             tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
                     uerr = bldr._untar_into(tmp_tar, classes_dir)
-                    bldr._sh("rm -f '${tmp_tar}'")
+                    _rf = fs.remove_tree(tmp_tar)
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: kotlinc cache hit ${cache_key}")
                         bldr._record_cache(ctx, "hit")
@@ -368,7 +368,7 @@ builder kotlinc(): int {
                         bldr._mkdirs(ts_dir)
                     }
                 } else {
-                    bldr._sh("rm -f '${tmp_tar}'")
+                    _rf = fs.remove_tree(tmp_tar)
                 }
             }
         }
@@ -395,7 +395,7 @@ builder kotlinc(): int {
             tar_path, terr = bldr._tar_dir(classes_dir)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                bldr._sh("rm -f '${tar_path}'")
+                _rf = fs.remove_tree(tar_path)
                 if string.length(perr) > 0 {
                     println("${mod_dir}: kotlinc cache write failed: ${perr}")
                 }
@@ -539,13 +539,13 @@ builder kotlinc_test(): int {
         ck, kerr = _cache_key_for_kotlinc(ctx, _builder, test_argfile, kc_cmd, stdlib_jar)
         if string.length(kerr) == 0 {
             cache_key = ck
-            tmp_raw, _terr = bldr._sh_capture("mktemp")
+            tmp_raw, _terr = fs.make_temp_file(os.temp_dir(), "aeb")
             tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
             if string.length(tmp_tar) > 0 {
                 grc = cache.get(cache_key, tmp_tar)
                 if string.length(grc) == 0 {
                     uerr = bldr._untar_into(tmp_tar, test_classes)
-                    bldr._sh("rm -f '${tmp_tar}'")
+                    _rf = fs.remove_tree(tmp_tar)
                     if string.length(uerr) == 0 {
                         println("${mod_dir}: kotlinc (test) cache hit ${cache_key}")
                         bldr._record_cache(ctx, "hit")
@@ -556,7 +556,7 @@ builder kotlinc_test(): int {
                         bldr._mkdirs(ts_dir)
                     }
                 } else {
-                    bldr._sh("rm -f '${tmp_tar}'")
+                    _rf = fs.remove_tree(tmp_tar)
                 }
             }
         }
@@ -579,7 +579,7 @@ builder kotlinc_test(): int {
             tar_path, terr = bldr._tar_dir(test_classes)
             if string.length(terr) == 0 {
                 perr = cache.put(cache_key, tar_path)
-                bldr._sh("rm -f '${tar_path}'")
+                _rf = fs.remove_tree(tar_path)
                 if string.length(perr) > 0 {
                     println("${mod_dir}: kotlinc (test) cache write failed: ${perr}")
                 }
