@@ -407,11 +407,22 @@ _java_ge(want: string) {
 // list_core_groovy_jars: version-anchored so groovy-xml/json sub-artifacts and
 // -sources jars are excluded.
 _groovy_core_jars_desc() {
-    globs = "$GROOVY_JAR $GROOVY_HOME/lib/groovy-[0-9]*.jar $HOME/.m2/repository/org/apache/groovy/groovy/*/groovy-[0-9]*.jar $HOME/.m2/repository/org/codehaus/groovy/groovy/*/groovy-[0-9]*.jar $HOME/.gradle/wrapper/dists/*/*/*/lib/groovy-[0-9]*.jar"
-    // ls the union, drop -sources/-indy, sort by the version embedded in the
-    // basename (field after 'groovy-'), newest first, de-dup by that version.
-    out, _e = bldr._sh_capture("ls -1 ${globs} 2>/dev/null | grep -v sources | grep -v indy | awk -F/ '{n=$NF; sub(/^groovy-/,\"\",n); sub(/\\.jar$/,\"\",n); print n\"\\t\"$0}' | sort -Vr -k1,1 | cut -f2-")
-    return string.trim(out)
+    // Candidate globs — resolve $GROOVY_JAR/$GROOVY_HOME/$HOME here (fs.glob does
+    // not shell-expand). The `groovy-[0-9]*.jar` anchor is LOAD-BEARING: the
+    // [0-9] excludes groovy-all-*, keeping this single-family so version_compare
+    // (prefix-first) can't rank an older groovy-all above a newer groovy-.
+    gj = os.getenv("GROOVY_JAR")
+    gh = os.getenv("GROOVY_HOME")
+    home = os.getenv("HOME")
+    pats = ""
+    if string.length(gj) > 0 { pats = gj }
+    if string.length(gh) > 0 { pats = string.concat(pats, "\n${gh}/lib/groovy-[0-9]*.jar") }
+    pats = string.concat(pats, "\n${home}/.m2/repository/org/apache/groovy/groovy/*/groovy-[0-9]*.jar")
+    pats = string.concat(pats, "\n${home}/.m2/repository/org/codehaus/groovy/groovy/*/groovy-[0-9]*.jar")
+    pats = string.concat(pats, "\n${home}/.gradle/wrapper/dists/*/*/*/lib/groovy-[0-9]*.jar")
+    // Drop -sources/-indy; sort newest-version-first by BASENAME. Native
+    // (fs.glob + std.sort + version_compare) — no ls|grep|awk|sort -Vr shell-out.
+    return bldr._glob_sorted_desc(pats, "sources\nindy", 1)
 }
 
 // _probe_groovy_toolchain(java_bin, groovy_jar, dep_classpath, probe_dir) —

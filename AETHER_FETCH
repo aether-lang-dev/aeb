@@ -171,4 +171,9 @@
 # `sort -Vr | head -1` finders. (aeb ask -> PR #2021, shipped in 0.672.0.)
 # Verified against the real 0.672.0 tarball: aeb builds clean, full suite green;
 # glibc floor GLIBC_2.34 (Debian-12 safe). PIN in lockstep.
-0.672.0
+#
+# Raised 0.672.0 -> 0.675.0 (2026-09-15). Real floor move: aeb calls 0.675.0's
+# std.strarr + std.sort.strings_by + version_compare in bldr._glob_sorted_desc
+# (groovy + JDK version-sort finders). #2034 first shipped in 0.675.0 (not 0.674).
+# Verified against the real 0.675.0 tarball: builds clean, suite green; GLIBC 2.34.
+0.675.0

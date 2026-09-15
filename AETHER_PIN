@@ -156,4 +156,14 @@
 # primitive; merged upstream as PR #2021, shipped in 0.672.0.) Verified against
 # the real 0.672.0 linux tarball: aeb builds clean, full suite green; glibc floor
 # GLIBC_2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
-0.672.0
+#
+# Raised 0.672.0 -> 0.675.0 (2026-09-15). A REAL floor move: aeb now calls
+# std.strarr (new/push_copy/get/set/size/array/free) + std.sort.strings_by with
+# string.version_compare in bldr._glob_sorted_desc to sort the groovy runtime-jar
+# and /usr/lib/jvm JDK finders newest-version-first, replacing their
+# `ls <globs> | grep -v … | sort -Vr` shell-outs — so aeb cannot compile on an
+# older Aether. (aeb asks -> PR #2021 version_compare (0.672) + PR #2034 strarr/
+# push_copy + the closure-local-alloc UAF fix; #2034 first shipped in 0.675.0 —
+# NOT 0.674.0, which predated its merge.) Verified against the real 0.675.0 linux
+# tarball: aeb builds clean, full suite green; GLIBC floor 2.34. PIN lockstep FETCH.
+0.675.0

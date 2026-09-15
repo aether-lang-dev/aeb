@@ -24,6 +24,7 @@ import std.map
 import std.path
 import std.dir
 import std.zip
+import std.strarr
 
 // --- Session (shared across all modules in one build) ---
 
@@ -1945,6 +1946,98 @@ _newest_jar(patterns_nl: string, exclude_nl: string) -> string {
     return newest
 }
 
+// _glob_sorted_desc(patterns_nl, exclude_nl, by_basename) — every path matching
+// any glob in patterns_nl, minus those containing a newline-listed exclude
+// substring, sorted NEWEST-VERSION-FIRST and returned newline-joined ("" if
+// none). Native form of `ls <globs> | grep -v <x> | sort -Vr` (+ the awk
+// basename-key when by_basename=1). Sort key: the path BASENAME when
+// by_basename=1 (e.g. groovy-<ver>.jar — the version is in the name), else the
+// FULL PATH (e.g. /usr/lib/jvm/java-<ver>/bin/java — the version is mid-path and
+// the basename is a constant "java"). Uses std.strarr.push_copy (the array owns
+// its copies, so the per-iteration basename local is safe) + std.sort.strings_by
+// with string.version_compare, then emits in reverse (descending).
+//
+// CALLER CONTRACT (same as _newest_jar): patterns must be ONE artifact family —
+// version_compare is prefix-first (groovy-4.0 < groovy-all-2.4), so a mixed set
+// mis-orders. The groovy glob's `groovy-[0-9]*` anchor keeps it single-family;
+// that anchor is load-bearing.
+// _gsd_key(path, by_basename) — the version-sort key for a path: its basename
+// when by_basename==1 (groovy-<ver>.jar), else the full path (JDK: version is
+// mid-path).
+_gsd_key(p: string, by_basename: int) -> string {
+    if by_basename == 1 { return _basename(p) }
+    return p
+}
+
+_glob_sorted_desc(patterns_nl: string, exclude_nl: string, by_basename: int) -> string {
+    pats = string.split(string.trim(patterns_nl), "\n")
+    pats_n = string.array_size(pats)
+    exc = string.split(exclude_nl, "\n")
+    exc_n = string.array_size(exc)
+    sa = strarr.new()   // the full paths; push_copy → array owns its copies
+    pi = 0
+    while pi < pats_n {
+        p = string.trim(string.array_get(pats, pi))
+        pi = pi + 1
+        if string.length(p) == 0 { continue }
+        list, gerr = fs.glob(p)
+        if string.length(gerr) > 0 { continue }
+        if list == null { continue }
+        cnt = fs.dir_list_count(list)
+        i = 0
+        while i < cnt {
+            cand = fs.dir_list_get(list, i)
+            i = i + 1
+            skip = 0
+            e = 0
+            while e < exc_n {
+                ex = string.array_get(exc, e)
+                if string.length(ex) > 0 {
+                    if string.index_of(cand, ex) >= 0 { skip = 1 }
+                }
+                e = e + 1
+            }
+            if skip == 0 { _pv = strarr.push_copy(sa, cand) }
+        }
+        fs.dir_list_free(list)
+    }
+    string.array_free(pats)
+    string.array_free(exc)
+    n = strarr.size(sa)
+    // Insertion sort ASCENDING by version key, in place over the strarr, then
+    // emit reversed = descending (newest first). n is tiny (a handful of jars/
+    // JDKs), so O(n^2) is fine. Done inline with version_compare rather than
+    // sort.strings_by(…, fn): a comparator passed as a fn-value from a LIBRARY
+    // module is dead-code-eliminated (E0300 bldr__gsd_cmp_* undefined at the
+    // test-build link) — the strarr owns its copies so set/get permute safely.
+    a = 1
+    while a < n {
+        cur = strarr.get(sa, a)
+        curk = _gsd_key(cur, by_basename)
+        b = a - 1
+        done = 0
+        while b >= 0 && done == 0 {
+            if string.version_compare(_gsd_key(strarr.get(sa, b), by_basename), curk) > 0 {
+                strarr.set(sa, b + 1, strarr.get(sa, b))
+                b = b - 1
+            } else {
+                done = 1
+            }
+        }
+        strarr.set(sa, b + 1, cur)
+        a = a + 1
+    }
+    out = ""
+    k = n - 1
+    while k >= 0 {
+        if string.length(out) > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, strarr.get(sa, k))
+        k = k - 1
+    }
+    strarr.free(sa)
+    return out
+}
+
 // _glob_first(pattern) — the first (lexically-sorted) path matching a glob
 // pattern, or "" if none. Native replacement for `ls '${glob}' | head -1`:
 // fs.glob returns absolute paths in the same lexical order `ls` prints, so
@@ -3086,7 +3179,10 @@ _java_ge(want: string) {
     cands = list.new()
     jh = os.getenv("JAVA_HOME")
     if string.length(jh) > 0 { list.add(cands, path.join(jh, "bin/java")) }
-    listing, _e = _sh_capture("ls -1d /usr/lib/jvm/java-*/bin/java 2>/dev/null | sort -Vr")
+    // Newest-JDK-first: version is a mid-path segment (java-<ver>), basename is
+    // always "java", so sort on the FULL PATH (by_basename=0). Native fs.glob +
+    // std.sort + version_compare — no ls|sort -Vr shell-out.
+    listing = _glob_sorted_desc("/usr/lib/jvm/java-*/bin/java", "", 0)
     rest = string.trim(listing)
     line = ""
     while string.length(rest) > 0 {
