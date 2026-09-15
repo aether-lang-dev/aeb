@@ -226,7 +226,7 @@ builder consumer_example(): int {
             src_abs = path.join(source_dir, src)
             dest_abs = path.join(stageroot, dest)
             dest_parent = path.dirname(dest_abs)
-            bldr._sh("mkdir -p '${dest_parent}' && cp -r '${src_abs}' '${dest_abs}'")
+            _ect = fs.copy_tree(src_abs, dest_abs)
             i = i + 1
         }
     }
@@ -246,9 +246,9 @@ builder consumer_example(): int {
             sd_prune = string.substring(r1, t2 + 1, string.length(r1))
             src_abs = path.join(source_dir, sd_src)
             dest_abs = path.join(stageroot, sd_dest)
-            bldr._sh("cp -r '${src_abs}' '${dest_abs}'")
+            _ect = fs.copy_tree(src_abs, dest_abs)
             if string.length(sd_prune) > 0 {
-                bldr._sh("rm -rf '${dest_abs}/${sd_prune}'")
+                _ert = fs.remove_tree(path.join(dest_abs, sd_prune))
             }
             i = i + 1
         }
