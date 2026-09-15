@@ -4420,11 +4420,11 @@ _glob_lines(pattern: string) -> string {
 // `find '${root}' [-name '*<ext>'] ! -name '<n>' ! -path '*<p>*'` — the
 // path-segment exclusion fs.find_ext_excluding (name-suffix only) can't express.
 //
-// NB this WALKS the excluded subtree and drops its files rather than pruning at
-// descent — correct, but it still enters e.g. node_modules. A prune signal on
-// fs.walk would let us skip the descent; see aether ask
-// fs-walk-prune-signal-for-directory-exclusion.md. For the trees these callers
-// scan (dotnet bin/obj, a project's own node_modules) the cost is acceptable.
+// A path_excludes segment that matches a DIRECTORY node prunes it (fs.walk
+// callback returns 1 = skip this subtree, honored since #977), so e.g.
+// node_modules is never descended into rather than walked-then-dropped. The
+// file-level path check stays as a safety net. (return 2 would stop the whole
+// walk; we only ever prune.)
 _walk_collect(root: string, ext: string, name_excludes: string, path_excludes: string) -> string {
     ne = string.split(name_excludes, "\n")
     pe = string.split(path_excludes, "\n")
@@ -4432,6 +4432,21 @@ _walk_collect(root: string, ext: string, name_excludes: string, path_excludes: s
     pe_n = string.array_size(pe)
     out = ""
     _n, _werr = fs.walk(root, |p: string, kind: int, depth: int| {
+        // Directory: prune the whole subtree if its path hits an exclude segment.
+        // Append "/" so a dir node ".../node_modules" matches a "/node_modules/"
+        // segment (dir paths carry no trailing slash).
+        if kind == 2 {
+            pslash = string.concat(p, "/")
+            d = 0
+            while d < pe_n {
+                sd = string.array_get(pe, d)
+                if string.length(sd) > 0 {
+                    if string.index_of(pslash, sd) >= 0 { return 1 }
+                }
+                d = d + 1
+            }
+            return 0
+        }
         if kind != 1 { return 0 }
         if string.length(ext) > 0 {
             if string.ends_with(p, ext) == 0 { return 0 }
