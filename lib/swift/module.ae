@@ -41,6 +41,36 @@ run_args(_ctx: ptr, arg: string) {
     _e2 = list.add(a, arg)
 }
 
+// --- Consumer-manifest setters (for swift.generate_manifest) ---
+//
+// swift.generate_manifest() EMITS a complete Package.swift for a CONSUMER, the
+// same exporter-node pattern as python.package() / gleam.generate_manifest.
+// Setter names are kept distinct from any swift_<name> function to avoid the
+// setter-mangle collision (asks/setter-mangle-collides-with-function-name.md).
+
+// manifest_name("Selenium") — the emitted Package(name:). Default "App".
+manifest_name(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "manifest_name", name)
+}
+
+// manifest_version("0.8.0") — recorded as a comment in Package.swift (SwiftPM
+// versions the package via its git tag, not the manifest). Default "0.1.0".
+manifest_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "manifest_version", ver)
+}
+
+// swift_package_dep("https://github.com/apple/swift-nio.git", "2.0.0") — one
+// .package(url:from:) SwiftPM dependency. Repeatable. Stored "url~from_ver".
+swift_package_dep(_ctx: ptr, url: string, from_ver: string) {
+    if map.has(_ctx, "manifest_swift_deps") == 0 {
+        _e1 = map.put(_ctx, "manifest_swift_deps", list.new())
+    }
+    deps, _ = map.get(_ctx, "manifest_swift_deps")
+    entry = string.concat(url, "~")
+    entry = string.concat(entry, from_ver)
+    _e2 = list.add(deps, entry)
+}
+
 // --- Command builders (pure) ---
 
 // _config_flag(release) — " -c release" when release set, else "".
@@ -83,6 +113,66 @@ _release_of(builder_map: ptr) {
             if string.length(v) > 0 { return 1 }
         }
     }
+    return 0
+}
+
+// package_swift_content(opts) — PURE generator of a consumer Package.swift from
+// the generate_manifest block-map. No I/O; unit-tested directly. Emits a
+// minimal SwiftPM manifest: tools version, the package name, a dependencies
+// array of .package(url:from:), and one library target/product.
+package_swift_content(opts: ptr) {
+    name = "App"
+    ver = "0.1.0"
+    if opts != null {
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+    }
+    s = "// swift-tools-version:5.9\n// version: ${ver}\nimport PackageDescription\n\n"
+    s = string.concat(s, "let package = Package(\n    name: \"${name}\",\n")
+
+    // dependencies: [ .package(url:, from:), … ]
+    s = string.concat(s, "    dependencies: [\n")
+    if opts != null {
+        if map.has(opts, "manifest_swift_deps") == 1 {
+            deps, _ = map.get(opts, "manifest_swift_deps")
+            n = list.size(deps)
+            i = 0
+            while i < n {
+                entry, _ = list.get(deps, i)
+                i = i + 1
+                tilde = string.index_of(entry, "~")
+                if tilde < 0 { continue }
+                du = string.substring(entry, 0, tilde)
+                dv = string.substring(entry, tilde + 1, string.length(entry))
+                s = string.concat(s, "        .package(url: \"${du}\", from: \"${dv}\"),\n")
+            }
+        }
+    }
+    s = string.concat(s, "    ],\n")
+    s = string.concat(s, "    targets: [\n        .target(name: \"${name}\"),\n    ]\n)\n")
+    return s
+}
+
+// swift.generate_manifest(b) — emit a consumer Package.swift into source_dir
+// and publish its path on the "package_swift" artifact edge. Exporter-node
+// counterpart of gleam.generate_manifest / python.package. Route via a
+// swift/.package.ae (filename-is-the-route).
+builder generate_manifest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    bldr._mkdirs(target_dir)
+
+    content = package_swift_content(_builder)
+    manifest_path = path.join(source_dir, "Package.swift")
+    _ew = io.write_file(manifest_path, content)
+
+    bldr._write_artifact(ctx, "package_swift", manifest_path)
+    println("${mod_dir}: generated ${manifest_path}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
 

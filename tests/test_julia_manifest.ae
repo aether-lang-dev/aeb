@@ -1,0 +1,44 @@
+// Tests for julia.project_toml_content() — consumer Project.toml generation.
+import std.spec
+import std.list
+import std.map
+
+import julia (project_toml_content)
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "project_toml_content") {
+        spec.it("minimal defaults") callback {
+            t = project_toml_content(null)
+            spec.assert_contains(t, "name = \"App\"", "default name")
+            spec.assert_contains(t, "version = \"0.1.0\"", "default version")
+            spec.assert_contains(t, "uuid = \"00000000", "default uuid")
+            spec.assert_false(string_contains(t, "[deps]"), "no deps table when empty")
+        }
+        spec.it("explicit name/uuid/version") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "Selenium")
+            map_put(o, "manifest_uuid", "aaaa1111-0000-0000-0000-000000000000")
+            map_put(o, "manifest_version", "0.8.0")
+            t = project_toml_content(o)
+            spec.assert_contains(t, "name = \"Selenium\"", "explicit name")
+            spec.assert_contains(t, "uuid = \"aaaa1111-0000-0000-0000-000000000000\"", "explicit uuid")
+            spec.assert_contains(t, "version = \"0.8.0\"", "explicit version")
+        }
+        spec.it("deps + compat tables") callback {
+            o = map_new()
+            deps = list_new()
+            list_add(deps, "JSON~682c06a0-de6a-54ab-a142-c8b1cf79cde6~0.21")
+            list_add(deps, "Test~8dfed614-e22c-5e08-85e1-65c5234f0b40~")
+            map_put(o, "manifest_julia_deps", deps)
+            t = project_toml_content(o)
+            spec.assert_contains(t, "[deps]", "deps table")
+            spec.assert_contains(t, "JSON = \"682c06a0-de6a-54ab-a142-c8b1cf79cde6\"", "dep uuid mapping")
+            spec.assert_contains(t, "Test = \"8dfed614-e22c-5e08-85e1-65c5234f0b40\"", "second dep uuid")
+            spec.assert_contains(t, "[compat]", "compat table present")
+            spec.assert_contains(t, "JSON = \"0.21\"", "compat bound for JSON")
+            spec.assert_false(string_contains(t, "Test = \"\""), "no empty compat bound for Test")
+        }
+    }
+    return spec.run_summary(fw)
+}

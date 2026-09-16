@@ -1,0 +1,36 @@
+// Tests for swift.package_swift_content() — consumer Package.swift generation.
+import std.spec
+import std.list
+import std.map
+
+import swift (package_swift_content)
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "package_swift_content") {
+        spec.it("minimal defaults") callback {
+            s = package_swift_content(null)
+            spec.assert_contains(s, "swift-tools-version:5.9", "tools version")
+            spec.assert_contains(s, "name: \"App\"", "default name")
+            spec.assert_contains(s, "version: 0.1.0", "default version comment")
+            spec.assert_contains(s, "dependencies: [", "deps array")
+        }
+        spec.it("explicit name/version") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "Selenium")
+            map_put(o, "manifest_version", "0.8.0")
+            s = package_swift_content(o)
+            spec.assert_contains(s, "name: \"Selenium\"", "explicit name")
+            spec.assert_contains(s, "version: 0.8.0", "explicit version")
+        }
+        spec.it("package deps") callback {
+            o = map_new()
+            deps = list_new()
+            list_add(deps, "https://github.com/apple/swift-nio.git~2.0.0")
+            map_put(o, "manifest_swift_deps", deps)
+            s = package_swift_content(o)
+            spec.assert_contains(s, ".package(url: \"https://github.com/apple/swift-nio.git\", from: \"2.0.0\")", "dep line")
+        }
+    }
+    return spec.run_summary(fw)
+}

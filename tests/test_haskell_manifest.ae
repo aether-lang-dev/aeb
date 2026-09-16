@@ -1,0 +1,38 @@
+// Tests for haskell.cabal_content() — consumer <name>.cabal generation.
+import std.spec
+import std.list
+import std.map
+
+import haskell (cabal_content)
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "cabal_content") {
+        spec.it("minimal defaults") callback {
+            c = cabal_content(null)
+            spec.assert_contains(c, "cabal-version: 2.4", "cabal-version")
+            spec.assert_contains(c, "name: app", "default name")
+            spec.assert_contains(c, "version: 0.1.0", "default version")
+            spec.assert_contains(c, "build-depends: base", "base always present")
+            spec.assert_contains(c, "default-language: Haskell2010", "language")
+        }
+        spec.it("explicit name/version") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "selenium")
+            map_put(o, "manifest_version", "0.8.0")
+            c = cabal_content(o)
+            spec.assert_contains(c, "name: selenium", "explicit name")
+            spec.assert_contains(c, "version: 0.8.0", "explicit version")
+        }
+        spec.it("build deps") callback {
+            o = map_new()
+            deps = list_new()
+            list_add(deps, "aeson~>= 2.0")
+            list_add(deps, "text~")
+            map_put(o, "manifest_build_deps", deps)
+            c = cabal_content(o)
+            spec.assert_contains(c, "base, aeson >= 2.0, text", "deps appended (bare text, no bound)")
+        }
+    }
+    return spec.run_summary(fw)
+}

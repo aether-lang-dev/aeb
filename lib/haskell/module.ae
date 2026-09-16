@@ -38,6 +38,38 @@ target(_ctx: ptr, t: string) {
     _e = map.put(_ctx, "hs_target", t)
 }
 
+// --- Consumer-manifest setters (for haskell.generate_manifest) ---
+//
+// haskell.generate_manifest() EMITS a complete <name>.cabal for a CONSUMER,
+// the same exporter-node pattern as python.package() / gleam.generate_manifest:
+// pure content generator + declarative setters + a builder that io.write_file's
+// it. Setter names are kept distinct from any haskell_<name>/hs_<name> function
+// to avoid the setter-mangle collision (asks/setter-mangle-collides-with-
+// function-name.md).
+
+// manifest_name("selenium") — the emitted cabal `name:`. Default "app".
+manifest_name(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "manifest_name", name)
+}
+
+// manifest_version("0.8.0") — the emitted cabal `version:`. Default "0.1.0".
+manifest_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "manifest_version", ver)
+}
+
+// build_dep("aeson", ">= 2.0") — one build-depends entry for the emitted
+// library stanza. Repeatable. Stored "name~ver" (the SDK-wide tilde-join). ver
+// "" emits a bare package constraint (no version bound).
+build_dep(_ctx: ptr, name: string, ver: string) {
+    if map.has(_ctx, "manifest_build_deps") == 0 {
+        _e1 = map.put(_ctx, "manifest_build_deps", list.new())
+    }
+    deps, _ = map.get(_ctx, "manifest_build_deps")
+    entry = string.concat(name, "~")
+    entry = string.concat(entry, ver)
+    _e2 = list.add(deps, entry)
+}
+
 // _hs_lib_flags(builder) — " --extra-lib-dirs=<d> --ghc-options=-optl-Wl,
 // -rpath,<d>" per link_dir(), or "". Pure.
 _hs_lib_flags(bmap: ptr) {
@@ -66,6 +98,71 @@ _hs_target_suffix(bmap: ptr) {
         }
     }
     return ""
+}
+
+// cabal_content(opts) — PURE generator of a consumer <name>.cabal from the
+// generate_manifest block-map. No I/O; unit-tested directly. Emits a minimal
+// library stanza with a build-depends line (base is always included).
+cabal_content(opts: ptr) {
+    name = "app"
+    ver = "0.1.0"
+    if opts != null {
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+    }
+    c = "cabal-version: 2.4\nname: ${name}\nversion: ${ver}\n\nlibrary\n"
+
+    deplist = "base"
+    if opts != null {
+        if map.has(opts, "manifest_build_deps") == 1 {
+            deps, _ = map.get(opts, "manifest_build_deps")
+            n = list.size(deps)
+            i = 0
+            while i < n {
+                entry, _ = list.get(deps, i)
+                i = i + 1
+                tilde = string.index_of(entry, "~")
+                if tilde < 0 { continue }
+                dn = string.substring(entry, 0, tilde)
+                dv = string.substring(entry, tilde + 1, string.length(entry))
+                if string.length(dv) > 0 {
+                    deplist = string.concat(deplist, ", ${dn} ${dv}")
+                } else {
+                    deplist = string.concat(deplist, ", ${dn}")
+                }
+            }
+        }
+    }
+    c = string.concat(c, "  build-depends: ${deplist}\n")
+    c = string.concat(c, "  default-language: Haskell2010\n")
+    return c
+}
+
+// haskell.generate_manifest(b) — emit a consumer <name>.cabal into source_dir
+// and publish its path on the "cabal_manifest" artifact edge. The exporter-node
+// counterpart of gleam.generate_manifest / python.package. Route via a
+// haskell/.package.ae (filename-is-the-route).
+builder generate_manifest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    bldr._mkdirs(target_dir)
+
+    name = "app"
+    if _builder != null {
+        if map.has(_builder, "manifest_name") == 1 { name, _ = map.get(_builder, "manifest_name") }
+    }
+    content = cabal_content(_builder)
+    manifest_path = path.join(source_dir, "${name}.cabal")
+    _ew = io.write_file(manifest_path, content)
+
+    bldr._write_artifact(ctx, "cabal_manifest", manifest_path)
+    println("${mod_dir}: generated ${manifest_path}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }
 
 // haskell.build(b) — `cabal build [<target>]` + link_dir flags.
