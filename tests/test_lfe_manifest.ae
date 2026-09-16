@@ -1,0 +1,38 @@
+// Tests for lfe.lfe_rebar_config_content() — consumer rebar.config generation.
+import std.spec
+import std.list
+import std.map
+
+import lfe (lfe_rebar_config_content)
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "lfe_rebar_config_content") {
+        spec.it("minimal defaults") callback {
+            t = lfe_rebar_config_content(null)
+            spec.assert_contains(t, "app 0.1.0", "default name+version")
+            spec.assert_contains(t, "rebar3_lfe", "lfe plugin present")
+            spec.assert_false(string_contains(t, "{deps"), "minimal no deps")
+        }
+        spec.it("deps as erlang terms") callback {
+            o = map_new()
+            deps = list_new()
+            list_add(deps, "lfe~2.1.1")
+            map_put(o, "manifest_hex_deps", deps)
+            t = lfe_rebar_config_content(o)
+            spec.assert_contains(t, "{lfe, \"2.1.1\"}", "dep as {name, ver}")
+            spec.assert_contains(t, "]}.", "deps term terminated")
+        }
+        spec.it("native edge as comments") callback {
+            o = map_new()
+            nd = list_new()
+            list_add(nd, "selenium_nif")
+            map_put(o, "manifest_native_deps", nd)
+            map_put(o, "manifest_engine_from", "/abs/_build")
+            t = lfe_rebar_config_content(o)
+            spec.assert_contains(t, "native application: selenium_nif", "native app comment")
+            spec.assert_contains(t, "ERL_LIBS=/abs/_build", "engine_from comment")
+        }
+    }
+    return spec.run_summary(fw)
+}

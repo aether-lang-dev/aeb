@@ -1,0 +1,47 @@
+// Tests for elixir.mix_exs_content() — consumer mix.exs generation.
+import std.spec
+import std.list
+import std.map
+
+import elixir (mix_exs_content)
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "mix_exs_content") {
+        spec.it("minimal defaults") callback {
+            t = mix_exs_content(null)
+            spec.assert_contains(t, "defmodule app.MixProject", "default module")
+            spec.assert_contains(t, "app: :app", "default app atom")
+            spec.assert_contains(t, "version: \"0.1.0\"", "default version")
+            spec.assert_contains(t, "extra_applications: []", "no native apps by default")
+        }
+        spec.it("explicit name + version") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "selenium")
+            map_put(o, "manifest_version", "0.8.0")
+            t = mix_exs_content(o)
+            spec.assert_contains(t, "defmodule selenium.MixProject", "explicit module")
+            spec.assert_contains(t, "app: :selenium", "explicit app atom")
+            spec.assert_contains(t, "version: \"0.8.0\"", "explicit version")
+        }
+        spec.it("deps as elixir tuples") callback {
+            o = map_new()
+            deps = list_new()
+            list_add(deps, "jason~~> 1.4")
+            map_put(o, "manifest_hex_deps", deps)
+            t = mix_exs_content(o)
+            spec.assert_contains(t, "{:jason, \"~> 1.4\"}", "dep as {:name, ver}")
+        }
+        spec.it("native edge in extra_applications + comment") callback {
+            o = map_new()
+            nd = list_new()
+            list_add(nd, "selenium_nif")
+            map_put(o, "manifest_native_deps", nd)
+            map_put(o, "manifest_engine_from", "/abs/_build")
+            t = mix_exs_content(o)
+            spec.assert_contains(t, "extra_applications: [:selenium_nif]", "native app in extra_applications")
+            spec.assert_contains(t, "ERL_LIBS=/abs/_build", "engine_from comment")
+        }
+    }
+    return spec.run_summary(fw)
+}

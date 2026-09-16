@@ -1,0 +1,48 @@
+// Tests for erlang.rebar_config_content() — consumer rebar.config generation.
+import std.spec
+import std.list
+import std.map
+
+import erlang (rebar_config_content)
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "rebar_config_content") {
+        spec.it("minimal defaults") callback {
+            t = rebar_config_content(null)
+            spec.assert_contains(t, "app 0.1.0", "default name+version in header")
+            spec.assert_false(string_contains(t, "{deps"), "minimal no deps")
+            spec.assert_false(string_contains(t, "native"), "minimal no native edge")
+        }
+        spec.it("explicit name + version") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "selenium")
+            map_put(o, "manifest_version", "0.8.0")
+            t = rebar_config_content(o)
+            spec.assert_contains(t, "selenium 0.8.0", "explicit name+version")
+        }
+        spec.it("deps as erlang terms") callback {
+            o = map_new()
+            deps = list_new()
+            list_add(deps, "cowboy~2.10.0")
+            list_add(deps, "jsx~3.1.0")
+            map_put(o, "manifest_hex_deps", deps)
+            t = rebar_config_content(o)
+            spec.assert_contains(t, "{deps, [", "has deps term")
+            spec.assert_contains(t, "{cowboy, \"2.10.0\"}", "dep 1 as {name, ver}")
+            spec.assert_contains(t, "{jsx, \"3.1.0\"}", "dep 2 as {name, ver}")
+            spec.assert_contains(t, "]}.", "deps term terminated")
+        }
+        spec.it("native edge as comments") callback {
+            o = map_new()
+            nd = list_new()
+            list_add(nd, "selenium_nif")
+            map_put(o, "manifest_native_deps", nd)
+            map_put(o, "manifest_engine_from", "/abs/_build")
+            t = rebar_config_content(o)
+            spec.assert_contains(t, "native application: selenium_nif", "native app comment")
+            spec.assert_contains(t, "ERL_LIBS=/abs/_build", "engine_from comment")
+        }
+    }
+    return spec.run_summary(fw)
+}
