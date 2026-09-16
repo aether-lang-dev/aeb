@@ -60,6 +60,79 @@ nim_flag(_ctx: ptr, flag: string) {
     _a = list.add(l, flag)
 }
 
+// --- Consumer-manifest setters (for nim.generate_manifest) ---
+//
+// nim.generate_manifest() EMITS a complete <name>.nimble for a CONSUMER — the
+// same exporter-node pattern as python.package() / gleam.generate_manifest():
+// pure content generator + declarative setters + a builder that io.write_file's
+// it. Names are distinct from any nim_<name> function to avoid the setter-mangle
+// collision (asks/setter-mangle-collides-with-function-name.md).
+
+// manifest_name("selenium") — the emitted package name; also the
+// <name>.nimble filename. Default "app".
+manifest_name(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "manifest_name", name)
+}
+
+// manifest_version("0.8.0") — the emitted `version = "..."`. Default "0.1.0".
+manifest_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "manifest_version", ver)
+}
+
+// manifest_author("...") — the emitted `author = "..."`. Optional.
+manifest_author(_ctx: ptr, author: string) {
+    _e = map.put(_ctx, "manifest_author", author)
+}
+
+// manifest_description("...") — the emitted `description = "..."`. Optional.
+manifest_description(_ctx: ptr, desc: string) {
+    _e = map.put(_ctx, "manifest_description", desc)
+}
+
+// nim_requires("chronos >= 4.0") — one `requires "..."` line. Repeatable. Stored
+// verbatim (nim's requires syntax is a single string, e.g. "pkg >= 1.0").
+nim_requires(_ctx: ptr, spec: string) {
+    if map.has(_ctx, "manifest_requires") == 0 {
+        _e1 = map.put(_ctx, "manifest_requires", list.new())
+    }
+    reqs, _ = map.get(_ctx, "manifest_requires")
+    _e2 = list.add(reqs, spec)
+}
+
+// nimble_content(opts) — PURE generator of a consumer <name>.nimble from the
+// generate_manifest block-map. No I/O; unit-tested directly. Always emits a
+// `requires "nim >= 1.6"` floor plus any nim_requires lines.
+nimble_content(opts: ptr) {
+    ver = "0.1.0"
+    author = ""
+    desc = ""
+    if opts != null {
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+        if map.has(opts, "manifest_author") == 1 { author, _ = map.get(opts, "manifest_author") }
+        if map.has(opts, "manifest_description") == 1 { desc, _ = map.get(opts, "manifest_description") }
+    }
+    out = "version = \"${ver}\"\n"
+    out = string.concat(out, "author = \"${author}\"\n")
+    out = string.concat(out, "description = \"${desc}\"\n")
+    out = string.concat(out, "license = \"MIT\"\n\n")
+    out = string.concat(out, "requires \"nim >= 1.6\"\n")
+
+    if opts != null {
+        if map.has(opts, "manifest_requires") == 1 {
+            reqs, _ = map.get(opts, "manifest_requires")
+            n = list.size(reqs)
+            i = 0
+            while i < n {
+                spec, _ = list.get(reqs, i)
+                i = i + 1
+                out = string.concat(out, "requires \"${spec}\"\n")
+            }
+        }
+    }
+
+    return out
+}
+
 // --- Pure command builder (unit-tested in tests/test_nim_cmd.ae) ---
 
 // nim_c_run_cmd(file, flags) — `nim c -r <flags> "<file>"`. `flags` is the
@@ -329,5 +402,35 @@ builder consumer_example(): int {
     }
     println("${mod_dir}: PASS — consumer drove the engine via the crate's bundled .so from clean")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// nim.generate_manifest(b) — emit a complete consumer <name>.nimble (version,
+// author, description, requires lines) into source_dir, and publish its path on
+// the "nimble" artifact edge. The exporter-node counterpart of python.package()
+// / gleam.generate_manifest(): declare it with manifest_name, manifest_version,
+// manifest_author/description and repeatable nim_requires, route via a
+// nim/.package.ae (filename-is-the-route), and this writes the .nimble a
+// downstream consumer_example builds against.
+builder generate_manifest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    bldr._mkdirs(target_dir)
+
+    pkg_name = "app"
+    if _builder != null {
+        if map.has(_builder, "manifest_name") == 1 { pkg_name, _ = map.get(_builder, "manifest_name") }
+    }
+    content = nimble_content(_builder)
+    manifest_path = path.join(source_dir, string.concat(pkg_name, ".nimble"))
+    _ew = io.write_file(manifest_path, content)
+
+    bldr._write_artifact(ctx, "nimble", manifest_path)
+    println("${mod_dir}: generated ${manifest_path}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }

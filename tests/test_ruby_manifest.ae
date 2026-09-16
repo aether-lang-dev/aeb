@@ -1,0 +1,46 @@
+// Tests for ruby.gemspec_content() — consumer .gemspec generation.
+// Mirrors tests/test_gleam_toml.ae.
+import std.spec
+import std.list
+import std.map
+
+import ruby (gemspec_content)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "gemspec_content") {
+        spec.it("minimal defaults") callback {
+            t = gemspec_content(null)
+            spec.assert_contains(t, "Gem::Specification.new do |s|", "opens spec block")
+            spec.assert_contains(t, "s.name = \"app\"", "default name")
+            spec.assert_contains(t, "s.version = \"0.1.0\"", "default version")
+            spec.assert_contains(t, "end", "closes spec block")
+            spec.assert_false(string_contains(t, "add_dependency"), "no deps when empty")
+        }
+
+        spec.it("explicit name + version + summary") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "selenium")
+            map_put(o, "manifest_version", "4.0.0")
+            map_put(o, "manifest_summary", "Selenium bindings")
+            t = gemspec_content(o)
+            spec.assert_contains(t, "s.name = \"selenium\"", "explicit name")
+            spec.assert_contains(t, "s.version = \"4.0.0\"", "explicit version")
+            spec.assert_contains(t, "s.summary = \"Selenium bindings\"", "summary")
+        }
+
+        spec.it("gem dependencies") callback {
+            o = map_new()
+            deps = list_new()
+            list_add(deps, "rack~~> 3.0")
+            list_add(deps, "rexml~>= 3.2")
+            map_put(o, "manifest_gem_deps", deps)
+            t = gemspec_content(o)
+            spec.assert_contains(t, "s.add_dependency \"rack\", \"~> 3.0\"", "dep 1")
+            spec.assert_contains(t, "s.add_dependency \"rexml\", \">= 3.2\"", "dep 2")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

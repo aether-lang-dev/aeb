@@ -57,6 +57,86 @@ timeout(_ctx: ptr, dur: string) {
     _e = map.put(_ctx, "timeout", dur)
 }
 
+// --- Consumer-manifest setters (for go.generate_manifest) ---
+//
+// go.generate_manifest() EMITS a complete go.mod for a CONSUMER — the same
+// exporter-node pattern as python.package() / gleam.generate_manifest(): pure
+// content generator + declarative setters + a builder that io.write_file's it.
+// Names are distinct from any go_<name> function to avoid the setter-mangle
+// collision (asks/setter-mangle-collides-with-function-name.md).
+
+// manifest_name("example.com/foo") — the emitted `module <path>` line. This is
+// the Go module PATH (an import path), not a bare name. Default "example.com/app".
+manifest_name(_ctx: ptr, module_path: string) {
+    _e = map.put(_ctx, "manifest_name", module_path)
+}
+
+// manifest_version("0.1.0") — recorded for parity with the other SDKs; go.mod
+// has no version line, so this is emitted only as a comment. Optional.
+manifest_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "manifest_version", ver)
+}
+
+// go_version("1.22") — the emitted `go <ver>` directive. Default "1.21".
+go_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "manifest_go_version", ver)
+}
+
+// go_require("golang.org/x/net", "v0.17.0") — one require line for the emitted
+// require block. Repeatable. Stored as "path~ver" (SDK-wide tilde convention).
+go_require(_ctx: ptr, module_path: string, ver: string) {
+    if map.has(_ctx, "manifest_requires") == 0 {
+        _e1 = map.put(_ctx, "manifest_requires", list.new())
+    }
+    reqs, _ = map.get(_ctx, "manifest_requires")
+    entry = string.concat(module_path, "~")
+    entry = string.concat(entry, ver)
+    _e2 = list.add(reqs, entry)
+}
+
+// go_mod_content(opts) — PURE generator of a consumer go.mod from the
+// generate_manifest block-map. No I/O; unit-tested directly.
+go_mod_content(opts: ptr) {
+    module_path = "example.com/app"
+    go_ver = "1.21"
+    if opts != null {
+        if map.has(opts, "manifest_name") == 1 { module_path, _ = map.get(opts, "manifest_name") }
+        if map.has(opts, "manifest_go_version") == 1 { go_ver, _ = map.get(opts, "manifest_go_version") }
+    }
+    out = "module ${module_path}\n\ngo ${go_ver}\n"
+
+    if opts != null {
+        if map.has(opts, "manifest_version") == 1 {
+            mv, _ = map.get(opts, "manifest_version")
+            if string.length(mv) > 0 { out = string.concat(out, "\n// version ${mv}\n") }
+        }
+    }
+
+    // require block
+    if opts != null {
+        if map.has(opts, "manifest_requires") == 1 {
+            reqs, _ = map.get(opts, "manifest_requires")
+            n = list.size(reqs)
+            if n > 0 {
+                out = string.concat(out, "\nrequire (\n")
+                i = 0
+                while i < n {
+                    entry, _ = list.get(reqs, i)
+                    i = i + 1
+                    tilde = string.index_of(entry, "~")
+                    if tilde < 0 { continue }
+                    rp = string.substring(entry, 0, tilde)
+                    rv = string.substring(entry, tilde + 1, string.length(entry))
+                    out = string.concat(out, "\t${rp} ${rv}\n")
+                }
+                out = string.concat(out, ")\n")
+            }
+        }
+    }
+
+    return out
+}
+
 // --- Command builders ---
 
 go_build_cmd(source_dir: string, out_path: string, opts: ptr) {
@@ -619,5 +699,31 @@ builder consumer_example(): int {
     }
     println("${mod_dir}: PASS — consumer drove the engine via the crate's bundled .so from clean")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// go.generate_manifest(b) — emit a complete consumer go.mod (module path, go
+// version, require block) into source_dir, and publish its path on the "go_mod"
+// artifact edge. The exporter-node counterpart of python.package() /
+// gleam.generate_manifest(): declare it with manifest_name (module path),
+// go_version, and repeatable go_require, route via a go/.package.ae
+// (filename-is-the-route), and this writes the go.mod a downstream
+// consumer_example builds against.
+builder generate_manifest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    bldr._mkdirs(target_dir)
+
+    content = go_mod_content(_builder)
+    manifest_path = path.join(source_dir, "go.mod")
+    _ew = io.write_file(manifest_path, content)
+
+    bldr._write_artifact(ctx, "go_mod", manifest_path)
+    println("${mod_dir}: generated ${manifest_path}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }

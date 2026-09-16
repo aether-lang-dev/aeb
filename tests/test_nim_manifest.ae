@@ -1,0 +1,43 @@
+// Tests for nim.nimble_content() — consumer .nimble generation.
+// Mirrors tests/test_gleam_toml.ae.
+import std.spec
+import std.list
+import std.map
+
+import nim (nimble_content)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "nimble_content") {
+        spec.it("minimal defaults") callback {
+            t = nimble_content(null)
+            spec.assert_contains(t, "version = \"0.1.0\"", "default version")
+            spec.assert_contains(t, "requires \"nim >= 1.6\"", "nim floor requires")
+        }
+
+        spec.it("explicit fields") callback {
+            o = map_new()
+            map_put(o, "manifest_version", "0.8.0")
+            map_put(o, "manifest_author", "Selenium")
+            map_put(o, "manifest_description", "WebDriver bindings")
+            t = nimble_content(o)
+            spec.assert_contains(t, "version = \"0.8.0\"", "explicit version")
+            spec.assert_contains(t, "author = \"Selenium\"", "author")
+            spec.assert_contains(t, "description = \"WebDriver bindings\"", "description")
+        }
+
+        spec.it("requires lines") callback {
+            o = map_new()
+            reqs = list_new()
+            list_add(reqs, "chronos >= 4.0")
+            list_add(reqs, "jester >= 0.6")
+            map_put(o, "manifest_requires", reqs)
+            t = nimble_content(o)
+            spec.assert_contains(t, "requires \"chronos >= 4.0\"", "require 1")
+            spec.assert_contains(t, "requires \"jester >= 0.6\"", "require 2")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

@@ -191,6 +191,85 @@ consumer_arg(_ctx: ptr, arg: string) {
     _e2 = list.add(l, arg)
 }
 
+// --- Consumer-manifest setters (for ruby.generate_manifest) ---
+//
+// ruby.generate_manifest() EMITS a complete .gemspec for a CONSUMER — the same
+// exporter-node pattern as python.package() / gleam.generate_manifest(): pure
+// content generator + declarative setters + a builder that io.write_file's it.
+// (The existing `build(gemspec)` setter and `gem_dep` Gemfile setter are a
+// different surface — building an on-disk gem / a Gemfile; this GENERATES the
+// gemspec.) Names are distinct from any ruby_<name> function to avoid the
+// setter-mangle collision (asks/setter-mangle-collides-with-function-name.md).
+
+// manifest_name("selenium") — the emitted gem [name]; also the <name>.gemspec
+// filename. Default "app".
+manifest_name(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "manifest_name", name)
+}
+
+// manifest_version("0.8.0") — the emitted s.version. Default "0.1.0".
+manifest_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "manifest_version", ver)
+}
+
+// manifest_summary("...") — the emitted s.summary. Optional.
+manifest_summary(_ctx: ptr, summary: string) {
+    _e = map.put(_ctx, "manifest_summary", summary)
+}
+
+// gem_dependency("rack", "~> 3.0") — one s.add_dependency line. Repeatable.
+// Stored as "name~ver". Distinct from `gem_dep` (which records a Gemfile line).
+gem_dependency(_ctx: ptr, name: string, ver: string) {
+    if map.has(_ctx, "manifest_gem_deps") == 0 {
+        _e1 = map.put(_ctx, "manifest_gem_deps", list.new())
+    }
+    deps, _ = map.get(_ctx, "manifest_gem_deps")
+    entry = string.concat(name, "~")
+    entry = string.concat(entry, ver)
+    _e2 = list.add(deps, entry)
+}
+
+// gemspec_content(opts) — PURE generator of a consumer .gemspec from the
+// generate_manifest block-map. No I/O; unit-tested directly.
+gemspec_content(opts: ptr) {
+    name = "app"
+    ver = "0.1.0"
+    if opts != null {
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+    }
+    out = "Gem::Specification.new do |s|\n"
+    out = string.concat(out, "  s.name = \"${name}\"\n")
+    out = string.concat(out, "  s.version = \"${ver}\"\n")
+
+    if opts != null {
+        if map.has(opts, "manifest_summary") == 1 {
+            sm, _ = map.get(opts, "manifest_summary")
+            if string.length(sm) > 0 { out = string.concat(out, "  s.summary = \"${sm}\"\n") }
+        }
+    }
+
+    if opts != null {
+        if map.has(opts, "manifest_gem_deps") == 1 {
+            deps, _ = map.get(opts, "manifest_gem_deps")
+            n = list.size(deps)
+            i = 0
+            while i < n {
+                entry, _ = list.get(deps, i)
+                i = i + 1
+                tilde = string.index_of(entry, "~")
+                if tilde < 0 { continue }
+                dn = string.substring(entry, 0, tilde)
+                dv = string.substring(entry, tilde + 1, string.length(entry))
+                out = string.concat(out, "  s.add_dependency \"${dn}\", \"${dv}\"\n")
+            }
+        }
+    }
+
+    out = string.concat(out, "end\n")
+    return out
+}
+
 // --- Command builders (pure) ---
 
 // bundle_install_cmd — `bundle config set --local path <dir> && bundle install`.
@@ -717,5 +796,35 @@ builder consumer_example(): int {
     }
     println("${mod_dir}: PASS — installed gem loaded its bundled .so from clean")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// ruby.generate_manifest(b) — emit a complete consumer <name>.gemspec (name,
+// version, summary, add_dependency lines) into source_dir, and publish its path
+// on the "gemspec" artifact edge. The exporter-node counterpart of
+// python.package() / gleam.generate_manifest(): declare it with manifest_name,
+// manifest_version, manifest_summary and repeatable gem_dependency, route via a
+// ruby/.package.ae (filename-is-the-route), and this writes the gemspec a
+// downstream consumer_example packages + installs.
+builder generate_manifest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    bldr._mkdirs(target_dir)
+
+    gem_name = "app"
+    if _builder != null {
+        if map.has(_builder, "manifest_name") == 1 { gem_name, _ = map.get(_builder, "manifest_name") }
+    }
+    content = gemspec_content(_builder)
+    manifest_path = path.join(source_dir, string.concat(gem_name, ".gemspec"))
+    _ew = io.write_file(manifest_path, content)
+
+    bldr._write_artifact(ctx, "gemspec", manifest_path)
+    println("${mod_dir}: generated ${manifest_path}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
