@@ -66,19 +66,34 @@ gleam:gleam.test()
 moonbit:moonbit.test()
 groovy:groovy.groovyc_test()
 clojure:clojure.test()
+gleam-manifest:gleam.generate_manifest()
+erlang-manifest:erlang.generate_manifest()
+elixir-manifest:elixir.generate_manifest()
+lfe-manifest:lfe.generate_manifest()
+javascript-manifest:javascript.generate_manifest()
+ts-manifest:ts.generate_manifest()
+dart-manifest:dart.generate_manifest()
+crystal-manifest:crystal.generate_manifest()
+go-manifest:go.generate_manifest()
+ruby-manifest:ruby.generate_manifest()
+nim-manifest:nim.generate_manifest()
+haskell-manifest:haskell.generate_manifest()
+swift-manifest:swift.generate_manifest()
+julia-manifest:julia.generate_manifest()
 "
 
 echo "SDK cold-compile smoke (type-check + link each SDK from a fresh tree)"
 
 for entry in $SDK_BUILDERS; do
-    sdk="${entry%%:*}"
-    call="${entry#*:}"
+    sdk="${entry%%:*}"            # label (may be "<sdk>-manifest")
+    call="${entry#*:}"           # e.g. "gleam.generate_manifest()"
+    mod="${call%%.*}"            # import module = the part before the first '.'
 
     # Fresh temp dir per SDK => guaranteed COLD (no cached target/ node objects).
     WORK="$(mktemp -d)"
     cat > "$WORK/.build.ae" <<EOF
 import bldr
-import ${sdk}
+import ${mod}
 main() {
     bldr.build() {
         ${call}
