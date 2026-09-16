@@ -176,4 +176,10 @@
 # std.strarr + std.sort.strings_by + version_compare in bldr._glob_sorted_desc
 # (groovy + JDK version-sort finders). #2034 first shipped in 0.675.0 (not 0.674).
 # Verified against the real 0.675.0 tarball: builds clean, suite green; GLIBC 2.34.
-0.675.0
+#
+# Raised 0.675.0 -> 0.677.0 (2026-09-16). Real floor move for DOWNSTREAM consumers:
+# 0.677's @c_callback-weak-emit codegen fix (7ed91d46) lets a consumer node linking
+# two TUs that each emit an aeb SDK closure callback (fs.walk/seq_each) share one
+# definition instead of a duplicate-symbol link error. Verified against the real
+# 0.677.0 tarball: aeb builds clean, cold-compile gate + full suite green; GLIBC 2.34.
+0.677.0

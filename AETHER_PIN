@@ -177,4 +177,18 @@
 # finders to the shell to lower the floor, per the "don't chase a nicer release"
 # rule at the top of this file. Verified against the real 0.675.0 linux tarball:
 # aeb builds clean, full suite 136/136; GLIBC floor 2.34. PIN lockstep with FETCH.
-0.675.0
+#
+# Raised 0.675.0 -> 0.677.0 (2026-09-16). A REAL floor move for DOWNSTREAM
+# consumers: 0.677 carries the codegen fix that emits @c_callback definitions
+# WEAK (aether 7ed91d46), so two translation units that each emit the same
+# callback share one definition instead of colliding at link. aeb's SDK closures
+# (fs.walk / seq_each predicates — the source-discovery + staleness walks) lower
+# to @c_callback, so a CONSUMER node that pulls two such TUs together fails to
+# link on an older aether with a duplicate-symbol error. aeb itself and its warm
+# self-suite don't hit it (single-TU); the cold consumer build does — the same
+# class as the v0.311 E0200/seq_filter escape (now gated by
+# itests/sdk-cold-compile-smoke.sh). Also folds 0.676 (spawn signal-mask reset
+# before exec). Verified against the real 0.677.0 linux tarball: aeb builds
+# clean, cold-compile gate green (6/6 SDKs), full suite 136/136; GLIBC floor 2.34
+# (Debian-12 safe). PIN moves in lockstep with FETCH.
+0.677.0
