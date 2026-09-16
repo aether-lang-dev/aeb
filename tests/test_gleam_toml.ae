@@ -1,0 +1,75 @@
+// Tests for gleam.gleam_toml_content() — consumer gleam.toml generation.
+// Mirrors tests/test_pyproject_content.ae / test_cargo_toml.ae: the pure
+// content generator is exercised directly with hand-built block-maps.
+import std.spec
+import std.list
+import std.map
+
+import gleam (gleam_toml_content)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "gleam_toml_content") {
+        // --- minimal defaults ---
+        spec.it("minimal defaults") callback {
+            t1 = gleam_toml_content(null)
+            spec.assert_contains(t1, "name = \"app\"", "minimal default name")
+            spec.assert_contains(t1, "version = \"0.1.0\"", "minimal default version")
+            spec.assert_false(string_contains(t1, "[dependencies]"), "minimal no [dependencies]")
+            spec.assert_false(string_contains(t1, "target = "), "minimal no target")
+            spec.assert_false(string_contains(t1, "native_deps"), "minimal no native edge")
+        }
+
+        // --- explicit name + version + target ---
+        spec.it("explicit name/version/target") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "selenium")
+            map_put(o, "manifest_version", "0.8.0")
+            map_put(o, "manifest_target", "erlang")
+            t = gleam_toml_content(o)
+            spec.assert_contains(t, "name = \"selenium\"", "explicit name")
+            spec.assert_contains(t, "version = \"0.8.0\"", "explicit version")
+            spec.assert_contains(t, "target = \"erlang\"", "explicit target")
+        }
+
+        // --- hex deps table ---
+        spec.it("hex deps") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "app")
+            deps = list_new()
+            list_add(deps, "gleam_stdlib~>= 0.34.0")
+            list_add(deps, "gleeunit~>= 1.0.0")
+            map_put(o, "manifest_hex_deps", deps)
+            t = gleam_toml_content(o)
+            spec.assert_contains(t, "[dependencies]", "has [dependencies]")
+            spec.assert_contains(t, "gleam_stdlib = \">= 0.34.0\"", "hex dep 1 name+ver")
+            spec.assert_contains(t, "gleeunit = \">= 1.0.0\"", "hex dep 2 name+ver")
+        }
+
+        // --- native edge: depends_native + engine_from (the point of the gen) ---
+        spec.it("native edge") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "selenium")
+            nd = list_new()
+            list_add(nd, "selenium_nif")
+            map_put(o, "manifest_native_deps", nd)
+            map_put(o, "manifest_engine_from", "/abs/erlang/_build")
+            t = gleam_toml_content(o)
+            spec.assert_contains(t, "[erlang.native_deps]", "has native_deps section")
+            spec.assert_contains(t, "selenium_nif = { application = \"selenium_nif\" }", "native app entry")
+            spec.assert_contains(t, "erl_libs = \"/abs/erlang/_build\"", "engine_from erl_libs path")
+        }
+
+        // --- native section absent when no depends_native, even with engine_from ---
+        spec.it("no native section without depends_native") callback {
+            o = map_new()
+            map_put(o, "manifest_engine_from", "/abs/erlang/_build")
+            t = gleam_toml_content(o)
+            spec.assert_false(string_contains(t, "native_deps"), "no native section without a native dep")
+            spec.assert_false(string_contains(t, "erl_libs"), "engine_from alone emits nothing")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

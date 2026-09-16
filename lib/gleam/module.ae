@@ -138,7 +138,144 @@ codegen_cwd(_ctx: ptr, dir: string) {
     _e = map.put(_ctx, "codegen_cwd", dir)
 }
 
+// --- Consumer-manifest setters (for gleam.generate_manifest) ---
+//
+// gleam.generate_manifest() EMITS a complete gleam.toml for a CONSUMER — the
+// same exporter-node pattern as python.package() / rust.cargo_crate(): pure
+// content generator + declarative setters + a builder that io.write_file's it.
+// The point over a hand-written gleam.toml is the NATIVE edge: a Gleam app that
+// calls a shared NIF (selenium_core, …) needs the erlang application + its
+// ERL_LIBS path, which aeb knows from the erlang.nif() node's published edges
+// but a static gleam.toml cannot state. See asks/consumer-install-example-
+// builder.md + REPLY-generate-consumer-manifest-and-override-dep.md.
+//
+// Setter names are deliberately distinct from any gleam_<name> function to
+// avoid the setter-mangle collision (asks/setter-mangle-collides-with-function-
+// name.md; the same reason codegen_program is not codegen_cmd).
+
+// manifest_name("selenium") — the emitted gleam.toml [name]. Default "app".
+manifest_name(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "manifest_name", name)
+}
+
+// manifest_version("0.8.0") — the emitted [version]. Default "0.1.0".
+manifest_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "manifest_version", ver)
+}
+
+// gleam_target("erlang") — the emitted [target] (erlang | javascript). Omitted
+// when unset (gleam defaults to erlang). Named gleam_target, not target: target
+// is already a setter on gleam.build/test (line 43) and would double-book the
+// block-map key; the manifest carries its own.
+manifest_target(_ctx: ptr, t: string) {
+    _e = map.put(_ctx, "manifest_target", t)
+}
+
+// hex_dep("gleam_stdlib", ">= 0.34.0") — one hex.pm dependency line for the
+// emitted [dependencies] table. Repeatable (mirror rust.crate_dep). Stored as
+// "name~ver" (the SDK-wide tilde-join convention).
+hex_dep(_ctx: ptr, name: string, ver: string) {
+    if map.has(_ctx, "manifest_hex_deps") == 0 {
+        _e1 = map.put(_ctx, "manifest_hex_deps", list.new())
+    }
+    deps, _ = map.get(_ctx, "manifest_hex_deps")
+    entry = string.concat(name, "~")
+    entry = string.concat(entry, ver)
+    _e2 = list.add(deps, entry)
+}
+
+// depends_native("selenium_nif") — record that the consumer links a native
+// (Erlang application) dependency of this name. Repeatable. Emitted as a
+// dependency the BEAM resolver finds via ERL_LIBS (engine_from), not a hex dep.
+depends_native(_ctx: ptr, app: string) {
+    if map.has(_ctx, "manifest_native_deps") == 0 {
+        _e1 = map.put(_ctx, "manifest_native_deps", list.new())
+    }
+    apps, _ = map.get(_ctx, "manifest_native_deps")
+    _e2 = list.add(apps, app)
+}
+
+// engine_from(dep_artifact("erlang/.build.ae", "erl_libs")) — the ERL_LIBS path
+// where the consumer's native deps (depends_native) live. Typically the
+// erl_libs edge erlang.nif() publishes. Recorded in the emitted manifest as a
+// resolvable pointer to the prebuilt engine/NIF.
+engine_from(_ctx: ptr, erl_libs_path: string) {
+    _e = map.put(_ctx, "manifest_engine_from", erl_libs_path)
+}
+
 // --- Command builders (pure) ---
+
+// gleam_toml_content(opts) — PURE generator of a consumer gleam.toml from the
+// generate_manifest block-map. No I/O; unit-tested like tests/test_cargo_toml.
+// The [dependencies] table carries the hex_dep lines; the native edge
+// (depends_native + engine_from) is emitted as a documented
+// [erlang.native_deps]-style section a hand-written manifest can't produce.
+gleam_toml_content(opts: ptr) {
+    name = "app"
+    ver = "0.1.0"
+    if opts != null {
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+    }
+    toml = "name = \"${name}\"\nversion = \"${ver}\"\n"
+
+    if opts != null {
+        if map.has(opts, "manifest_target") == 1 {
+            tgt, _ = map.get(opts, "manifest_target")
+            if string.length(tgt) > 0 { toml = string.concat(toml, "target = \"${tgt}\"\n") }
+        }
+    }
+
+    // [dependencies] — the hex deps ("name~ver" entries).
+    if opts != null {
+        if map.has(opts, "manifest_hex_deps") == 1 {
+            deps, _ = map.get(opts, "manifest_hex_deps")
+            n = list.size(deps)
+            if n > 0 {
+                toml = string.concat(toml, "\n[dependencies]\n")
+                i = 0
+                while i < n {
+                    entry, _ = list.get(deps, i)
+                    i = i + 1
+                    tilde = string.index_of(entry, "~")
+                    if tilde < 0 { continue }
+                    dn = string.substring(entry, 0, tilde)
+                    dv = string.substring(entry, tilde + 1, string.length(entry))
+                    toml = string.concat(toml, "${dn} = \"${dv}\"\n")
+                }
+            }
+        }
+    }
+
+    // The native edge a static gleam.toml cannot state: which Erlang
+    // applications this consumer links, and the ERL_LIBS path they live under.
+    has_native = 0
+    if opts != null {
+        if map.has(opts, "manifest_native_deps") == 1 {
+            nd, _ = map.get(opts, "manifest_native_deps")
+            if list.size(nd) > 0 { has_native = 1 }
+        }
+    }
+    if has_native == 1 {
+        toml = string.concat(toml, "\n# Native (Erlang application) dependencies — resolved via ERL_LIBS below,\n# not hex.pm. Emitted by aeb.gleam.generate_manifest from the NIF node's edges.\n[erlang.native_deps]\n")
+        nd, _ = map.get(opts, "manifest_native_deps")
+        n = list.size(nd)
+        i = 0
+        while i < n {
+            app, _ = list.get(nd, i)
+            i = i + 1
+            toml = string.concat(toml, "${app} = { application = \"${app}\" }\n")
+        }
+        if opts != null {
+            if map.has(opts, "manifest_engine_from") == 1 {
+                ef, _ = map.get(opts, "manifest_engine_from")
+                if string.length(ef) > 0 { toml = string.concat(toml, "erl_libs = \"${ef}\"\n") }
+            }
+        }
+    }
+
+    return toml
+}
 
 // _target_flag(t) — " --target <t>" or "" when empty.
 _target_flag(t: string) {
@@ -701,4 +838,33 @@ builder test_existing(): int {
     mod_dir = bldr._get(ctx, "module_dir")
     println("${mod_dir}: running tests (gleam test)")
     return bldr._run_project(ctx, _builder, "gleam test", 1)
+}
+
+// gleam.generate_manifest(b) — emit a complete consumer gleam.toml (name,
+// version, [dependencies], and the native/NIF edge) into source_dir, and
+// publish its path on the "gleam_toml" artifact edge. The exporter-node
+// counterpart of python.package() / rust.cargo_crate(): declare the manifest
+// with the setters above (manifest_name/version, hex_dep, depends_native,
+// engine_from), route via a gleam/.package.ae (filename-is-the-route →
+// target/package/…), and this writes the file a downstream consumer_example
+// packages + installs. The native edge is the reason it's generated rather
+// than hand-written: engine_from typically reads erlang.nif()'s erl_libs edge
+// via dep_artifact(), which only aeb knows.
+builder generate_manifest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    bldr._mkdirs(target_dir)
+
+    toml = gleam_toml_content(_builder)
+    manifest_path = path.join(source_dir, "gleam.toml")
+    _ew = io.write_file(manifest_path, toml)
+
+    bldr._write_artifact(ctx, "gleam_toml", manifest_path)
+    println("${mod_dir}: generated ${manifest_path}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }
