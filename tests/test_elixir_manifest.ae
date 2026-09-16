@@ -10,7 +10,7 @@ main() {
     spec.describe(fw, "mix_exs_content") {
         spec.it("minimal defaults") callback {
             t = mix_exs_content(null)
-            spec.assert_contains(t, "defmodule app.MixProject", "default module")
+            spec.assert_contains(t, "defmodule App.MixProject", "default module")
             spec.assert_contains(t, "app: :app", "default app atom")
             spec.assert_contains(t, "version: \"0.1.0\"", "default version")
             spec.assert_contains(t, "extra_applications: []", "no native apps by default")
@@ -20,7 +20,7 @@ main() {
             map_put(o, "manifest_name", "selenium")
             map_put(o, "manifest_version", "0.8.0")
             t = mix_exs_content(o)
-            spec.assert_contains(t, "defmodule selenium.MixProject", "explicit module")
+            spec.assert_contains(t, "defmodule Selenium.MixProject", "explicit module")
             spec.assert_contains(t, "app: :selenium", "explicit app atom")
             spec.assert_contains(t, "version: \"0.8.0\"", "explicit version")
         }
