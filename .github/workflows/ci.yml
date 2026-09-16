@@ -109,5 +109,12 @@ jobs:
       # rather than in someone's build.
       - name: Check for std symbol collisions
         run: itests/std-symbol-collision.sh
+      # Cold-compile gate: build a consumer node per SDK from a FRESH tree so
+      # the fan-out orchestrator is regenerated + linked from scratch. Catches
+      # the class that shipped in v0.311 — SDK-only helpers (mtime staleness
+      # walk, classpath seq_filter) that type-check/link only when a CONSUMER
+      # node pulls lib/<sdk> in, invisible to the warm unit suite below.
+      - name: SDK cold-compile smoke
+        run: itests/sdk-cold-compile-smoke.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh
