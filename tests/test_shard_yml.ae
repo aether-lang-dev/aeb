@@ -1,0 +1,37 @@
+// Tests for crystal.shard_yml_content(). Mirrors tests/test_gleam_toml.ae.
+import std.spec
+import std.list
+import std.map
+
+import crystal (shard_yml_content)
+
+main() {
+    fw = spec.init()
+    spec.describe(fw, "shard_yml_content") {
+        spec.it("minimal defaults") callback {
+            t = shard_yml_content(null)
+            spec.assert_contains(t, "name: app", "default name")
+            spec.assert_contains(t, "version: 0.1.0", "default version")
+            spec.assert_false(string_contains(t, "dependencies:"), "no dependencies when none")
+        }
+        spec.it("explicit name + version") callback {
+            o = map_new()
+            map_put(o, "manifest_name", "selenium")
+            map_put(o, "manifest_version", "0.8.0")
+            t = shard_yml_content(o)
+            spec.assert_contains(t, "name: selenium", "explicit name")
+            spec.assert_contains(t, "version: 0.8.0", "explicit version")
+        }
+        spec.it("dependencies") callback {
+            o = map_new()
+            deps = list_new()
+            list_add(deps, "webdriver~~> 1.0")
+            map_put(o, "manifest_shard_deps", deps)
+            t = shard_yml_content(o)
+            spec.assert_contains(t, "dependencies:", "has dependencies")
+            spec.assert_contains(t, "  webdriver:", "dep name")
+            spec.assert_contains(t, "    version: \"~> 1.0\"", "dep version")
+        }
+    }
+    return spec.run_summary(fw)
+}

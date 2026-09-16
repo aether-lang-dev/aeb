@@ -11,11 +11,42 @@ import std.list
 import std.map
 import std.path
 import std.dir
+// The consumer package.json generator is shared with lib/javascript (both root
+// at package.json); ts imports only the pure generator (no cycle — javascript
+// does not import ts).
+import javascript (package_json_content)
 
 // --- TypeScript DSL setters ---
 
 strict(_ctx: ptr) {
     _e = map.put(_ctx, "strict", "true")
+}
+
+// --- Consumer-manifest setters (for ts.generate_manifest) ---
+// Emit a consumer package.json via the shared javascript.package_json_content
+// generator. Block-map setters (module-local grammar entry points); names kept
+// distinct from any ts_<name> function (setter-mangle rule).
+
+// manifest_name("selenium") — package.json "name". Default "app".
+manifest_name(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "manifest_name", name)
+}
+
+// manifest_version("0.8.0") — package.json "version". Default "0.1.0".
+manifest_version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "manifest_version", ver)
+}
+
+// npm_dep("selenium-webdriver", "^4.0.0") — one "dependencies" entry.
+// Repeatable. Stored "name~ver".
+npm_dep(_ctx: ptr, name: string, ver: string) {
+    if map.has(_ctx, "manifest_npm_deps") == 0 {
+        _e1 = map.put(_ctx, "manifest_npm_deps", list.new())
+    }
+    deps, _ = map.get(_ctx, "manifest_npm_deps")
+    entry = string.concat(name, "~")
+    entry = string.concat(entry, ver)
+    _e2 = list.add(deps, entry)
 }
 
 ts_target(_ctx: ptr, t: string) {
@@ -601,5 +632,27 @@ builder tsc(): int {
     }
 
     _ewt = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// ts.generate_manifest(b) — emit a consumer package.json (shared generator with
+// javascript) into source_dir and publish "package_json". Declare with
+// manifest_name/version + npm_dep; route via a ts/.package.ae.
+builder generate_manifest(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    bldr._mkdirs(target_dir)
+
+    json = package_json_content(_builder)
+    manifest_path = path.join(source_dir, "package.json")
+    _ew = io.write_file(manifest_path, json)
+
+    bldr._write_artifact(ctx, "package_json", manifest_path)
+    println("${mod_dir}: generated ${manifest_path}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
