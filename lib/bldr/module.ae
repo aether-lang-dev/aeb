@@ -2252,53 +2252,8 @@ _last_slash(s: string) {
     return found
 }
 
-// _override_dep_dir(dep_module) — if --overrideDep supplied a prebuilt directory
-// for this dep label, its absolute path; else "". The trampoline parses
-// `--overrideDep 'dep("<label>")=<path>'` and exports AEB_OVERRIDE_DEP as
-// newline-separated "<label>\t<abspath>" entries (one per --overrideDep, which
-// repeats). The <label> is exactly the dep() label a dependent names, which is
-// the dep_module key here (see _strip_lang — the label passes through whole).
-// A release job points this at a prebuilt artifact tree (a NIF/engine .so and
-// its edges) so a dependent reads THOSE instead of the computed target dir.
-_override_dep_dir(dep_module: string) {
-    spec = os.getenv("AEB_OVERRIDE_DEP")
-    if string.length(spec) == 0 { return "" }
-    // Explicit loop, not seq_each: a captured accumulator string in a closure
-    // is fragile here (codegen/capture edge). Split on newline, walk the array.
-    parts = string.split(spec, "\n")
-    n = string.array_size(parts)
-    i = 0
-    while i < n {
-        t = string.trim(string.array_get(parts, i))
-        i = i + 1
-        if string.length(t) == 0 { continue }
-        tab = string.index_of(t, "\t")
-        if tab <= 0 { continue }
-        label = string.substring(t, 0, tab)
-        if string.equals(label, dep_module) == 1 {
-            pathv = string.concat(string.substring(t, tab + 1, string.length(t)), "")
-            string.array_free(parts)
-            return pathv
-        }
-    }
-    string.array_free(parts)
-    return ""
-}
-
 _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
     root = _get(ctx, "root")
-    // --overrideDep: read this dep's artifacts from a supplied prebuilt dir,
-    // bypassing the computed target dir entirely. A missing artifact under the
-    // override falls through to the normal resolution (the override tree may
-    // carry only some edges), so an override is a REDIRECT, not a hard gate.
-    ovr = _override_dep_dir(dep_module)
-    if string.length(ovr) > 0 {
-        op = path.join(ovr, artifact)
-        if file.exists(op) == 1 {
-            ocontent, _oerr = io.read_file(op)
-            return ocontent
-        }
-    }
     t2 = _dep_target_dir(root, dep_module)
     p = path.join(t2, artifact)
     if file.exists(p) == 1 {

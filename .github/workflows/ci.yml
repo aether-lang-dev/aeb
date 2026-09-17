@@ -116,5 +116,7 @@ jobs:
       # node pulls lib/<sdk> in, invisible to the warm unit suite below.
       - name: SDK cold-compile smoke
         run: itests/sdk-cold-compile-smoke.sh
+      - name: --overrideDep node-substitution smoke
+        run: itests/override-dep-smoke.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh
