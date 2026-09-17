@@ -342,6 +342,28 @@ _parse_shard(spec: string) {
     return idx, total, 1
 }
 
+// _strip_override_deps(deps, override_labels) — remove any space-separated word
+// in `deps` that is a key of override_labels. Used in the narrowed edges
+// rewrite so an --overrideDep'd (prebuilt, not-built) dep leaves no dangling
+// edge in a remaining node's dep list. Preserves order + single-space joins.
+_strip_override_deps(deps: string, override_labels: ptr) {
+    out = ""
+    rest = deps
+    while string.length(rest) > 0 {
+        sp = string.index_of(rest, " ")
+        word = ""
+        if sp < 0 { word = rest  rest = "" }
+        else { word = string.substring(rest, 0, sp)  rest = string.substring(rest, sp + 1, string.length(rest)) }
+        if string.length(word) > 0 {
+            if map.has(override_labels, word) == 0 {
+                if string.length(out) > 0 { out = string.concat(out, " ") }
+                out = string.concat(out, word)
+            }
+        }
+    }
+    return out
+}
+
 main() {
     if aether_args_count() < 4 {
         println("Usage: aeb-main <aether-bin> <aeb-home> <root> [target]")
@@ -1102,12 +1124,61 @@ main() {
         narrowed = 1
     }
 
-    // --- Rewrite edges file if narrowed (by --since, --scan, and/or --shard) ---
+    // --- AEB_OVERRIDE_DEP: prune overridden deps from the build set ---
+    //
+    // --overrideDep 'dep("<label>")=<path>' supplies a PREBUILT tree for a dep
+    // (bldr._read_dep_artifact reads its artifacts from <path> — phase 1). This
+    // block is phase 2: treat the overridden label as already-satisfied so the
+    // orchestrator does NOT build it. Drop it from `files`, and (in the edges
+    // rewrite below) strip it from every remaining node's dep list so no
+    // dangling edge survives ("No rule to make target ..."). The <label> is the
+    // dep() label, which equals the build-file path in `files`.
+    override_labels = map.new()
+    override_spec = os.getenv("AEB_OVERRIDE_DEP")
+    if string.length(override_spec) > 0 {
+        orest = override_spec
+        while string.length(orest) > 0 {
+            onl = string.index_of(orest, "\n")
+            oline = ""
+            if onl < 0 { oline = orest  orest = "" }
+            else { oline = string.substring(orest, 0, onl)  orest = string.substring(orest, onl + 1, string.length(orest)) }
+            oline = string.trim(oline)
+            if string.length(oline) > 0 {
+                otab = string.index_of(oline, "\t")
+                if otab > 0 {
+                    olabel = string.substring(oline, 0, otab)
+                    _mo = map.put(override_labels, olabel, "1")
+                }
+            }
+        }
+        kept_files = list.new()
+        kept_seen = map.new()
+        okn = list.size(files)
+        oki = 0
+        while oki < okn {
+            kf, _ = list.get(files, oki)
+            oki = oki + 1
+            if map.has(override_labels, kf) == 0 {
+                _kf = list.add(kept_files, string.concat(kf, ""))
+                _ks = map.put(kept_seen, kf, "1")
+            } else {
+                println(string.concat("aeb: --overrideDep: using prebuilt for ", kf))
+            }
+        }
+        files = kept_files
+        seen = kept_seen
+        narrowed = 1
+    }
+
+    // --- Rewrite edges file if narrowed (by --since, --scan, --shard, or
+    //     --overrideDep) ---
     //
     // Topo-sort + aeb-link read the edges file; if we narrowed the
     // file set above, only emit rows whose first column is in the
     // narrowed set. Deps reference the same paths so unaffected
-    // entries are silently dropped.
+    // entries are silently dropped. For --overrideDep we ALSO strip the
+    // overridden label out of each remaining node's dep list, so an
+    // overridden dep leaves no dangling "No rule to make target" edge.
     if narrowed == 1 {
         narrowed_buf = ""
         nlines = list.size(files)
@@ -1117,6 +1188,10 @@ main() {
             ds = string.concat("", "")
             if map.has(file_deps, f) == 1 {
                 ds, _ = map.get(file_deps, f)
+            }
+            // Strip overridden-label deps from the space-separated dep list.
+            if map.has(override_labels, f) == 0 {
+                ds = _strip_override_deps(ds, override_labels)
             }
             row = string.concat(f, " ")
             row = string.concat(row, ds)
