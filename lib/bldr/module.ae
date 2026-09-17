@@ -2252,8 +2252,52 @@ _last_slash(s: string) {
     return found
 }
 
+// _override_sub_label(dep_module) — if --overrideDep substituted this dep, the
+// SUBSTITUTE node's label; else "". AEB_OVERRIDE_DEP is exported by the
+// trampoline as newline-separated "<real>\t<substitute>" (see aeb-main's relabel
+// + the trampoline parse). --overrideDep relabels the build DAG so the
+// substitute is built and the real is dropped — but a consumer still calls
+// dep_artifact("<real>", key), so the artifact READ has to follow the
+// substitution too, resolving under the substitute node's target dir. Explicit
+// loop (not seq_each) — a captured accumulator string in a closure is fragile.
+_override_sub_label(dep_module: string) {
+    spec = os.getenv("AEB_OVERRIDE_DEP")
+    if string.length(spec) == 0 { return "" }
+    parts = string.split(spec, "\n")
+    n = string.array_size(parts)
+    i = 0
+    while i < n {
+        t = string.trim(string.array_get(parts, i))
+        i = i + 1
+        if string.length(t) == 0 { continue }
+        tab = string.index_of(t, "\t")
+        if tab <= 0 { continue }
+        real = string.substring(t, 0, tab)
+        if string.equals(real, dep_module) == 1 {
+            sub = string.concat(string.substring(t, tab + 1, string.length(t)), "")
+            string.array_free(parts)
+            return sub
+        }
+    }
+    string.array_free(parts)
+    return ""
+}
+
 _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
     root = _get(ctx, "root")
+    // --overrideDep read-follow: when this dep was substituted, resolve the
+    // artifact under the SUBSTITUTE node's target dir (target/<sub-buildtype>/
+    // <sub-dir>/), since the real node was dropped and never wrote here. The
+    // substitute publishes the same edge keys the real would.
+    sub = _override_sub_label(dep_module)
+    if string.length(sub) > 0 {
+        st = _dep_target_dir(root, sub)
+        sp = path.join(st, artifact)
+        if file.exists(sp) == 1 {
+            scontent, _serr = io.read_file(sp)
+            return scontent
+        }
+    }
     t2 = _dep_target_dir(root, dep_module)
     p = path.join(t2, artifact)
     if file.exists(p) == 1 {

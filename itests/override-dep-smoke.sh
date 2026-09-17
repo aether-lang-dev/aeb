@@ -128,6 +128,43 @@ else
     fail "bad substitute not rejected (rc=$drc, see $WORK/d.log)"
 fi
 
+# --- Test E: dep_artifact READ follows the substitution ---
+# The bug selaenium hit (aeb 0.313): the substitute is scheduled, but a consumer
+# that reads dep_artifact("<real>", key) resolved the REAL node's (empty) target
+# dir. The read must follow to the SUBSTITUTE's target dir. Real node publishes
+# shared_lib=/real, substitute publishes shared_lib=/fetched; the consumer reads
+# by the real label under override and must get /fetched.
+ED="$WORK/edgetest"; mkdir -p "$ED/eng" "$ED/cons"
+cat > "$ED/eng/.build.ae" <<'EOF'
+import bldr
+main() { bldr.build() { bldr.publish_artifact("shared_lib", "/real/lib.so") } }
+EOF
+cat > "$ED/eng/.getFromGitHubReleases.ae" <<'EOF'
+import bldr
+main() { bldr.build() { bldr.publish_artifact("shared_lib", "/fetched/lib.so") } }
+EOF
+cat > "$ED/cons/.build.ae" <<'EOF'
+import bldr
+import std.io
+main() {
+    bldr.build() {
+        dep("eng/.build.ae")
+        lib = bldr.dep_artifact("eng/.build.ae", "shared_lib")
+        _w = io.write_file("$ED_MARK", lib)
+    }
+}
+EOF
+# inline the marker path (the heredoc is quoted, so substitute it after)
+sed -i "s#\$ED_MARK#$MARK/read_follow#" "$ED/cons/.build.ae"
+rm -f "$MARK/read_follow"
+( cd "$ED" && "$AEB" --overrideDep "eng/.build.ae=eng/.getFromGitHubReleases.ae" cons/.build.ae ) >"$WORK/e.log" 2>&1
+got_lib="$(cat "$MARK/read_follow" 2>/dev/null || true)"
+if [ "$got_lib" = "/fetched/lib.so" ]; then
+    pass "dep_artifact read follows the substitution (got the substitute's value)"
+else
+    fail "dep_artifact read did NOT follow the substitution (got '$got_lib', want /fetched/lib.so; see $WORK/e.log)"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
     echo "override-dep-smoke: all assertions passed"
