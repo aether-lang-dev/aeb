@@ -55,8 +55,18 @@ RUNNER_PROVIDED = {
     "HOME", "PATH", "PWD", "SHELL", "USER", "CI",
 }
 
-VAR_REF = re.compile(r"(?<!\\)\$\{?([A-Z_][A-Z0-9_]*)\}?")
-ASSIGN = re.compile(r"^\s*(?:export\s+)?([A-Z_][A-Z0-9_]*)=", re.M)
+# A $VAR expansion. Group 1 = the name; group 2 = the char immediately after the
+# name INSIDE a ${...} (empty for bare $VAR or a plain ${VAR}). A group-2 of
+# `:`/`-`/`=`/`?`/`+` means a parameter-expansion guard (${VAR:-def}, ${VAR:=..},
+# ${VAR:?..}, ${VAR:+..}, or the unset-only ${VAR-..} forms) — those are SAFE
+# under `set -u` (the default/alternate is supplied), so they are NOT "unset".
+VAR_REF = re.compile(r"(?<!\\)\$(\{)?([A-Z_][A-Z0-9_]*)([:\-=?+])?")
+# An assignment FOO=... at the start of a statement: line-start, or after a
+# statement separator (; && || | & ( { newline) — so `A=x; B=y` sets BOTH, and a
+# `then B=y` / `do B=y` body assignment counts too. The old `^\s*`-only anchor
+# missed every non-first assignment on a compound line (e.g. the release.yml
+# `BINDIR=..; SHAREDIR=..` line), reporting SHAREDIR as unset.
+ASSIGN = re.compile(r"(?:^|[;&|(){}]|\bthen\b|\bdo\b|\belse\b)\s*(?:export\s+|local\s+|readonly\s+)?([A-Z_][A-Z0-9_]*)=", re.M)
 FORVAR = re.compile(r"\bfor\s+([A-Z_][A-Z0-9_]*)\s+in\b")
 
 
@@ -77,7 +87,23 @@ def check(path):
             body = "\n".join(
                 l for l in run.split("\n") if not l.lstrip().startswith("#")
             )
-            missing = sorted({m.group(1) for m in VAR_REF.finditer(body)} - provided)
+            # Classify each referenced name: GUARDED if it appears at least once
+            # with a param-expansion default/alternate (${VAR:-..} etc., group 3
+            # is one of : - = ? +), else BARE. A guarded var is the author's
+            # explicit "this may be unset" — and the idiomatic
+            #   if [ -n "${VAR:-}" ]; then … "$VAR" … fi
+            # uses it bare INSIDE the guard, so once a name is guarded anywhere in
+            # the step, its bare uses in that same step are safe too. Only a name
+            # that is BARE EVERYWHERE (never guarded, never provided) is a real
+            # "unset under set -u" hit.
+            guarded = set()
+            bare = set()
+            for m in VAR_REF.finditer(body):
+                if m.group(3):
+                    guarded.add(m.group(2))
+                else:
+                    bare.add(m.group(2))
+            missing = sorted(bare - guarded - provided)
             if missing:
                 problems += 1
                 label = step.get("name") or "<unnamed step>"
