@@ -165,6 +165,66 @@ else
     fail "dep_artifact read did NOT follow the substitution (got '$got_lib', want /fetched/lib.so; see $WORK/e.log)"
 fi
 
+# --- Test F: a dep made dead by the substitution is DROPPED (A->B1->C) ---
+# B2 (the substitute) is a leaf by contract, so B1's dep on C is dropped; with
+# nothing else needing C, C is orphan-pruned and does not build.
+FD="$WORK/dropcase"
+for d in A B1 B2 C; do mkdir -p "$FD/$d"; done
+node_marks() { # $1 dir, $2 body-deps, $3 marker
+    cat > "$FD/$1/run.sh" <<EOF
+#!/usr/bin/env bash
+echo RAN > "$MARK/$3"
+EOF
+    chmod +x "$FD/$1/run.sh"
+    cat > "$FD/$1/.build.ae" <<EOF
+import bldr
+import bash
+import bash (script)
+main() { bldr.build() { $2 bash.test() { script("run.sh") } } }
+EOF
+}
+node_marks C  ""                        drop_C
+node_marks B1 'dep("C/.build.ae")'      drop_B1
+node_marks B2 ''                        drop_B2
+node_marks A  'dep("B1/.build.ae")'     drop_A
+rm -f "$MARK"/drop_*
+( cd "$FD" && "$AEB" --overrideDep "B1/.build.ae=B2/.build.ae" A/.build.ae ) >"$WORK/f.log" 2>&1
+if [ -f "$MARK/drop_B2" ] && [ ! -f "$MARK/drop_B1" ] && [ ! -f "$MARK/drop_C" ]; then
+    pass "dep made dead by the substitution is dropped (C not built)"
+else
+    fail "dead dep not dropped — B2=$([ -f "$MARK/drop_B2" ]&&echo y) B1=$([ -f "$MARK/drop_B1" ]&&echo y) C=$([ -f "$MARK/drop_C" ]&&echo y) (see $WORK/f.log)"
+fi
+
+# --- Test G: a dep still SHARED after the substitution is KEPT (diamond) ---
+# A->B1->C and A->D->C; override B1->B2. C is still needed by D, so C stays.
+GD="$WORK/diamond"
+for d in A B1 B2 C D; do mkdir -p "$GD/$d"; done
+gnode() {
+    cat > "$GD/$1/run.sh" <<EOF
+#!/usr/bin/env bash
+echo RAN > "$MARK/$3"
+EOF
+    chmod +x "$GD/$1/run.sh"
+    cat > "$GD/$1/.build.ae" <<EOF
+import bldr
+import bash
+import bash (script)
+main() { bldr.build() { $2 bash.test() { script("run.sh") } } }
+EOF
+}
+gnode C  ""                                      dia_C
+gnode B1 'dep("C/.build.ae")'                    dia_B1
+gnode B2 ''                                      dia_B2
+gnode D  'dep("C/.build.ae")'                    dia_D
+gnode A  'dep("B1/.build.ae") dep("D/.build.ae")' dia_A
+rm -f "$MARK"/dia_*
+( cd "$GD" && "$AEB" --overrideDep "B1/.build.ae=B2/.build.ae" A/.build.ae ) >"$WORK/g.log" 2>&1
+if [ -f "$MARK/dia_B2" ] && [ -f "$MARK/dia_C" ] && [ -f "$MARK/dia_D" ] && [ ! -f "$MARK/dia_B1" ]; then
+    pass "dep still shared after the substitution is kept (diamond)"
+else
+    fail "shared dep handling wrong — C=$([ -f "$MARK/dia_C" ]&&echo y) D=$([ -f "$MARK/dia_D" ]&&echo y) B1=$([ -f "$MARK/dia_B1" ]&&echo y) (see $WORK/g.log)"
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
     echo "override-dep-smoke: all assertions passed"

@@ -1216,49 +1216,170 @@ main() {
         }
         sorted_raw = relabelled
 
-        // Also relabel _edges.txt — aeb-link reads it for the make DEPENDENCY
-        // wiring (a node's row + its deps), separate from _sorted.txt's order.
-        // Relabel <real> everywhere it appears as a whitespace-separated token
-        // (node column OR a dep), so a dependent's edge points at the substitute
-        // and no make target dangles.
+        // Rewrite _edges.txt (aeb-link's make DEPENDENCY wiring) with the LEAF
+        // rule + orphan prune, so a substitution that makes a dep dead drops it.
+        //
+        //   1. For each row "<node> <dep...>":
+        //      - <node> is a <real>  → emit <substitute> with NO deps. A
+        //        substitute is dep-less BY CONTRACT (a leaf fetch node), so its
+        //        real deps (C in A->B1->C) are dropped rather than inherited.
+        //      - else                → relabel any <real> IN THE DEPS to its
+        //        <substitute> (so A's dep on B1 becomes B2), deps otherwise kept.
+        //   2. Orphan prune: after the relabel, drop any node that is neither a
+        //      requested target nor a dep of some SURVIVING node — reachability,
+        //      so a dep still shared by another node (a diamond) correctly stays.
+        //   3. Filter _sorted.txt to the surviving node set (order preserved).
         edges_now, _eerr = io.read_file(edges_path)
         if string.length(edges_now) > 0 {
-            new_edges = ""
+            // node -> its (relabelled, leaf-dropped) dep string
+            node_deps = map.new()
+            node_order = list.new()   // rows in file order
             erest = edges_now
             while string.length(erest) > 0 {
                 enl = string.index_of(erest, "\n")
                 erow = ""
                 if enl < 0 { erow = erest  erest = "" }
                 else { erow = string.substring(erest, 0, enl)  erest = string.substring(erest, enl + 1, string.length(erest)) }
-                // relabel space-separated tokens in the row
-                erow_out = ""
-                wrest = erow
-                while string.length(wrest) > 0 {
-                    wsp = string.index_of(wrest, " ")
-                    wtok = ""
-                    if wsp < 0 { wtok = wrest  wrest = "" }
-                    else { wtok = string.substring(wrest, 0, wsp)  wrest = string.substring(wrest, wsp + 1, string.length(wrest)) }
-                    tok_out = wtok
-                    if string.length(wtok) > 0 {
-                        ti = 0
-                        while ti < ovn {
-                            tr, _ = list.get(ov_reals, ti)
-                            if string.equals(wtok, tr) == 1 {
-                                ts, _ = list.get(ov_subs, ti)
-                                tok_out = ts
-                                ti = ovn
-                            } else {
-                                ti = ti + 1
+                erow = string.trim(erow)
+                if string.length(erow) == 0 { continue }
+                // split node (first token) from deps (rest)
+                nsp = string.index_of(erow, " ")
+                enode = erow
+                edeps = ""
+                if nsp >= 0 {
+                    enode = string.substring(erow, 0, nsp)
+                    edeps = string.trim(string.substring(erow, nsp + 1, string.length(erow)))
+                }
+                // Is this node a <real>? then it becomes the substitute w/ no deps.
+                is_real = 0
+                sub_for = ""
+                ci = 0
+                while ci < ovn {
+                    cr, _ = list.get(ov_reals, ci)
+                    if string.equals(enode, cr) == 1 {
+                        cs, _ = list.get(ov_subs, ci)
+                        sub_for = cs
+                        is_real = 1
+                        ci = ovn
+                    } else { ci = ci + 1 }
+                }
+                out_node = enode
+                out_deps = ""
+                if is_real == 1 {
+                    out_node = sub_for
+                    out_deps = ""   // leaf: drop the real's deps
+                } else {
+                    // relabel <real> -> <substitute> among this node's deps
+                    drest = edeps
+                    while string.length(drest) > 0 {
+                        dsp = string.index_of(drest, " ")
+                        dtok = ""
+                        if dsp < 0 { dtok = drest  drest = "" }
+                        else { dtok = string.substring(drest, 0, dsp)  drest = string.substring(drest, dsp + 1, string.length(drest)) }
+                        if string.length(dtok) > 0 {
+                            dout = dtok
+                            di = 0
+                            while di < ovn {
+                                dr, _ = list.get(ov_reals, di)
+                                if string.equals(dtok, dr) == 1 {
+                                    dsub, _ = list.get(ov_subs, di)
+                                    dout = string.concat(dsub, "")
+                                    di = ovn
+                                } else { di = di + 1 }
+                            }
+                            if string.length(out_deps) > 0 { out_deps = string.concat(out_deps, " ") }
+                            out_deps = string.concat(out_deps, dout)
+                        }
+                    }
+                }
+                if map.has(node_deps, out_node) == 0 {
+                    _lno = list.add(node_order, string.concat(out_node, ""))
+                }
+                _mnd = map.put(node_deps, out_node, string.concat(out_deps, ""))
+            }
+
+            // Reachability: a node SURVIVES if it is a requested target or a dep
+            // of a surviving node. Seed from the requested targets (positionals),
+            // BFS over deps. `target` + `targets` are the outer-scope positionals.
+            keep = map.new()
+            work = list.new()
+            if string.length(target) > 0 {
+                _kt0 = map.put(keep, target, "1")  _wt0 = list.add(work, string.concat(target, ""))
+            }
+            tqn = list.size(targets)
+            tqi = 0
+            while tqi < tqn {
+                tqt, _ = list.get(targets, tqi)
+                tqi = tqi + 1
+                if map.has(keep, tqt) == 0 { _ktm = map.put(keep, tqt, "1")  _wtm = list.add(work, string.concat(tqt, "")) }
+            }
+            // If no positional target (scan mode), everything is a root — keep all.
+            no_target = 0
+            if string.length(target) == 0 { if list.size(targets) == 0 { no_target = 1 } }
+            if no_target == 1 {
+                kn = list.size(node_order)
+                ki = 0
+                while ki < kn {
+                    kf, _ = list.get(node_order, ki)
+                    ki = ki + 1
+                    _kall = map.put(keep, kf, "1")
+                }
+            } else {
+                wh = 0
+                wq = list.size(work)
+                while wh < wq {
+                    wn, _ = list.get(work, wh)
+                    wh = wh + 1
+                    if map.has(node_deps, wn) == 1 {
+                        wd, _ = map.get(node_deps, wn)
+                        wdr = wd
+                        while string.length(wdr) > 0 {
+                            wdsp = string.index_of(wdr, " ")
+                            wdt = ""
+                            if wdsp < 0 { wdt = wdr  wdr = "" }
+                            else { wdt = string.substring(wdr, 0, wdsp)  wdr = string.substring(wdr, wdsp + 1, string.length(wdr)) }
+                            if string.length(wdt) > 0 {
+                                if map.has(keep, wdt) == 0 {
+                                    _kw = map.put(keep, wdt, "1")
+                                    _ww = list.add(work, string.concat(wdt, ""))
+                                    wq = wq + 1
+                                }
                             }
                         }
                     }
-                    if string.length(erow_out) > 0 { erow_out = string.concat(erow_out, " ") }
-                    erow_out = string.concat(erow_out, tok_out)
                 }
-                new_edges = string.concat(new_edges, erow_out)
-                new_edges = string.concat(new_edges, "\n")
+            }
+
+            // Emit surviving edges (file order) + filter sorted_raw to survivors.
+            new_edges = ""
+            eon = list.size(node_order)
+            eoi = 0
+            while eoi < eon {
+                en, _ = list.get(node_order, eoi)
+                eoi = eoi + 1
+                if map.has(keep, en) == 1 {
+                    ed, _ = map.get(node_deps, en)
+                    new_edges = string.concat(new_edges, string.concat(en, string.concat(" ", string.concat(ed, "\n"))))
+                }
             }
             _we = io.write_file(edges_path, new_edges)
+
+            filtered_sorted = ""
+            frest = sorted_raw
+            while string.length(frest) > 0 {
+                fnl = string.index_of(frest, "\n")
+                fline = ""
+                if fnl < 0 { fline = frest  frest = "" }
+                else { fline = string.substring(frest, 0, fnl)  frest = string.substring(frest, fnl + 1, string.length(frest)) }
+                ft = string.trim(fline)
+                if string.length(ft) > 0 {
+                    if map.has(keep, ft) == 1 {
+                        if string.length(filtered_sorted) > 0 { filtered_sorted = string.concat(filtered_sorted, "\n") }
+                        filtered_sorted = string.concat(filtered_sorted, ft)
+                    }
+                }
+            }
+            sorted_raw = filtered_sorted
         }
     }
 
