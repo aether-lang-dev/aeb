@@ -188,4 +188,8 @@
 # only at link, not on the libaether.a object compiles) that aeb's release.yml
 # FreeBSD bundle leg needs. Verified against the real 0.680.0 tarball: aeb builds
 # clean, cold-gate + override-dep smoke + full suite green; GLIBC 2.34.
-0.680.0
+#
+# Raised 0.680.0 -> 0.681.0 (2026-09-17). Real floor move: bldr._host_arch() calls
+# 0.681's os.arch() (aether #2051) instead of `uname -m`. Verified against the real
+# 0.681.0 tarball: aeb builds clean, gates green; GLIBC 2.34.
+0.681.0

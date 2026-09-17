@@ -873,22 +873,16 @@ _host_os() {
 }
 
 // _host_arch() — the running machine's CPU arch, normalized to the release
-// vocabulary: "x86_64" or "arm64" (aarch64), else the raw `uname -m`. The word
-// is x86_64 (NOT amd64) to match the aether + aeo ecosystems and aeb's own
-// release assets from v0.300 on — one arch vocabulary across all three. The
-// companion to _host_os() for nodes that name or select a per-platform artifact
-// by <os>-<arch> (e.g. a multi-platform jar's /native/<os>-<arch>/, a classifier
-// jar's name). Aether's std exposes os.platform() but no CPU-arch primitive, so
-// this reads `uname -m` via the same _sh_capture path the rest of the SDK uses
-// (Windows arch resolves via that shell too). Prefer this over inline `uname -m`.
+// vocabulary: "x86_64" (NOT amd64) or "arm64" (NOT aarch64), else the token
+// os.arch() reports — one arch vocabulary across aether + aeo + aeb's release
+// assets (v0.300 on). The companion to _host_os() for nodes that name or select
+// a per-platform artifact by <os>-<arch> (a multi-platform jar's
+// /native/<os>-<arch>/, a classifier jar's name). Now os.arch() (aether 0.681+,
+// the pinned floor): a compile-time primitive that returns exactly this
+// vocabulary with NO shell (works in a sandbox / with no shell), and reports the
+// TARGET arch under a cross-compile where `uname -m` would give the build host's.
 _host_arch() {
-    raw, _e = _sh_capture("uname -m")
-    a = string.trim(raw)
-    if a == "x86_64" { return "x86_64" }
-    if a == "amd64"  { return "x86_64" }
-    if a == "arm64"  { return "arm64" }
-    if a == "aarch64" { return "arm64" }
-    return a
+    return os.arch()
 }
 
 // _host_os_arch() — the "<os>-<arch>" token for the running host (e.g.

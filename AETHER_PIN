@@ -204,4 +204,14 @@
 # bundle leg, so this is what keeps that asset linkable. Verified against the
 # real 0.680.0 linux tarball: aeb builds clean, cold-compile gate green, override
 # -dep smoke 6/6, full suite 149/149; GLIBC floor 2.34 (Debian-12 safe).
-0.680.0
+#
+# Raised 0.680.0 -> 0.681.0 (2026-09-17). A REAL floor move: bldr._host_arch()
+# now calls os.arch() (aether #2051, first in 0.681) instead of shelling
+# `uname -m`. os.arch() is a compile-time CPU-arch primitive returning aeb's
+# exact ecosystem vocabulary (x86_64/arm64/…, never amd64/aarch64) — no process
+# spawn (works with no shell / in a sandbox) AND correct under cross-compile
+# (reports the TARGET arch, where uname -m gives the build host's). The last
+# coreutils shell-out in the arch path is gone. Verified against the real 0.681.0
+# linux tarball: aeb builds clean, cold-gate + override-dep smoke + full suite
+# green; GLIBC floor 2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
+0.681.0
