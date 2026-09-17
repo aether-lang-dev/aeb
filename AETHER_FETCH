@@ -182,4 +182,10 @@
 # two TUs that each emit an aeb SDK closure callback (fs.walk/seq_each) share one
 # definition instead of a duplicate-symbol link error. Verified against the real
 # 0.677.0 tarball: aeb builds clean, cold-compile gate + full suite green; GLIBC 2.34.
-0.677.0
+#
+# Raised 0.677.0 -> 0.680.0 (2026-09-17). FETCH-side reason (not a new aeb-called
+# primitive): 0.680 fixes the FreeBSD `--emit=lib` -fPIC link (0.679 added -fPIC
+# only at link, not on the libaether.a object compiles) that aeb's release.yml
+# FreeBSD bundle leg needs. Verified against the real 0.680.0 tarball: aeb builds
+# clean, cold-gate + override-dep smoke + full suite green; GLIBC 2.34.
+0.680.0

@@ -191,4 +191,17 @@
 # before exec). Verified against the real 0.677.0 linux tarball: aeb builds
 # clean, cold-compile gate green (6/6 SDKs), full suite 136/136; GLIBC floor 2.34
 # (Debian-12 safe). PIN moves in lockstep with FETCH.
-0.677.0
+#
+# Raised 0.677.0 -> 0.680.0 (2026-09-17). PIN moves in lockstep with FETCH; the
+# floor aeb's OWN sources require is unchanged (still std.strarr @0.675 + the
+# @c_callback-weak codegen @0.677 for downstream consumers). The reason to prefer
+# 0.680 is a RELEASE-BUILD fix: 0.679's FreeBSD `--emit=lib` link added -shared
+# -fPIC only on the final link line, but the runtime/stdlib objects in
+# libaether.a were still compiled without -fPIC, so a FreeBSD-15 `--emit=lib`
+# target failed with R_X86_64_* relocation errors (+ a tls_depth TLS reloc).
+# 0.680 compiles those objects with -fPIC on every ELF/PE --emit=lib/staticlib
+# target and fixes the TLS model. aeb's release.yml cross-builds the FreeBSD
+# bundle leg, so this is what keeps that asset linkable. Verified against the
+# real 0.680.0 linux tarball: aeb builds clean, cold-compile gate green, override
+# -dep smoke 6/6, full suite 149/149; GLIBC floor 2.34 (Debian-12 safe).
+0.680.0
