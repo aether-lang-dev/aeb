@@ -9,6 +9,16 @@
 // Probes are relative to the process working directory — aeb is expected
 // to chdir to the monorepo root before invoking this tool.
 //
+// CONTRACT — no comments on dep() lines. This is a deliberately dumb, fast
+// TEXT scan (it runs BEFORE the .ae files are compiled, to build the DAG that
+// topo-sort orders — so there is no AST to consult yet). It matches the literal
+// `dep("…")` needle without understanding // comments or "…" strings. So a
+// dep("…") that appears only inside a `//` comment IS picked up as a real edge
+// (→ a spurious "No rule to make target"). Rather than grow a string-aware
+// comment stripper — a mini-parser reimplementing what the real compiler already
+// does — the rule is simply: do not write a dep("…")/scan("…") string inside a
+// comment. Keep the tool a grep; keep dep() calls out of comments.
+//
 // Usage: extract-deps <ae-file>
 
 import std.string
