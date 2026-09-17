@@ -20,9 +20,12 @@ import fetch (fetch_curl_cmd, sha256_verify_cmd, tar_extract_cmd,
               zip_extract_cmd, _infer_archive_flags, _is_zip_url,
               _ends_with_p, _format_to_flags, _format_is_zip,
               url, sha256, output_to, extract_to, strip_components,
-              format)
+              format, _fetch_verified)
 import std.string
 import std.map
+import std.os
+import std.fs
+import std.cryptography
 
 _str_at(m: ptr, k: string) {
     if map.has(m, k) == 0 { return "" }
@@ -203,6 +206,32 @@ main() {
             url(bm3, "https://first/v1.zip")
             url(bm3, "https://second/v2.zip")
             spec.assert_str_eq(_str_at(bm3, "fetch_url"), "https://second/v2.zip", "url last-call-wins")
+        }
+    }
+
+    // _fetch_verified — the offline paths (cache-skip on a literal-match /
+    // no-checksum, and mismatch removes the blob). Download paths need a
+    // server; covered by itests + the functional check.
+    spec.describe(fw, "_fetch_verified (offline paths)") {
+        spec.it("cached file with a matching literal sha skips (no network)") callback {
+            _m = os.system("rm -rf /tmp/fvtest && mkdir -p /tmp/fvtest && printf 'ENGINE' > /tmp/fvtest/a")
+            want, _we = cryptography.sha256_file("/tmp/fvtest/a")
+            // URL is bogus — a matching cached copy must NOT be fetched.
+            d, e = _fetch_verified("http://0.0.0.0:1/nope", want, "/tmp/fvtest/a")
+            spec.assert_str_eq(e, "", "match → no error, no fetch")
+            spec.assert_str_eq(d, "/tmp/fvtest/a", "returns the dest")
+        }
+        spec.it("cached file with empty checksum skips (trust cache)") callback {
+            _m = os.system("mkdir -p /tmp/fvtest && printf 'ENGINE' > /tmp/fvtest/b")
+            d, e = _fetch_verified("http://0.0.0.0:1/nope", "", "/tmp/fvtest/b")
+            spec.assert_str_eq(e, "", "no checksum + present cache → skip")
+        }
+        spec.it("cached file with a mismatching literal sha refetches (and fails on a dead URL)") callback {
+            _m = os.system("mkdir -p /tmp/fvtest && printf 'ENGINE' > /tmp/fvtest/c")
+            // want != the cached file's hash → not a skip; the (dead) URL fetch fails.
+            d, e = _fetch_verified("http://0.0.0.0:1/nope", "0000000000000000000000000000000000000000000000000000000000000000", "/tmp/fvtest/c")
+            spec.assert_true(string_contains(e, "download failed") == 1, "mismatch + dead URL → download-failed error")
+            _cl = os.system("rm -rf /tmp/fvtest")
         }
     }
 

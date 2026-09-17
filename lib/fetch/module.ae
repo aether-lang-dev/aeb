@@ -50,6 +50,103 @@ import std.fs
 import std.list
 import std.map
 import std.path
+import std.http.client
+import std.cryptography
+
+// --- _fetch_verified: pure-stdlib download + sha256 verify + idempotent cache ---
+//
+// fetch._fetch_verified(url, sha256_source, dest) -> (dest, err)
+//
+// The reusable core of a `.getFromGitHubReleases.ae`-style fetch producer: it
+// collapses the need-vs-want-with-cache dance (download the artifact, verify its
+// sha256, skip when a cached copy already matches) that every such node
+// otherwise hand-rolls. PURE Aether stdlib — http.client (redirect-following),
+// cryptography.sha256_file, fs — NO shelled curl / wget / sha256sum. Unlike the
+// fetch.file BUILDER (a node that takes a LITERAL sha and shells curl/sha256sum),
+// this is a plain helper callable inline from a build block, and the checksum can
+// come from a runtime-fetched .sha256 SIDECAR.
+//
+//   url            — the asset URL.
+//   sha256_source  — either a 64-char lowercase-hex literal, OR a URL to a
+//                    ".sha256" sidecar (detected: starts with "http"). The
+//                    sidecar's first whitespace-separated word is the hash. An
+//                    empty/absent sidecar means "no published checksum" →
+//                    verification is skipped (a present cached copy is trusted).
+//   dest           — the cache/output path. Its parent is created if needed.
+//
+// Idempotent: a present cached copy whose sha256 matches `want` skips the
+// network entirely. On a checksum mismatch the bad blob is removed and a
+// non-empty err is returned (fail loud — the caller bldr.fail's).
+// Returns (dest, "") on success, (dest, "<reason>") on failure.
+_fetch_verified(url: string, sha256_source: string, dest: string) -> (string, string) {
+    // Resolve the wanted hash: a sidecar URL is fetched; anything else is the
+    // literal hash. "" want = no published checksum → skip verify.
+    want = ""
+    if string.starts_with(sha256_source, "http") == 1 {
+        sc = _fv_download_text(sha256_source)
+        want = _fv_first_word(sc)
+    } else {
+        want = string.trim(sha256_source)
+    }
+
+    _mp = fs.mkdir_p(path.dirname(dest))
+
+    // Idempotent skip: cached copy present AND (no checksum OR it matches).
+    if fs.exists(dest) == 1 {
+        if string.length(want) == 0 {
+            return dest, ""
+        }
+        have, _he = cryptography.sha256_file(dest)
+        if string.equals(have, want) == 1 {
+            return dest, ""
+        }
+    }
+
+    // Download + write.
+    body, blen = _fv_download_bytes(url)
+    if blen <= 0 {
+        return dest, string.concat("download failed: ", url)
+    }
+    _w = fs.write_binary(dest, body, blen)
+
+    // Verify (when a checksum is published).
+    if string.length(want) > 0 {
+        got, _ge = cryptography.sha256_file(dest)
+        if string.equals(got, want) == 0 {
+            // Remove the bad blob so a later run doesn't trust it.
+            _rf = fs.remove_tree(dest)
+            return dest, string.concat("sha256 mismatch for ", url)
+        }
+    }
+    return dest, ""
+}
+
+// GET a URL, following GitHub's CDN redirect; (body, length), length <= 0 on any
+// failure. Binary-safe (response_body_length, not str length).
+_fv_download_bytes(url: string) -> (string, int) {
+    req = client.request("GET", url)
+    if req == null { return "", 0 }
+    _r = client.set_follow_redirects(req, 5)
+    resp, err = client.send_request(req)
+    if string.length(err) > 0 { return "", 0 }
+    if client.response_status(resp) != 200 { return "", 0 }
+    body = client.response_body(resp)
+    len = client.response_body_length(resp)
+    return body, len
+}
+
+_fv_download_text(url: string) -> string {
+    body, len = _fv_download_bytes(url)
+    if len <= 0 { return "" }
+    return body
+}
+
+_fv_first_word(s: string) -> string {
+    t = string.trim(s)
+    sp = string.index_of(t, " ")
+    if sp < 0 { return t }
+    return string.substring(t, 0, sp)
+}
 
 // --- DSL setters (consumed by both file and archive builders) ---
 
