@@ -214,4 +214,25 @@
 # coreutils shell-out in the arch path is gone. Verified against the real 0.681.0
 # linux tarball: aeb builds clean, cold-gate + override-dep smoke + full suite
 # green; GLIBC floor 2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
-0.681.0
+#
+# Raised 0.681.0 -> 0.686.0 (2026-09-18). A FETCH-side lockstep move, not a real
+# floor: aeb calls no new 0.682-0.686 primitive, so its own sources still compile
+# on 0.681 — the floor moves with FETCH per the no-back-compat DSL policy. Scanned
+# 0.682-0.686; all fixes + tests, no grammar/API/removed change aeb touches. Two
+# are worth naming. (1) 0.683 fixes the E0200 "block setter called as a node
+# builder" discriminator (0.667's rule mis-rejected DSL containers in modules that
+# ALSO declare a builder — aether-ui#147); aeb relies on that same
+# setter-in-builder-position rule (itests/setter-mangle-collision.sh), and 0.683's
+# fix keeps aeb's void-setter misuse still caught while unbreaking handle-returning
+# containers — so it's aeb-adjacent even though aeb didn't hit the false-reject.
+# (2) 0.686 adds the std.snapshot concurrent-CAS test (500 concurrent CAS land
+# exactly 500; 300 writers vs 300 readers, no torn reads) — motivated directly by
+# selaenium's Grid hub registry, the pool-owned COW work this session helped land
+# (the send-path/reclamation arc, aether #2082/#2083). A pleasant bookend, not an
+# aeb requirement. Also folds 0.682 (float const-fold spelling + Windows crash
+# names), 0.684 (mixed-string-return closure UAF — same closure-return class as the
+# #2054/PR #2034 family aeb has been bitten by, now belt-and-suspenders), 0.685
+# (fs.realpath Windows UNC + long/int const-fold). Verified against the real
+# 0.686.0 linux tarball: aeb builds clean, cold-gate + override-dep smoke + full
+# suite green; GLIBC floor 2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
+0.686.0
