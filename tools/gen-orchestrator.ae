@@ -71,6 +71,72 @@ main() {
     }
     println("")
 
+    // The per-node bookkeeping (selector gate, rc capture, status, the
+    // telemetry record) used to be emitted INLINE for every node: ~360
+    // tokens each, so a 138-node fan-out (aether-ui) produced a 49,800-token
+    // orchestrator and aetherc's 50,000-token cap on a main file failed the
+    // whole build the day one more `.build.ae` was added — "source file
+    // exceeds maximum token limit" with no file named, pointing at nothing
+    // the author touched. It is emitted ONCE here as two helpers, and each
+    // node costs ~35 tokens: the only thing that genuinely differs per node
+    // is the extern it calls, which cannot be a value (a fn passed from a
+    // separately-compiled TU is DCE'd, aether #2037), so that one call stays
+    // inline and everything around it moves here.
+    //
+    // Same TU as main(), so bldr's cloned-from-import statics are visible.
+    println("_aeb_selected(sel: string, label: string) -> int {")
+    println("    if string.length(sel) == 0 { return 1 }")
+    println("    if string.equals(sel, label) == 1 { return 1 }")
+    println("    return 0")
+    println("}")
+    println("")
+    // A non-zero node return that did NOT already go through bldr.fail()
+    // (e.g. a custom gate that just `return 1`s) is marked failed here, so
+    // both the status/JSON and the any_failed gate in main() see it. The
+    // explicit bldr.fail() channel still works and takes precedence (a node
+    // that failed via fail() stays failed regardless of its rc). Marked at
+    // the SESSION level: bldr.fail() takes a NODE ctx, we hold the session.
+    println("_aeb_record(s: ptr, root: string, records: ptr, label: string, type_word: string, nrc: int, start: long) {")
+    println("    if nrc != 0 { bldr._mark_failed(s, label, string.concat(\"node returned non-zero rc=\", string.from_int(nrc))) }")
+    println("    bldr.done(s, label)")
+    println("    end = clock_ns()")
+    println("    rec = map.new()")
+    println("    map.put(rec, \"label\", label)")
+    println("    map.put(rec, \"type\", type_word)")
+    println("    map.put(rec, \"wall_ms\", string.from_int((end - start) / 1000000))")
+    println("    st = bldr.status_of(s, label)")
+    println("    if string.length(st) == 0 { st = \"passed\" }")
+    println("    map.put(rec, \"status\", st)")
+    // rc reflects the node's logical outcome so the JSON's rc agrees with
+    // status (a failed test can't report rc:0). The in-process orchestrator
+    // has no child exit code to read — status IS the outcome here — so map
+    // failed→1, everything else→0. (The driver's per-node make path reads a
+    // real child rc from the .rc marker.)
+    println("    rc = \"0\"")
+    println("    if string.equals(st, \"failed\") == 1 { rc = \"1\" }")
+    println("    map.put(rec, \"rc\", rc)")
+    println("    td = bldr._label_to_target_dir(root, label)")
+    println("    map.put(rec, \"cache\", bldr._read_cache_outcome(td))")
+    // Read the test-result marker for EVERY node — gated at runtime on the
+    // marker existing (thr), NOT on the type name. A node whose build wrote
+    // pass/fail markers (via a *_test SDK verb) gets the row whatever its
+    // filename; one that didn't leaves thr=0 and renders the plain line.
+    // No "type == test" inference.
+    println("    tp, tf, tsk, thr = bldr._read_test_result(td)")
+    println("    if thr == 1 {")
+    println("        map.put(rec, \"test_passed\", string.from_int(tp))")
+    println("        map.put(rec, \"test_failed\", string.from_int(tf))")
+    println("        map.put(rec, \"test_skipped\", string.from_int(tsk))")
+    println("        map.put(rec, \"test_has_report\", string.from_int(bldr._read_test_report_flag(td)))")
+    println("    }")
+    println("    tfn = bldr._read_test_failures(td)")
+    println("    if string.length(tfn) > 0 {")
+    println("        map.put(rec, \"test_failed_names\", tfn)")
+    println("    }")
+    println("    list.add(records, rec)")
+    println("}")
+    println("")
+
     // main() calls everything in topo order, accumulating per-module
     // telemetry records (label, type, wall_ms, cache outcome). At the
     // end it hands the records list to bldr.render_telemetry for the
@@ -102,69 +168,20 @@ main() {
         // .install.ae→install, .essais.ae→essais. (The route IS the filename.)
         type = infer_type(file)
         type_word = type
-        // Per-node selector gate (slice A): run this node iff no
-        // selector was given (all-in-one) or it names this label.
-        println("    _run = 0")
-        println("    if string.length(_sel) == 0 { _run = 1 }")
-        println("    if string.equals(_sel, \"${label}\") == 1 { _run = 1 }")
-        println("    if _run == 1 {")
-        println("    _start = clock_ns()")
-        // Run the node and CAPTURE its return. This is now trustworthy: every
-        // SDK builder is declared `: int` (whole-tree sweep) and transform-ae
-        // rewrites the node entry to `<fname>(s: ptr): int {`, so a node whose
-        // last statement is a bare builder call flows that builder's real rc as
-        // its own return — no longer the void-through-`extern -> int` register
-        // garbage that forced us to discard it (which in turn let a hand-written
-        // node `return 1` exit falsely-green — the presubmit bug,
-        // asks/node-nonzero-return-not-propagated-to-exit-code.md).
-        //
-        // A non-zero node return that did NOT already go through bldr.fail()
-        // (e.g. a custom gate that just `return 1`s) is marked failed here, so
-        // both the status/JSON and the any_failed gate below see it. The
-        // explicit bldr.fail() channel still works and takes precedence (a
-        // node that failed via fail() stays failed regardless of its rc).
-        println("    _nrc = ${fname}(s)")
-        // Mark failed at the SESSION level: bldr.fail() takes a NODE ctx (it
-        // reads _session/module_dir off it) — we hold the session s here, so
-        // call the session primitive bldr._mark_failed(s, label, reason)
-        // directly. This is the same list any_failed(s) reads below.
-        println("    if _nrc != 0 { bldr._mark_failed(s, \"${label}\", string.concat(\"node returned non-zero rc=\", string.from_int(_nrc))) }")
-        println("    bldr.done(s, \"${label}\")")
-        println("    _end = clock_ns()")
-        println("    _rec = map.new()")
-        println("    map.put(_rec, \"label\", \"${label}\")")
-        println("    map.put(_rec, \"type\", \"${type_word}\")")
-        println("    map.put(_rec, \"wall_ms\", string.from_int((_end - _start) / 1000000))")
-        println("    _st = bldr.status_of(s, \"${label}\")")
-        println("    if string.length(_st) == 0 { _st = \"passed\" }")
-        println("    map.put(_rec, \"status\", _st)")
-        // rc reflects the node's logical outcome so the JSON's rc agrees
-        // with status (a failed test can't report rc:0). The in-process
-        // orchestrator has no child exit code to read — status IS the
-        // outcome here — so map failed→1, everything else→0. (The driver's
-        // per-node make path reads a real child rc from the .rc marker.)
-        println("    _rc = \"0\"")
-        println("    if string.equals(_st, \"failed\") == 1 { _rc = \"1\" }")
-        println("    map.put(_rec, \"rc\", _rc)")
-        println("    _td = bldr._label_to_target_dir(_root, \"${label}\")")
-        println("    map.put(_rec, \"cache\", bldr._read_cache_outcome(_td))")
-        // Read the test-result marker for EVERY node — gated at runtime on the
-        // marker existing (_thr), NOT on the type name. A node whose build wrote
-        // pass/fail markers (via a *_test SDK verb) gets the row whatever its
-        // filename; one that didn't leaves _thr=0 and renders the plain line.
-        // No "type == test" inference.
-        println("    _tp, _tf, _tsk, _thr = bldr._read_test_result(_td)")
-        println("    if _thr == 1 {")
-        println("        map.put(_rec, \"test_passed\", string.from_int(_tp))")
-        println("        map.put(_rec, \"test_failed\", string.from_int(_tf))")
-        println("        map.put(_rec, \"test_skipped\", string.from_int(_tsk))")
-        println("        map.put(_rec, \"test_has_report\", string.from_int(bldr._read_test_report_flag(_td)))")
-        println("    }")
-        println("    _tfn = bldr._read_test_failures(_td)")
-        println("    if string.length(_tfn) > 0 {")
-        println("        map.put(_rec, \"test_failed_names\", _tfn)")
-        println("    }")
-        println("    list.add(_records, _rec)")
+        // Per-node selector gate (slice A): run this node iff no selector
+        // was given (all-in-one) or it names this label. Then run the node
+        // and CAPTURE its return. This is trustworthy: every SDK builder is
+        // declared `: int` (whole-tree sweep) and transform-ae rewrites the
+        // node entry to `<fname>(s: ptr): int {`, so a node whose last
+        // statement is a bare builder call flows that builder's real rc as
+        // its own return — no longer the void-through-`extern -> int`
+        // register garbage that forced us to discard it (which in turn let a
+        // hand-written node `return 1` exit falsely-green — the presubmit
+        // bug, asks/node-nonzero-return-not-propagated-to-exit-code.md).
+        println("    if _aeb_selected(_sel, \"${label}\") == 1 {")
+        println("        _start = clock_ns()")
+        println("        _nrc = ${fname}(s)")
+        println("        _aeb_record(s, _root, _records, \"${label}\", \"${type_word}\", _nrc, _start)")
         println("    }")
         i = i + 1
     }

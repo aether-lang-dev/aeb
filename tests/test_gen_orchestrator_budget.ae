@@ -1,0 +1,115 @@
+// gen-orchestrator's output must stay inside aetherc's per-file token cap
+// however many nodes the fan-out has.
+//
+// aetherc lexes a MAIN file into a fixed 50,000-token array (modules get
+// 100,000). The orchestrator used to emit ~360 tokens of bookkeeping per
+// node inline, so a 138-node fan-out (aether-ui) sat at 49,800 tokens and
+// the next `.build.ae` anyone added failed the whole build with "source
+// file exceeds maximum token limit" — no file named, nothing the author
+// touched. The bookkeeping now lives in two helpers emitted once, and a
+// node costs ~35 tokens.
+//
+// This pins that: generate an orchestrator for 500 synthetic nodes (which
+// would have been ~180,000 tokens under the old scheme) and require that
+// `ae check` accepts it against the real lib/bldr. A regression back to
+// inline emission cannot pass the cap at that count.
+//
+// gen-orchestrator is a compiled tool, not a lib, so it runs as a
+// subprocess — built on demand with the harness's compiler ($AETHER,
+// exported by tests/run.sh), the same way test_extract_deps_scan does.
+
+import std.spec
+import std.string
+import std.os
+import std.file
+import std.fs
+import std.io
+import std.path
+
+import bldr (_sh, _sh_capture)
+
+_mktempdir() {
+    // Native form on Windows (see test_extract_deps_scan._mktempdir).
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
+}
+
+_ae_bin() {
+    ae_bin = os.getenv("AETHER")
+    if string.length(ae_bin) == 0 { ae_bin = "ae" }
+    return ae_bin
+}
+
+_ensure_gen_orchestrator_built() {
+    if file.exists("tools/gen-orchestrator") == 1 { return 0 }
+    if file.exists("tools/gen-orchestrator.exe") == 1 { return 0 }
+    _sh("${_ae_bin()} build tools/gen-orchestrator.ae -o tools/gen-orchestrator --lib lib --lib tools >/dev/null 2>&1")
+    return 0
+}
+
+// The synthetic node list: dir_<i>/.build.ae, one per line, as a shell
+// script that expands them onto gen-orchestrator's argv.
+_write_node_script(dir: string, n: int) {
+    abs_raw, _e = _sh_capture("readlink -f tools/gen-orchestrator")
+    gen = string.trim(abs_raw)
+    body = "#!/bin/sh\nset -e\nargs=\"\"\ni=0\nwhile [ $i -lt ${n} ]; do\n  args=\"$args node_$i/.build.ae\"\n  i=$((i+1))\ndone\nexec '${gen}' $args\n"
+    fs.write_atomic(path.join(dir, "gen.sh"), body, string.length(body))
+    return 0
+}
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "gen-orchestrator stays inside the main-file token cap") {
+        spec.it("a 500-node orchestrator type-checks against lib/bldr") callback {
+            _ensure_gen_orchestrator_built()
+            dir = _mktempdir()
+            _write_node_script(dir, 500)
+            out = path.join(dir, "_orchestrator.ae")
+            _sh("sh '${dir}/gen.sh' > '${out}'")
+
+            spec.assert_true(file.exists(out), "gen-orchestrator wrote the orchestrator")
+
+            // One helper call per node, not a copy of the bookkeeping.
+            src = io_read(out)
+            spec.assert_eq(_count(src, "_aeb_record(s, _root, _records, "), 500,
+                           "every node records through the shared helper")
+            spec.assert_eq(_count(src, "_aeb_record(s: ptr"), 1,
+                           "the record helper is emitted exactly once")
+            spec.assert_eq(_count(src, "_aeb_selected(sel: string"), 1,
+                           "the selector helper is emitted exactly once")
+
+            // The real gate: aetherc's lexer runs before the type-checker, so
+            // an over-budget file fails here with "exceeds maximum token
+            // limit" whatever else is right about it.
+            rc = _sh("${_ae_bin()} check --lib lib '${out}' >/dev/null 2>&1")
+            spec.assert_eq(rc, 0, "ae check accepts a 500-node orchestrator (under the 50,000-token cap)")
+
+            _sh("rm -rf '${dir}'")
+        }
+    }
+
+    return spec.run_summary(fw)
+}
+
+io_read(p: string) -> string {
+    s, _err = io.read_file(p)
+    return s
+}
+
+_count(hay: string, needle: string) -> int {
+    n = 0
+    at = 0
+    nl = string.length(needle)
+    while 1 == 1 {
+        i = string.index_of_from(hay, needle, at)
+        if i < 0 { return n }
+        n = n + 1
+        at = i + nl
+    }
+    return n
+}
