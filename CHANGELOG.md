@@ -4,6 +4,22 @@
 
 ### Fixed
 
+- **A fan-out with ~140 nodes could not build at all: the generated
+  orchestrator blew aetherc's 50,000-token cap on a main file.**
+  `gen-orchestrator` emitted the whole per-node bookkeeping (selector gate,
+  rc capture, status, the telemetry record) INLINE for every node — ~360
+  tokens each — so aether-ui's 138-node tree sat at 49,800 tokens and the
+  next `.build.ae` anyone added failed with `source file exceeds maximum
+  token limit (50000 tokens)` with no file named and nothing the author
+  touched implicated (aether-ui #140). The bookkeeping is now two helpers
+  emitted once (`_aeb_selected`, `_aeb_record`) and a node costs ~35 tokens:
+  the same 138-node orchestrator is 7,227 tokens, headroom for well over a
+  thousand nodes. Behaviour is unchanged — same selector semantics, same
+  rc→`_mark_failed` marking, same record fields. Pinned by
+  `tests/test_gen_orchestrator_budget.ae`, which generates a 500-node
+  orchestrator (~180,000 tokens under the old scheme) and requires
+  `ae check` to accept it against the real `lib/bldr`.
+
 - **`make install` destroyed `tools/aeb-resolve.jar`, breaking every
   maven/java/scala/kotlin build.** The install does
   `rm -rf $(SHAREDIR)/tools` then `cp -R tools $(SHAREDIR)/tools`, but the
