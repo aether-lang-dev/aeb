@@ -235,4 +235,25 @@
 # (fs.realpath Windows UNC + long/int const-fold). Verified against the real
 # 0.686.0 linux tarball: aeb builds clean, cold-gate + override-dep smoke + full
 # suite green; GLIBC floor 2.34 (Debian-12 safe). PIN moves in lockstep with FETCH.
-0.686.0
+#
+# Raised 0.686.0 -> 0.695.0 (2026-09-19). FETCH-side lockstep, and this one is
+# ECOSYSTEM-RELEVANT to a feature aeb now ships: aeb's aether SDK gained
+# aether.emit_binary_package (this release), which produces `ae add binary`-
+# consumable packages — the PRODUCER side of aether/tools/ae.c ae_try_binary_
+# package (0.694). 0.694 added `ae add` binary-package INSTALL; 0.695 makes the
+# CONSUMER robust — a binary-package `import` inside a transitively-imported /
+# dotted wrapper module now resolves (the prepass walks the full source-import
+# graph), not just an import written in the entry file. Together they complete
+# the round trip aeb's emitter targets (asked for by the libphonenumber-ae /
+# datastar line). aeb calls no new primitive from 0.687-0.695 — its own sources
+# still compile on 0.681 — so the floor still moves with FETCH, not because aeb
+# requires it; but pinning 0.695 means an aeb that emits ae-add packages travels
+# with the ae that best consumes them. Scanned 0.687-0.695: 0.687 operator-chain
+# >256 nesting fix, 0.688 Windows fs.symlink + readlink leak, 0.689 nested-interp-
+# in-println crash, 0.691 tuple-into-scalar-param now a compile error (aeb builds
+# clean — no latent tuple-arg bug), 0.692 Windows test-cleanup + 0.693 LSP/UTF-8,
+# 0.694 `ae add` binary install, 0.695 the consumer import-graph walk. Verified
+# against the real 0.695.0 linux tarball: aeb builds clean, cold-gate + override-
+# dep smoke + ae-add-binary-package smoke (6/6, incl. real `ae add` round trip) +
+# full suite 151/151 green; GLIBC floor 2.34. PIN moves in lockstep with FETCH.
+0.695.0

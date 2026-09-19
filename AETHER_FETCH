@@ -200,4 +200,13 @@
 # selaenium Grid registry this session helped land). Verified against the real
 # 0.686.0 tarball: aeb builds clean, cold-gate + override-dep smoke + full suite
 # green; GLIBC 2.34.
-0.686.0
+#
+# Raised 0.686.0 -> 0.695.0 (2026-09-19). FETCH-side lockstep (see AETHER_PIN for
+# the 0.687-0.695 scan). Ecosystem-relevant: aeb's aether SDK now emits `ae add
+# binary`-consumable packages; 0.694 added the `ae add` binary INSTALL and 0.695
+# makes the CONSUMER robust (binary-package import in a transitively-imported/
+# dotted wrapper module now resolves). Pinning 0.695 travels aeb's emitter with
+# the ae that best consumes what it produces. Verified against the real 0.695.0
+# tarball: aeb builds clean, cold-gate + override-dep + ae-add-binary-package
+# smoke + full suite 151/151 green; GLIBC 2.34.
+0.695.0
