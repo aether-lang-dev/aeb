@@ -578,6 +578,45 @@ _resolve_libaether_dir(aether_dir: string) {
     return ""
 }
 
+// _assert_libaether_floor(libaether_dir) — enforce the Aether >= 0.681 FLOOR on
+// the archive that will actually be LINKED, not just the compiler version. The
+// orchestrator's generated C references os_arch_raw (from os.arch(), an 0.681
+// primitive) whenever a node uses it — e.g. aether.emit_binary_package — so a
+// pre-0.681 libaether.a fails the whole fan-out link with a raw
+// `undefined reference to os_arch_raw`. This turns that cryptic failure into a
+// legible floor error that names the exact stale archive.
+//
+// WHY HERE, not the compiler-version check in the trampoline: a box can have a
+// >= 0.681 `ae` beside a STALE libaether.a (servirtium-vcr hit exactly this — a
+// 0.695 ae, but an older <prefix>/lib/aether/libaether.a left by a prior install
+// shadowing the current <prefix>/lib/libaether.a). The compiler passes the
+// version gate; the LINK is what's stale. So the floor must be asserted on the
+// resolved archive. os_arch_raw is the 0.681 marker symbol; it appears in the
+// archive's symbol table (grep the file — no nm dependency, works on Windows).
+_assert_libaether_floor(libaether_dir: string) {
+    if string.length(libaether_dir) == 0 { return }   // resolution failed — caller already diagnoses
+    lib_a = string.concat(libaether_dir, "/libaether.a")
+    if fs.exists(lib_a) == 0 { return }
+    // grep -c counts matching lines; a symbol table entry for os_arch_raw shows
+    // up as a plain string in the .a. -a treats the archive as text (it has NULs).
+    out, _e = _sh_capture_link(string.concat("grep -a -c os_arch_raw '", string.concat(lib_a, "' 2>/dev/null")))
+    n = string.trim(out)
+    if string.length(n) == 0 { return }   // grep unavailable — don't false-positive; the link still catches a real miss
+    // Aether `==` is not string value comparison — use string.equals (a bare
+    // `n == "0"` is always false even when n is "0"; the local-shadows/`==`
+    // string-compare footgun this codebase avoids everywhere with string.equals).
+    if string.equals(n, "0") == 1 {
+        println("aeb: the Aether runtime archive being linked is older than the 0.681 floor.")
+        println(string.concat("aeb:   ", string.concat(lib_a, " has no os_arch_raw (an Aether 0.681 primitive).")))
+        println("aeb:   aeb (and any node using os.arch(), e.g. aether.emit_binary_package) needs")
+        println("aeb:   Aether >= 0.681. Your `ae` may be newer while THIS archive is a stale")
+        println("aeb:   leftover from an older install shadowing the current one.")
+        println("aeb:   Fix: reinstall the toolchain (or remove the stale libaether.a) so the")
+        println("aeb:   linked archive matches your `ae`. See <prefix>/lib/aether/ vs <prefix>/lib/.")
+        exit(2)
+    }
+}
+
 // Resolve the Aether include root. Generated C files include headers
 // with bare names (#include "aether_panic.h"), but a real install
 // nests them under include/aether/{runtime,std}/<subdir>/. We probe
@@ -726,6 +765,10 @@ main() {
     esuf           = _exe_suffix_link()
     aetherc        = string.concat(string.concat(aether_dir, "/aetherc"), esuf)
     libaether_dir  = _resolve_libaether_dir(aether_dir)
+    // 0.681 FLOOR on the archive that will be linked (catches a stale libaether.a
+    // beside a current `ae` — the servirtium-vcr case — before the orchestrator
+    // link fails with a cryptic `undefined reference to os_arch_raw`).
+    _assert_libaether_floor(libaether_dir)
 
     // PATH-style --lib for the per-file + orchestrator aetherc compiles.
     // <aeb_lib> resolves the shipped/consumer SDK modules; appending the

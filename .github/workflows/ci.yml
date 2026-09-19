@@ -125,5 +125,10 @@ jobs:
       # green whatever ae the CI toolchain pins.
       - name: ae-add binary-package emitter smoke
         run: itests/ae-add-binary-package-smoke.sh
+      # Aether >= 0.681 floor is enforced on the libaether.a aeb-link LINKS, so a
+      # stale archive beside a current ae fails with a legible floor error rather
+      # than a cryptic `undefined reference to os_arch_raw` (servirtium-vcr).
+      - name: libaether 0.681 floor guard
+        run: itests/libaether-floor-guard.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh
