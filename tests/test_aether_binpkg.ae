@@ -9,7 +9,7 @@
 import std.spec
 import std.string
 
-import aether (binary_package_toml_content)
+import aether (binary_package_toml_content, _ae_build_triple_to_asset)
 
 main() {
     fw = spec.init()
@@ -32,6 +32,37 @@ main() {
             // parser reads the quoted value literally.
             toml = binary_package_toml_content("core_v2")
             spec.assert_contains(toml, "binary = \"core_v2\"", "verbatim stem")
+        }
+    }
+
+    // The `ae build --target=` triple vocabulary (<arch>-<os>, aarch64) differs
+    // from the ae-add asset triple (<os>-<arch>, arm64 = ae_host_triple/os.arch's
+    // spelling) on BOTH axes. A target() reaches emit_binary_package in the ae
+    // build spelling and MUST be translated, or an installing host fetches the
+    // wrong asset. This is the drift-prone surface, so pin the whole cross set.
+    spec.describe(fw, "_ae_build_triple_to_asset") {
+        spec.it("aarch64 -> arm64, arch-first -> os-first, per OS") callback {
+            spec.assert_str_eq(_ae_build_triple_to_asset("aarch64-linux"), "linux-arm64", "linux arm")
+            spec.assert_str_eq(_ae_build_triple_to_asset("x86_64-linux"), "linux-x86_64", "linux x64")
+            spec.assert_str_eq(_ae_build_triple_to_asset("aarch64-macos"), "macos-arm64", "macos arm")
+            spec.assert_str_eq(_ae_build_triple_to_asset("x86_64-macos"), "macos-x86_64", "macos x64")
+            spec.assert_str_eq(_ae_build_triple_to_asset("x86_64-windows"), "windows-x86_64", "win x64")
+            spec.assert_str_eq(_ae_build_triple_to_asset("aarch64-windows"), "windows-arm64", "win arm")
+            spec.assert_str_eq(_ae_build_triple_to_asset("x86_64-freebsd"), "freebsd-x86_64", "freebsd x64")
+            spec.assert_str_eq(_ae_build_triple_to_asset("aarch64-freebsd"), "freebsd-arm64", "freebsd arm")
+        }
+        spec.it("musl folds to plain linux (same asset OS word)") callback {
+            spec.assert_str_eq(_ae_build_triple_to_asset("x86_64-linux-musl"), "linux-x86_64", "musl x64")
+            spec.assert_str_eq(_ae_build_triple_to_asset("aarch64-linux-musl"), "linux-arm64", "musl arm")
+        }
+        spec.it("an already-ae-add triple is a no-op (os-first, arm64)") callback {
+            // A publisher who passes the asset spelling directly still gets the
+            // right answer (os token matched first, arm64 matched as arm64).
+            spec.assert_str_eq(_ae_build_triple_to_asset("linux-arm64"), "linux-arm64", "already asset arm")
+            spec.assert_str_eq(_ae_build_triple_to_asset("windows-x86_64"), "windows-x86_64", "already asset x64")
+        }
+        spec.it("an unrecognised triple passes through unchanged") callback {
+            spec.assert_str_eq(_ae_build_triple_to_asset("wasm32-wasi"), "wasm32-wasi", "wasm untouched")
         }
     }
 

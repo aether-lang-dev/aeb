@@ -3081,13 +3081,67 @@ binary_package_toml_content(stem: string) {
 
 // _shlib_ext() — the running host's shared-lib extension, matching ae.c's
 // ae_host_shlib_ext(): macOS .dylib, Windows .dll, every ELF host (linux,
-// freebsd) .so. So the staged asset is named for THIS host's lib; a release
-// workflow runs one emit per platform to publish the full per-triple set.
+// freebsd) .so.
 _shlib_ext() {
     p = os.platform()
     if p == "darwin" { return ".dylib" }
     if p == "windows" { return ".dll" }
     return ".so"
+}
+
+// _ae_build_triple_to_asset(t) — translate an `ae build --target=` triple into
+// the ae-add asset triple. These are TWO spellings of the same platform and the
+// vocabularies differ on BOTH axes:
+//   ae build:  <arch>-<os>  with `aarch64`  (aarch64-linux, x86_64-windows, …)
+//   ae add  :  <os>-<arch>  with `arm64`    (linux-arm64,   windows-x86_64, …)
+// ae add's spelling is ae_host_triple()/os.arch()'s (arm64 never aarch64,
+// x86_64 never amd64; os-first). A target() the publisher passes is the ae build
+// spelling (shared_lib's cross setter requires it), so the asset name must be
+// translated or an installing host would look for the wrong asset. Recognises
+// the linux/macos/windows/freebsd cross set (incl. -musl, folded to plain
+// linux); an unrecognised triple is returned unchanged (best effort). Pure.
+_ae_build_triple_to_asset(t: string) {
+    os_ = ""
+    if string.index_of(t, "windows") >= 0 { os_ = "windows" }
+    if string.length(os_) == 0 { if string.index_of(t, "macos") >= 0 { os_ = "macos" } }
+    if string.length(os_) == 0 { if string.index_of(t, "darwin") >= 0 { os_ = "macos" } }
+    if string.length(os_) == 0 { if string.index_of(t, "freebsd") >= 0 { os_ = "freebsd" } }
+    if string.length(os_) == 0 { if string.index_of(t, "linux") >= 0 { os_ = "linux" } }
+    if string.length(os_) == 0 { return t }     // unrecognised — pass through
+    arch = ""
+    if string.index_of(t, "aarch64") >= 0 { arch = "arm64" }
+    if string.length(arch) == 0 { if string.index_of(t, "arm64") >= 0 { arch = "arm64" } }
+    if string.length(arch) == 0 { if string.index_of(t, "x86_64") >= 0 { arch = "x86_64" } }
+    if string.length(arch) == 0 { if string.index_of(t, "amd64") >= 0 { arch = "x86_64" } }
+    if string.length(arch) == 0 { return t }     // unrecognised arch — pass through
+    return string.concat(os_, string.concat("-", arch))
+}
+
+// _binpkg_triple(builder_map) — the ae-add <os>-<arch> triple the emitted asset
+// is named for. A target() cross build (the one-host matrix release model) names
+// the asset for the BUILT triple (translated from the ae build spelling); a host
+// build (no target()) uses the running host's triple (already ae-add spelling).
+// This is what lets a single Linux host emit the full per-triple ae-add set
+// through the builder, one aeb run per target(), instead of the publisher
+// hand-rolling the asset names in a release script.
+_binpkg_triple(builder_map: ptr) {
+    t = _node_target(builder_map)
+    if string.length(t) > 0 { return _ae_build_triple_to_asset(t) }
+    return bldr._host_os_arch()
+}
+
+// _binpkg_ext(builder_map) — the shared-lib extension for the asset, keyed to
+// the TARGET under a cross build (so a windows/macos cross-target names
+// .dll/.dylib even though the emit runs on a Linux host), else the host ext.
+// Matches on the ae build triple's OS token (which carries the same OS words in
+// either spelling). Pure.
+_binpkg_ext(builder_map: ptr) {
+    t = _node_target(builder_map)
+    if string.length(t) == 0 { return _shlib_ext() }
+    if string.index_of(t, "windows") >= 0 { return ".dll" }
+    if string.index_of(t, "macos") >= 0 { return ".dylib" }
+    if string.index_of(t, "darwin") >= 0 { return ".dylib" }
+    return ".so"    // linux, freebsd, and other ELF targets
 }
 
 // _binpkg_tag(bmap) — the release tag the asset names carry. Explicit
@@ -3108,9 +3162,9 @@ _binpkg_tag(bmap: ptr) {
 }
 
 // aether.emit_binary_package(b) — stage the node's built shared lib as an
-// `ae add`-installable binary package under target/ae-add/:
+// `ae add`-installable binary package under target/<node>/ae-add/:
 //   aether.toml                          ([package] binary = "<stem>", modules=".")
-//   <stem>-<tag>-<triple><ext>           the per-host lib, copied from the build
+//   <stem>-<tag>-<triple><ext>           the lib, copied from the build
 //   <stem>-<tag>-<triple><ext>.sha256    "<hex>  <name>" checksum sidecar
 // A release workflow uploads all three to the GitHub release; then
 // `ae add <pkg>@<tag>` fetches + verifies + installs them on ANY published host.
@@ -3118,6 +3172,32 @@ _binpkg_tag(bmap: ptr) {
 // shared_lib builder publishes), so put emit_binary_package in the SAME node
 // after building the lib (or dep this node on the shared_lib node and point
 // `stem`/`output` at it). Requires stem(); tag from release_tag()/env.
+//
+// TWO RELEASE MODELS, both produce the full per-triple set `ae add` needs:
+//
+//  (1) per-platform runners — run this on each OS's own runner (no target()).
+//      The asset is named for the RUNNING host; each runner uploads its one
+//      triple; the release ends up with the full set.
+//
+//  (2) one-host cross-build (the servirtium-vcr / selenium model) — cross-build
+//      the whole matrix from one Linux host and loop the builder over targets:
+//        for T in <triples>:
+//          aether.shared_lib()        { target(T); output("lib<stem>.so") }
+//          aether.emit_binary_package(){ stem("<stem>"); target(T) }
+//      With target() set, the asset is named for the BUILT triple (and its ext
+//      .so/.dylib/.dll derived from it), reading the cross-built .so shared_lib
+//      wrote for that same target. Every triple stages into the same ae-add/
+//      dir, so one flat upload publishes the whole set — no hand-rolling the
+//      asset names in a release script. (target() reuses the SDK's existing
+//      cross-compile setter; freebsd targets inherit AETHER_SYSROOT from the
+//      environment exactly as shared_lib's own cross build does.)
+//
+// The CONTRACT publishers can also target directly (for a shell-only release
+// path that never invokes aeb): asset name `<stem>-<tag>-<os>-<arch><ext>` (the
+// stem, NOT a `lib` prefix; <os>-<arch> is bldr._host_os_arch's vocabulary:
+// linux/macos/windows/freebsd × x86_64/arm64; ext .so/.dylib/.dll by OS), a
+// sibling `.sha256` whose first whitespace field is the hex, and one shared
+// `aether.toml` carrying `[package] binary = "<stem>"` + `modules = "."`.
 builder emit_binary_package(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -3138,26 +3218,49 @@ builder emit_binary_package(): int {
         return 1
     }
 
-    // Locate the built .so: default lib<sourcebase>.so under target/lib, or the
-    // output("...") override — the exact name the shared_lib builder produced.
+    // Locate the built lib to READ: the exact file the shared_lib builder wrote.
+    // shared_lib names its DEFAULT output `lib<sourcebase>.so` — the `.so`
+    // spelling is fixed there regardless of target (a windows/macos cross build
+    // still writes that on-disk name; only the BYTES differ), so the lookup
+    // default uses `.so` too, NOT the host/target ext. A publisher cross-building
+    // per triple normally sets output("lib<stem>.so") explicitly, which overrides
+    // this. The ASSET name below is where the target triple + its ext appear.
     src_name = _default_source_name(ctx)
     if _builder != null {
         if map.has(_builder, "source") == 1 { src_name, _ = map.get(_builder, "source") }
     }
-    ext = _shlib_ext()
-    out_name = string.concat("lib", string.concat(csrc_default_output(src_name), ext))
+    out_name = string.concat("lib", string.concat(csrc_default_output(src_name), ".so"))
     if _builder != null {
         if map.has(_builder, "output") == 1 { out_name, _ = map.get(_builder, "output") }
     }
     lib_dir = path.join(target_dir, "lib")
-    so_path = path.join(lib_dir, out_name)
-    if file.exists(so_path) == 0 {
-        bldr.fail(ctx, string.concat("aether.emit_binary_package: built lib not found at ", string.concat(so_path, " — build a shared_lib in this node first (or point output(...) at it)")))
-        return 1
-    }
 
     tag = _binpkg_tag(_builder)
-    triple = bldr._host_os_arch()
+    // The asset is named for the TARGET triple under a cross build (one-host
+    // matrix release), or the running host's triple otherwise. `ext` is that
+    // triple's shared-lib extension (.so/.dylib/.dll), which is what an
+    // installing host expects.
+    triple = _binpkg_triple(_builder)
+    ext = _binpkg_ext(_builder)
+
+    // Locate the ACTUAL built file. A cross --emit=lib appends the target's real
+    // shared-lib extension to the -o name: `-o lib<stem>.so` for a windows
+    // target writes `lib<stem>.so.dll`, for macos `.dylib` — the `.so` the
+    // publisher wrote in output() is not the on-disk name. So try, in order:
+    // the literal output (host build / already-correct), then output + the
+    // target ext (the cross-mangled name). Reading the shared_lib output for the
+    // SAME target() this node built keeps the pair consistent.
+    so_path = path.join(lib_dir, out_name)
+    if file.exists(so_path) == 0 {
+        cross_name = string.concat(out_name, ext)
+        cross_path = path.join(lib_dir, cross_name)
+        if file.exists(cross_path) == 1 {
+            so_path = cross_path
+        } else {
+            bldr.fail(ctx, string.concat("aether.emit_binary_package: built lib not found at ", string.concat(so_path, string.concat(" (nor ", string.concat(cross_path, ") — build a shared_lib in this node first (matching target()), or point output(...) at it")))))
+            return 1
+        }
+    }
 
     // Stage the ae-add asset trio under target/ae-add/.
     pkg_dir = path.join(target_dir, "ae-add")

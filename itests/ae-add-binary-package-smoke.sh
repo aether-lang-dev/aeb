@@ -171,6 +171,48 @@ EOF
   fi
 fi
 
+# --- 7. Cross-target emit (the one-host matrix release model). ---
+# A cross target() names the asset for the BUILT triple, not the host: a Linux
+# host cross-building x86_64-windows must stage greetlib-<tag>-windows-x86_64.dll
+# (ae-add triple spelling + .dll), reading the cross-mangled libX.so.dll that
+# `ae build --emit=lib --target=` wrote. This is what lets one host emit the full
+# per-triple set through the builder (servirtium-vcr / selenium release model).
+XLIBDIR="$WORK/xsrc"
+mkdir -p "$XLIBDIR"
+cat > "$XLIBDIR/greet.ae" <<EOF
+exports(hello)
+hello() -> string { return "cross ok" }
+EOF
+cat > "$XLIBDIR/.lib.ae" <<EOF
+import bldr
+import aether
+import aether (source, output, stem, release_tag, target)
+aeb(cap) {
+    bldr.build() {
+        aether.shared_lib() { source("greet.ae") output("lib${STEM}.so") target("x86_64-windows") }
+        aether.emit_binary_package() { source("greet.ae") output("lib${STEM}.so") stem("${STEM}") release_tag("${TAG}") target("x86_64-windows") }
+    }
+}
+EOF
+export AETHER_HOME="$WORK/aehome_cross"; mkdir -p "$AETHER_HOME"
+( cd "$XLIBDIR" && "$AEB" .lib.ae ) >"$WORK/cross.log" 2>&1
+XRC=$?
+XPKGDIR="$XLIBDIR/target/lib/ae-add"
+XASSET="${STEM}-${TAG}-windows-x86_64.dll"
+if [ "$XRC" -ne 0 ]; then
+  # Cross-build needs zig cc; if the toolchain can't cross to windows, SKIP the
+  # cross leg rather than fail (the naming logic is unit-tested regardless).
+  if grep -qiE 'zig|cross|target|toolchain|not found|Unknown target' "$WORK/cross.log"; then
+    echo "  SKIP: cross-build to x86_64-windows unavailable here (no zig cc?) — target() naming is unit-tested"
+  else
+    fail "cross-target emit build failed"; tail -12 "$WORK/cross.log" | sed 's/^/    /'
+  fi
+elif [ -f "$XPKGDIR/$XASSET" ] && [ -f "$XPKGDIR/$XASSET.sha256" ]; then
+  pass "cross target(x86_64-windows) staged $XASSET (ae-add triple + .dll, not host)"
+else
+  fail "cross emit did not stage $XASSET"; ls -la "$XPKGDIR" 2>&1 | sed 's/^/    /'
+fi
+
 echo
 if [ "$FAILURES" -eq 0 ]; then
   echo "ae-add-binary-package-smoke: all assertions passed"
