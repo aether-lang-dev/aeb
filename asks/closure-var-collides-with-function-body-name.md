@@ -1,5 +1,32 @@
 # A closure local that reuses a function-body name is emitted UNDECLARED in C
 
+> **UPDATE (2026-09-19): ae 0.697.0 carries a PARTIAL fix — the rename below
+> MUST STAY.** Aether merged this as PR #2114 and shipped `055fcc7d`
+> ("a closure own-local shadowing a promoted capture emits valid C") with a
+> regression test, `tests/regression/test_closure_local_shadows_promoted_capture.ae`.
+> `055fcc7d` IS an ancestor of the v0.697.0 tag, and the shipped binary really
+> does fix the shape upstream reduced to — compiling upstream's own test:
+>
+>     ae 0.696.0 -> FAILS (2 'undeclared')
+>     ae 0.697.0 -> Built: upstream_regr
+>
+> But `lib/dotnet/module.ae` STILL emits the identical 3 'undeclared' errors on
+> that same 0.697.0 binary (measured by reverting the rename in the installed
+> SDK and rebuilding a dotnet leaf). So the fix covers the minimal case and not
+> the real one that started this.
+>
+> This is the dangerous state: a merged fix, a passing regression test and a cut
+> release all say "done", so anyone reading `055fcc7d` will reasonably conclude
+> the workaround can be dropped on 0.697. It cannot — dropping it breaks every
+> ae from 0.675 through 0.697 inclusive.
+>
+> Bisect, restated precisely: clean 0.668; broken 0.675, 0.677, 0.681, 0.696;
+> on 0.697 the MINIMAL case is fixed and the REAL case is not.
+>
+> Found with the servirtium-vcr session, which filed the aether-side ask and
+> spotted the partial-fix distinction; both compile results above independently
+> reproduced here.
+
 > **STATUS: worked around in aeb (2026-09-19)** by renaming the closure's locals.
 > The underlying codegen/transform bug is still live and worth fixing properly.
 > Found running the selaenium presubmit on catchyOS.
