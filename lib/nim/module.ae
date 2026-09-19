@@ -308,6 +308,11 @@ builder consumer_example(): int {
                 src_abs = path.join(source_dir, src)
                 dest_abs = path.join(stageroot, dest)
                 dest_parent = path.dirname(dest_abs)
+                // copy_tree does NOT create missing parents; 9faf844 replaced
+                // `mkdir -p '${dest_parent}' && cp -r ...` with a bare copy and
+                // left dest_parent dead, so staging a file into a dir that does
+                // not exist yet (e.g. <pkg>/native/lib*.so) silently no-opped.
+                bldr._mkdirs(dest_parent)
                 _ect = fs.copy_tree(src_abs, dest_abs)
                 i = i + 1
             }
