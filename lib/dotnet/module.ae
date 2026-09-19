@@ -658,6 +658,17 @@ builder nuget_registry(name_and_ver: string): int {
     if file.exists(artifact_path) == 1 {
         existing, _rerr = io.read_file(artifact_path)
     }
+    // Append only if absent. target_dir PERSISTS between runs, so a plain
+    // append re-added this node's whole declaration set on every invocation and
+    // the artifact grew without bound (measured in selaenium: 80 lines holding 5
+    // unique coords, +5 per run). The generated .csproj renders the artifact
+    // faithfully, so it inherited the duplicates and NuGet only warned (NU1504)
+    // — a growing file nobody reads, behind a warning nobody sees.
+    // Idempotent now, and multiple DISTINCT calls still bundle as documented.
+    if _artifact_has_line(existing, name_and_ver) == 1 {
+        println("${mod_dir}: registry nuget ${name_and_ver} (already present)")
+        return 0
+    }
     new_content = name_and_ver
     if string.length(existing) > 0 {
         new_content = string.concat(existing, "\n")
@@ -666,6 +677,23 @@ builder nuget_registry(name_and_ver: string): int {
     _e = fs.write_atomic(artifact_path, new_content, string.length(new_content))
     println("${mod_dir}: registry nuget ${name_and_ver}")
     return 0
+}
+
+// _artifact_has_line(blob, want) — 1 if `want` is already one of blob's
+// newline-separated entries. Exact whole-line match, so "xunit~2.9.3" does not
+// match "xunit.runner~2.9.3" the way a substring test would.
+_artifact_has_line(blob: string, want: string) -> int {
+    if string.length(blob) == 0 { return 0 }
+    lines = string.lines(blob)
+    found = 0
+    cur = lines
+    while string.seq_is_empty(cur) == 0 {
+        // seq_head is BORROWED — compare, never retain it past the free below.
+        if string.equals(string.trim(string.seq_head(cur)), want) == 1 { found = 1 }
+        cur = string.seq_tail(cur)
+    }
+    string.seq_free(lines)
+    return found
 }
 
 // nuget_vendored — declare a vendored DLL as a <Reference> contribution.
@@ -684,6 +712,12 @@ builder nuget_vendored(name_and_path: string): int {
     existing = ""
     if file.exists(artifact_path) == 1 {
         existing, _rerr = io.read_file(artifact_path)
+    }
+    // Same persistence trap as nuget_registry above: target_dir survives between
+    // runs, so a plain append re-added the set every invocation.
+    if _artifact_has_line(existing, name_and_path) == 1 {
+        println("${mod_dir}: registry vendored ${name_and_path} (already present)")
+        return 0
     }
     new_content = name_and_path
     if string.length(existing) > 0 {
