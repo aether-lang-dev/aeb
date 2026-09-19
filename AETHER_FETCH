@@ -209,4 +209,12 @@
 # the ae that best consumes what it produces. Verified against the real 0.695.0
 # tarball: aeb builds clean, cold-gate + override-dep + ae-add-binary-package
 # smoke + full suite 151/151 green; GLIBC 2.34.
-0.695.0
+#
+# Raised 0.695.0 -> 0.696.0 (2026-09-19). FETCH-side lockstep. Ecosystem-relevant:
+# 0.696 hardens the `ae add` binary contract aeb's aether.emit_binary_package
+# produces (a binary package now REQUIRES a published .sha256 — the emitter
+# already writes it) and adds `ae add --target <triple>` (consumer fetch of a
+# foreign platform's binary package). Verified against the real 0.696.0 tarball:
+# aeb builds clean, cold-gate + override-dep + ae-add + libaether-floor-guard
+# smokes + full suite green; GLIBC 2.34.
+0.696.0

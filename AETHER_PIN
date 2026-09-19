@@ -256,4 +256,19 @@
 # against the real 0.695.0 linux tarball: aeb builds clean, cold-gate + override-
 # dep smoke + ae-add-binary-package smoke (6/6, incl. real `ae add` round trip) +
 # full suite 151/151 green; GLIBC floor 2.34. PIN moves in lockstep with FETCH.
-0.695.0
+#
+# Raised 0.695.0 -> 0.696.0 (2026-09-19). FETCH-side lockstep, and ecosystem-
+# relevant to aeb's aether.emit_binary_package: 0.696 HARDENS the `ae add` binary
+# contract this SDK produces — a binary package now REQUIRES a published .sha256
+# (was: warn + install unverified). aeb's emitter already writes the sidecar
+# unconditionally, so aeb-emitted packages satisfy the stricter rule (verified:
+# `ae add` on 0.696 installs an aeb-emitted package "Checksum verified"). 0.696
+# also adds `ae add --target <triple>` (fetch a FOREIGN platform's binary package
+# for cross-platform bundling) — the consume-side complement to emit_binary_
+# package's target() cross-emit, closing the cross-platform loop. aeb calls no new
+# primitive from 0.696, so its own sources still compile on 0.681 (the real floor
+# aeb-link now enforces on the linked libaether.a); the pin moves with FETCH.
+# Verified against the real 0.696.0 linux tarball: aeb builds clean, cold-gate +
+# override-dep + ae-add + libaether-floor-guard smokes + full suite green; GLIBC
+# floor 2.34. PIN moves in lockstep with FETCH.
+0.696.0
