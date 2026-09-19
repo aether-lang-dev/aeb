@@ -1,0 +1,39 @@
+// Tests for the ae-add binary-package emitter in lib/aether/module.ae:
+//   binary_package_toml_content(stem) — the released aether.toml `ae add` reads
+//
+// The contract is aether/tools/ae.c ae_try_binary_package() (0.694+): it reads
+// `[package] binary = "<stem>"` (the single "this is a binary package" signal)
+// and needs `modules = "."` so the installed lib lands on the import search
+// path. These assertions pin exactly those two keys so a future edit can't drop
+// the signal ae add depends on.
+import std.spec
+import std.string
+
+import aether (binary_package_toml_content)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "binary_package_toml_content") {
+        spec.it("declares [package] binary = \"<stem>\" — the ae add signal") callback {
+            toml = binary_package_toml_content("selenium_core")
+            spec.assert_contains(toml, "[package]", "has [package] table")
+            spec.assert_contains(toml, "binary = \"selenium_core\"", "binary key names the stem")
+        }
+
+        spec.it("sets modules = \".\" (root export so the lib is import-visible)") callback {
+            toml = binary_package_toml_content("libphonenumber")
+            spec.assert_contains(toml, "modules = \".\"", "root export")
+            spec.assert_contains(toml, "binary = \"libphonenumber\"", "stem carried")
+        }
+
+        spec.it("the stem is quoted verbatim (no mangling)") callback {
+            // A stem with an underscore + digit round-trips exactly — ae's toml
+            // parser reads the quoted value literally.
+            toml = binary_package_toml_content("core_v2")
+            spec.assert_contains(toml, "binary = \"core_v2\"", "verbatim stem")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

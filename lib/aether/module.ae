@@ -15,11 +15,32 @@ import std.list
 import std.map
 import std.path
 import std.dir
+import std.cryptography
 
 // --- DSL setters ---
 
 source(_ctx: ptr, file_name: string) {
     _e = map.put(_ctx, "source", file_name)
+}
+
+// stem(name) — the shared-lib STEM for aether.emit_binary_package(): the name
+// downstream Aether users `import`, and the `[package] binary = "<name>"` key
+// `ae add` reads. The staged assets are `<stem>-<tag>-<triple><ext>`, and on
+// install `ae add` drops the `-<tag>-<triple>` so `<stem><ext>` is on the
+// import search path. Convention (matches ae's binary-import resolver): use the
+// bare module name (e.g. "selenium_core"), NOT a "lib" prefix — the resolver
+// probes both `<mod><ext>` and `lib<mod><ext>`, but the bare stem is what the
+// consumer writes as `import <stem>`.
+stem(_ctx: ptr, name: string) {
+    _e = map.put(_ctx, "binpkg_stem", name)
+}
+
+// release_tag(tag) — the release tag the staged asset names carry
+// (`<stem>-<tag>-<triple><ext>`). `ae add <pkg>@<version>` normalises the
+// version to a v-prefixed tag, so pass the SAME v-prefixed spelling the release
+// uses (e.g. "v0.8.0"). Omit to fall back to $AEB_RELEASE_TAG, then "v0.0.0".
+release_tag(_ctx: ptr, tag: string) {
+    _e = map.put(_ctx, "binpkg_tag", tag)
 }
 
 output(_ctx: ptr, bin_name: string) {
@@ -3027,6 +3048,147 @@ builder shared_lib(): int {
         bldr._write_artifact(ctx, "c_header_dirs", lib_dir)
         bldr._write_artifact(ctx, "c_needs_aether_runtime", "1")
     }
+    return 0
+}
+
+// --- ae-add binary-package emission --------------------------------------
+//
+// A shared_lib node this SDK builds is an ordinary aeb artifact (a .so linked
+// on a consumer's link line via shared_library_deps_including_transitive).
+// aether.emit_binary_package() ALSO stages that same .so as an `ae add`-
+// consumable BINARY PACKAGE, so a downstream *Aether* user can install it with
+//   ae add github.com/you/pkg@<tag>
+// and `import <stem>` — no source tree to compile, fetched-and-checksum-verified
+// per host triple. This is the producer side of aether/tools/ae.c's
+// ae_try_binary_package() (0.694+): that resolver fetches a released
+// `aether.toml`, reads `[package] binary = "<stem>"`, then fetches + verifies
+// `<stem>-<tag>-<triple><ext>` and installs `<stem><ext>` on the search path.
+// We emit exactly the asset trio it expects, so all a release workflow does is
+// upload target/ae-add/* to the GitHub release.
+
+// binary_package_toml_content(stem) — PURE generator of the release `aether.toml`
+// ae add fetches first. `[package] binary = "<stem>"` is the single signal that
+// marks a binary package; `modules = "."` (the root export) is what puts the
+// installed lib on the import search path so the binary-import prepass fires.
+// No I/O — unit-tested in tests/test_aether_binpkg.ae.
+binary_package_toml_content(stem: string) {
+    // A leading `# ` comment is harmless to ae's toml parser (toml_get_value
+    // reads [package].binary regardless) and documents provenance in the asset.
+    hdr = "# aether.toml — binary-package manifest, emitted by aeb.aether.emit_binary_package.\n# `ae add <pkg>@<tag>` reads [package].binary, fetches the per-triple lib, and\n# installs it as ${stem}<ext> on the import search path (modules = \".\").\n\n"
+    pkg = string.concat("[package]\nbinary = \"", string.concat(stem, "\"\nmodules = \".\"\n"))
+    return string.concat(hdr, pkg)
+}
+
+// _shlib_ext() — the running host's shared-lib extension, matching ae.c's
+// ae_host_shlib_ext(): macOS .dylib, Windows .dll, every ELF host (linux,
+// freebsd) .so. So the staged asset is named for THIS host's lib; a release
+// workflow runs one emit per platform to publish the full per-triple set.
+_shlib_ext() {
+    p = os.platform()
+    if p == "darwin" { return ".dylib" }
+    if p == "windows" { return ".dll" }
+    return ".so"
+}
+
+// _binpkg_tag(bmap) — the release tag the asset names carry. Explicit
+// release_tag() wins; else $AEB_RELEASE_TAG (what a release workflow exports);
+// else "v0.0.0". Normalised to the v-prefixed spelling `ae add` uses.
+_binpkg_tag(bmap: ptr) {
+    t = ""
+    if bmap != null {
+        if map.has(bmap, "binpkg_tag") == 1 { t, _ = map.get(bmap, "binpkg_tag") }
+    }
+    if string.length(t) == 0 { t = os.getenv("AEB_RELEASE_TAG") }
+    if string.length(t) == 0 { t = "v0.0.0" }
+    if string.length(t) > 0 {
+        c0 = string.substring(t, 0, 1)
+        if c0 != "v" { t = string.concat("v", t) }
+    }
+    return t
+}
+
+// aether.emit_binary_package(b) — stage the node's built shared lib as an
+// `ae add`-installable binary package under target/ae-add/:
+//   aether.toml                          ([package] binary = "<stem>", modules=".")
+//   <stem>-<tag>-<triple><ext>           the per-host lib, copied from the build
+//   <stem>-<tag>-<triple><ext>.sha256    "<hex>  <name>" checksum sidecar
+// A release workflow uploads all three to the GitHub release; then
+// `ae add <pkg>@<tag>` fetches + verifies + installs them on ANY published host.
+// The lib source is this node's own shared_lib output (same lib/<out>.so the
+// shared_lib builder publishes), so put emit_binary_package in the SAME node
+// after building the lib (or dep this node on the shared_lib node and point
+// `stem`/`output` at it). Requires stem(); tag from release_tag()/env.
+builder emit_binary_package(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+
+    // NB: the local is `stem_val`, NOT `stem` — a local named like the imported
+    // `stem` setter renders the FUNCTION POINTER when interpolated (the
+    // local-shadows-setter footgun), which is what corrupted the asset name +
+    // manifest in the first e2e run.
+    stem_val = ""
+    if _builder != null {
+        if map.has(_builder, "binpkg_stem") == 1 { stem_val, _ = map.get(_builder, "binpkg_stem") }
+    }
+    if string.length(stem_val) == 0 {
+        bldr.fail(ctx, "aether.emit_binary_package: stem(\"<module>\") is required (the name `ae add` installs + the consumer imports)")
+        return 1
+    }
+
+    // Locate the built .so: default lib<sourcebase>.so under target/lib, or the
+    // output("...") override — the exact name the shared_lib builder produced.
+    src_name = _default_source_name(ctx)
+    if _builder != null {
+        if map.has(_builder, "source") == 1 { src_name, _ = map.get(_builder, "source") }
+    }
+    ext = _shlib_ext()
+    out_name = string.concat("lib", string.concat(csrc_default_output(src_name), ext))
+    if _builder != null {
+        if map.has(_builder, "output") == 1 { out_name, _ = map.get(_builder, "output") }
+    }
+    lib_dir = path.join(target_dir, "lib")
+    so_path = path.join(lib_dir, out_name)
+    if file.exists(so_path) == 0 {
+        bldr.fail(ctx, string.concat("aether.emit_binary_package: built lib not found at ", string.concat(so_path, " — build a shared_lib in this node first (or point output(...) at it)")))
+        return 1
+    }
+
+    tag = _binpkg_tag(_builder)
+    triple = bldr._host_os_arch()
+
+    // Stage the ae-add asset trio under target/ae-add/.
+    pkg_dir = path.join(target_dir, "ae-add")
+    bldr._mkdirs(pkg_dir)
+
+    asset = string.concat(stem_val, string.concat("-", string.concat(tag, string.concat("-", string.concat(triple, ext)))))
+    asset_path = path.join(pkg_dir, asset)
+    _c = fs.copy(so_path, asset_path)
+
+    // Checksum sidecar in the "<hex>  <name>" shape sha256sum/shasum print and
+    // ae's ae_verify_sha256 reads (it takes the first whitespace field).
+    hex, herr = cryptography.sha256_file(asset_path)
+    if string.length(herr) > 0 {
+        bldr.fail(ctx, string.concat("aether.emit_binary_package: sha256 of ", string.concat(asset, " failed")))
+        return 1
+    }
+    sha_path = string.concat(asset_path, ".sha256")
+    _ws = io.write_file(sha_path, string.concat(hex, string.concat("  ", string.concat(asset, "\n"))))
+
+    // The manifest that marks this a binary package.
+    toml = binary_package_toml_content(stem_val)
+    toml_path = path.join(pkg_dir, "aether.toml")
+    _wt = io.write_file(toml_path, toml)
+
+    // Publish the asset dir so a release/upload node can dep this and grab it.
+    bldr._write_artifact(ctx, "ae_add_binary_package_dir", pkg_dir)
+    bldr._write_artifact(ctx, "ae_add_binary_lib", asset_path)
+    bldr._write_artifact(ctx, "ae_add_binary_manifest", toml_path)
+
+    println("${mod_dir}: staged ae-add binary package ${asset} (+ .sha256, aether.toml) under ${pkg_dir}")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }
 

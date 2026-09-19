@@ -118,5 +118,12 @@ jobs:
         run: itests/sdk-cold-compile-smoke.sh
       - name: --overrideDep node-substitution smoke
         run: itests/override-dep-smoke.sh
+      # ae-add binary-package emitter: aeb builds an Aether .so and stages it as
+      # an `ae add`-installable binary package (aether.toml [package] binary=,
+      # per-triple lib, .sha256), then drives the REAL `ae add` round trip. The
+      # ae add legs SKIP cleanly on ae < 0.694 (feature unsupported), so this is
+      # green whatever ae the CI toolchain pins.
+      - name: ae-add binary-package emitter smoke
+        run: itests/ae-add-binary-package-smoke.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh
