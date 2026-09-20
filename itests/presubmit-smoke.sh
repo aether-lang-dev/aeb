@@ -90,13 +90,15 @@ EOF
 chmod +x "$WORK/alpha/check.sh"
 
 cat > "$WORK/alpha/.build.ae" <<'EOF'
-import build (start)
-import bash (test, script)
+import bldr
+import bash
+import bash (script)
 
-aeb(cap) {
-    b = build.start()
-    bash.test(b) {
-        script("check.sh")
+main() {
+    bldr.build() {
+        bash.test() {
+            script("check.sh")
+        }
     }
 }
 EOF
@@ -112,24 +114,27 @@ EOF
 }
 
 cat > "$WORK/beta/.tests.ae" <<'EOF'
-import build (start)
-import bash (test, script)
+import bldr
+import bash
+import bash (script)
 
-aeb(cap) {
-    b = build.start()
-    bash.test(b) {
-        script("check.sh")
+main() {
+    bldr.build() {
+        bash.test() {
+            script("check.sh")
+        }
     }
 }
 EOF
 
 cat > "$WORK/.presubmit.ae" <<'EOF'
-import build (start, dep)
+import bldr
 
-aeb(cap) {
-    b = build.start()
-    build.dep(b, "alpha/.build.ae")
-    build.dep(b, "beta/.tests.ae")
+main() {
+    bldr.build() {
+        dep("alpha/.build.ae")
+        dep("beta/.tests.ae")
+    }
 }
 EOF
 
@@ -244,20 +249,21 @@ cp "$WORK/alpha/.build.ae" "$GUARD/alpha/.build.ae"
 printf 'target/\nout*.txt\n' > "$GUARD/.gitignore"
 
 cat > "$GUARD/.presubmit.ae" <<'EOF'
-import build (start, dep)
+import bldr
 import meta (desc)
 import std.os
 import std.string
 
-aeb(cap) {
-    b = build.start()
-    meta.desc(b, "Must be green before push")
+main() {
+    bldr.build() {
+    ctx = builder_context()
+    meta.desc(ctx, "Must be green before push")
 
-    build.dep(b, "alpha/.build.ae")
+    dep("alpha/.build.ae")
 
     dirty, err = os.exec("git status --porcelain")
     if string.length(dirty) > 0 {
-        build.fail(b, "working tree not clean:\n${dirty}")
+        bldr.fail(ctx, "working tree not clean:\n${dirty}")
     }
 }
 EOF
@@ -309,15 +315,16 @@ cp "$WORK/alpha/.build.ae" "$PROBE/alpha/.build.ae"
 write_probe() {
     # $1: tool name to probe for. Uses os.system — the documented form.
     cat > "$PROBE/.presubmit.ae" <<EOF
-import build (start, dep)
+import bldr
 import std.os
 
-aeb(cap) {
-    b = build.start()
-    build.dep(b, "alpha/.build.ae")
+main() {
+    bldr.build() {
+    ctx = builder_context()
+    dep("alpha/.build.ae")
 
     if os.system("command -v $1 >/dev/null 2>&1") != 0 {
-        build.fail(b, "presubmit needs $1 on PATH")
+        bldr.fail(ctx, "presubmit needs $1 on PATH")
     }
 }
 EOF
@@ -351,17 +358,18 @@ fi
 # 10. THE TRAP — the os.exec form does NOT catch a missing tool. Pinned so
 #     nobody "simplifies" the doc's probe back to os.exec.
 cat > "$PROBE/.presubmit.ae" <<'EOF'
-import build (start, dep)
+import bldr
 import std.os
 import std.string
 
-aeb(cap) {
-    b = build.start()
-    build.dep(b, "alpha/.build.ae")
+main() {
+    bldr.build() {
+    ctx = builder_context()
+    dep("alpha/.build.ae")
 
     _, probe_err = os.exec("command -v definitely-not-a-real-tool-xyz")
     if string.length(probe_err) > 0 {
-        build.fail(b, "presubmit needs definitely-not-a-real-tool-xyz on PATH")
+        bldr.fail(ctx, "presubmit needs definitely-not-a-real-tool-xyz on PATH")
     }
 }
 EOF

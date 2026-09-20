@@ -104,15 +104,17 @@ main() {
 EOF
 
 cat > "$WORK/app/.build.ae" <<'EOF'
-import build (start)
-import aether (program, source, output, extra_source)
+import bldr
+import aether
+import aether (source, output, extra_source)
 
-aeb(cap) {
-    b = build.start()
-    aether.program(b) {
-        source("app.ae")
-        output("app")
-        extra_source("helper.c")
+main() {
+    bldr.build() {
+        aether.program() {
+            source("app.ae")
+            output("app")
+            extra_source("helper.c")
+        }
     }
 }
 EOF
