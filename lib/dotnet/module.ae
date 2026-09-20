@@ -796,21 +796,24 @@ builder build_project(): int {
             string.seq_each(string.lines(string.trim(raw_r)), |ln: string| {
                 line_r = string.trim(ln)
                 if string.length(line_r) > 0 {
-                    // NB the names here are deliberately distinct from the `idx`
-                    // / `entry` used in the nuget-deps loop earlier in this same
-                    // function: reusing them made the generated C reference them
-                    // undeclared inside dotnet_build_project (gcc: "'idx'
-                    // undeclared"), which failed the whole fan-out link. See
-                    // asks/closure-var-collides-with-function-body-name.md.
+                    // These reuse `idx`/`entry` from the nuget-deps loop earlier
+                    // in this same function. That name reuse (a closure local
+                    // sharing a name with an enclosing body local) used to emit
+                    // undeclared C on ae 0.696/0.697 — the closure-capture bug in
+                    // asks/closure-var-collides-with-function-body-name.md. FIXED
+                    // upstream in Aether 0.698 (is_local_var now recognises a
+                    // fresh local declared in a closure's nested block; aether
+                    // PR #2116). aeb pins >= 0.699, so the workaround rename is
+                    // no longer needed and the names are back to idx/entry.
                     if string.contains(line_r, "~") == 1 {
-                        vr_idx = string.index_of(line_r, "~")
-                        r_name = string.substring(line_r, 0, vr_idx)
-                        r_path = string.substring(line_r, vr_idx + 1, string.length(line_r))
+                        idx = string.index_of(line_r, "~")
+                        r_name = string.substring(line_r, 0, idx)
+                        r_path = string.substring(line_r, idx + 1, string.length(line_r))
                         hr_raw, _ehr = bldr._sh_capture("python3 -c \"import os; print(os.path.relpath('${root}/${r_path}', '${source_dir}'))\"")
                         hint_rel = string.trim(hr_raw)
-                        vr_entry = string.concat(r_name, "~")
-                        vr_entry = string.concat(vr_entry, hint_rel)
-                        _e_vr = list.add(vendored_refs, vr_entry)
+                        entry = string.concat(r_name, "~")
+                        entry = string.concat(entry, hint_rel)
+                        _e_vr = list.add(vendored_refs, entry)
                     }
                 }
             })

@@ -1,5 +1,33 @@
 # A closure local that reuses a function-body name is emitted UNDECLARED in C
 
+> **RESOLVED (2026-09-20): FIXED upstream in Aether 0.698.0; aeb workaround
+> REMOVED at pin >= 0.699.** 0.698 shipped the second half of the closure-name-
+> unification fix (aether PR #2116): `is_local_var` now recognises a fresh local
+> declared anywhere in a closure's OWN body (descending nested `if`/`while`
+> blocks), so the dotnet shape — a closure local `idx`/`entry` declared in a
+> nested `if`, sharing a name with an enclosing body local — is the closure's own
+> local, not a spurious capture-promotion of the enclosing name. Verified by a
+> clean bisect against the REAL pre-rename lib/dotnet (an actual dotnet consumer
+> node, orchestrator link):
+>
+>     ae 0.696.0 -> FAILS ('idx' undeclared, orchestrator FATAL)
+>     ae 0.697.0 -> FAILS (055fcc7d/#2114 fixes the MINIMAL case only)
+>     ae 0.698.0 -> LINKS CLEAN  <- the fix floor (#2116)
+>     ae 0.699.0 -> LINKS CLEAN
+>
+> aeb bumped AETHER_PIN to 0.699.0 and reverted the vr_idx/vr_entry rename back to
+> idx/entry (v0.320). The workaround was correct while aeb pinned 0.696; it is no
+> longer needed at pin >= 0.698. Collaboration: aether sibling landed #2114 (0.697,
+> minimal) then #2116 (0.698, the real body-local-vs-nested-closure-local case);
+> the servirtium-vcr session filed the aether-side ask and spotted the partial-fix
+> distinction; aeb traced the C-level mechanism (capture-promotion keyed on NAME
+> not BINDING) and bisected the fix floor. Kept as a resolved reference; the bisect
+> and the name-vs-binding distinction are the useful record.
+
+---
+
+## Historical (the bug, while it was live)
+
 > **UPDATE (2026-09-19): ae 0.697.0 carries a PARTIAL fix — the rename below
 > MUST STAY.** Aether merged this as PR #2114 and shipped `055fcc7d`
 > ("a closure own-local shadowing a promoted capture emits valid C") with a

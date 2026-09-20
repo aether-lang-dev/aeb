@@ -217,4 +217,10 @@
 # foreign platform's binary package). Verified against the real 0.696.0 tarball:
 # aeb builds clean, cold-gate + override-dep + ae-add + libaether-floor-guard
 # smokes + full suite green; GLIBC 2.34.
-0.696.0
+#
+# Raised 0.696.0 -> 0.699.0 (2026-09-20). A REAL reason to move (see AETHER_PIN):
+# 0.698 (PR #2116) fixed the closure-capture codegen bug that forced lib/dotnet's
+# vr_idx/vr_entry rename workaround; pinning >= 0.698 lets aeb revert it. We fetch
+# 0.699 (newest published, carries the 0.698 fix). Verified against the real
+# 0.699.0 tarball: aeb builds clean, all smokes + full suite green; GLIBC 2.34.
+0.699.0

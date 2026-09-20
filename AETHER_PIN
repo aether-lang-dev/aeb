@@ -271,4 +271,22 @@
 # Verified against the real 0.696.0 linux tarball: aeb builds clean, cold-gate +
 # override-dep + ae-add + libaether-floor-guard smokes + full suite green; GLIBC
 # floor 2.34. PIN moves in lockstep with FETCH.
-0.696.0
+#
+# Raised 0.696.0 -> 0.699.0 (2026-09-20). This move UNBLOCKS an aeb code revert:
+# lib/dotnet's dotnet_build_project reused `idx`/`entry` in a seq_each closure
+# that also appear as function-body locals — a closure-capture codegen bug (the
+# capture-promotion keyed on NAME not BINDING, dropping the coincidental body
+# local's C declaration -> `'idx' undeclared`, failing the whole fan-out
+# orchestrator link). It was worked around by renaming to vr_idx/vr_entry. Aether
+# FIXED it in 0.698 (PR #2116: is_local_var now recognises a fresh local declared
+# in a closure's nested block, so the name is the closure's own local, not a
+# spurious capture). Clean bisect against the real pre-rename lib/dotnet: broken
+# 0.696/0.697, LINKS on 0.698/0.699. Pinning >= 0.698 lets aeb drop the rename;
+# we pin 0.699 (newest published, carries the 0.698 fix + 0.699's closure-param-
+# libc-name and builtin-shadow fixes) and revert vr_idx/vr_entry -> idx/entry in
+# the same release (v0.320). aeb calls no new primitive from 0.697-0.699, but this
+# is a REAL reason to move (the revert requires the fix on PATH). See
+# asks/closure-var-collides-with-function-body-name.md. Verified against the real
+# 0.699.0 linux tarball: aeb builds clean, cold-gate + override-dep + ae-add +
+# libaether-floor-guard smokes + full suite green; GLIBC floor 2.34.
+0.699.0
