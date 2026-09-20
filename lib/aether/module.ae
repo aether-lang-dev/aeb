@@ -1642,7 +1642,19 @@ aether_link_cmd(opts: ptr) {
     }
     // Optimization level: -O2 normally, -O0 -g for coverage builds
     // so .gcda → .ae.gcov line attribution stays accurate.
-    opt_flags = "-O2"
+    //
+    // -fno-ipa-bit-cp is a correctness workaround, not a tuning knob. gcc 16
+    // miscompiles aetherc-emitted C at -O2/-O3/-Os: when a function has one
+    // call site passing a literal constant for an int parameter and another
+    // passing a runtime value, IPA bit-constant-propagation folds the
+    // parameter to the constant in BOTH, discarding the live argument. The
+    // emitted C is valid — ASAN and UBSAN are both silent while the program
+    // computes the wrong answer, so nothing catches it but the wrong output.
+    // The minimal trigger is -fipa-cp and -fipa-bit-cp together (either one
+    // alone is fine), confirmed in both directions; gcc 12 is unaffected.
+    // Disabling only bit-cp keeps the rest of -O2. Remove once a fixed gcc is
+    // the floor. See asks/gcc16-ipa-bit-cp-miscompiles-emitted-c.md.
+    opt_flags = "-O2 -fno-ipa-bit-cp"
     cov_flag = ""
     if string.equals(coverage, "1") == 1 {
         opt_flags = "-O0 -g"

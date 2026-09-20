@@ -114,7 +114,7 @@ main() {
                 "", "", "", "", "",
                 "-Wl,--allow-multiple-definition")
             spec.assert_str_eq(aether_link_cmd(o1),
-                "gcc -O2 -pipe -w target/_aeb/main.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "gcc -O2 -fno-ipa-bit-cp -pipe -w target/_aeb/main.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
                 "minimal")
         }
 
@@ -160,7 +160,7 @@ main() {
                 "", " /repo/contrib/extra.c", "", "", "",
                 "-Wl,--allow-multiple-definition")
             spec.assert_str_eq(aether_link_cmd(o2),
-                "gcc -O2 -pipe -w target/_aeb/main.c /repo/contrib/extra.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "gcc -O2 -fno-ipa-bit-cp -pipe -w target/_aeb/main.c /repo/contrib/extra.c -L/usr/lib/aether -laether   -o target/hello/bin/hello -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
                 "one extra")
         }
 
@@ -171,7 +171,7 @@ main() {
                 "/lib", "", "", "", "", " -pthread -lm",
                 "-Wl,--allow-multiple-definition")
             spec.assert_str_eq(aether_link_cmd(o3),
-                "gcc -O2 -pipe -w main.c -L/lib -laether   -pthread -lm -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "gcc -O2 -fno-ipa-bit-cp -pipe -w main.c -L/lib -laether   -pthread -lm -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
                 "user flags")
         }
 
@@ -180,7 +180,7 @@ main() {
             o4 = _link_opts(
                 "main.c", "out/bin", "/lib", "", "", "", "", "", "")
             spec.assert_str_eq(aether_link_cmd(o4),
-                "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
+                "gcc -O2 -fno-ipa-bit-cp -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
                 "macOS")
         }
 
@@ -191,7 +191,7 @@ main() {
                 "", "/repo/target/rust/libfoo.so", "-Wl,-rpath,/repo/target/rust", "",
                 "-Wl,--allow-multiple-definition")
             spec.assert_str_eq(aether_link_cmd(o5),
-                "gcc -O2 -pipe -w main.c -L/lib -laether /repo/target/rust/libfoo.so -Wl,-rpath,/repo/target/rust -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "gcc -O2 -fno-ipa-bit-cp -pipe -w main.c -L/lib -laether /repo/target/rust/libfoo.so -Wl,-rpath,/repo/target/rust -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
                 "shared lib")
         }
 
@@ -203,7 +203,7 @@ main() {
                 "", "", "", "",
                 "-Wl,--allow-multiple-definition")
             spec.assert_str_eq(aether_link_cmd(o6),
-                "gcc -O2 -pipe -w -I/inc/runtime -I/inc/runtime/actors -I/inc/std main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "gcc -O2 -fno-ipa-bit-cp -pipe -w -I/inc/runtime -I/inc/runtime/actors -I/inc/std main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
                 "-I block")
         }
 
@@ -219,7 +219,7 @@ main() {
                 " -pthread",
                 "-Wl,--allow-multiple-definition")
             spec.assert_str_eq(aether_link_cmd(o7),
-                "gcc -O2 -pipe -w $(find /home/u/.local/include/aether -type d -print | sed 's|^|-I|') target/_aeb/main.c /repo/contrib/sqlite.c /repo/ae/svn/auth_generated.c -L/home/u/.local/lib/aether -laether /repo/target/rust/libnative.so -Wl,-rpath,/repo/target/rust -pthread -o target/hello/bin/svn -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
+                "gcc -O2 -fno-ipa-bit-cp -pipe -w $(find /home/u/.local/include/aether -type d -print | sed 's|^|-I|') target/_aeb/main.c /repo/contrib/sqlite.c /repo/ae/svn/auth_generated.c -L/home/u/.local/lib/aether -laether /repo/target/rust/libnative.so -Wl,-rpath,/repo/target/rust -pthread -o target/hello/bin/svn -pthread -lm -lz -lssl -lcrypto -lpcre2-8 -Wl,--allow-multiple-definition",
                 "kitchen sink")
         }
 
@@ -239,7 +239,7 @@ main() {
                 "main.c", "out/bin", "/lib", "", "", "", "", "", "")
             map_put(o_nocov, "coverage", "")
             spec.assert_str_eq(aether_link_cmd(o_nocov),
-                "gcc -O2 -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
+                "gcc -O2 -fno-ipa-bit-cp -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
                 "coverage off")
         }
     }
