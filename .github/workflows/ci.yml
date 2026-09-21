@@ -150,5 +150,8 @@ jobs:
       # default unchanged (aeb#8).
       - name: report tiers
         run: itests/report-tiers.sh
+      # Config precedence: --jobs N beats AEB_JOBS beats the nproc default (aeb#10).
+      - name: config precedence (jobs flag > env)
+        run: itests/config-precedence.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

@@ -62,6 +62,27 @@ the two in step.)
 | Cross-compilation | ✗ TODO — roadmap. |
 | CI system integration | ✗ Deliberately CI-agnostic today. |
 
+## Configuration precedence
+
+A setting expressible in more than one place has **one documented winner**.
+aeb does not read an external config file — a `.ae` build file is the source of
+truth — so this is only about how the CLI / environment / `.ae` / built-in layers
+rank. Strongest wins:
+
+1. **Explicit CLI flag** — `--jobs N`, `--coverage`, `--sandbox`, `--vet`,
+   `--report=<tier>`. Always wins; passing the flag overwrites any inherited env.
+2. **Environment variable** — `AEB_JOBS`, `AEB_COVERAGE`, `AEB_REPORT`,
+   `AEB_CONTAINER_ENGINE`, … Wins over the built-in default.
+3. **`.ae`-declared intent** — setters in the dot-file (the build's own
+   declaration of what it needs).
+4. **Built-in default** — `nproc` for jobs, non-coverage, no sandbox, `full`
+   telemetry.
+
+Examples: `aeb --jobs 4` beats an inherited `AEB_JOBS=8`, and `AEB_JOBS` beats
+the `nproc` default. `aeb --coverage` sets `AEB_COVERAGE=1`, so flag and env are
+consistent by construction (the flag *is* the env's on-switch). `--report=<tier>`
+overrides `AEB_REPORT`.
+
 ## What it looks like
 
 A Java component with one dependency:

@@ -404,6 +404,29 @@ while [[ $i -le $# ]]; do
     a="${!i}"
     if [[ "$a" == "--coverage" ]]; then
         export AEB_COVERAGE=1
+    elif [[ "$a" == "--jobs" || "$a" == "-j" ]]; then
+        # --jobs N / -j N: parallel build width. Exported as AEB_JOBS, which
+        # aeb-driver reads (default: nproc). The FLAG wins over any inherited
+        # AEB_JOBS env — this export overwrites it — which is the flag > env >
+        # default precedence (README § Configuration precedence, aeb#10).
+        i=$((i + 1))
+        if [[ $i -gt $# ]]; then
+            echo "aeb: --jobs requires a number (e.g. --jobs 4)" >&2
+            exit 1
+        fi
+        _j="${!i}"
+        case "$_j" in
+            ''|*[!0-9]*) echo "aeb: --jobs must be a positive integer (got '$_j')" >&2; exit 1 ;;
+            *) if [[ "$_j" -lt 1 ]]; then echo "aeb: --jobs must be >= 1" >&2; exit 1; fi ;;
+        esac
+        export AEB_JOBS="$_j"
+    elif [[ "$a" == "--jobs="* ]]; then
+        _j="${a#--jobs=}"
+        case "$_j" in
+            ''|*[!0-9]*) echo "aeb: --jobs must be a positive integer (got '$_j')" >&2; exit 1 ;;
+            *) if [[ "$_j" -lt 1 ]]; then echo "aeb: --jobs must be >= 1" >&2; exit 1; fi ;;
+        esac
+        export AEB_JOBS="$_j"
     elif [[ "$a" == "--in-process" ]]; then
         # Opt out of the default per-node subprocess mode: run the
         # all-in-one in-process orchestrator (faster for small builds,
