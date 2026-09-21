@@ -64,6 +64,25 @@ size(_ctx: ptr) {
     _e = map.put(_ctx, "lib_size", "1")
 }
 
+// strip_unused() — opt into dead-stripping unreferenced C on the manual gcc
+// link (aether.program with extra_source/link_flag). Adds `-ffunction-sections
+// -fdata-sections` to the compile side and `-Wl,--gc-sections` to the link, so
+// the linker drops any function/datum unreachable from main. The generated C
+// declares the WHOLE imported-module extern surface (backend ABI + std) but
+// calls only a fraction; without gc-sections the object-file granularity drags
+// every neighbour of a needed function into the binary. Measured 18-45% smaller
+// on the aether-ui apps (asks/dead-strip-unreferenced-c-with-gc-sections.md).
+//
+// OPT-IN, not default: --gc-sections removes code unreachable AS THE LINKER SEES
+// IT, so code reached only through a C-side function pointer or dlsym can look
+// dead and be dropped — a silent runtime "symbol gone". Same caution class as
+// -fno-ipa-bit-cp. A --coverage build ignores it (coverage forces -O0 -g and a
+// size-stripping flag has no place there); an --emit build ignores it too (no
+// gcc step — the flag only reaches aether_link_cmd, which emit mode skips).
+strip_unused(_ctx: ptr) {
+    _e = map.put(_ctx, "strip_unused", "1")
+}
+
 // go_source(file) — the user's .go for an aether.tinygo_lib node.
 // TinyGo compiles it to a c-shared .so (the `output`); the Aether
 // program that deps this lib tinygo.load()s that .so at runtime.
@@ -1050,6 +1069,15 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
     if string.length(os.getenv("AEB_COVERAGE")) > 0 { cov = "1" }
     list.add(parts, string.concat("coverage:", cov))
 
+    // strip_unused() changes the gcc link (-ffunction-sections/-fdata-sections +
+    // --gc-sections), so a stripped and an unstripped build must not share a
+    // cache entry — the output bytes differ.
+    su = ""
+    if builder_map != null {
+        if map.has(builder_map, "strip_unused") == 1 { su, _ = map.get(builder_map, "strip_unused") }
+    }
+    list.add(parts, string.concat("strip-unused:", su))
+
     digest, derr = cache.hash_inputs(parts)
     return digest, derr
 }
@@ -1656,9 +1684,24 @@ aether_link_cmd(opts: ptr) {
     // the floor. See asks/gcc16-ipa-bit-cp-miscompiles-emitted-c.md.
     opt_flags = "-O2 -fno-ipa-bit-cp"
     cov_flag = ""
+    // strip_unused() — dead-strip unreferenced C: -ffunction-sections
+    // -fdata-sections on the compile side, -Wl,--gc-sections on the link. Only
+    // in the normal (non-coverage) build; a coverage build overrides opt_flags to
+    // -O0 -g below and must not carry size-stripping (see the strip_unused()
+    // setter). See asks/dead-strip-unreferenced-c-with-gc-sections.md.
+    strip_unused = ""
+    if map.has(opts, "strip_unused") == 1 {
+        strip_unused, _ = map.get(opts, "strip_unused")
+    }
+    gc_flag = ""
+    if string.equals(strip_unused, "1") == 1 {
+        opt_flags = string.concat(opt_flags, " -ffunction-sections -fdata-sections")
+        gc_flag = " -Wl,--gc-sections"
+    }
     if string.equals(coverage, "1") == 1 {
         opt_flags = "-O0 -g"
         cov_flag = " --coverage"
+        gc_flag = ""    // coverage wins: no section flags on -O0 -g
     }
     // libaether.a unconditionally references zlib/openssl/pcre2 symbols when
     // the Aether toolchain was built with them detected (most distros). The
@@ -1684,7 +1727,7 @@ aether_link_cmd(opts: ptr) {
     if map.has(opts, "aether_link") == 1 { aether_link, _ = map.get(opts, "aether_link") }
     contrib_L = ""
     if map.has(opts, "contrib_L") == 1 { contrib_L, _ = map.get(opts, "contrib_L") }
-    return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str} -L${lib_dir}${contrib_L} -laether ${extra_link} ${rpath_link}${aether_link}${user_flags} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
+    return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str} -L${lib_dir}${contrib_L} -laether ${extra_link} ${rpath_link}${aether_link}${user_flags}${gc_flag} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
 }
 
 // Decide whether a regen entry needs aetherc work, given the .ae and
@@ -2588,6 +2631,13 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     _eo8 = map.put(opts, "user_flags", user_flags)
     _eo9 = map.put(opts, "dup_flag", dup_flag)
     _eo10 = map.put(opts, "coverage", coverage)
+    // strip_unused() → dead-strip flags in aether_link_cmd (opt-in, off unless the
+    // builder set it). Folded into the link cache key below.
+    strip_unused = ""
+    if builder_map != null {
+        if map.has(builder_map, "strip_unused") == 1 { strip_unused, _ = map.get(builder_map, "strip_unused") }
+    }
+    _eo10b = map.put(opts, "strip_unused", strip_unused)
     // Resolve pkg-config HERE (one shell-out per module, through the
     // chokepoint) and hand aether_link_cmd literal flags. Keeps that builder
     // pure/testable and keeps `$(...)` off a command line whose shell we do

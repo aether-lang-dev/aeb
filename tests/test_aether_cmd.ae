@@ -242,6 +242,39 @@ main() {
                 "gcc -O2 -fno-ipa-bit-cp -pipe -w main.c -L/lib -laether   -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
                 "coverage off")
         }
+
+        // strip_unused=1 → -ffunction-sections -fdata-sections on the compile
+        // side + -Wl,--gc-sections before -o. Dead-strips unreferenced C.
+        spec.it("strip_unused adds -ffunction-sections/-fdata-sections + --gc-sections") callback {
+            o_su = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            map_put(o_su, "strip_unused", "1")
+            spec.assert_str_eq(aether_link_cmd(o_su),
+                "gcc -O2 -fno-ipa-bit-cp -ffunction-sections -fdata-sections -pipe -w main.c -L/lib -laether   -Wl,--gc-sections -o out/bin -pthread -lm -lz -lssl -lcrypto -lpcre2-8 ",
+                "strip_unused on")
+        }
+
+        // strip_unused off (missing/"") → no section flags.
+        spec.it("strip_unused=\"\" → no section flags") callback {
+            o_nosu = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            map_put(o_nosu, "strip_unused", "")
+            spec.assert_false(string.contains(aether_link_cmd(o_nosu), "gc-sections"), "no gc-sections")
+            spec.assert_false(string.contains(aether_link_cmd(o_nosu), "function-sections"), "no function-sections")
+        }
+
+        // Coverage WINS over strip_unused: a coverage build must not carry the
+        // size-stripping flags (it forces -O0 -g).
+        spec.it("coverage suppresses strip_unused's section flags") callback {
+            o_both = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            map_put(o_both, "strip_unused", "1")
+            map_put(o_both, "coverage", "1")
+            cmd = aether_link_cmd(o_both)
+            spec.assert_contains(cmd, "-O0 -g", "coverage -O0 -g")
+            spec.assert_false(string.contains(cmd, "gc-sections"), "no gc-sections under coverage")
+            spec.assert_false(string.contains(cmd, "function-sections"), "no function-sections under coverage")
+        }
     }
 
     return spec.run_summary(fw)
