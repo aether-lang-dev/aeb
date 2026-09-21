@@ -145,5 +145,10 @@ jobs:
       # forms + text, composing with _failures.jsonl (aeb#12).
       - name: report-view render
         run: itests/report-view.sh
+      # Inline telemetry verbosity dial: aeb --report=<tier>
+      # (counts|targets|per-rule|full) filters what the [telemetry] block prints;
+      # default unchanged (aeb#8).
+      - name: report tiers
+        run: itests/report-tiers.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

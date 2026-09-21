@@ -4176,6 +4176,27 @@ _format_telemetry_line(label: string, type_word: string, wall_ms: int, cache: st
 // failures to detail) or when test_failed_names is absent (SDK
 // doesn't provide per-test granularity yet).
 render_telemetry(records: ptr, total_ms: int) {
+    // Reporting TIER (aeb#8): AEB_REPORT selects how much detail the inline
+    // [telemetry] block materializes — a caller pays only for what it needs.
+    //   counts   : aggregate only — total wall + verdict + failed-target rollup.
+    //              No per-node rows. Cheapest, CI-friendly.
+    //   targets  : counts + one line per node (label / wall / cache), no per-test
+    //              PASS/FAIL trailer or failed-name detail.
+    //   per-rule : targets + the per-test N/M PASS/FAIL trailer + failed-test
+    //              names indented under each FAIL line.
+    //   full     : everything per-rule shows (currently == per-rule; the tier
+    //              exists for future per-node toolchain detail). DEFAULT.
+    // Unset / unknown => "full" == today's behaviour, so no regression. The tier
+    // is a FILTER on what is printed; records are collected once regardless.
+    tier = os.getenv("AEB_REPORT")
+    if string.length(tier) == 0 { tier = "full" }
+    show_rows = 1
+    if string.equals(tier, "counts") == 1 { show_rows = 0 }
+    show_test_trailer = 1
+    if string.equals(tier, "targets") == 1 { show_test_trailer = 0 }
+    show_fail_names = 1
+    if string.equals(tier, "targets") == 1 { show_fail_names = 0 }
+
     out = "[telemetry]\n"
     // Roll-up accumulators: the block's LAST lines have to state the
     // verdict, because `aeb | tail` is how this gets read interactively
@@ -4209,9 +4230,18 @@ render_telemetry(records: ptr, total_ms: int) {
         if map.has(rec, "status") == 1 {
             status, _ = map.get(rec, "status")
         }
-        line = _format_telemetry_line(_label_display(label), type_word, wall_ms, cache, passed, failed, has_test_result, status)
-        out = string.concat(out, line)
-        out = string.concat(out, "\n")
+        // Per-node row — suppressed at the `counts` tier. The per-test N/M
+        // PASS/FAIL trailer is dropped at `targets` (has_test_result forced 0,
+        // which makes _format_telemetry_line fall back to the no-trailer form).
+        if show_rows == 1 {
+            row_htr = has_test_result
+            if show_test_trailer == 0 { row_htr = 0 }
+            line = _format_telemetry_line(_label_display(label), type_word, wall_ms, cache, passed, failed, row_htr, status)
+            out = string.concat(out, line)
+            out = string.concat(out, "\n")
+        }
+        // Failed-target rollup accumulates at EVERY tier — it is the verdict the
+        // `counts` tier exists to state.
         if _status_is_failed(status) == 1 {
             n_failed = n_failed + 1
             failed_labels = string.concat(failed_labels, "\n  ")
@@ -4220,7 +4250,11 @@ render_telemetry(records: ptr, total_ms: int) {
             failed_labels = string.concat(failed_labels, _label_display(label))
         }
 
-        // Indent failed-test names under the FAIL line, if any.
+        // Indent failed-test names under the FAIL line — per-rule/full only, and
+        // only when rows are shown (a counts/targets tier has no FAIL line to
+        // hang them under).
+        if show_rows == 1 {
+        if show_fail_names == 1 {
         if failed > 0 {
             if map.has(rec, "test_failed_names") == 1 {
                 tfn, _ = map.get(rec, "test_failed_names")
@@ -4244,6 +4278,8 @@ render_telemetry(records: ptr, total_ms: int) {
                     }
                 }
             }
+        }
+        }
         }
         i = i + 1
     }

@@ -378,5 +378,72 @@ main() {
         }
     }
 
+    // --- reporting tiers (aeb#8): AEB_REPORT filters what render_telemetry
+    // prints. A test record with per-test results + a status lets us see each
+    // tier's cut. Env-var driven, so set/unset per case; unset => full (default).
+    spec.describe(fw, "render_telemetry: --report tiers") {
+        spec.it("counts: aggregate only, no per-node rows") callback {
+            recs = list.new()
+            r = _record("ae/x", "test", 3400, "n/a")
+            map.put(r, "test_passed", "28")
+            map.put(r, "test_failed", "2")
+            map.put(r, "status", "failed")
+            list.add(recs, r)
+            os.setenv("AEB_REPORT", "counts")
+            out = render_telemetry(recs, 3400)
+            os.setenv("AEB_REPORT", "")
+            // No per-node DATA row (the row carries the cache marker + wall time);
+            // the failed label still appears in the verdict rollup, which counts
+            // KEEPS — so assert the row's signature ([n/a] / the wall) is gone,
+            // not the label.
+            spec.assert_false(string.contains(out, "[n/a]"), "no per-node cache marker (no row)")
+            spec.assert_false(string.contains(out, "3.40s [n/a]"), "no per-node row")
+            spec.assert_contains(out, "total: 3.40s wall", "still has total")
+            spec.assert_contains(out, "FAILED: 1 target", "still has verdict")
+            spec.assert_contains(out, "test: ae/x", "verdict still names the failed target")
+        }
+        spec.it("targets: per-node row, no N/M trailer") callback {
+            recs = list.new()
+            r = _record("ae/x", "test", 3400, "miss")
+            map.put(r, "test_passed", "28")
+            map.put(r, "test_failed", "2")
+            map.put(r, "status", "failed")
+            list.add(recs, r)
+            os.setenv("AEB_REPORT", "targets")
+            out = render_telemetry(recs, 3400)
+            os.setenv("AEB_REPORT", "")
+            spec.assert_contains(out, "ae/x", "has the row")
+            spec.assert_contains(out, "[miss]", "has cache")
+            spec.assert_false(string.contains(out, "28/30"), "no per-test count trailer")
+        }
+        spec.it("per-rule: row WITH the N/M PASS/FAIL trailer + fail names") callback {
+            recs = list.new()
+            r = _record("ae/x", "test", 3400, "n/a")
+            map.put(r, "test_passed", "28")
+            map.put(r, "test_failed", "2")
+            map.put(r, "status", "failed")
+            map.put(r, "test_failed_names", "case one\ncase two")
+            list.add(recs, r)
+            os.setenv("AEB_REPORT", "per-rule")
+            out = render_telemetry(recs, 3400)
+            os.setenv("AEB_REPORT", "")
+            spec.assert_contains(out, "28/30 FAIL", "has the count trailer")
+            spec.assert_contains(out, "- case one", "has the fail-name detail")
+        }
+        spec.it("full (default, unset) == today: rows + trailer + names") callback {
+            recs = list.new()
+            r = _record("ae/x", "test", 3400, "n/a")
+            map.put(r, "test_passed", "28")
+            map.put(r, "test_failed", "2")
+            map.put(r, "status", "failed")
+            map.put(r, "test_failed_names", "case one")
+            list.add(recs, r)
+            os.setenv("AEB_REPORT", "")   // unset => full
+            out = render_telemetry(recs, 3400)
+            spec.assert_contains(out, "28/30 FAIL", "full: count trailer")
+            spec.assert_contains(out, "- case one", "full: fail-name detail")
+        }
+    }
+
     return spec.run_summary(fw)
 }

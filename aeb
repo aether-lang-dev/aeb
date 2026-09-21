@@ -442,6 +442,18 @@ while [[ $i -le $# ]]; do
             exit 1
         fi
         export AEB_SHARD="${!i}"
+    elif [[ "$a" == "--report="* ]]; then
+        # --report=<tier> (aeb#8): the inline [telemetry] verbosity dial —
+        # counts | targets | per-rule | full. Exported as AEB_REPORT and read by
+        # bldr.render_telemetry (a FILTER on what's printed; records collected
+        # once regardless). Distinct from the bare `--report` MODAL flag (the
+        # standalone render-from-artifacts view, aeb#12) — the `=<tier>` form is
+        # a build-time dial, so it is consumed here and the build proceeds.
+        _rt="${a#--report=}"
+        case "$_rt" in
+            counts|targets|per-rule|full) export AEB_REPORT="$_rt" ;;
+            *) echo "aeb: --report=<tier> must be counts|targets|per-rule|full (got '$_rt')" >&2; exit 1 ;;
+        esac
     elif [[ "$a" == "--telemetry-json" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then
