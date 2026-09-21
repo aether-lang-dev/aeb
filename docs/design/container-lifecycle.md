@@ -5,7 +5,7 @@ then tear it down.** A container's lifetime is one cohesive unit of
 work — it *must* be torn down, and shouldn't outlive the step that
 needs it — so aeb expresses the whole up → poke → down as a single
 [inline-Aether step](inline-build-steps.md): plain `os.exec` for
-`podman`/`docker`/`curl`, an adjacent helper, and `build.target_dir(b)`
+`podman`/`docker`/`curl`, an adjacent helper, and `target_dir()`
 for the captured artifact.
 
 The runnable example is one file:
@@ -38,47 +38,48 @@ _engine() {                        // podman if present, else docker
 }
 
 main() {
-    b = build.start()
-    eng = _engine()
-    name = "aeb-cldemo"
-    port = "18080"
-    url = "http://localhost:${port}/"
+    bldr.build() {
+        eng = _engine()
+        name = "aeb-cldemo"
+        port = "18080"
+        url = "http://localhost:${port}/"
 
-    // UP — start detached, then poll until it actually serves.
-    _rm0 = os.system("${eng} rm -f ${name} >/dev/null 2>&1")   // idempotent
-    rc = os.system("${eng} run -d --name ${name} -p ${port}:80 caddy:2-alpine >/dev/null")
-    if rc != 0 { println("up: failed to start ${name}")  return 1 }
-    ready = 0
-    i = 0
-    while i < 50 {
-        probe = os.system("curl -fsS -o /dev/null '${url}' 2>/dev/null")
-        if probe == 0 { ready = 1  i = 50 }
-        else { _s = os.system("sleep 0.2")  i = i + 1 }
+        // UP — start detached, then poll until it actually serves.
+        _rm0 = os.system("${eng} rm -f ${name} >/dev/null 2>&1")   // idempotent
+        rc = os.system("${eng} run -d --name ${name} -p ${port}:80 caddy:2-alpine >/dev/null")
+        if rc != 0 { println("up: failed to start ${name}")  return 1 }
+        ready = 0
+        i = 0
+        while i < 50 {
+            probe = os.system("curl -fsS -o /dev/null '${url}' 2>/dev/null")
+            if probe == 0 { ready = 1  i = 50 }
+            else { _s = os.system("sleep 0.2")  i = i + 1 }
+        }
+        println("up: ${name} serving at ${url}")
+
+        // POKE — hit the endpoint, capture status into an artifact.
+        status = "no-response"
+        if ready == 1 {
+            status_raw, _ = os.exec("curl -fsS -o /dev/null -w '%{http_code}' '${url}' 2>/dev/null")
+            status = string.trim(status_raw)
+            tdir = target_dir()
+            bldr.mkdirs(tdir)
+            _w = io.write_file(path.join(tdir, "response.txt"), "url=${url}\nstatus=${status}\n")
+            if string.equals(status, "200") == 1 { println("poke: PASS — HTTP ${status}") }
+            else { println("poke: FAIL — HTTP ${status}") }
+        } else {
+            println("poke: SKIPPED — never became ready")
+        }
+
+        // DOWN — unconditional teardown (never leak the container).
+        _stop = os.system("${eng} stop ${name} >/dev/null 2>&1")
+        _rm = os.system("${eng} rm -f ${name} >/dev/null 2>&1")
+        println("down: stopped + removed ${name}")
+
+        // Fail the build iff the poke failed — AFTER teardown.
+        if string.equals(status, "200") == 0 { return 1 }
+        return 0
     }
-    println("up: ${name} serving at ${url}")
-
-    // POKE — hit the endpoint, capture status into an artifact.
-    status = "no-response"
-    if ready == 1 {
-        status_raw, _ = os.exec("curl -fsS -o /dev/null -w '%{http_code}' '${url}' 2>/dev/null")
-        status = string.trim(status_raw)
-        tdir = build.target_dir(b)
-        build.mkdirs(tdir)
-        _w = io.write_file(path.join(tdir, "response.txt"), "url=${url}\nstatus=${status}\n")
-        if string.equals(status, "200") == 1 { println("poke: PASS — HTTP ${status}") }
-        else { println("poke: FAIL — HTTP ${status}") }
-    } else {
-        println("poke: SKIPPED — never became ready")
-    }
-
-    // DOWN — unconditional teardown (never leak the container).
-    _stop = os.system("${eng} stop ${name} >/dev/null 2>&1")
-    _rm = os.system("${eng} rm -f ${name} >/dev/null 2>&1")
-    println("down: stopped + removed ${name}")
-
-    // Fail the build iff the poke failed — AFTER teardown.
-    if string.equals(status, "200") == 0 { return 1 }
-    return 0
 }
 ```
 
@@ -105,8 +106,8 @@ status=200
 
 ## Relation to the container SDK
 
-`lib/container` ships `container.image(b)` (build an OCI image),
-`container.lxc(b)`, and `container.run(b)` (run a *one-shot* `--rm`
+`lib/container` ships `container.image()` (build an OCI image),
+`container.lxc()`, and `container.run()` (run a *one-shot* `--rm`
 container and capture pid-1 stdout). None of those is a long-running
 up/poke/down lifecycle — `container.run` exits when its command
 finishes. This inline-Aether pattern is the lighter answer when you

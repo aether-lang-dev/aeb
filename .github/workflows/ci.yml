@@ -130,5 +130,10 @@ jobs:
       # than a cryptic `undefined reference to os_arch_raw` (servirtium-vcr).
       - name: libaether 0.681 floor guard
         run: itests/libaether-floor-guard.sh
+      # A node using the retired `build` module (pre-bldr grammar) gets a clear
+      # migration diagnostic, not a cryptic "unresolved import 'build'" that reads
+      # like an install problem (aeb#16).
+      - name: retired build-grammar diagnostic
+        run: itests/retired-build-grammar-diagnostic.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

@@ -21,14 +21,14 @@ inventory/config generation, and preflight checks before Ansible runs.
 ## Useful grammar
 
 ```aether
-ansible.vars(b) {
+ansible.vars() {
     environment("prod")
     set("api_version").from_version()
     set("api_image_digest").from_artifact("apps/api/.dist.ae", "oci-digest")
     output("target/ansible/prod-vars.yml")
 }
 
-ansible.check(b) {
+ansible.check() {
     inventory("infra/ansible/prod.ini")
     playbook("infra/ansible/site.yml")
     vars("target/ansible/prod-vars.yml")

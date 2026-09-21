@@ -11,7 +11,7 @@ cache.
 
 aeb's unit is a source-tree target: a dot-prefixed `.ae` file next to
 the code it builds. The graph is file-to-file and statically visible
-through `build.dep(...)` declarations. Language SDKs provide the build
+through `dep(...)` declarations. Language SDKs provide the build
 verbs; target files declare intent.
 
 ## What aeb should learn

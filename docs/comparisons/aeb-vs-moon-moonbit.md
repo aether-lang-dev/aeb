@@ -92,7 +92,7 @@ do them without ceasing to be moon.
    moon, not the reverse.**
 
 2. **Greppable, statically-extractable graph.** Every dependency edge in
-   aeb is a literal `build.dep("path/.build.ae")` string, scannable by
+   aeb is a literal `dep("path")` string, scannable by
    `grep`/`tools/extract-deps.ae` with zero evaluation — Bazel-BUILD-like
    transparency. moon's graph is computed in Rust from the JSON module
    model; you can't `grep` the edges.

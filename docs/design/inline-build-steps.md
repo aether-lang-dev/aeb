@@ -2,8 +2,8 @@
 
 A `.build.ae` is not a config file; it's an **Aether program** with an
 `aeb(cap)` entrypoint (the capability the trusted host injects; legacy
-`main()` also works). The idiomatic SDK builders (`java.javac(b)`,
-`rust.cargo_project(b)`, `pnpm.run(b, "lint")`, …) are just function
+`main()` also works). The idiomatic SDK builders (`java.javac()`,
+`rust.cargo_project()`, `pnpm.run("lint")`, …) are just function
 calls. Between them — or instead of them — you can write *any* Aether:
 shell out, parse stdout, transform strings, do arithmetic, and write
 artifacts.
@@ -26,15 +26,15 @@ builder — see [the load-bearing principle](#when-to-promote-to-an-sdk).)
 
 ## What a build step has access to
 
-After `b = build.start()`, these public accessors give inline code the
-paths it usually needs:
+Inside the `bldr.build() { ... }` block, these public accessors give
+inline code the paths it usually needs:
 
 | Accessor | Returns |
 |----------|---------|
-| `build.target_dir(b)` | `target/<module>/` — where build outputs and artifacts belong; a later `.dist.ae` / archive step pulls from here |
-| `build.source_dir(b)` | the module's source directory (where the `.build.ae` lives) |
-| `build.root(b)` | the repo root aeb was invoked from |
-| `build.mkdirs(path)` | create a directory (and parents) before writing into it |
+| `target_dir()` | `target/<module>/` — where build outputs and artifacts belong; a later `.dist.ae` / archive step pulls from here |
+| `source_dir()` | the module's source directory (where the `.build.ae` lives) |
+| `root()` | the repo root aeb was invoked from |
+| `bldr.mkdirs(path)` | create a directory (and parents) before writing into it |
 
 Everything else is the Aether stdlib: `os.exec(cmd)` (run a command,
 capture stdout + an error string), `os.system(cmd)` (run for its exit
@@ -48,40 +48,41 @@ later archive step to bundle. The full runnable example lives at
 [`docs/examples/inline-git-changelog/.build.ae`](examples/inline-git-changelog/.build.ae).
 
 ```aether
-import build
+import bldr
 import std.os
 import std.io
 import std.string
 import std.path
 
 aeb(cap) {
-    b = build.start()
+    bldr.build() {
 
-    // --- Idiomatic SDK builders would go here, e.g. ---
-    //   java.javac(b) { release("21") }
-    // Between them, this is plain inline Aether:
+        // --- Idiomatic SDK builders would go here, e.g. ---
+        //   java.javac() { release("21") }
+        // Between them, this is plain inline Aether:
 
-    // 1. Shell out to git, capture stdout.
-    log_raw, err = os.exec("git log --oneline -10")
-    if string.length(err) > 0 {
-        println("inline-changelog: git failed: ${err}")
-        return 1
+        // 1. Shell out to git, capture stdout.
+        log_raw, err = os.exec("git log --oneline -10")
+        if string.length(err) > 0 {
+            println("inline-changelog: git failed: ${err}")
+            return 1
+        }
+
+        // 2. Reformat via an adjacent function (called like any Aether fn).
+        formatted = format_recent(string.trim(log_raw))
+
+        // 3. Write into the target dir for a later archive step to pull in.
+        tdir = target_dir()
+        bldr.mkdirs(tdir)
+        outfile = path.join(tdir, "RECENT_CHANGES.txt")
+        werr = io.write_file(outfile, formatted)
+        if string.length(werr) > 0 {
+            println("inline-changelog: write failed: ${werr}")
+            return 1
+        }
+        println("inline-changelog: wrote ${outfile}")
+        return 0
     }
-
-    // 2. Reformat via an adjacent function (called like any Aether fn).
-    formatted = format_recent(string.trim(log_raw))
-
-    // 3. Write into the target dir for a later archive step to pull in.
-    tdir = build.target_dir(b)
-    build.mkdirs(tdir)
-    outfile = path.join(tdir, "RECENT_CHANGES.txt")
-    werr = io.write_file(outfile, formatted)
-    if string.length(werr) > 0 {
-        println("inline-changelog: write failed: ${werr}")
-        return 1
-    }
-    println("inline-changelog: wrote ${outfile}")
-    return 0
 }
 
 // Adjacent helper — a normal Aether function, invoked from aeb(cap)
@@ -145,34 +146,35 @@ Recent changes (last 10 commits)
 The file lives under `target/<module>/`, the same place every SDK
 builder writes its outputs. A `.dist.ae` in the same directory shares
 that `target/<module>/` dir, so it reads the artifact straight from
-`build.target_dir(b)` — no fragile relative paths — and a
-`dep(b, ".build.ae")` edge guarantees the producer ran first
+`target_dir()` — no fragile relative paths — and a
+`dep(".build.ae")` edge guarantees the producer ran first
 ([full example](examples/inline-git-changelog/.dist.ae)):
 
 ```aether
 // docs/examples/inline-git-changelog/.dist.ae
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 import std.io
 import std.string
 import std.path
 
 aeb(cap) {
-    b = build.start()
-    dep(b, ".build.ae")          // ensure the inline producer ran first
+    bldr.build() {
+        dep(".build.ae")          // ensure the inline producer ran first
 
-    tdir = build.target_dir(b)
-    body, rerr = io.read_file(path.join(tdir, "RECENT_CHANGES.txt"))
-    if string.length(rerr) > 0 { return 1 }
+        tdir = target_dir()
+        body, rerr = io.read_file(path.join(tdir, "RECENT_CHANGES.txt"))
+        if string.length(rerr) > 0 { return 1 }
 
-    dist_dir = path.join(tdir, "dist")
-    build.mkdirs(dist_dir)
-    _w = io.write_file(path.join(dist_dir, "RECENT_CHANGES.txt"), body)
-    return 0
+        dist_dir = path.join(tdir, "dist")
+        bldr.mkdirs(dist_dir)
+        _w = io.write_file(path.join(dist_dir, "RECENT_CHANGES.txt"), body)
+        return 0
+    }
 }
 ```
 
-The `dep(b, ".build.ae")` edge guarantees topological ordering: the
+The `dep(".build.ae")` edge guarantees topological ordering: the
 inline step that *produces* `RECENT_CHANGES.txt` runs before any step
 that *consumes* it. The DAG doesn't care that the producer was inline
 Aether rather than an SDK builder — an artifact in `target/<module>/`

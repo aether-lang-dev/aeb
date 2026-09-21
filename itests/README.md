@@ -44,7 +44,7 @@ AETHER=/path/to/ae ./cache-smoke.sh go-multimodule-fyne   # one project
 
 `presubmit-smoke.sh` verifies the `.presubmit.ae` convention
 (`../docs/design/presubmit-target-sets.md`): a dot-prefixed `.ae` file whose body
-is nothing but `build.dep(...)` lines is a runnable set of targets. It
+is nothing but `dep(...)` lines is a runnable set of targets. It
 synthesises a three-node fixture in a temp dir and asserts that members
 run, the aggregator topo-sorts last, the set self-classifies as type
 `presubmit` from its filename alone, an all-green set exits 0, and — the

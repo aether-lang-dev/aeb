@@ -55,10 +55,10 @@ Each module uses a different compilation tool:
 
 | Framework | Compiler | aeb builder |
 |-----------|----------|-------------|
-| Plain TypeScript | `tsc` | `ts.tsc_project(b)` |
-| Angular | `ngc` | `angular.ngc_project(b)` |
-| React (TSX) | `tsc` | `ts.tsc_project(b)` |
-| Web Components | `tsc` | `ts.tsc_project(b)` |
+| Plain TypeScript | `tsc` | `ts.tsc_project()` |
+| Angular | `ngc` | `angular.ngc_project()` |
+| React (TSX) | `tsc` | `ts.tsc_project()` |
+| Web Components | `tsc` | `ts.tsc_project()` |
 
 Detect framework per module:
 ```bash
@@ -80,11 +80,11 @@ One per framework stack, at the project root:
 
 ```aether
 // angular.deps.ae
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 
 aeb(cap) {
-    b = build.deps()
+    b = bldr.deps()
     dep(b, "npm:typescript:5.9.2")
     dep(b, "npm:tslib:2.8.1")
     dep(b, "npm:rxjs:7.8.2")
@@ -98,11 +98,11 @@ aeb(cap) {
 
 ```aether
 // react.deps.ae
-import build
-import build (dep)
+import bldr
+import bldr (dep)
 
 aeb(cap) {
-    b = build.deps()
+    b = bldr.deps()
     dep(b, "npm:typescript:5.9.2")
     dep(b, "npm:react:18.3.1")
     dep(b, "npm:react-dom:18.3.1")
@@ -140,16 +140,17 @@ Angular 21+ uses Ivy natively — no `ngcc` step needed. For Angular 11-16, run 
 
 ```aether
 // libs/shared/product/types/.build.ae
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import ts
 import ts (skip_lib_check)
 
 aeb(cap) {
-    b = build.start()
-    load_third_party_deps(b, "../../../../base.deps.ae")
-    ts.tsc_project(b) {
-        skip_lib_check()
+    bldr.build() {
+        load_third_party_deps("../../../../base.deps.ae")
+        ts.tsc_project() {
+            skip_lib_check()
+        }
     }
 }
 ```
@@ -157,18 +158,19 @@ aeb(cap) {
 For modules with inter-module deps:
 ```aether
 // libs/shared/product/state/.build.ae  (Angular)
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import angular
 import angular (skip_lib_check)
 
 aeb(cap) {
-    b = build.start()
-    load_third_party_deps(b, "../../../../angular.deps.ae")
-    dep(b, "libs/shared/product/data")
-    dep(b, "libs/shared/product/types")
-    angular.ngc_project(b) {
-        skip_lib_check()
+    bldr.build() {
+        load_third_party_deps("../../../../angular.deps.ae")
+        dep("libs/shared/product/data")
+        dep("libs/shared/product/types")
+        angular.ngc_project() {
+            skip_lib_check()
+        }
     }
 }
 ```
@@ -178,19 +180,20 @@ aeb(cap) {
 Apps use `tsconfig.app.json` instead of `tsconfig.lib.json`:
 ```aether
 // apps/products/.build.ae
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import angular
 import angular (skip_lib_check, tsconfig)
 
 aeb(cap) {
-    b = build.start()
-    load_third_party_deps(b, "../../angular.deps.ae")
-    dep(b, "libs/products/home-page")
-    dep(b, "libs/products/product-detail-page")
-    angular.ngc_project(b) {
-        tsconfig("tsconfig.app.json")
-        skip_lib_check()
+    bldr.build() {
+        load_third_party_deps("../../angular.deps.ae")
+        dep("libs/products/home-page")
+        dep("libs/products/product-detail-page")
+        angular.ngc_project() {
+            tsconfig("tsconfig.app.json")
+            skip_lib_check()
+        }
     }
 }
 ```
@@ -203,21 +206,22 @@ aeb(cap) {
 
 **`tsconfig("tsconfig.app.json")`** — override the default `tsconfig.lib.json` for app modules.
 
-**`dep(b, "libs/shared/product/types")`** — inter-module deps. These control build order (topo sort). TypeScript's path aliases handle the actual module resolution.
+**`dep("libs/shared/product/types")`** — inter-module deps. These control build order (topo sort). TypeScript's path aliases handle the actual module resolution.
 
 ## Step 5: Create .tests.ae Files
 
 ```aether
 // libs/shared/product/state/.tests.ae
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import jest
 
 aeb(cap) {
-    b = build.start()
-    dep(b, "libs/shared/product/state")
-    load_third_party_deps(b, "../../../../angular.deps.ae")
-    jest.project(b)
+    bldr.build() {
+        dep("libs/shared/product/state")
+        load_third_party_deps("../../../../angular.deps.ae")
+        jest.project()
+    }
 }
 ```
 
@@ -292,15 +296,16 @@ module.exports = {
 
 ```aether
 // apps/cart/.dist.ae
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import webpack
 
 aeb(cap) {
-    b = build.start()
-    dep(b, "apps/cart")
-    load_third_party_deps(b, "../../react.deps.ae")
-    webpack.bundle(b)
+    bldr.build() {
+        dep("apps/cart")
+        load_third_party_deps("../../react.deps.ae")
+        webpack.bundle()
+    }
 }
 ```
 
@@ -327,15 +332,16 @@ Create a minimal `angular.json` at the repo root with the app's build config:
 
 ```aether
 // apps/products/.dist.ae
-import build
-import build (dep, load_third_party_deps)
+import bldr
+import bldr (dep, load_third_party_deps)
 import angular
 
 aeb(cap) {
-    b = build.start()
-    dep(b, "apps/products")
-    load_third_party_deps(b, "../../angular.deps.ae")
-    angular.ng_build(b)
+    bldr.build() {
+        dep("apps/products")
+        load_third_party_deps("../../angular.deps.ae")
+        angular.ng_build()
+    }
 }
 ```
 
@@ -391,17 +397,18 @@ README for the canonical reference; brief pointers:
   targets impacted by the PR, skipping `.build.ae` rebuild rows and
   `.dist.ae` packagers. `--scan '.dist.ae'` is the symmetric
   release-pipeline shape.
-- **Composite test targets via `build.scan()`.** Equivalent to Nx
+- **Composite test targets via `bldr.scan()`.** Equivalent to Nx
   project tags + `nx run-many --target=test`. Commit a `.all-tests.ae`
   once and your CI command stays `aeb .all-tests.ae --since main`
   forever:
 
   ```aether
   // .all-tests.ae at the workspace root
-  import build
+  import bldr
   aeb(cap) {
-      b = build.start()
-      build.scan(b, "**/.tests.ae")
+      bldr.build() {
+          bldr.scan("**/.tests.ae")
+      }
   }
   ```
 
@@ -417,11 +424,11 @@ README for the canonical reference; brief pointers:
 
 | Builder | Purpose | DSL |
 |---------|---------|-----|
-| `ts.tsc_project(b)` | TypeScript/React compilation | `tsconfig()`, `skip_lib_check()` |
-| `angular.ngc_project(b)` | Angular compilation | `tsconfig()`, `skip_lib_check()` |
-| `jest.project(b)` | Jest test execution | `timeout()` |
-| `webpack.bundle(b)` | React app bundling | `webpack_config()` |
-| `angular.ng_build(b)` | Angular app bundling | (uses angular.json) |
+| `ts.tsc_project()` | TypeScript/React compilation | `tsconfig()`, `skip_lib_check()` |
+| `angular.ngc_project()` | Angular compilation | `tsconfig()`, `skip_lib_check()` |
+| `jest.project()` | Jest test execution | `timeout()` |
+| `webpack.bundle()` | React app bundling | `webpack_config()` |
+| `angular.ng_build()` | Angular app bundling | (uses angular.json) |
 
 ## What Doesn't Migrate Automatically
 

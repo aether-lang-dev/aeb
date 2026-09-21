@@ -135,11 +135,11 @@ container-up → exercise → container-down inline in Aether):
 ```
 <impl-dir>/
   Containerfile          # FROM <impl's runtime>; build the SUT image
-  .build.ae              # container.image(b) { ... }  — build the SUT image
+  .build.ae              # container.image() { ... }  — build the SUT image
   .tests.ae              # up SUT container → run todo-backend-js-spec → assert → down
 ```
 
-- **`.build.ae`** — `container.image(b)` builds the implementation in its own
+- **`.build.ae`** — `container.image()` builds the implementation in its own
   toolchain container. For impls aeb has a native SDK for, an alternative
   non-container path (`java.javac` + a pinned `mvn_repo`, `go.go_build`, …) is
   possible — and the *comparison* (container vs native pinned) is itself a
@@ -150,7 +150,7 @@ container-up → exercise → container-down inline in Aether):
   `../aeb/docs/design/container-lifecycle.md`). DB-backed impls (25 postgres, 9
   mongodb) bring up a sidecar DB container too.
 
-The spec is one shared node every `.tests.ae` `build.dep`s — so a change to the
+The spec is one shared node every `.tests.ae` `dep`s — so a change to the
 conformance suite re-tests all 141 (aeb `--since` / affected-target detection
 turns that into "only re-test what changed").
 

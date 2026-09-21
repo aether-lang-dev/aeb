@@ -85,20 +85,21 @@ the label was already fixed at scan time and handed to every consumer.
 
 The channel that fits: a **structured comment atop the source, read
 statically at scan time** — the same mechanism `tools/extract-deps` already
-uses to find `dep(b, "...")` lines by `io.read_file` + string-scan, *without
+uses to find `dep("...")` lines by `io.read_file` + string-scan, *without
 running the file*. Precedent exists and is proven.
 
 ```aether
 //aeb:output_subdir tests
 //aeb:classify test
-import build
+import bldr
 import java
 
 main() {
-    b = build.start()
-    build.dep(b, "java/components/velar/.build.ae")   // the ONLY thing relating test→prod
-    java.javac_test(b)
-    java.junit(b)
+    bldr.build() {
+        dep("java/components/velar/.build.ae")   // the ONLY thing relating test→prod
+        java.javac_test()
+        java.junit()
+    }
 }
 ```
 

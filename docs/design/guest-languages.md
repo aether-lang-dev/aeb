@@ -26,7 +26,7 @@ here because it decides where a guest language ends up running.
 PID namespace, filesystem, and kernel-enforced isolation.
 
 ```aether
-out = container.run(b) {
+out = container.run() {
     image_ref("docker.io/nickblah/lua:5.4-alpine")
     command("lua -e 'print(\"hello\")'")
 }

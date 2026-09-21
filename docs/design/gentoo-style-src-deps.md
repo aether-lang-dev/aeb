@@ -72,35 +72,37 @@ But aeb **already has the exact node shape** — the typed-dep declaration files
 
 ```aether
 // libs/rust/registry/vendor/serde_json/.serde_json.crate.ae
-import build
+import bldr
 import rust
 main() {
-    b = build.start()
-    rust.crate_registry(b, "serde_json~1.0")   // declares HOW to source this dep
+    bldr.build() {
+        rust.crate_registry("serde_json~1.0")   // declares HOW to source this dep
+    }
 }
 ```
 
 `.crate.ae` / `.jar.ae` / `.npm.ae` / `.nupkg.ae` / `.whl.ae` are dot-prefixed `.ae` nodes
 that declare *how to obtain a dependency* and expose it to consumers via
-`build.dep(b, "…/.serde_json.crate.ae")`. They resolve to a **prebuilt
+`dep("…/serde_json")`. They resolve to a **prebuilt
 artifact to link**. A Gentoo-style source package is the **same declaration
 shape resolving to source to compile**:
 
 ```aether
 // vendor/zlib/.zlib.src.ae  — a from-source dependency
-import build
+import bldr
 import c
 main() {
-    b = build.start()
-    src.fetch(b, "https://zlib.net/zlib-1.3.1.tar.gz",
-                 "sha256:9a93b2b7df…")   // pinned, content-addressed
-    // build the unpacked source into an artifact downstream nodes link
-    c.sources(b, "*.c")
-    c.static_lib(b, "libz.a")
+    bldr.build() {
+        src.fetch("https://zlib.net/zlib-1.3.1.tar.gz",
+                     "sha256:9a93b2b7df…")   // pinned, content-addressed
+        // build the unpacked source into an artifact downstream nodes link
+        c.sources("*.c")
+        c.static_lib("libz.a")
+    }
 }
 ```
 
-A consumer `dep(b, "vendor/zlib/.zlib.src.ae")` gets `libz.a` built-from-source
+A consumer `dep("vendor/zlib/.zlib.src.ae")` gets `libz.a` built-from-source
 and on its link line — exactly the Gentoo "compile the dep, then build against
 it" flow, expressed in aeb's existing dep-graph grammar. What's new is small:
 
@@ -119,7 +121,7 @@ recipes; see below), so it is shared, not bespoke.
 
 Gentoo's USE flags are *cross-cutting*: one set (`USE="ssl -X"`) that every
 package consults to decide what to compile in. aeb has **per-node** feature
-setters today — `rust.features(b, "…")`, `c.flag(b, "…")`, `crate_type(…)`,
+setters today — `rust.features("…")`, `c.flag("…")`, `crate_type(…)`,
 `with_*` — but no graph-wide vector a whole build reads.
 
 The template for adding one already exists: **`--coverage`**. It is a
@@ -137,15 +139,16 @@ A node reads the active USE set and conditionally adds sources/flags/deps:
 
 ```aether
 aeb(cap) {
-    b = build.start()
-    if build.use(b, "ssl")  { build.dep(b, "vendor/openssl/.openssl.src.ae") }
-    if build.use(b, "jemalloc") { c.flag(b, "-DUSE_JEMALLOC") }
-    c.compile(b)
+    bldr.build() {
+        if bldr.use("ssl")  { dep("vendor/openssl/.openssl.src.ae") }
+        if bldr.use("jemalloc") { c.flag("-DUSE_JEMALLOC") }
+        c.compile()
+    }
 }
 ```
 
 What's new: a `--use`/`AEB_USE` flag parsed by the trampoline (the `--coverage`
-parse is the template), a `build.use(b, name)` query, and — critically —
+parse is the template), a `bldr.use(name)` query, and — critically —
 **cache-key segregation by the USE vector** (again, `--coverage` already proves
 this pattern, so the cache plumbing exists). The USE *vocabulary* (which flags
 mean what) is per-project, declared by the SDKs/nodes that read them — aeb
@@ -208,7 +211,7 @@ In rough build order:
    *built-from-source artifact*; `extract-deps`/`gcheckout`/the DAG walk follow
    it for free (same convention as `.crate.ae`).
 3. **USE flags** — `--use`/`AEB_USE` (parse template: `--coverage`), a
-   `build.use(b, name)` query, USE-vector cache-key segregation.
+   `bldr.use(name)` query, USE-vector cache-key segregation.
 4. **Per-language `src.*` build glue** — how a fetched C/Rust/… source tree
    compiles to the artifact a consumer links (mostly reuses the existing
    `c.static_lib`/`rust.cargo_*`/etc. builders against the unpacked tree).

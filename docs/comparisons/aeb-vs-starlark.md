@@ -6,7 +6,7 @@ collect attributes, declare deps, name outputs, and lower the result
 into compiler/test/package actions:
 
 ```aether
-company.java_service(b) {
+company.java_service() {
     main_class("com.acme.Main")
     dep("libs/logging/.build.ae")
     dep("libs/config/.build.ae")

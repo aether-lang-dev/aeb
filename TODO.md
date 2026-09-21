@@ -274,7 +274,7 @@ is honest about what it can't do on Windows.
   int-shift/narrowing fixes are codegen-internal, not aeb-facing.
 - aeb *already* branches by OS at its lowest layer: `aeb-link` has an
   inlined `_is_macos_link()` for the GNU-ld-only `--allow-multiple-definition`
-  flag, and `lib/build` carries `_host_os()` returning `"windows"`. Both now
+  flag, and `lib/bldr` carries `_host_os()` returning `"windows"`. Both now
   read the compile-time **`os.platform()`** (ae 0.202+) instead of shelling out
   to `uname -s` — which matters because `uname` does not exist on a *native*
   Windows host (the old shell-out only worked under MSYS/MinGW and silently
@@ -283,7 +283,7 @@ is honest about what it can't do on Windows.
   a third arm, not a new mechanism.
 
 **Foundation laid (this session, Linux-safe — all return 0 off-Windows):**
-- `lib/build`: `_is_windows()` / `_is_linux()` (alongside existing
+- `lib/bldr`: `_is_windows()` / `_is_linux()` (alongside existing
   `_is_macos()` / `_is_freebsd()`), `_host_os()` (normalised token),
   `_exe_suffix()` (`.exe` on Windows), `_default_cc()` (gcc/cc/MinGW), and
   **`_path_sep()`** (`;` on Windows, `:` elsewhere) — the classpath-join
@@ -292,7 +292,7 @@ is honest about what it can't do on Windows.
   `tests/test_platform_helpers.ae` (cross-platform invariants: exactly one
   `_is_*` fires and agrees with the token; `_path_sep`/`_exe_suffix`/
   `_default_cc` track the host; drive-prefix accept/reject cases).
-- `lib/build`: **native path helpers** `_path_is_sep` / `_basename` /
+- `lib/bldr`: **native path helpers** `_path_is_sep` / `_basename` /
   `_dirname` / `_path_ext` / `_path_join` / `_path_to_slashes` — Windows-
   correct (on Windows both `/` and `\` are separators; dual-separator rule
   ported from Nushell's nu-path) and trailing-sep-stripping like coreutils.
@@ -302,7 +302,7 @@ is honest about what it can't do on Windows.
   `_resolve_aether_dir` dropped its `dirname $(command -v …)` shell-out for a
   native `_dirname` (verified byte-identical to the old pipeline).
 - **Host detection moved off `uname -s` to `os.platform()`** (ae 0.202+) in
-  all three sites: `lib/build._host_os()` (+ `_is_macos()` folded onto it),
+  all three sites: `lib/bldr._host_os()` (+ `_is_macos()` folded onto it),
   `tools/aeb-link._is_macos_link()`, and `tools/aeb-sandbox`'s Linux-only
   containment gate. Compile-time, never-fails, and correct on a native Windows
   host where `uname` is absent (the old shell-out fell back to "linux" there).
@@ -316,7 +316,7 @@ is honest about what it can't do on Windows.
 by default emits `target/.aeb/build.mk` (POSIX-shell recipes: `2>&1`, `$$?`,
 `$$((_e-_s))`, `date +%s%3N`, `case`/`esac`) and runs `make -jN`. On Windows
 this is not immediately broken, because the driver's `command -v make` probe
-and its `make` run both go through the `build._sh_capture` / `build._sh`
+and its `make` run both go through the `bldr._sh_capture` / `bldr._sh`
 chokepoint, which routes shell-outs via MSYS `sh` rather than `cmd.exe`. Two
 things follow, neither yet verified on a Windows host:
 - the `make` it finds must be the **MSYS/MinGW** one (an `nmake` would not
@@ -334,7 +334,7 @@ Windows-first shell in Rust — high-value comparison for these exact seams.
 Findings written up in `docs/guides/windows-cross-platform-notes.md` (attribution in
 `NOTICE`). Takeaways: (a) its drive-letter handling = Rust std's
 `Prefix::Disk`, now ported as `_has_windows_drive_prefix` (item 4); (b) the
-dual-separator path rule, ported into the lib/build path helpers above.
+dual-separator path rule, ported into the lib/bldr path helpers above.
 (Its process-supervision approach — skip groups on Windows, shell out to
 `taskkill` — is NOT aeb's path: Aether's `os.run_supervised` gives
 cross-platform group-reap via Job Objects. Kept as context in the doc.)
@@ -355,7 +355,7 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
 
 2. **Classpath separator → `_path_sep()`.**
    **Leaf joins DONE.** All five JVM SDKs' runtime `-cp` assembly now routes
-   through the shared **`build._cp_append(cp, part)`** helper (conditional join
+   through the shared **`bldr._cp_append(cp, part)`** helper (conditional join
    on `_path_sep()`, tested in `tests/test_platform_helpers.ae`) instead of
    `string.concat(cp, ":")` — `lib/{java,kotlin,scala,groovy,clojure}`. Byte-
    identical on Linux (suite 104/104); Windows-correct shape. The maven-
@@ -366,7 +366,7 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
    sufficient, because the cross-module classpath *plumbing* still hardcodes
    `:` and shells out to coreutils. Remaining (the chunk that makes Windows
    classpaths actually work; also overlaps item 6's coreutils removal):
-   - `build._build_dep_classpath` reads the `jvm_classpath_deps_including_
+   - `bldr._build_dep_classpath` reads the `jvm_classpath_deps_including_
      transitive` artifact via shell `echo | tr '\n' ':' | sed` and joins with
      hardcoded `:`. → native newline-split + `_cp_append`.
    - **Artifact format is inconsistent**: java/clojure/groovy write that
@@ -386,7 +386,7 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
      wrong only for the WSL2→Windows-`java.exe` boundary (out of scope).
 
 3. **`.exe` suffix on built binaries. DONE.** Native-binary outputs append
-   `build._exe_suffix()` (".exe" on Windows, "" else) so the recorded/executed
+   `bldr._exe_suffix()` (".exe" on Windows, "" else) so the recorded/executed
    path matches what MinGW gcc / `go build` / cargo actually emit:
    - `lib/c` already did it (`c.program`).
    - `lib/aether`: `program` / `program_test` / `driver_test` binaries (the
@@ -406,7 +406,7 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
    target-synonym grammar collides with Windows `C:\...` drive letters. The
    native entrypoint's arg parser must disambiguate (a lone drive letter is
    not a `:name` suffix). **Helper now in place:**
-   `build._has_windows_drive_prefix(s)` (lib/build) implements the
+   `bldr._has_windows_drive_prefix(s)` (lib/bldr) implements the
    `Prefix::Disk` rule (single letter + `:` + sep-or-end), ported from
    Nushell's nu-path — call it *before* splitting a `:name` synonym. **Now
    wired:** `tools/aebcli`'s `classify_target` / `synonym_*` strip the drive
@@ -414,9 +414,9 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
    plain target and `C:\a\b:build` still resolves as a synonym (tested). What
    remains: route the entrypoint's actual synonym-split through `aebcli`
    (replacing the bash loop), and the `/`-vs-`\` path-join normalisation
-   (`build._path_to_slashes` exists; apply it on input). Known limitation: the
+   (`bldr._path_to_slashes` exists; apply it on input). Known limitation: the
    rare drive-*relative* `C:name` form (no separator) is treated as not-a-drive.
-   (NB: `aebcli` keeps its own copy of the drive rule, not `import build`, to
+   (NB: `aebcli` keeps its own copy of the drive rule, not `import bldr`, to
    dodge the two-level transitive qualified-symbol compiler bug — consolidate
    when that's fixed upstream.)
 
@@ -424,7 +424,7 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
    Windows, `--sandbox` (LD_PRELOAD seccomp-shaped), `--watch` (inotify/
    fswatch), the container/podman lifecycle steps, and group-reap should each
    fail-fast with "unsupported on Windows (cut-down runner)" rather than a
-   cryptic missing-tool error. One gate helper reading `build._is_windows()`.
+   cryptic missing-tool error. One gate helper reading `bldr._is_windows()`.
 
 6. **The 47-file coreutils dependency is the deep blocker.** ~47 SDK/tool
    files shell out to POSIX coreutils (`find`, `sed`, `awk`, `tr`, `cut`,
@@ -442,7 +442,7 @@ cross-platform group-reap via Job Objects. Kept as context in the doc.)
      **Existence proof: Nushell's `nu-command`** reimplements `ls`/`str`/
      `path`/etc. as native Rust rather than shelling out — a Windows shell
      replaces coreutils with library calls, exactly strategy (B) at scale.
-     **Started:** `lib/build` now ships native `_basename`/`_dirname`/
+     **Started:** `lib/bldr` now ships native `_basename`/`_dirname`/
      `_path_ext`/`_path_join` (the path-manipulation slice of the coreutils
      surface). Remaining `dirname`/`basename` shell-out sites to convert onto
      them: `lib/bash` (4×), `lib/dotnet` (2×), `lib/go`, `lib/ts`,
@@ -483,7 +483,7 @@ aeb --dist java/applications/monorepos_rule   # compile + package
 
 ### ~~`scan()` grammar function — glob-based dep discovery~~ (done)
 
-`build.scan(b, "<glob>")` lives in lib/build/module.ae. Static
+`bldr.scan("<glob>")` lives in lib/bldr/module.ae. Static
 extraction is wired in tools/extract-deps.ae (alongside the
 existing dep() needle). The runtime side calls fs.glob and
 forwards each match through dep() so cargo/npm/maven
@@ -502,7 +502,7 @@ What's NOT implemented from the original sketch:
   porter hits the gap.
 - **Multi-pattern scan() in one call**: today's signature is
   one pattern per call. Users compose by writing N scan() lines.
-  Could add `scan_all(b, "p1", "p2", ...)` if a real consumer
+  Could add `scan_all("p1", "p2", ...)` if a real consumer
   needs it; not asked for yet.
 
 ### Parallel execution
@@ -636,7 +636,7 @@ Each SDK's cache wiring is the same shape: hash inputs (sources +
 classpath/manifest + flags + toolchain version) → probe `cache.get` →
 restore artifact on hit, run on miss → `cache.put`. Shared helpers
 (`_tar_dir`, `_untar_into`, `_read_argfile_lines`, `_dir_nonempty`) live
-in `lib/build`; see `lib/java` (tar tree) and `lib/aether` (single file)
+in `lib/bldr`; see `lib/java` (tar tree) and `lib/aether` (single file)
 for the reference implementations. Each SDK ships a pure
 `_cache_key_for_<sdk>` covered by `tests/test_<sdk>_cache.ae`.
 
@@ -779,7 +779,7 @@ Per-module wall-time + cache outcome rendered as a `[telemetry]`
 block at the end of every build. The orchestrator (generated by
 `tools/gen-orchestrator.ae`) records (label, type, wall_ms, cache)
 per module into an in-memory list and hands it to
-`build.render_telemetry` for the stdout renderer.
+`bldr.render_telemetry` for the stdout renderer.
 
 Cache outcomes wired in every artifact-producing SDK (`lib/aether`,
 `lib/java`, `lib/maven`, `lib/kotlin`, `lib/scala`, `lib/ts`,
@@ -820,7 +820,7 @@ What's left:
   telemetry file under `target/_aeb/` or central `~/.local/state/aeb/log/`).
   Postpone until a real consumer asks.
 - **Per-builder timing inside an SDK**: today telemetry sees
-  per-target wall-time. Inside `aether.program(b)`, regen vs
+  per-target wall-time. Inside `aether.program()`, regen vs
   aetherc vs gcc isn't separated. Useful for SDK profiling;
   needs each SDK to emit phase markers. Defer.
 
@@ -1010,7 +1010,7 @@ hash-stamped node described here) and is the multi-SDK half of the
 "uses whatever's on PATH" gap.
 
 **Done:**
-- Generic version-match / selection / `lock_validate` core in `lib/build`
+- Generic version-match / selection / `lock_validate` core in `lib/bldr`
   (`_match_major_version`, `_select_jvm_home`, `_jvm_dir_major`,
   `_toolchain_not_found_msg`, `lock_validate`); `tests/test_toolchain_select.ae`.
 - `lib/java`: `java.select_jdk("21" | "21+")` — discover-select-or-fail
@@ -1041,7 +1041,7 @@ SDK wholly absent). Implement + verify on a box that has alternates:**
   (ideally multiple) installed.
 - Other multi-version-capable toolchains worth a selection setter once
   the pattern is proven: Go (multiple `go` via gvm/asdf), Node (nvm),
-  Rust (rustup toolchains). All would reuse the generic `lib/build` core;
+  Rust (rustup toolchains). All would reuse the generic `lib/bldr` core;
   each is orthogonal-vs-entangled per its own dep model (Node/npm ≈
   entangled like Python; Go/Rust ≈ mostly orthogonal like Java).
 
@@ -1055,7 +1055,7 @@ done + tested):**
   hard-fail on drift / missing / runtime-mismatch), so a consumer deps
   the lock alone. Expressed as an embedded content hash, NOT a `dep()`
   edge, so the consumer needn't also dep the BOM. Generic mechanism in
-  `lib/build`; SDKs provide a `<lang>.make_lockfile` builder.
+  `lib/bldr`; SDKs provide a `<lang>.make_lockfile` builder.
 
 ## Aether compiler issues to fix upstream
 
@@ -1133,7 +1133,7 @@ done + tested):**
       accepts `--lib` and `find_help_md_path` probes each `--lib`
       entry's `<name>/` dir. aeb now ships hint files:
       `lib/bash/bash.help.md`, `lib/aether/aether.help.md`,
-      `lib/build/build.help.md`. They ride inside the module dirs, so
+      `lib/bldr/build.help.md`. They ride inside the module dirs, so
       `aeb --init`'s `.aeb/lib/<name>` symlinks carry them to consumer
       repos automatically — no `shipped_modules()` change needed.
 - [ ] **`ae help` still reports project-library calls as undefined.**
@@ -1149,7 +1149,7 @@ done + tested):**
 Run before any module builds. Fail fast with install hints.
 
 ```aether
-build.env(b) {
+bldr.env() {
     tool("javac", ">= 21")
     tool("kotlinc")
     tool("go", ">= 1.24")
@@ -1169,7 +1169,7 @@ docs/design/build-veto-and-sandbox.md. Phase 2 is the *finer* grain: per-SDK-cal
 grant profiles instead of one whole-build profile, e.g.
 
 ```aether
-build.javac(b) {
+java.javac() {
     sandbox() {
         grant_fs_read("src/**")
         grant_fs_write("target/**")
@@ -1228,28 +1228,29 @@ mechanic is fine; the surface is ugly. Example of the current
 shape — pick sources + flags by host OS:
 
 ```aether
-import build
+import bldr
 import c
 import c (sources, cflag)
 import std.os
 import std.string
 
 main() {
-    b = build.start()
     host = os.getenv("HOST_OS")
-    c.compile(b) {
-        sources("core.c")
-        if string.equals(host, "darwin") == 1 {
-            sources("plat_macos.c")
-            cflag("-DPLAT_MACOS")
-        }
-        if string.equals(host, "linux") == 1 {
-            sources("plat_linux.c")
-            cflag("-DPLAT_LINUX")
-        }
-        if string.equals(host, "windows") == 1 {
-            sources("plat_windows.c")
-            cflag("-DPLAT_WINDOWS")
+    bldr.build() {
+        c.compile() {
+            sources("core.c")
+            if string.equals(host, "darwin") == 1 {
+                sources("plat_macos.c")
+                cflag("-DPLAT_MACOS")
+            }
+            if string.equals(host, "linux") == 1 {
+                sources("plat_linux.c")
+                cflag("-DPLAT_LINUX")
+            }
+            if string.equals(host, "windows") == 1 {
+                sources("plat_windows.c")
+                cflag("-DPLAT_WINDOWS")
+            }
         }
     }
 }
@@ -1264,7 +1265,7 @@ semantically a runtime decision, not a configuration-time one.
 
 Three ergonomic sugar layers, in increasing scope:
 
-### 1. `build.host_os()` / `build.host_arch()` primitives
+### 1. `bldr.host_os()` / `bldr.host_arch()` primitives
 
 Hide the `os.getenv("HOST_OS")` dance behind a one-liner accessor
 that returns "linux" / "darwin" / "windows" / "freebsd" derived
@@ -1274,11 +1275,11 @@ the verbosity without inventing any new grammar.
 
 ### 2. `when_os("darwin") { ... }` closure-DSL helper
 
-A `lib/build` helper that takes a string + a closure, evaluates
+A `lib/bldr` helper that takes a string + a closure, evaluates
 the closure only when the host matches:
 
 ```aether
-c.compile(b) {
+c.compile() {
     sources("core.c")
     when_os("darwin") {
         sources("plat_macos.c")
@@ -1359,7 +1360,7 @@ this gap bites.
 
 ### `bash.test` parallel-mode end-to-end
 
-`bash.test(b) { jobs(N) }` writes scratch files (item list, runner
+`bash.test() { jobs(N) }` writes scratch files (item list, runner
 script), invokes `xargs -P` via `os.exec`, parses stdout with
 `_parse_xargs_output`. The string-builders (`bash_xargs_cmd`,
 `bash_runner_body`) and the parser are unit-tested. The dispatch
@@ -1402,7 +1403,7 @@ Local mode (on the Proxmox host, shells out to `pct`):
 import container
 import container (template, hostname, memory, cores, net, storage)
 
-container.pct(b) {
+container.pct() {
     template("local:vztmpl/ubuntu-24.04-standard_24.04-2_amd64.tar.zst")
     hostname("web-1")
     memory("2048")
@@ -1417,7 +1418,7 @@ Generates: `pct create <vmid> <template> --hostname web-1 --memory 2048 --cores 
 Remote mode (over the wire via Proxmox REST API):
 
 ```aether
-container.pct(b) {
+container.pct() {
     host("pve.internal:8006")
     api_token("user@pam!aeb", "token-secret")
     node("pve1")
@@ -1508,7 +1509,7 @@ separate validation system.
 ## Scala
 
 1. Assembly jar / fat jar packaging — replace `scala-cli --power package`.
-   Needs a `scala.shade(b)` or reuse of `java.shade(b)` since Scala
+   Needs a `scala.shade()` or reuse of `java.shade()` since Scala
    compiles to .class files on the JVM.
 
 2. Scala version DSL — `scala_version("3.8.2")` setter exists but
@@ -1587,9 +1588,9 @@ SDKs use it for jar manifests, NuGet package versions, npm versions, etc.
 
 Build-failure propagation is now wired (was a repo-wide silent-green
 bug — a failed compile/test exited 0). The orchestrator captures each
-node's rc + `build.record_status` and `exit(1)`s on `build.any_failed`,
+node's rc + `bldr.record_status` and `exit(1)`s on `bldr.any_failed`,
 and every `builder` failure site across all SDKs calls
-`build.fail(ctx, reason)`. See `asks/node-failure-propagation.md`.
+`bldr.fail(ctx, reason)`. See `asks/node-failure-propagation.md`.
 Remaining follow-ups there: distinguishing "test failed" from "test
 errored" (depends on the structured-output migration below), and
 exercising the `record_status`-from-explicit-`return` path (rarely hit,
@@ -1598,7 +1599,7 @@ since users seldom `return` from a builder call).
 aeb today has two layers of test reporting:
 
 1. **Pass/fail counts in `[telemetry]`**: each test SDK calls
-   `build._record_test_result(ctx, passed, failed)` and the
+   `bldr._record_test_result(ctx, passed, failed)` and the
    summary shows `<passed>/<total> PASS|FAIL` per target.
 2. **Persisted test stdout/stderr**: `target/<module>/test_output.log`
    captures the full test runner output for failure diagnosis.
@@ -1644,7 +1645,7 @@ conditions (branch name, env var, flag). aeb currently runs everything
 it finds. Useful for: skip integration tests in CI, skip signing
 locally, skip publish on non-tag builds.
 
-Possible: `skip_if(b, "CI != true")` or a `criteria()` DSL setter.
+Possible: `skip_if("CI != true")` or a `criteria()` DSL setter.
 
 ### NuGet/Maven package publishing
 
@@ -1668,7 +1669,7 @@ artifacts, detecting PR context. aeb is CI-agnostic (runs the same
 everywhere), which is a strength, but knowing "am I in CI" and "is
 this a PR" would enable conditional logic.
 
-Possible: `build.is_ci()`, `build.branch()`, `build.is_pr()` functions
+Possible: `bldr.is_ci()`, `bldr.branch()`, `bldr.is_pr()` functions
 that read standard CI env vars (GITHUB_ACTIONS, CI, GITLAB_CI, etc.).
 
 ### `aeb --ci <git-url> <commit-hash> <scan-target>` — the wake-on-commit one-shot
@@ -1730,7 +1731,7 @@ toolchain). Today `bindings/zig/.build.ae` → `zig: not found` → a build
 failure indistinguishable from "the code is broken." (Same class as the
 kotlinc-1.3-vs-JDK-24 mismatch hit during the aeb(cap) sim/repo migrations.)
 
-The design: `prereq(b, "<toolchain>:<version>")` reuses the `dep()` DAG
+The design: `prereq("<toolchain>:<version>")` reuses the `dep()` DAG
 machinery (greppable via `extract-deps`, no evaluation) — leaves are
 toolchain tokens, not build files. It feeds two phases: **preflight**
 (always, every agent, fail-closed → a distinct `unmet-prereqs` verdict, never
@@ -1741,7 +1742,7 @@ subsequent build passes). Composes with the veto/sandbox stack:
 
 Build order (from the doc):
 
-1. **`prereq(b, "<toolchain>:<version>")`** — the dep-shaped, greppable
+1. **`prereq("<toolchain>:<version>")`** — the dep-shaped, greppable
    declaration; extend `tools/extract-deps` to collect it; flatten over the
    dep DAG to the prerequisite set. *(the data)*
 2. **preflight** — probe the set vs. the environment; missing → the distinct
@@ -1805,14 +1806,15 @@ exporter: source-of-truth lives in `.trigger.ae`; emitters
 translate to GitHub Actions YAML, GitLab CI, TeamCity DSL, etc.
 
 ```aether
-import build
+import bldr
 import trigger
 main() {
-    b = build.start()
-    trigger.cron(b, "0 4 * * *")            // nightly
-    trigger.vcs_change(b, "main")           // on push to main
-    trigger.path_filter(b, "java/**")       // only when Java changed
-    trigger.dep(b, "java/components/.tests.ae")  // run this on trigger
+    bldr.build() {
+        trigger.cron("0 4 * * *")            // nightly
+        trigger.vcs_change("main")           // on push to main
+        trigger.path_filter("java/**")       // only when Java changed
+        trigger.dep("java/components/.tests.ae")  // run this on trigger
+    }
 }
 ```
 
@@ -1824,7 +1826,7 @@ Single source of truth; CI YAML becomes a generated artifact.
 `--print-affected`. New target type, same scan/parse pipeline.
 No daemon, no server, just file emission.
 
-#### `on_failure(b) { ... }` setter inside test/build closures
+#### `on_failure() { ... }` setter inside test/build closures
 
 Symmetric to the existing `pre_command` / `post_command` /
 `fixture_seed` lifecycle hooks. Fires the contained command when
@@ -1832,9 +1834,9 @@ the enclosing target fails. Useful for Slack/email notifications,
 log capture, artifact preservation.
 
 ```aether
-bash.test(b) {
+bash.test() {
     script("test_acl.sh")
-    on_failure(b) {
+    on_failure() {
         run_command("notify-slack 'tests failed in ${MOD}'")
         copy_to("/tmp/aeb-failures/${MOD}-$(date +%s).log")
     }
@@ -1853,7 +1855,7 @@ regardless of whether the corresponding `.tests.ae` passed. A
 `requires_passing(...)` setter would make distribution gated:
 
 ```aether
-brew.formula(b) {
+brew.formula() {
     aeb_target("lib/hello/.build.ae")
     requires_passing("lib/hello/.tests.ae")
 }
@@ -1872,15 +1874,15 @@ already write means we have the data on disk to consult.
 
 Already partially done: `target/<module>/` is per-target,
 downstream modules read `jvm_classpath_deps_including_transitive`
-etc. via `build.dep`. What's missing is a *named* artifact API:
+etc. via `dep`. What's missing is a *named* artifact API:
 
 ```aether
-java.shade(b) {
+java.shade() {
     main_class("com.Main")
     output("app.jar")
     artifact("app-fat-jar", "app.jar")   // names the artifact
 }
-brew.formula(b) {
+brew.formula() {
     consume_artifact("ae/app/.dist.ae", "app-fat-jar")
 }
 ```
@@ -1917,7 +1919,7 @@ graph with nodes coloured by cache outcome / duration / pass-fail.
 generator over the records list. Lower priority than functional
 gaps. Defer until someone asks.
 
-#### CI-system detection (`build.is_ci()`, `build.branch()`, `build.is_pr()`)
+#### CI-system detection (`bldr.is_ci()`, `bldr.branch()`, `bldr.is_pr()`)
 
 Cake auto-detects 15+ CI systems and exposes a unified API. aeb
 is CI-agnostic today (runs the same everywhere), which is a
@@ -1937,8 +1939,8 @@ Already in the Cake section above. Worth re-flagging here
 because TeamCity/Jenkins both have it:
 
 ```aether
-java.junit5(b) {
-    criteria(b, "${BRANCH} == 'main'")
+java.junit5() {
+    criteria("${BRANCH} == 'main'")
 }
 ```
 
@@ -1959,9 +1961,9 @@ on.
 The aeb-shaped version is **NOT** "agent routing" — that's CI's
 job. The aeb-shaped version is "validate the host has the right
 toolchain version, fail fast otherwise." Exactly the
-`build.env(b)` block already in the TODO. Same idea.
+`bldr.env()` block already in the TODO. Same idea.
 
-**Why MAYBE**: already on the roadmap as `build.env`.
+**Why MAYBE**: already on the roadmap as `bldr.env`.
 Cross-listed here for the connection.
 
 ### SHOULDN'T — these break aeb's structural position
@@ -2075,13 +2077,13 @@ article we discussed argues for at the CI level.
 | Capability | Verdict | aeb shape if SHOULD |
 |---|---|---|
 | Triggers (cron, VCS, path filter) | SHOULD | `.trigger.ae` + `--print-triggers` exporter |
-| `on_failure(b)` lifecycle hook | SHOULD | Setter inside test/build closures |
+| `on_failure()` lifecycle hook | SHOULD | Setter inside test/build closures |
 | `requires_passing(...)` dep | SHOULD | Setter; resolver-time gate |
 | Named artifacts | SHOULD | `artifact()` + `consume_artifact()` setters |
 | Pipeline visualization (runtime view) | MAYBE | Static HTML from `[telemetry]` records |
 | CI-system detection | MAYBE | Sparingly; expose env-var reads as primitives |
 | Conditional execution | MAYBE | `criteria()` setter; minimal predicate language |
-| Hermetic toolchain check | MAYBE | Already roadmap as `build.env()` |
+| Hermetic toolchain check | MAYBE | Already roadmap as `bldr.env()` |
 | Agent pool / fleet routing | SHOULDN'T | CI orchestrator's job |
 | Build history / dashboards | SHOULDN'T | Different product (BuildBuddy, etc.) |
 | Triggers as runtime daemon | SHOULDN'T | Scope explosion; emit, don't run |
@@ -2094,7 +2096,7 @@ article we discussed argues for at the CI level.
 
 Jenkins's most useful primitive is the `parallel` block — run
 N stages concurrently, fail fast or wait-all. aeb already has
-the equivalent at the test level (`bash.test(b) { jobs(N) }`,
+the equivalent at the test level (`bash.test() { jobs(N) }`,
 `junit5` parallelism via `forkCount`) and is on track for
 target-level parallelism (the "Parallel execution" item under
 Runner improvements above). When that lands, "two independent
@@ -2126,7 +2128,7 @@ deps are missing go get them and place them in there
 
 2. ~~maven should have its own aeb module~~ (done — `lib/maven/module.ae`)
 
-3. Surefire equivalent in aeb grammar — `build.junit(b)` already handles
+3. Surefire equivalent in aeb grammar — `java.junit()` already handles
    the core case (find test classes, fork JVM, run with JUnit). Missing
    pieces vs Surefire: test filtering/includes/excludes, parallel forks
    (`forkCount` / `reuseForks` / `argLine`), `parallel=classes` worker
@@ -2143,7 +2145,7 @@ deps are missing go get them and place them in there
    classpath. DSL sketch:
 
    ```aether
-   java.javac(b) {
+   java.javac() {
        resources("src/main/resources")
        filter("application.yml")            // do placeholder sub
        property("project.version", "1.2.3")
@@ -2155,7 +2157,7 @@ deps are missing go get them and place them in there
    `-Multi-Release` headers. DSL sketch:
 
    ```aether
-   java.jar(b) {
+   java.jar() {
        main_class("com.example.Main")
        manifest_attribute("Implementation-Version", "1.2.3")
        multi_release(true)
@@ -2165,17 +2167,17 @@ deps are missing go get them and place them in there
 6. **Sources JAR + Javadoc JAR** (maven-source-plugin,
    maven-javadoc-plugin). `*-sources.jar` and `*-javadoc.jar` next to
    the main artifact — required by Maven Central, used by every IDE.
-   Builders: `java.sources_jar(b)`, `java.javadoc(b) { link(...); doctitle(...) }`.
+   Builders: `java.sources_jar()`, `java.javadoc() { link(...); doctitle(...) }`.
 
 7. **Spring Boot fat-JAR layout** (`spring-boot-maven-plugin
    repackage`). Different from `shade()` — uses `BOOT-INF/`,
    `PropertiesLauncher`, layered jars. High leverage given the
-   `itests/spring-data-examples` scale. DSL: `java.spring_boot_repackage(b)`.
+   `itests/spring-data-examples` scale. DSL: `java.spring_boot_repackage()`.
 
 8. **Integration test phase** (maven-failsafe-plugin). `*IT.java`
    pattern, separate from unit tests, post-suite verify that fails
    the build only after teardown runs. Today `junit5()` runs
-   everything in one phase. Add `java.junit5_it(b)` with an `*IT`
+   everything in one phase. Add `java.junit5_it()` with an `*IT`
    default include pattern and post-test cleanup hook.
 
 9. **Code coverage** (jacoco-maven-plugin). Inject
@@ -2184,10 +2186,10 @@ deps are missing go get them and place them in there
    a small report builder. DSL:
 
    ```aether
-   java.junit5(b) {
+   java.junit5() {
        coverage("jacoco")               // or coverage_off()
    }
-   java.coverage_report(b) { format("xml", "html") }
+   java.coverage_report() { format("xml", "html") }
    ```
 
 ### Tier 2 — needed to publish or distribute artifacts
@@ -2203,20 +2205,20 @@ deps are missing go get them and place them in there
     cross-project local consumption; `mvn deploy` pushes to
     Nexus/Artifactory/Central. aeb's vendored/registry pattern
     doesn't write to `~/.m2`, and there's no push step at all.
-    Builders: `java.install(b)`, `java.deploy(b) { repo(...);
+    Builders: `java.install()`, `java.deploy() { repo(...);
     credentials(...) }`.
 
 12. **GPG signing** (maven-gpg-plugin) + checksums. Central requires
     `.asc` signatures and `.md5` / `.sha1` / `.sha256` / `.sha512`
-    siblings on every artifact. DSL: `java.sign(b) { key_id(...) }`,
-    `java.checksums(b) { algorithms("sha256", "sha512") }`.
+    siblings on every artifact. DSL: `java.sign() { key_id(...) }`,
+    `java.checksums() { algorithms("sha256", "sha512") }`.
 
 ### Tier 3 — quality / static analysis
 
 13. **Checkstyle / PMD / SpotBugs / Spotless**. Run as part of build,
     fail on violations. Each is a small `.cmd_string` builder
     invoking the respective standalone runner. Group under
-    `java.lint(b) { checkstyle(...); spotbugs(...); spotless_check() }`
+    `java.lint() { checkstyle(...); spotbugs(...); spotless_check() }`
     or one builder per tool.
 
 14. **errorprone / NullAway** (javac `-Xplugin:` style). Distinct
@@ -2229,7 +2231,7 @@ deps are missing go get them and place them in there
     dep-convergence, no-snapshot-deps, required Java version. DSL:
 
     ```aether
-    java.enforce(b) {
+    java.enforce() {
         require_java(">= 21")
         ban_dep("commons-logging:commons-logging")
         require_convergence()
@@ -2269,7 +2271,7 @@ deps are missing go get them and place them in there
 
 21. **protobuf-maven-plugin + os-maven-plugin**. `protoc` codegen
     with platform-specific compiler binary selection. Big for
-    gRPC/Spring-gRPC shops. DSL: `proto.compile(b) { ... }` —
+    gRPC/Spring-gRPC shops. DSL: `proto.compile() { ... }` —
     probably its own SDK module rather than crammed into Java.
 
 22. **jib-maven-plugin**. Daemonless layered OCI images. We have
@@ -2278,10 +2280,10 @@ deps are missing go get them and place them in there
     builder.
 
 23. **graalvm native-maven-plugin**. AOT `native-image`. DSL:
-    `java.native_image(b) { no_fallback(); reflect_config(...) }`.
+    `java.native_image() { no_fallback(); reflect_config(...) }`.
 
 24. **Liquibase / Flyway**. DB migration tasks. Probably its own
-    `db.migrate(b) { ... }` SDK rather than under Java.
+    `db.migrate() { ... }` SDK rather than under Java.
 
 ### Suggested order if attacking this
 
@@ -2297,15 +2299,15 @@ Each of these came out of running a real-world itest to completion
 and hitting a specific missing feature. Listed with the expected
 grammar so a future session can pick one up cold.
 
-### `kotlin.assembly(b)` — complete the JVM fat-jar set
+### `kotlin.assembly()` — complete the JVM fat-jar set
 
 The executable-fat-jar shape now exists for three of the four
 JVM-family SDKs:
 
-- [x] `java.shade(b, main_class, jar_name)` — `lib/java`
-- [x] `scala.assembly(b) { main_class(...) output_jar(...) }` — `lib/scala`
-- [x] `clojure.uberjar(b) { main_ns(...) output_jar(...) }` — `lib/clojure`
-- [ ] **`kotlin.assembly(b)` — the remaining gap.**
+- [x] `java.shade(main_class, jar_name)` — `lib/java`
+- [x] `scala.assembly() { main_class(...) output_jar(...) }` — `lib/scala`
+- [x] `clojure.uberjar() { main_ns(...) output_jar(...) }` — `lib/clojure`
+- [ ] **`kotlin.assembly()` — the remaining gap.**
 
 Kotlin is the odd one out: `lib/kotlin` has `kotlinc` / `kotlinc_test`
 but no packaging builder. The expected grammar mirrors scala.assembly
@@ -2313,17 +2315,19 @@ but no packaging builder. The expected grammar mirrors scala.assembly
 wrinkle like Clojure):
 
 ```aether
+import bldr
 import kotlin
 import kotlin (main_class)
 
 main() {
-    b = build.start()
-    dep(b, ".build.ae")
-    kotlin.assembly(b) {
-        main_class("com.example.MainKt")   // note the Kt suffix for
-                                            // top-level `fun main()`
-        output_jar("app.jar")              // optional; default
-                                           // <module>-assembly.jar
+    bldr.build() {
+        dep(".build.ae")
+        kotlin.assembly() {
+            main_class("com.example.MainKt")   // note the Kt suffix for
+                                                // top-level `fun main()`
+            output_jar("app.jar")              // optional; default
+                                               // <module>-assembly.jar
+        }
     }
 }
 ```
@@ -2337,11 +2341,11 @@ that the compiler appends to a file's top-level `fun main()` (file
 user supplies the exact class name. Reuse the three pure helpers
 (`assembly_unzip_jar_cmd`, `assembly_copy_classes_cmd`,
 `assembly_jar_cmd`) — they're generic enough to lift into a shared
-`lib/build` helper if a fourth caller justifies the move.
+`lib/bldr` helper if a fourth caller justifies the move.
 
 While here: scala.assembly fixed a latent bug where
 `scala.scalac`'s `jvm_classpath_deps_including_transitive` artifact
-omitted the transitive `build.dep` classpath. Check `lib/kotlin`'s
+omitted the transitive `dep` classpath. Check `lib/kotlin`'s
 `kotlinc` for the same omission before relying on the artifact in
 `kotlin.assembly`.
 
@@ -2357,30 +2361,31 @@ headers/objects to my compile."
 The fetch half exists (`lib/fetch`). The missing half is a C/C++
 third-party build + consume contract. Expected grammar — a sibling
 `.build.ae` for {fmt} that produces an artifact the c10/util build
-consumes via `build.dep`:
+consumes via `dep`:
 
 ```aether
 // itests/pytorch/third_party/fmt/.build.ae
-import build
+import bldr
 import fetch
 import fetch (url, sha256, extract_to, strip_components)
 import c
 import c (sources, cflag, header_dir)
 
 main() {
-    b = build.start()
-    fetch.archive(b) {
-        url("https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.tar.gz")
-        sha256("...")
-        extract_to("src")
-        strip_components(1)
-    }
-    c.library(b) {                  // NEW builder: compile to a .a /
-        cc("g++")                   // .so + export an include dir as
-        cflag("-std=c++20")         // a consumable artifact
-        sources("src/src/format.cc")
-        header_dir("src/include")   // NEW setter: dir to re-export on
-                                    // the `c_include_dirs` artifact
+    bldr.build() {
+        fetch.archive() {
+            url("https://github.com/fmtlib/fmt/archive/refs/tags/10.2.1.tar.gz")
+            sha256("...")
+            extract_to("src")
+            strip_components(1)
+        }
+        c.library() {                  // NEW builder: compile to a .a /
+            cc("g++")                   // .so + export an include dir as
+            cflag("-std=c++20")         // a consumable artifact
+            sources("src/src/format.cc")
+            header_dir("src/include")   // NEW setter: dir to re-export on
+                                        // the `c_include_dirs` artifact
+        }
     }
 }
 ```
@@ -2388,19 +2393,19 @@ main() {
 Then c10/util consumes it:
 
 ```aether
-build.dep(b, "../../third_party/fmt/.build.ae")
+dep("../../third_party/fmt/.build.ae")
 // c.compile auto-picks the dep's c_include_dirs + links its archive
 ```
 
 Two new pieces required:
-1. **`c.library(b)`** — compile sources into a static archive
+1. **`c.library()`** — compile sources into a static archive
    (`ar rcs`) or shared object, and write two artifacts:
    `c_archive` (the `.a`/`.so` path) and `c_include_dirs` (the
    header roots to re-export). `lib/c` already has `c.compile`
    (object set) — this adds the archive/library step + the
    header-export artifact.
 2. **`header_dir(...)` setter + dep-aware include resolution** in
-   `c.compile` so a downstream module that `build.dep`s a
+   `c.compile` so a downstream module that `dep`s a
    `c.library` automatically gets `-I<dir>` for each exported
    header root and links the archive. The shared-library handoff
    contract (`ldlibdeps` / `shared_library_deps_including_transitive`)

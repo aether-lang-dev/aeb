@@ -18,14 +18,14 @@ aeb builders or hooks.
 | Task-runner feature | aeb-shaped match |
 |---|---|
 | Named tasks | Dot-prefixed `.ae` targets |
-| Task dependencies | `build.dep(...)` graph edges |
+| Task dependencies | `dep(...)` graph edges |
 | Setup/teardown | Builder lifecycle hooks |
 | Failure hooks | `on_failure { ... }` style hooks |
 | Criteria/conditions | Minimal `criteria()` or env predicate setters |
 | Build versioning | Git-derived version builder shared across SDKs |
 | Package/publish | `.dist.ae` publish builders for Maven/npm/NuGet/PyPI/OCI |
 | Code signing | Signing builders attached to package outputs |
-| CI detection | Small `build.is_ci()`, `build.branch()`, `build.is_pr()` helpers |
+| CI detection | Small `bldr.is_ci()`, `bldr.branch()`, `bldr.is_pr()` helpers |
 | Test reports | Structured JUnit/TRX/JSON/SARIF artifacts |
 | Tool bootstrapping | Toolchain validation or pinned tool resolution |
 | Arbitrary scripts | Explicit escape hatch, not the primary build API |
@@ -56,11 +56,11 @@ world.
 The aeb version should stay target-local. Today, that looks like:
 
 ```aether
-java.junit5(b) {
+java.junit5() {
     test_timeout("120")
 }
 
-bash.test(b) {
+bash.test() {
     script("integration_test.sh")
     on_failure("scripts/capture-test-diagnostics.sh")
 }
@@ -72,7 +72,7 @@ The shape we'd want for release flow is the same idea, applied to a `.dist.ae` t
 
 ```aether
 // sketch — verbs not implemented yet
-nuget.publish(b) {
+nuget.publish() {
     package("libs/core/.dist.ae")
     version_from_git()
     sign()

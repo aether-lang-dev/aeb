@@ -25,8 +25,9 @@ Concretely, the build file's entrypoint becomes a plain exported function:
 ```aether
 // .build.ae — no main(); a hosted entrypoint that RECEIVES a capability.
 aeb(cap) {
-    b = build.start()
-    rust.cargo_project(b) { crate_name("demo") }
+    bldr.build() {
+        rust.cargo_project() { crate_name("demo") }
+    }
 }
 ```
 
@@ -52,7 +53,7 @@ calling another `.ae`'s top-level function in-process is the ordinary module
 mechanism aeb uses everywhere.
 
 So `aeb(cap)` is just **a lib export aeb calls with an argument** — the same
-shape as `build.start()`. The binary-`main` entrypoint was the only thing
+shape as `bldr.build()`. The binary-`main` entrypoint was the only thing
 that ever demanded a language-level change; remove it and the requirement
 vanishes.
 
@@ -153,8 +154,9 @@ aeb(cap) {
     cap.grant_env("PATH")
     // no grant_tcp → network denied (the point)
 
-    b = build.start()
-    c.compile(b)
+    bldr.build() {
+        c.compile()
+    }
 }
 ```
 
@@ -211,8 +213,9 @@ aeb(cap) {
     // narrow the host-supplied operator ceiling by the maintainer's ask
     eff = sandbox.intersect(cap, capabilities())
     run_sandboxed(eff) {
-        b = build.start()
-        rust.cargo_project(b) { crate_name("demo") }
+        bldr.build() {
+            rust.cargo_project() { crate_name("demo") }
+        }
     }
 }
 ```

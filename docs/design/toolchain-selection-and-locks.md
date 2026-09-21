@@ -87,10 +87,10 @@ Three node types:
    deps the lock alone and still gets unconditional validation:
 
    ```
-   python.test(b) { dep("./pip_lockfile.ae")  pip("pytest~8.2") }
+   python.test() { dep("./pip_lockfile.ae")  pip("pytest~8.2") }
    ```
 
-Edge order is irrelevant (`build.dep()` is a runtime no-op; topo-sort
+Edge order is irrelevant (`dep()` is a runtime no-op; topo-sort
 obliterates source-line order). The guarantee rides the embedded hash.
 
 ### Shared core (lib/build) — pure, fully testable

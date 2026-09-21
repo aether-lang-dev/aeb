@@ -5,7 +5,7 @@ below appears. See docs/cic-help.md for the mechanism.
 
 ## `extra_source` / `link_flag` / `regen` flip the build path
 
-`aether.program(b)` shells out to `ae build` by default — the simple,
+`aether.program()` shells out to `ae build` by default — the simple,
 recommended path. Declaring ANY of `extra_source(...)`, `link_flag(...)`
 or `regen(...)` opts the target into the manual `aetherc + gcc` path
 instead, which compiles each file itself and links explicitly. That is
@@ -16,7 +16,7 @@ Pattern: literal-name `extra_source`
 
 ## Bare setters need the second import line
 
-Setters inside an `aether.program(b) { ... }` block (`source`,
+Setters inside an `aether.program() { ... }` block (`source`,
 `output`, `extra_source`, `link_flag`, `regen`, `target`) resolve as
 plain top-level calls, not against the `aether` namespace. The block
 needs BOTH `import aether` and a selective `import aether (source,

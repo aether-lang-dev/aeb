@@ -41,18 +41,19 @@ already in force (see [Why this needs no machinery](#why-this-needs-no-machinery
 
 ## The rule, in one line
 
-A dot-prefixed `.ae` file whose body is nothing but `build.dep(...)` lines
+A dot-prefixed `.ae` file whose body is nothing but `dep(...)` lines
 is a **named set of targets**. Building it builds the set.
 
 ```aether
 // .presubmit.ae — what must be green before you push
-import build (start, dep)
+import bldr
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "libs/core/.tests.ae")
-    build.dep(b, "apps/api/.tests.ae")
-    build.dep(b, "apps/web/.tests.ae")
+    bldr.build() {
+        dep("libs/core/.tests.ae")
+        dep("apps/api/.tests.ae")
+        dep("apps/web/.tests.ae")
+    }
 }
 ```
 
@@ -71,15 +72,16 @@ explicitly orthogonal to building, so it works unchanged on a dep-only
 node:
 
 ```aether
-import build (start, dep)
+import bldr
 import meta (desc)
 
 aeb(cap) {
-    b = build.start()
-    meta.desc(b, "Must be green before push")
+    bldr.build() {
+        meta.desc("Must be green before push")
 
-    build.dep(b, "libs/core/.tests.ae")
-    build.dep(b, "apps/api/.tests.ae")
+        dep("libs/core/.tests.ae")
+        dep("apps/api/.tests.ae")
+    }
 }
 ```
 
@@ -88,7 +90,7 @@ months later, and it costs nothing — no new SDK, no new setter. A set is
 a reviewable artifact; `desc` is what makes it self-describing. Use it.
 
 The same reasoning extends to the edges themselves: a comment on a
-`build.dep(...)` line explaining *why* that target is in the set is worth
+`dep(...)` line explaining *why* that target is in the set is worth
 more than the line itself, because the line is already self-evident.
 
 ## Why this needs no machinery
@@ -99,7 +101,7 @@ Three rules already in force compose to give it for free:
    are no special target source-file names (see the top of `LLM.md`).
    `.presubmit.ae` is a node because it is a dot-prefixed `.ae` file, for
    exactly the same reason `.build.ae` is.
-2. **`build.dep()` is the only edge-declaration mechanism, and it is a
+2. **`dep()` is the only edge-declaration mechanism, and it is a
    runtime no-op.** Deps are extracted textually before any `.ae` runs, so
    a file whose entire content is dep edges is a perfectly well-formed
    node — it contributes edges and no work.
@@ -153,7 +155,7 @@ target set depends on.** If you must shell out raw, propagate the code.
 A set is normally *only* dep edges. But a `.presubmit.ae` is an Aether
 program like any other build file, so where a gate genuinely belongs to
 the set rather than to any one member, you can write it inline
-(`docs/design/inline-build-steps.md`) and fail with `build.fail`.
+(`docs/design/inline-build-steps.md`) and fail with `fail`.
 
 The example below is the one people ask for first — "fail if the working
 tree is dirty" — and it is the **wrong thing to reach for**. It is shown
@@ -162,30 +164,31 @@ it fails is more useful than a bare prohibition. A guard shape that *is*
 safe follows it.
 
 ```aether
-import build (start, dep)
+import bldr
 import meta (desc)
 import std.os
 import std.string
 
 aeb(cap) {
-    b = build.start()
-    meta.desc(b, "Must be green before push")
+    bldr.build() {
+        meta.desc("Must be green before push")
 
-    build.dep(b, "libs/core/.tests.ae")
+        dep("libs/core/.tests.ae")
 
-    // Guard: refuse to certify a tree with uncommitted or untracked
-    // changes — otherwise "presubmit passed" describes a tree that
-    // is not the one being pushed.
-    dirty, err = os.exec("git status --porcelain")
-    if string.length(dirty) > 0 {
-        build.fail(b, "working tree not clean:\n${dirty}")
+        // Guard: refuse to certify a tree with uncommitted or untracked
+        // changes — otherwise "presubmit passed" describes a tree that
+        // is not the one being pushed.
+        dirty, err = os.exec("git status --porcelain")
+        if string.length(dirty) > 0 {
+            fail("working tree not clean:\n${dirty}")
+        }
     }
 }
 ```
 
 Verified: a clean tree exits 0; a single stray file exits 1 with
 `presubmit:. FAILED — working tree not clean:` and the offending paths
-rendered. No new grammar was needed — `os.exec` and `build.fail` are both
+rendered. No new grammar was needed — `os.exec` and `fail` are both
 existing public API.
 
 ### Why this particular guard is a bad default
@@ -232,7 +235,7 @@ reasons unrelated to what the developer happens to have lying around:
     // reproducible failure — same answer in CI, on a laptop, in a
     // container. No .gitignore maintenance can change it.
     if os.system("command -v protoc >/dev/null 2>&1") != 0 {
-        build.fail(b, "presubmit needs protoc on PATH")
+        fail("presubmit needs protoc on PATH")
     }
 ```
 
@@ -253,7 +256,7 @@ for a guard when they don't.)
 ### And no, aeb should not ship `git() { no_untracked_files() }`
 
 Asked and declined. The primitives already compose (`os.exec` +
-`build.fail`, both existing public API), so a builder adds no capability
+`fail`, both existing public API), so a builder adds no capability
 — it would only lend an official-looking name to the anti-pattern
 dissected above, which is worse than the anti-pattern itself. It would
 also be the first place aeb hardcodes one VCS. If a repo wants this shape
@@ -303,12 +306,13 @@ rather than restating it:
 
 ```aether
 // .merge-queue.ae — everything presubmit checks, plus the slow suite
-import build (start, dep)
+import bldr
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, ".presubmit.ae")   // <- a set as a member
-    build.dep(b, "b/.tests.ae")
+    bldr.build() {
+        dep(".presubmit.ae")   // <- a set as a member
+        dep("b/.tests.ae")
+    }
 }
 ```
 

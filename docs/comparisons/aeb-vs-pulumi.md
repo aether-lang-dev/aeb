@@ -21,14 +21,14 @@ check inputs that Pulumi consumes.
 ## Useful grammar
 
 ```aether
-pulumi.config(b) {
+pulumi.config() {
     stack("prod")
     set("imageDigest").from_artifact("apps/api/.dist.ae", "oci-digest")
     set("version").from_version()
     output("target/pulumi/prod.auto.json")
 }
 
-pulumi.preview(b) {
+pulumi.preview() {
     stack("prod")
     workdir("infra/pulumi")
     config("target/pulumi/prod.auto.json")

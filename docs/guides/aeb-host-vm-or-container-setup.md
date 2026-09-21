@@ -229,7 +229,7 @@ a tier.
 `GET /ping` reports `platform`, `accept`, `busy`, `max_jobs`, `auth`,
 **`aeb_version`** and **`aether_version`** — so a requester can see which
 toolchain a node would build with *before* dispatching. Today that version
-is advisory and nothing compares it; wiring `prereq(b, "aether:X")` to it
+is advisory and nothing compares it; wiring `prereq("aether:X")` to it
 is the open half of the two-Aethers ask.
 
 Auth is HMAC-signed, expiring, purpose-bound lease tokens

@@ -28,8 +28,8 @@ tokens file — and the contained service runs as if it were on a normal host,
 only suspecting its confinement.
 
 ```
-container.image(b)   { from(...) run_step(...) expose(...) entrypoint(...) }  # build the image
-container.service(b) { image_ref(...) publish(...) volume(...,:Z) name(...) }  # run it, configured from outside  (DESIGN)
+container.image()   { from(...) run_step(...) expose(...) entrypoint(...) }  # build the image
+container.service() { image_ref(...) publish(...) volume(...,:Z) name(...) }  # run it, configured from outside  (DESIGN)
 ```
 
 Every setter is the container (aeb) *configuring* the contained: `publish`

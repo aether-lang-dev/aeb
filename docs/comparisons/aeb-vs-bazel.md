@@ -54,9 +54,9 @@ code, they have **shipped**:
 | Bazel feature | aeb today |
 |---|---|
 | Polyglot, one tool, many languages | **[have]** 20+ language SDKs under `lib/` (incl. dart, moonbit, gleam) |
-| Explicit, greppable, statically-extractable DAG | **[have]** `build.dep("…")` edges, scanned without evaluation |
+| Explicit, greppable, statically-extractable DAG | **[have]** `dep("…/.serde_json.crate.ae")` edges, scanned without evaluation |
 | Multi-language FFI handoff | **[have]** Java↔Rust (JNI), Java↔Go (.so), Aether↔C/Rust, etc. |
-| Native registries | **[have]** Maven/crates.io/npm/NuGet/pip via `build.dep` |
+| Native registries | **[have]** Maven/crates.io/npm/NuGet/pip via `dep` |
 | **Parallel execution** | **[have]** — `tools/aeb-driver.ae` emits a Makefile and runs `make -jN` (independent nodes concurrent). *Earlier analysis: "none" — since shipped.* |
 | **Affected-target detection** (`git diff → only impacted`) | **[have]** — `aeb --since <ref>` / `--print-affected`. *Earlier analysis: "not there" — since shipped.* |
 | **Build-graph visualisation** | **[have]** — `aeb --graph` (DOT) / `--graph mermaid`. *Earlier analysis: "not-yet-done" — since shipped.* |

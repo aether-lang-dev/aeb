@@ -1,7 +1,7 @@
 # target/<buildFileName>/<dir> — the filename IS the route
 
 Status: **IMPLEMENTED (2026-06-14).** The whole `.<type>.ae` segment is the type,
-verbatim — `infer_type`/`file_to_label`/`build.begin`/`_dep_target_dir` all take
+verbatim — `infer_type`/`file_to_label`/`bldr.begin`/`_dep_target_dir` all take
 the literal name; `.compile.ae`→`target/compile/`, `.bidi-codegen.ae`→
 `target/bidi-codegen/`, `.essais.ae`→`target/essais/` (French & all). The
 `-tag`/`:tag` subsystem is GONE (co-located variants are just different-named
@@ -59,7 +59,7 @@ It dissolves, rather than solves, the long chain of mechanisms we built:
   `target/<type>/<dir>`.
 
 And it satisfies the addressing contract for free: every consumer
-(`build.begin`, `_label_to_target_dir`, a dependent's `_read_dep_artifact`)
+(`bldr.begin`, `_label_to_target_dir`, a dependent's `_read_dep_artifact`)
 derives `target/<type>/<dir>` from the **same build-file name**, so they agree
 by construction — which is the property the whole `label-is-the-addressing-
 contract` doc was protecting.
@@ -69,7 +69,7 @@ contract` doc was protecting.
 A dep edge already names the **build file**, not just the directory:
 
 ```aether
-build.dep(b, "java/components/velar/.build.ae")   // real monorepo form
+dep("java/components/velar/.build.ae")   // real monorepo form
 ```
 
 So the dep string *already carries the buildtype* (`.build.ae` → `build`) AND
@@ -93,7 +93,7 @@ already present at every site that needs it, in the build-file name.
      computation, cache-marker finders. All must move to `target/build/<dir>`.
 
 2. **Dep-strings that name a DIRECTORY, not a build file, lose the buildtype.**
-   Some deps are written `dep(b, "java/components/vowelbase")` (dir only — the
+   Some deps are written `dep("java/components/vowelbase/.build.ae")` (dir only — the
    doc comments show both forms). A dir-only dep has no `.build.ae` in it, so
    the buildtype isn't recoverable from the string → can't derive
    `target/build/...` vs `target/tests/...`. **Resolution options:** (a)
@@ -125,7 +125,7 @@ already present at every site that needs it, in the build-file name.
 
 1. Change the ~3 path-computation sites to `target/<type>/<dir>`, deriving
    `<type>` from the build-file basename (`.build.ae`→`build` etc.):
-   `build.begin` (writer), `_label_to_target_dir` (finder), and the dep
+   `bldr.begin` (writer), `_label_to_target_dir` (finder), and the dep
    path resolution (`_read_dep_artifact` / `_strip_lang`).
 2. Decide the dir-only-dep default (option (b): treat as `build`).
 3. Update `.gitignore`, the agent container, docs, any `target/<dir>`

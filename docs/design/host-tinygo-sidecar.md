@@ -71,7 +71,7 @@ project can use to declare a Go sidecar, wired into the DAG.
 New builder in `lib/aether/module.ae`, modeled on `program`/`program_test`:
 
 ```
-aether.tinygo_lib(b) {
+aether.tinygo_lib() {
     go_source("greet.go")        // the user's .go (relative to module dir)
     output("libgreet.so")        // sidecar name the .ae will tinygo.load()
 }

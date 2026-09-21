@@ -118,6 +118,26 @@ _static_helper_names(src: string): ptr {
     return names
 }
 
+// _imports_retired_build(path) — 1 if the node imports the retired `build`
+// module (`import build`, exactly — NOT `bldr`, NOT `import build_foo`). Uses
+// _import_id so a selective `import build (start)` and a bare `import build`
+// both match, while `import bldr` / `import builder_x` do not. Drives the
+// migration diagnostic above (aeb#16).
+_imports_retired_build(path: string) {
+    raw, rerr = io.read_file(path)
+    if rerr != "" { return 0 }
+    rest = raw
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 { line = rest  rest = "" }
+        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        id = _import_id(string.trim(line), 0)
+        if string.equals(id, "build") == 1 { return 1 }
+    }
+    return 0
+}
+
 _collect_imports(path: string, bare_only: int, acc: ptr) {
     raw, rerr = io.read_file(path)
     if rerr != "" { return }
@@ -287,6 +307,28 @@ main() {
     out = aether_args_get(4)
     lib_dir = aether_args_get(5)
     aeb_home = aether_args_get(6)
+
+    // Retired-grammar guard: `build` is the PRE-REWORK module name; the DSL
+    // rework renamed it to `bldr` and deliberately kept NO back-compat for the
+    // `build.*` grammar (AETHER_PIN history). A node that still does
+    // `import build` / `build.start()` fails downstream with a generic
+    // "unresolved import 'build': no module of that name was found" — which
+    // reads like an install/lib-path problem (it sent aeb#16 hunting for an
+    // AETHER_LIB_DIR / .aeb/lib fix) rather than "your node uses retired
+    // grammar". Detect it here and say exactly what to change. (aeb#16.)
+    if _imports_retired_build(src) == 1 {
+        println("transform-ae: '${src}' imports the RETIRED `build` module.")
+        println("  `build` was renamed to `bldr` in the DSL rework; there is no")
+        println("  `build` module and no back-compat for the `build.*` grammar.")
+        println("  Migrate the node:")
+        println("    import build            ->  import bldr")
+        println("    b = build.start()       ->  bldr.build() {  ...  }   (b-free)")
+        println("    build.dep(b, \"x/.y.ae\")  ->  dep(\"x\")   (inside the build block)")
+        println("    aether.program_test(b) {  ->  aether.program_test() {")
+        println("  See README.md / docs for the current grammar; raft-port and the")
+        println("  other -port test nodes modelled on the old shape need the same sweep.")
+        exit(1)
+    }
 
     // Step 1: write a sed script to a temp file (avoids shell quoting issues)
     // Two entrypoint spellings lower to the same `func_name(s: ptr) {`:

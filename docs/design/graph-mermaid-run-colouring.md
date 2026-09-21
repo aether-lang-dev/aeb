@@ -15,7 +15,7 @@ Each node is given a Mermaid class, and the block carries the matching
 `classDef`s:
 
 The graph is the **full parsed DAG** — every dot-prefixed `.ae` node found by
-scanning, every `build.dep(...)` edge, i.e. all the *possible* deps collected
+scanning, every `dep(...)` edge, i.e. all the *possible* deps collected
 from parsing. The colours then say which of those the last run actually executed:
 
 | Class | Colour | Meaning |
@@ -28,7 +28,7 @@ So it's a single graph showing the **executed paths** (green/red) against the
 **muted possible-deps that were only parsed, not run** (grey).
 
 The grey nodes are **not a detached list** — they stay in the same DAG with all
-their `build.dep` edges drawn, to and from the executed nodes. So the muted part
+their `dep` edges drawn, to and from the executed nodes. So the muted part
 is still a *dependency graph*: you can trace what an un-run node would pull in,
 and see how it hangs off the executed core, at the same glance. Colour is the
 only thing that changes; topology is the full parsed graph either way.
@@ -96,7 +96,7 @@ classes each node from it. The node→marker filename mapping mirrors the driver
 ## The deliberate limit — it colours a file-level DAG, it doesn't deepen it
 
 aeb's DAG is **file-level**: nodes are dot-prefixed `.ae` build files, edges are
-grepped `build.dep(...)` lines (see
+grepped `dep(...)` lines (see
 [filename-is-the-route.md](filename-is-the-route.md)). The colouring overlays
 the run onto that static shape; it does **not** graph control flow *inside* a
 build body. There is deliberately no "which branch of the build script fired"

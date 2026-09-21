@@ -6,7 +6,7 @@ explicitly delegates the unbounded part — *how to install it on this OS* — t
 capable agent in the loop. Built in `lib/provision`, cross-platform.
 
 What ships:
-- `build.prereq(b, "<tc>:<ver>")` declaration (bare via `import build (prereq)`);
+- `prereq("<tc>:<ver>")` declaration (bare, via `import bldr`);
   `tools/extract-deps --prereqs` collects it statically; the set flattens
   transitively over the dep DAG.
 - **`aeb --prereqs <target>`** — print the flattened, OS-agnostic requirement
@@ -89,7 +89,7 @@ Three requirements fall out:
 
 ## The core idea: prerequisites are a DAG, exactly like `dep()`
 
-aeb's `build.dep("path/.build.ae")` already builds a DAG that flattens to a
+aeb's `dep("path")` already builds a DAG that flattens to a
 topo-ordered visit list, scanned statically by `tools/extract-deps` (greppable,
 no evaluation). **`prereq(...)` reuses that machinery** — same shape, but the
 leaves are **toolchain tokens, not build files:**
@@ -97,18 +97,19 @@ leaves are **toolchain tokens, not build files:**
 ```aether
 // bindings/zig/.build.ae
 main() {
-    b = build.start()
-    dep(b, "generators/zig/.build.ae")   // existing build edge
-    prereq(b, "zig:0.13")                 // NEW: a toolchain prerequisite
-    ...
-    zig.build_pkg(b) { output("skir-zig-smoke") }
+    bldr.build() {
+        dep("generators/zig/.build.ae")   // existing build edge
+        prereq("zig:0.13")                 // NEW: a toolchain prerequisite
+        ...
+        zig.build_pkg() { output("skir-zig-smoke") }
+    }
 }
 ```
 
 Two properties inherited from `dep()` for free, both load-bearing:
 
 - **Statically extractable.** `prereq(...)` lines are greppable like
-  `build.dep(...)`; `tools/extract-deps` learns to collect them. This matters
+  `dep(...)`; `tools/extract-deps` learns to collect them. This matters
   because **provisioning must know the requirement *before* it can build the
   layer** — you can't run the leaf to discover what it needs (chicken-and-egg).
   `prereq` is data, not procedure.
@@ -356,7 +357,7 @@ all*; the veto/sandbox decide *what this build is permitted to do*.
 
 ## What to build, in order
 
-1. **`prereq(b, "<toolchain>:<version>")`** — the `dep`-shaped, greppable
+1. **`prereq("<toolchain>:<version>")`** — the `dep`-shaped, greppable
    declaration; extend `tools/extract-deps` to collect it; flatten over the dep
    DAG to the prerequisite set. *(the data)*
 2. **preflight** — probe the set vs. the environment; missing → the distinct

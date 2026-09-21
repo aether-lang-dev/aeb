@@ -13,23 +13,24 @@ whether the pipeline builds Java, Rust, or nothing at all.
 
 ## The `webhook.fire` builder
 
-A webhook is one builder, `webhook.fire(b) { ... }`, called inside a
+A webhook is one builder, `webhook.fire() { ... }`, called inside a
 `.ae` file's `main()` like any other builder. There is no special
 filename — the webhook fires because a file calls `webhook.fire`,
 never because of what the file is named.
 
 ```aether
-import build
+import bldr
 import webhook
 import webhook (url, on, header)
 
 main() {
-    b = build.start()
-    webhook.fire(b) {
-        url("https://hooks.example/deploy?sha={{commit}}&br={{branch}}")
-        header("Authorization", "Bearer {{env:DEPLOY_TOKEN}}")
-        on("ci")
-        on("branch:main")
+    bldr.build() {
+        webhook.fire() {
+            url("https://hooks.example/deploy?sha={{commit}}&br={{branch}}")
+            header("Authorization", "Bearer {{env:DEPLOY_TOKEN}}")
+            on("ci")
+            on("branch:main")
+        }
     }
 }
 ```
@@ -41,35 +42,37 @@ two-import rule applies to every aeb SDK.
 
 ### Two placements
 
-**In-target** — put the `webhook.fire(b)` block inside an existing
+**In-target** — put the `webhook.fire()` block inside an existing
 `.build.ae` / `.tests.ae` / `.dist.ae`, next to that target's own
 builders. It fires when that target finishes:
 
 ```aether
 // app/.dist.ae
 main() {
-    b = build.start()
-    brew.formula(b) { ... }
-    webhook.fire(b) {
-        url("https://hooks.example/packaged?sha={{commit}}")
-        on("ci")
+    bldr.build() {
+        brew.formula() { ... }
+        webhook.fire() {
+            url("https://hooks.example/packaged?sha={{commit}}")
+            on("ci")
+        }
     }
 }
 ```
 
 **Dedicated file** — a `.ae` file whose `main()` only declares
-dependencies and a webhook. Because it `build.dep()`s on the targets
+dependencies and a webhook. Because it `dep()`s on the targets
 it should follow, the topo-sort places it last — an end-of-pipeline
 ping. Name the file whatever you like:
 
 ```aether
 // deploy/.notify.ae
 main() {
-    b = build.start()
-    build.dep(b, "app/.tests.ae")
-    build.dep(b, "app/.dist.ae")
-    webhook.fire(b) {
-        url("https://hooks.example/pipeline-done?repo={{repo}}")
+    bldr.build() {
+        dep("app/.tests.ae")
+        dep("app/.dist.ae")
+        webhook.fire() {
+            url("https://hooks.example/pipeline-done?repo={{repo}}")
+        }
     }
 }
 ```

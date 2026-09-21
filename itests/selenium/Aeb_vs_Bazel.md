@@ -53,12 +53,12 @@ sub-dialect), each calling the real toolchain via `os.system`. The
 SDK pattern looks the same across languages:
 
 ```
-java.javac(b)      { release("17")     dep(b, "g:a:v") }
-ruby.gem(b)        { gemspec("foo.gemspec") }
-pnpm.run(b, "lint")
-dotnet.build_project_existing(b)
-rust.cargo_project_existing(b) { binary_name("selenium-manager") }
-python.package_existing(b)
+java.javac()       { release("17")     dep("g:a:v") }
+ruby.gem()         { gemspec("foo.gemspec") }
+pnpm.run("lint")
+dotnet.build_project_existing()
+rust.cargo_project_existing() { binary_name("selenium-manager") }
+python.package_existing()
 ```
 
 No Starlark dialect to learn per ruleset; setters are plain function
@@ -129,7 +129,7 @@ Three things worth noting from this conversion exercise:
    not at build time over shared artefacts. The one real cross-tool
    handoff is **Python wheel embeds Rust binary** (`setuptools-rust`
    compiles `selenium-manager` into the wheel). aeb expresses this as
-   a `build.dep` edge from `py/.dist.ae` onto `rust/.build.ae`, with
+   a `dep` edge from `py/.dist.ae` onto `rust/.build.ae`, with
    the Rust side's `cargo_binary` artifact consumed at wheel-build
    time. Bazel expresses it as a `py_wheel` rule with a `data` attr
    on the rust target. Same graph shape; same wire-up cost.
@@ -138,8 +138,8 @@ Three things worth noting from this conversion exercise:
    `py/generate_bidi.py` reads a CDDL spec fetched from `w3c/webref`
    and writes ~20 Python modules. Upstream Bazel fetches the spec via
    `MODULE.bazel`'s `http_file` + extracts via `webref_cddl.bzl`
-   macros. aeb expresses the same chain as `fetch.file(b)` + a
-   `python.codegen(b)` block — one `lib/fetch` SDK, one
+   macros. aeb expresses the same chain as `fetch.file()` + a
+   `python.codegen()` block — one `lib/fetch` SDK, one
    `lib/python.codegen` SDK, no project-specific Bazel macros. The
    fetch-and-codegen pair is small enough to live in two `.ae` files;
    Bazel needs the `webref_cddl.bzl` machinery because each
@@ -148,7 +148,7 @@ Three things worth noting from this conversion exercise:
 3. **`./go format`-shaped pre-build chains have no aeb-side
    abstraction yet.** Selenium runs a Rake-driven `buildifier +
    update_copyright + per-language formatters` step before CI's real
-   build. aeb has no `format` builder primitive — `bash.run(b)` plus
+   build. aeb has no `format` builder primitive — `bash.run()` plus
    `pre_command` would do it, but there's no canonical SDK shape for
    "run language-specific formatters as a phase." For now, hand it
    off to the bash SDK or to upstream's existing `./go format` script

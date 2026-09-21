@@ -31,7 +31,7 @@ state.
 aeb can declare deployable outputs:
 
 ```aether
-deploy.manifest(b) {
+deploy.manifest() {
     image("registry/acme/api")
     digest_from("apps/api/.dist.ae")
     environment("staging")

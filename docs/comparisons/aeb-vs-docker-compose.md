@@ -24,14 +24,14 @@ those images.
 ## Useful grammar
 
 ```aether
-container.image(b) {
+container.image() {
     name("registry/acme/api")
     tag_from_version()
     copy_artifact("apps/api/.dist.ae", "app.jar", "/app/app.jar")
     artifact("oci-digest", "target/image.digest")
 }
 
-compose.file(b) {
+compose.file() {
     service("api") {
         image_from("apps/api/.dist.ae", "oci-image")
         healthcheck("curl -f http://localhost:8080/health")

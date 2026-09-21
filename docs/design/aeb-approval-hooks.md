@@ -20,7 +20,7 @@ That hook can work in two shapes:
 The hook is a closure grammar, consistent with the rest of aeb:
 
 ```aether
-approval.jira(b) {
+approval.jira() {
     base_url("https://jira.example.com")
     issue("REL-1234")
     require_status("Approved")
@@ -54,7 +54,7 @@ unreachable -> fail or soft-fail, depending on policy
 ## Generic approval rows
 
 ```aether
-approval.command(b) {
+approval.command() {
     subject_env("CHANGE_ID")
     run("scripts/check-release-approval.sh")
     arg_env("CHANGE_ID")
@@ -82,7 +82,7 @@ text claim that includes the release/change ID, approver IDs, timestamps,
 and any audit facts you want in logs.
 
 ```aether
-approval.attestation(b) {
+approval.attestation() {
     subject_env("CHANGE_ID")
     attestation_command("scripts/approval-attestation.sh \"$CHANGE_ID\"")
     verify_via("https://verify.example.com/c")

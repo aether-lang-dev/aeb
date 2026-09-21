@@ -122,32 +122,32 @@ For each leaf module, create a `.build.ae` using the deps from Step 1.
 
 | Maven scope | aeb |
 |-------------|-------------|
-| `compile` | `dep(b, "g:a")` in `.build.ae` (version from BOM) |
-| `compile` (not in BOM) | `dep(b, "g:a:v")` in `.build.ae` (explicit version) |
-| `test` | `dep(b, "g:a")` in `.tests.ae` |
-| `provided` | `dep(b, "g:a")` in `.build.ae` (treated same as compile) |
-| `runtime` | `dep(b, "g:a")` in `.build.ae` (treated same as compile) |
+| `compile` | `dep("g:a")` in `.build.ae` (version from BOM) |
+| `compile` (not in BOM) | `dep("g:a:v")` in `.build.ae` (explicit version) |
+| `test` | `dep("g:a")` in `.tests.ae` |
+| `provided` | `dep("g:a")` in `.build.ae` (treated same as compile) |
+| `runtime` | `dep("g:a")` in `.build.ae` (treated same as compile) |
 
 ### Template
 
 ```aether
 // module-name/.build.ae
-import build
-import build (dep)
+import bldr
 import maven (load_bom_file)
 import java
 import java (release, source_layout, enable_preview)
 
 aeb(cap) {
-    b = build.start()
-    load_bom_file(b, "../path/to/your.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-data-jpa")
-    dep(b, "org.hsqldb:hsqldb")
-    dep(b, "org.projectlombok:lombok")
-    java.javac(b) {
-        release("25")
-        source_layout("maven")
-        enable_preview()
+    bldr.build() {
+        load_bom_file("../path/to/your.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-data-jpa")
+        dep("org.hsqldb:hsqldb")
+        dep("org.projectlombok:lombok")
+        java.javac() {
+            release("25")
+            source_layout("maven")
+            enable_preview()
+        }
     }
 }
 ```
@@ -156,32 +156,32 @@ aeb(cap) {
 
 **Version-less deps** — when a BOM manages the version:
 ```aether
-dep(b, "org.springframework.boot:spring-boot-starter")
+dep("org.springframework.boot:spring-boot-starter")
 ```
 
 **Explicit versions** — when not in any BOM:
 ```aether
-dep(b, "io.vavr:vavr:0.10.3")
+dep("io.vavr:vavr:0.10.3")
 ```
 
 **Inter-module deps** — reference by directory path:
 ```aether
-dep(b, "mongodb/util")
+dep("mongodb/util")
 ```
 
 **BOM overrides** — when a module needs a different BOM or extra repos, create a second `.bom.ae` next to the module (or anywhere convenient) and `load_bom_file()` it. BOMs and repos compose: every loaded `.bom.ae` contributes its `maven_bom(...)` / `maven_repo(...)` lines to the resolver invocation.
 ```aether
-load_bom_file(b, "../../spring-boot.bom.ae")
-load_bom_file(b, "spring-milestone.bom.ae")  // adds the data-bom + milestone repo
+load_bom_file("../../spring-boot.bom.ae")
+load_bom_file("spring-milestone.bom.ae")  // adds the data-bom + milestone repo
 ```
 
 **QueryDSL / annotation processing** — add the APT dep and generated sources dir:
 ```aether
 import java (release, source_layout, enable_preview, generated_sources)
 
-    dep(b, "com.querydsl:querydsl-jpa")
-    dep(b, "com.querydsl:querydsl-apt")
-    java.javac(b) {
+    dep("com.querydsl:querydsl-jpa")
+    dep("com.querydsl:querydsl-apt")
+    java.javac() {
         release("25")
         source_layout("maven")
         enable_preview()
@@ -197,27 +197,27 @@ Each module with `src/test/java` gets a `.tests.ae`. The test file depends on it
 
 ```aether
 // module-name/.tests.ae
-import build
-import build (dep)
+import bldr
 import maven (load_bom_file)
 import java
 import java (release, source_layout, enable_preview, test_timeout)
 
 aeb(cap) {
-    b = build.start()
-    dep(b, "module/path")
-    load_bom_file(b, "../path/to/your.bom.ae")
-    dep(b, "org.springframework.boot:spring-boot-starter-test")
-    dep(b, "org.junit.platform:junit-platform-console")
-    dep(b, "org.springframework.boot:spring-boot-data-jpa-test")
-    java.javac_test(b) {
-        release("25")
-        source_layout("maven")
-        enable_preview()
-    }
-    java.junit5(b) {
-        test_timeout("120")
-        enable_preview()
+    bldr.build() {
+        dep("module/path")
+        load_bom_file("../path/to/your.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-test")
+        dep("org.junit.platform:junit-platform-console")
+        dep("org.springframework.boot:spring-boot-data-jpa-test")
+        java.javac_test() {
+            release("25")
+            source_layout("maven")
+            enable_preview()
+        }
+        java.junit5() {
+            test_timeout("120")
+            enable_preview()
+        }
     }
 }
 ```
@@ -239,11 +239,11 @@ Spring Boot 4.x splits test autoconfiguration into separate modules. Add the rig
 If tests use TestContainers, add these deps and set a longer timeout:
 
 ```aether
-    dep(b, "org.testcontainers:testcontainers-mongodb")
-    dep(b, "org.testcontainers:testcontainers-junit-jupiter")
-    dep(b, "org.apache.commons:commons-lang3")
-    dep(b, "commons-io:commons-io:2.18.0")
-    java.junit5(b) {
+    dep("org.testcontainers:testcontainers-mongodb")
+    dep("org.testcontainers:testcontainers-junit-jupiter")
+    dep("org.apache.commons:commons-lang3")
+    dep("commons-io:commons-io:2.18.0")
+    java.junit5() {
         test_timeout("120")
         enable_preview()
     }
@@ -273,14 +273,14 @@ aeb
 ### Common issues
 
 **"no version for g:a and no BOM provides one"**
-The dep isn't in your BOM. Add an explicit version: `dep(b, "g:a:v")`
+The dep isn't in your BOM. Add an explicit version: `dep("g:a:v")`
 
 **Jackson transitives missing (jackson-core, jackson-annotations)**
 The Maven Resolver doesn't resolve property-interpolated transitive versions. Add explicitly:
 ```aether
-dep(b, "com.fasterxml.jackson.core:jackson-databind")
-dep(b, "com.fasterxml.jackson.core:jackson-annotations")
-dep(b, "com.fasterxml.jackson.core:jackson-core")
+dep("com.fasterxml.jackson.core:jackson-databind")
+dep("com.fasterxml.jackson.core:jackson-annotations")
+dep("com.fasterxml.jackson.core:jackson-core")
 ```
 
 **Command line too long (6000+ source files)**
@@ -329,16 +329,17 @@ README for the canonical reference; brief pointers:
   packaging belongs on release tags. `aeb --since main --scan '.tests.ae'`
   runs only the test targets impacted by the PR; `--scan '.dist.ae'`
   is the symmetric release-pipeline shape.
-- **Composite test targets via `build.scan()`.** Commit a
+- **Composite test targets via `bldr.scan()`.** Commit a
   `.all-tests.ae` once and your CI command stays
   `aeb .all-tests.ae --since main` forever:
 
   ```aether
   // .all-tests.ae at the repo root
-  import build
+  import bldr
   aeb(cap) {
-      b = build.start()
-      build.scan(b, "**/.tests.ae")
+      bldr.build() {
+          bldr.scan("**/.tests.ae")
+      }
   }
   ```
 

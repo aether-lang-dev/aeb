@@ -10,7 +10,7 @@ Polyglot-monorepo build runner. Replaces `Makefile` / `pom.xml` /
 with small declarative dot-prefixed `.ae` files co-located with each
 module. Convention does the work; the file declares intent (sources,
 deps, output). The runner (`aeb`) walks the tree, builds a file-based
-DAG from `build.dep("path/to/.foo.ae")` lines (greppable, like Bazel
+DAG from `dep("path/to")` lines (greppable, like Bazel
 BUILD files — every dep edge is a literal string in source, no
 runtime evaluation), topo-sorts, generates a single orchestrator
 `.ae` file with one function per module, compiles the whole thing to
@@ -43,10 +43,10 @@ human-display labels, stripped before deriving filesystem paths).
 
 ### Named target sets (`.presubmit.ae`) — a convention, not a feature
 
-A dot-prefixed `.ae` file whose body is nothing but `build.dep(...)` lines
+A dot-prefixed `.ae` file whose body is nothing but `dep(...)` lines
 is a **named set of targets**; `aeb .presubmit.ae` builds the set. This
 needed no engine change — it falls out of three rules already in force:
-any dot-prefixed `.ae` is a node, `build.dep()` is a runtime no-op whose
+any dot-prefixed `.ae` is a node, `dep()` is a runtime no-op whose
 edges are extracted textually, and the filename is the route (so
 `.presubmit.ae` self-classifies as type `presubmit` and routes to
 `target/presubmit/` with no classification-table entry). A node with no
@@ -58,11 +58,11 @@ dedup means shared members build once). **Do not special-case the name in
 the runner**; if `.presubmit.ae` ever behaves differently from
 `.nightly.ae`, the convention is broken.
 
-A set's body may also carry `meta.desc(b, "...")` (says what the set is
+A set's body may also carry `meta.desc("...")` (says what the set is
 for; `lib/meta` is orthogonal to building, so it works unchanged on a
 node that produces no artifact) and — where a gate genuinely belongs to
 the set rather than to any member — an inline guard failed via
-`build.fail`. The rule of thumb: **a set's own body should only ever say
+`bldr.fail`. The rule of thumb: **a set's own body should only ever say
 no.** If it makes something, it is a build target, not a set.
 
 **Guards: reproducible only.** A guard is fine when what it asserts is
@@ -88,7 +88,7 @@ regardless, so a set depending on it can report green while proving
 nothing. Prefer an SDK builder.
 
 **Don't ship a `git() { no_untracked_files() }` grammar** — asked and
-declined. `os.exec` + `build.fail` already compose; the check is
+declined. `os.exec` + `bldr.fail` already compose; the check is
 non-reproducible (it passes in clean CI, fails for anyone holding a
 scratch file); and a `git` builder would be the first place aeb hardcodes
 one VCS when root discovery already honours `.avn`/`.hg`/`.svn`/`.bzr`/
@@ -98,7 +98,7 @@ a home in `lib/approval`. Full write-up:
 
 ### Entrypoint: `aeb(cap)` (or legacy `main()`)
 
-A build node's entrypoint is `aeb(cap) { b = build.start() ... }`. `cap`
+A build node's entrypoint is `aeb(cap) { bldr.build() { ... } }`. `cap`
 is the build context/capability handle the trusted aeb host injects — the
 build *receives* its authority, it does not construct it (this is the same
 handle that backs `--sandbox`; see docs/design/capability-entrypoint.md). aeb's
@@ -129,7 +129,7 @@ convention. Don't migrate a regular Aether *program* (a `*_test.ae`, a CLI
 
 ### How the DAG is actually drawn
 
-`build.dep(b, "path/to/.foo.ae")` is the only edge-declaration
+`dep("path/to")` is the only edge-declaration
 mechanism. Each call inside a `.build.ae`/`.tests.ae`/`.dist.ae`
 adds one edge from the calling file to the named file.
 `tools/extract-deps.ae` greps for these calls statically (a regex
@@ -146,7 +146,7 @@ hidden behind macro expansion. Three points worth knowing:
    walk. "Who depends on X" requires a separate scan of the entire
    tree (the `gcheckout` walker is an example of doing this for
    sparse-checkout purposes).
-3. **`build.dep()` is a runtime no-op.** It does nothing at execution
+3. **`dep()` is a runtime no-op.** It does nothing at execution
    time; the DAG is built entirely from textual extraction *before*
    any `.ae` file runs. Like `BUILD` rules, deps are data, not
    procedure.
@@ -162,7 +162,7 @@ walks each module through its lifecycle (validate → compile → test →
 package → install) before moving on; one module's `package` happens
 before the next module's `compile` even if there's no dep edge.
 aeb scans the whole tree first, builds a directed graph from
-`build.dep("path/to/.build.ae")` edges (greppable, statically
+`dep("path/to")` edges (greppable, statically
 extractable, like Bazel BUILD files), topo-sorts, and produces every
 artifact in dependency order. Modules with no edge between them
 have no implied ordering — and independent nodes DO build
@@ -177,7 +177,7 @@ shipped — verify in aeb-driver.ae before repeating that claim.)
 
 - **NOT Make/CMake** — no targets-as-rules, no shell-scriptlets in
   build files. Each `.build.ae` is an Aether program with a `main()`
-  that calls `build.start()` then a language SDK builder.
+  that calls `bldr.build()` then a language SDK builder.
 - **NOT Bazel** — no rule definitions, no Skylark, no remote
   execution. Closer to Buck's "languages have opinionated SDKs" but
   the SDK is hand-written Aether under `lib/<lang>/module.ae`, not
@@ -202,7 +202,7 @@ shipped — verify in aeb-driver.ae before repeating that claim.)
   exporter, not re-architecting the runtime around the Nix store.
 - **DSL shape is closure-with-setters** — same idiom as Aether's
   `actor { state ... receive { ... } }` blocks:
-  `aether.program(b) { source("main.ae") output("hello") regen("...") }`.
+  `aether.program() { source("main.ae") output("hello") regen("...") }`.
   Setters are plain functions that take an invisible `_ctx` first
   arg; aeb reads the populated map after the block runs.
 
@@ -214,10 +214,10 @@ status" is the unembellished current state, not the roadmap.
 
 | Dimension                          | What "good" looks like                                          | aeb status                                                                                              |
 |------------------------------------|-----------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| Build-graph topology               | Real DAG, statically extractable, greppable                     | ✓ Done. File-based DAG via `build.dep("path/.build.ae")` lines, scanned without compilation.            |
+| Build-graph topology               | Real DAG, statically extractable, greppable                     | ✓ Done. File-based DAG via `dep("path")` lines, scanned without compilation.            |
 | Multi-language polyglot            | First-class for >=5 languages, real cross-language deps         | ✓ Done. 20+ SDKs (Java, Kotlin, Go, Rust, TS, Scala, Clojure, .NET, Python, Dart, MoonBit, Gleam, Ruby, Aether, Bash, Container, …).   |
 | Cross-language FFI artifacts       | JNI / cdylib / shared-library handoff between SDKs              | ✓ Done. Java→Rust (JNI), Java→Kotlin, Java→Go (.so), TS→Go, C#→Rust, Python→Rust (ctypes) all wired.    |
-| Local incremental cache            | Skip work when inputs unchanged                                 | ✓ Content-addressed cache (`lib/cache`, sha256+zlib) wired into every artifact-producing SDK: maven, aether, java, kotlin, scala, ts, dotnet, go, rust, clojure. `lib/python` is n/a by design (venv non-portable). Shared helpers in `lib/build`; per-SDK `_cache_key_for_*` tested by `tests/test_*_cache.ae`. Remote cache still TODO. |
+| Local incremental cache            | Skip work when inputs unchanged                                 | ✓ Content-addressed cache (`lib/cache`, sha256+zlib) wired into every artifact-producing SDK: maven, aether, java, kotlin, scala, ts, dotnet, go, rust, clojure. `lib/python` is n/a by design (venv non-portable). Shared helpers in `lib/bldr`; per-SDK `_cache_key_for_*` tested by `tests/test_*_cache.ae`. Remote cache still TODO. |
 | Remote build cache                 | Share artifacts across machines (Bazel, Gradle, Turborepo)      | ✗ TODO. Roadmap entry; `target/<module>/` artifact metadata files are the natural cache units.         |
 | Affected-target detection          | `git diff` → reverse-dep walk → only-build-changed              | ✓ Done. `aeb --since <ref>` builds only targets impacted by changes; `aeb --print-affected <ref>` lists them. Source-to-target ownership: nearest enclosing dir with a build file. |
 | Hermetic toolchains                | Pinned compiler/runtime per build, downloaded if missing        | ✗ Uses whatever's on `PATH` (selects, never provisions). Deliberate divergence — see `docs/comparisons/aeb-vs-bazel.md` (hermeticity tier) + `docs/design/toolchain-selection-and-locks.md`. |
@@ -234,7 +234,7 @@ status" is the unembellished current state, not the roadmap.
 | Configuration DSL ceiling          | Expressive without escape hatches into bash/python/Skylark      | ✓ Closure-with-setters, fully Aether-native, no eval'd config.                                          |
 | Migration story                    | Add to existing repo without big-bang rewrite                   | ✓ Per-module `.build.ae`, coexists with whatever's there. itests prove this against real repos.        |
 | Cross-compilation                  | Build for non-host OS/arch                                      | ✗ TODO. Roadmap.                                                                                         |
-| Build telemetry                    | Per-module timing, cache hit rates, bottleneck analysis         | ◐ Partial. Per-module wall-time + cache outcome as `[telemetry]` block at end of every build (in-memory records, stdout renderer). Failed nodes render `FAILED` on their row and are named in a roll-up after `total:` (issue #13 — before that a gcc/link failure rendered the *identical* line a success renders, so `aeb \| tail` read green while no binary existed). Future renderers (file dump, web view) plug in via `build.render_telemetry` and the records list. |
+| Build telemetry                    | Per-module timing, cache hit rates, bottleneck analysis         | ◐ Partial. Per-module wall-time + cache outcome as `[telemetry]` block at end of every build (in-memory records, stdout renderer). Failed nodes render `FAILED` on their row and are named in a roll-up after `total:` (issue #13 — before that a gcc/link failure rendered the *identical* line a success renders, so `aeb \| tail` read green while no binary existed). Future renderers (file dump, web view) plug in via `bldr.render_telemetry` and the records list. |
 | CI system integration              | Auto-detects GHA/GitLab/Jenkins, sets outputs, tags artifacts   | ✗ Deliberately CI-agnostic today; "is this CI" detection is a roadmap line item.                        |
 
 Overall pattern: **graph, multi-language, and dependency resolution
@@ -277,9 +277,9 @@ Runtime flow (one `aeb` invocation):
    **Two status vocabularies, both live.** The driver writes records with
    `status` = `"pass"` / `"fail"` / `"skipped"` (the words it also emits in
    the telemetry JSON), while the in-process orchestrator writes
-   `"passed"` / `"failed"` (the words `build.status_of` returns). Anything
-   reading a record's `status` must accept both — `build._status_is_failed`
-   and `build._telemetry_status` exist for exactly that reason. Matching
+   `"passed"` / `"failed"` (the words `bldr.status_of` returns). Anything
+   reading a record's `status` must accept both — `bldr._status_is_failed`
+   and `bldr._telemetry_status` exist for exactly that reason. Matching
    only one silently under-reports on whichever path loses.
 
 The trampoline lazy-builds tools at first use (cached in `tools/*`
@@ -316,7 +316,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
 
   **Don't make the config language non-Turing-complete** — asked and
   declined, same ask doc. The Starlark-style "prove the config halts" bet
-  targets the wrong layer: `build.dep()` is a runtime no-op and the DAG is
+  targets the wrong layer: `dep()` is a runtime no-op and the DAG is
   extracted textually, so config evaluation is already ~straight-line and
   finishes in microseconds. Builds hang in `os.system("mvn ...")`, across
   a fork/exec boundary no totality checker reaches. aeb bounds termination
@@ -335,7 +335,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   (`desc`, `homepage`, `license`, `version`, `url`, `sha256`,
   `maintainer`) record into the build map on `b`; orthogonal to
   building. Source-of-truth for downstream exporters.
-- `lib/brew/module.ae` — Homebrew exporter SDK. `brew.formula(b)`
+- `lib/brew/module.ae` — Homebrew exporter SDK. `brew.formula()`
   closure in a `.dist.ae` reads `meta.*` plus its own setters
   (`aeb_target`, `binary`, `class_name`, `test_assertion`) and
   writes `target/<module>/<binary>.rb`. Pattern model for future
@@ -353,8 +353,8 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   commands in `aeb-main`/`aeb-link`) so the import resolves. This was
   three drifting copies until the multi-`--lib` (aether 0.150)
   consolidation — see `TODO.md` § Three-copy `file_to_label`.
-- `lib/build/module.ae` — the core API: `build.start()`,
-  `build.begin()`, `build.dep()`, `build._get()`, artifact helpers.
+- `lib/bldr/module.ae` — the core API: `bldr.build()`,
+  `bldr.begin()`, `dep()`, `bldr._get()`, artifact helpers.
   Every language SDK depends on this. Also hosts shared **fixture
   synthesis** (`_synth_fixture_pre`, `_synth_fixture_post`,
   `_has_fixtures`) — test SDKs that need spawn/seed/cleanup
@@ -375,18 +375,18 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   former `gem` builder collided this way and the builder was renamed
   to `package`; under 0.178+ that collision would have failed the
   build immediately), Maven (resolver), pnpm/jest/webpack/angular,
-  Container (OCI/LXC). Each SDK exposes `<lang>.<verb>(b) { ... }`
+  Container (OCI/LXC). Each SDK exposes `<lang>.<verb>() { ... }`
   builders.
 - `lib/webhook/module.ae` — outbound webhook trigger SDK (core, not
-  language-specific). `webhook.fire(b) { url(...) on(...) }` invokes
+  language-specific). `webhook.fire() { url(...) on(...) }` invokes
   a URL when a pipeline node is reached — aeb as the producer side
   of a webhook-centric automation system. `{{...}}` context
   interpolation, `on()` environment gates, native `std.http`. Hosts
   the `_detect_ci()` consumer; `_detect_ci` itself lives in
-  `lib/build`. Usage: `docs/design/webhook-triggers.md`; design:
+  `lib/bldr`. Usage: `docs/design/webhook-triggers.md`; design:
   `asks/webhook-outbound-trigger.md`.
 - `lib/container/module.ae` — container SDK. `container.image` builds
-  OCI images; `container.run(b) { image_ref(...) command(...) }` runs
+  OCI images; `container.run() { image_ref(...) command(...) }` runs
   a one-shot container and RETURNS its captured pid-1 stdout — the
   first slice of a container-as-step grammar. aeb's two ways to run a
   guest language — `container.run` (a separate process) vs Aether's
@@ -397,7 +397,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   orchestrator (the `tests/test_host_lua.build.sh` sidecar does this
   for the test).
 - `lib/aether/module.ae` — the Aether-program SDK.
-  `aether.program(b)` shells out to `ae build` by default; declaring
+  `aether.program()` shells out to `ae build` by default; declaring
   `extra_source(...)` / `link_flag(...)` / `regen(...)` opts into the
   manual `aetherc + gcc` path. Also hosts `aether.program_test` (a
   compiled-binary unit test), `aether.driver_test` (a compiled
@@ -411,7 +411,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   work with `std.spec` (the aeocha successor; see the driver_test
   report-transport note below) or anything that uses exit code as
   PASS/FAIL.
-- `lib/bash/module.ae` — bash test runner. `bash.test(b)` with
+- `lib/bash/module.ae` — bash test runner. `bash.test()` with
   `script(...)`, `jobs(N)`, `pre_command(...)`, `post_command(...)`,
   and structured server fixtures (`fixture_seed`, `fixture_server`).
   Parallel mode via `xargs -P` (jobs(0) = nproc/2). Hooks AND
@@ -513,9 +513,9 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   `builder_map: ptr` parameter from the call site. See
   `_compile_and_link` in `lib/aether/module.ae` for the pattern.
 - **The two-`import` requirement for bare setters.** Inside a
-  `receiver.method(b) { block }` body, identifiers in `block` are
+  `receiver.method() { block }` body, identifiers in `block` are
   resolved as plain top-level calls, not against the receiver's
-  namespace. So `bash.test(b) { script("...") }` won't find
+  namespace. So `bash.test() { script("...") }` won't find
   `script` unless `import bash (script)` is also at the top of the
   file. Same for every SDK. Documented in README's "note on the
   two import lines" callout. Real bug filed and pushed back as
@@ -583,7 +583,7 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   **With or without a test framework:** `program_test`/`driver_test`
   work fine with NO `std.spec` import — plain exit code is PASS/FAIL;
   `std.spec` only *adds* the granular per-`it()` report, which aeb reads
-  from the `AE_SPEC_REPORT` file (`build._parse_aeocha_report`, the
+  from the `AE_SPEC_REPORT` file (`bldr._parse_aeocha_report`, the
   report format is still the versioned "aeocha-v1" contract). Don't
   assume a framework is required.
 
@@ -774,7 +774,7 @@ LLM-session notes — if you see one in a diff, it's probably stale):
   the original `content` heap string: the alias-move `dest = src`
   disowned `src` even when read again, so the loop's next reassignment
   freed the shared buffer. Filed as `../aether/180-regression.md`;
-  broke `tools/extract-deps`'s scan pass + runtime `build.scan` when
+  broke `tools/extract-deps`'s scan pass + runtime `bldr.scan` when
   those tools were rebuilt under 0.180. **Fixed in aether 0.181.0**
   (commit `0dd4396`, "defensive-copy heap-string alias when source
   stays live"). aeb's toolchain bumped to 0.181.0 and the defensive
@@ -844,7 +844,7 @@ exists if a need arises."
   (`expect_http_status` / `_no_error` / `_body_contains` /
   `_header` / `_body_json_field`) consumes a `resp: ptr` from
   `http.get` / `client.send_request`. Drivers written for
-  `aether.driver_test(b)` should reach for these by default —
+  `aether.driver_test()` should reach for these by default —
   they're what the porter's ask was anticipating.
 - **0.123 `expect_stdout_line_field` tokenises on whitespace
   runs (awk semantics)** — was single-space splits, broke against
@@ -881,7 +881,7 @@ exists if a need arises."
   `---` + tab-packed per-it() rows before exit. Gated on
   `parent_channel() >= 0`, so `ae run foo.ae` directly is
   unchanged. **Now consumed**: aeb parses the header in
-  `lib/aether/driver_test` (via `build._parse_aeocha_report`)
+  `lib/aether/driver_test` (via `bldr._parse_aeocha_report`)
   and reports real granularity in the `[telemetry]` block —
   e.g. `2/3 FAIL` instead of binary-level `0/1 FAIL`. Hand-rolled
   drivers (no Aeocha) emit no report; aeb falls back to
@@ -891,7 +891,7 @@ exists if a need arises."
   IPC pipe — `driver_test` sets `AE_SPEC_FORMAT=aeocha AE_SPEC_REPORT=<f>`
   on the child and reads `<f>` when the pipe drains empty. Same
   `version=1` "aeocha-v1" format (now a versioned contract in aether
-  `docs/testing.md`), so `build._parse_aeocha_report` is unchanged. The
+  `docs/testing.md`), so `bldr._parse_aeocha_report` is unchanged. The
   pipe read stays as a back-compat branch for any old-aeocha child. The
   IPC-back-channel entry above is kept as the historical record of how
   it worked 0.124–0.537.
@@ -921,7 +921,7 @@ exists if a need arises."
   `../aether/aeb-ae-help-and-toolchain-feedback.md`) made `ae help`
   accept `--lib` and probe `--lib` roots for hint files. **Now
   consumed**: aeb ships `lib/bash/bash.help.md`,
-  `lib/aether/aether.help.md`, `lib/build/build.help.md`; they ride
+  `lib/aether/aether.help.md`, `lib/bldr/build.help.md`; they ride
   inside the module dirs so `aeb --init`'s `.aeb/lib/<name>` symlinks
   carry them. Two residual `ae help` quirks (still open): namespaced
   library calls are reported as `undefined function` even with
@@ -997,7 +997,7 @@ exists if a need arises."
   symlinks, recompiled into every orchestrator build. A future aeb
   could precompile the SDKs to `.so` once and consume them as binary
   imports — faster per-build, and the closure metadata means the
-  `<lang>.<verb>(b) { ... }` builder grammar survives the boundary.
+  `<lang>.<verb>() { ... }` builder grammar survives the boundary.
   The value-add over the current source-symlink model is unproven
   (the recompile is cheap; the symlink model is simple), so this is
   "exists if a need arises," not a roadmap commitment.
@@ -1033,7 +1033,7 @@ exists if a need arises."
 - **0.357 `ae build --emit=csrc`** — emits portable generated C +
   a catalog header and stops (no gcc, no host `.so`): the
   compile-on-install / source-registry primitive. **Now consumed**:
-  `aether.csrc(b)` in `lib/aether` (see § Files/dirs). Same release
+  `aether.csrc()` in `lib/aether` (see § Files/dirs). Same release
   fixes `--emit=lib` catalog exports on Windows MinGW
   (`-Wl,--export-all-symbols`) — relevant to the winbaz Axis-2 path,
   nothing for aeb to change.
@@ -1083,7 +1083,7 @@ Agreed shape (Paul's framing) — **Role 1 shipped, Role 2 not yet**:
   **no `.sha256`**, that probe is also the only integrity gate. Escape
   hatch: `AEB_FETCH_SOURCE=1`.
 - **A target that builds Aether code DECLARES its Aether**, via the
-  existing `prereq(b, "aether:0.410")`. `aether` becomes a canonical
+  existing `prereq("aether:0.410")`. `aether` becomes a canonical
   token beside `jdk`/`node`/`rust` (with `ae` a rejected misname), so
   `--prereqs`, `--preflight`, `agent.prereq_to_image` and the agent's
   `/ping` version all cover it for free — that `/ping` version is

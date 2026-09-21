@@ -32,17 +32,17 @@ external tools.
 ## Suggested grammar
 
 ```aether
-supply.provenance(b) {
+supply.provenance() {
     subject("apps/api/.dist.ae")
     format("slsa")
 }
 
-supply.sbom(b) {
+supply.sbom() {
     subject("apps/api/.dist.ae")
     format("cyclonedx-json")
 }
 
-supply.sign(b) {
+supply.sign() {
     subject("apps/api/.dist.ae")
     keyless()
 }

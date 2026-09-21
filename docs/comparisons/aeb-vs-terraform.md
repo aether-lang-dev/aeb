@@ -22,14 +22,14 @@ check Terraform plans.
 ## Useful grammar
 
 ```aether
-terraform.vars(b) {
+terraform.vars() {
     environment("prod")
     set("image_digest").from_artifact("apps/api/.dist.ae", "oci-digest")
     set("release_version").from_version()
     output("target/terraform/prod.tfvars.json")
 }
 
-terraform.plan(b) {
+terraform.plan() {
     workdir("infra/terraform")
     vars("target/terraform/prod.tfvars.json")
     output_plan("target/terraform/prod.plan")

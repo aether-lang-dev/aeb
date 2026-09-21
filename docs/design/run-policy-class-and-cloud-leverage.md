@@ -371,7 +371,7 @@ build honour it), ephemeral `--rm` as always.
 Where the choice comes from is the same boundary drawn for install-resolution
 ([`build-prerequisites-and-provisioning.md`](build-prerequisites-and-provisioning.md)):
 **aeb owns no token→image map.** The build *states* its need —
-`build.prereq(b, "rust:1.75")`, read back with `aeb --prereqs <target>` as a
+`prereq("rust:1.75")`, read back with `aeb --prereqs <target>` as a
 canonical OS-agnostic token — and the **requester's agent** resolves that token
 to an image reference, which it puts in the dispatch's `image` field. aeb only
 *runs* the image it is handed.
@@ -465,7 +465,7 @@ verification* — it is neither issuer nor verifier.
 12. Authentication handshake specifics for the agent's OS self-report and
     the token presentation (ties to OQ3/OQ5 — the token mechanism).
 13. The new dispatch primitive's DSL shape — e.g.
-    `agent.dispatch(b) { endpoint(env "AEB_AGENT_MAC") token(...) target(".tests.ae") }`
+    `agent.dispatch() { endpoint(env "AEB_AGENT_MAC") token(...) target(".tests.ae") }`
     — fixed-arity setters, verdict folds into `any_failed`.
 14. **Transitive-fan-out depth bounding.** Since an agent's run can itself
     re-dispatch (see "The peer relationship is uniform and composable"), a

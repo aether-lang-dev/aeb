@@ -15,32 +15,34 @@ in Aether and was the project's first non-trivial Aether application.)
 A Java component with one dependency:
 
 ```aether
-import build
+import bldr
 import java
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "java/components/vowelbase/.build.ae")
-    java.javac(b)
+    bldr.build() {
+        dep("java/components/vowelbase/.build.ae")
+        java.javac()
+    }
 }
 ```
 
 A Rust shared library that depends on a vendored `jni` crate:
 
 ```aether
-import build
+import bldr
 import rust
 import rust (crate_name, edition, crate_type, lib_path, lib_name)
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "libs/rust/registry/vendor/jni/.jni.crate.ae")
-    rust.cargo_project(b) {
-        crate_name("vowelbase")
-        edition("2021")
-        crate_type("cdylib")
-        lib_path("lib.rs")
-        lib_name("libvowelbase.so")
+    bldr.build() {
+        dep("libs/rust/registry/vendor/jni/.jni.crate.ae")
+        rust.cargo_project() {
+            crate_name("vowelbase")
+            edition("2021")
+            crate_type("cdylib")
+            lib_path("lib.rs")
+            lib_name("libvowelbase.so")
+        }
     }
 }
 ```
@@ -48,41 +50,43 @@ aeb(cap) {
 A JUnit test module with vendored `junit.jar`:
 
 ```aether
-import build
+import bldr
 import java
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "java/components/vowelbase/.build.ae")
-    build.dep(b, "libs/java/junit/.junit.jar.ae")
-    build.dep(b, "libs/java/hamcrest/.hamcrest.jar.ae")
-    java.javac_test(b)
-    java.junit(b)
+    bldr.build() {
+        dep("java/components/vowelbase/.build.ae")
+        dep("libs/java/junit/.junit.jar.ae")
+        dep("libs/java/hamcrest/.hamcrest.jar.ae")
+        java.javac_test()
+        java.junit()
+    }
 }
 ```
 
 A Spring Boot test module with Maven dependencies via a BOM:
 
 ```aether
-import build
+import bldr
 import java
 import maven (load_bom_file)
 import java (release, source_layout, enable_preview, parameters)
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "jpa/example/.build.ae")
-    load_bom_file(b, "../../spring-boot.bom.ae")
-    build.dep(b, "org.springframework.boot:spring-boot-starter-test")
-    build.dep(b, "org.springframework.boot:spring-boot-data-jpa-test")
-    java.javac_test(b) {
-        release("25")
-        source_layout("maven idiomatic")
-        enable_preview()
-        parameters()
-    }
-    java.junit5(b) {
-        enable_preview()
+    bldr.build() {
+        dep("jpa/example/.build.ae")
+        load_bom_file("../../spring-boot.bom.ae")
+        dep("org.springframework.boot:spring-boot-starter-test")
+        dep("org.springframework.boot:spring-boot-data-jpa-test")
+        java.javac_test() {
+            release("25")
+            source_layout("maven idiomatic")
+            enable_preview()
+            parameters()
+        }
+        java.junit5() {
+            enable_preview()
+        }
     }
 }
 ```
@@ -122,14 +126,14 @@ ae/myserver/
 
 Each tagged file is its own graph node — `aeb --graph` shows them
 separately, `aeb --since` walks them independently, and a downstream
-`build.dep("ae/myserver/.build-seed.ae")` references just the seed
+`dep("ae/myserver/.build-seed.ae")` references just the seed
 target. The labels appear in `[telemetry]` so you can see per-target
 timing for each binary.
 
 The runner (`aeb`) does four things:
 
 1. **Scan** — walk the tree and collect every `.*.ae` file
-2. **Graph** — grep each `dep(b, "…")` line to derive a file-based DAG
+2. **Graph** — grep each `dep("…/.serde_json.crate.ae")` line to derive a file-based DAG
 3. **Sort** — topologically order the files
 4. **Generate + link** — produce a single orchestrator `.ae` file with one
    function per module, compile them all to C, link into a single native
@@ -315,7 +319,7 @@ aeb --graph mermaid > deps.md
 
 The graph reflects exactly what the build pipeline sees: every
 dot-prefixed `.ae` target under cwd, with edges drawn from each
-`build.dep("path/.foo.ae")` line. No render-only data; this is the
+`dep("path")` line. No render-only data; this is the
 authoritative DAG. Useful for debugging "why isn't X depending on
 Y", reviewing dep changes in a PR, or onboarding someone to a
 monorepo's structure.
@@ -403,17 +407,19 @@ explicitly when you are below the project root:
 
 ### Version from the working copy (`meta.version_from_vcs`)
 
-`meta.version(b, "1.2.3")` is a literal, so the number lives in two places
+`meta.version("1.2.3")` is a literal, so the number lives in two places
 — the tag and the build file — and drifts. `version_from_vcs` asks the
 working copy instead:
 
 ```aether
+import bldr
 import meta (version_from_vcs)
 
 aeb(cap) {
-    b = build.start()
-    aether.program(b) { source("main.ae") output("hello") }
-    meta.version_from_vcs(b, "0.0.0-dev")   // 2nd arg = fallback
+    bldr.build() {
+        aether.program() { source("main.ae") output("hello") }
+        meta.version_from_vcs("0.0.0-dev")   // 2nd arg = fallback
+    }
 }
 ```
 
@@ -441,7 +447,7 @@ rewriting `r1234` as `0.0.1234` would invent precision that is not there.
 
 The fallback (2nd argument) is used when the tree has no marker, the VCS
 CLI is absent, or the command fails — an exported tarball, a fresh clone
-with no tags. One-arg `version_from_vcs(b)` falls back to `""`.
+with no tags. One-arg `version_from_vcs()` falls back to `""`.
 
 ### Post-build steps (`post_build`)
 
@@ -451,16 +457,17 @@ aeb has always had ways to act *before* the work — `pre_command` in
 once the artifact exists.
 
 ```aether
-import build (start, post_build, run_post_build)
+import bldr
 import java (javac)
 
 aeb(cap) {
-    b = build.start()
-    java.javac(b) { release("21") }
+    bldr.build() {
+        java.javac() { release("21") }
 
-    post_build(b, "sha256sum {target_dir}/app.jar > {target_dir}/app.jar.sha256")
-    post_build(b, "syft {target_dir}/app.jar -o spdx-json > {target_dir}/app.sbom")
-    return build.run_post_build(b)
+        post_build("sha256sum {target_dir}/app.jar > {target_dir}/app.jar.sha256")
+        post_build("syft {target_dir}/app.jar -o spdx-json > {target_dir}/app.sbom")
+        return bldr.run_post_build()
+    }
 }
 ```
 
@@ -474,23 +481,24 @@ deliberate: embedding an SBOM or signing a binary is part of the artifact
 being correct, so a silent failure would be a green build that proves
 nothing.
 
-Note `run_post_build(b)` is called by *your* build file, not by the SDK —
+Note `run_post_build()` is called by *your* build file, not by the SDK —
 which keeps the SDKs unaware of it and the feature opt-in.
 
 ### Named target sets (`.presubmit.ae`)
 
-A dot-prefixed `.ae` file whose body is nothing but `build.dep(...)`
+A dot-prefixed `.ae` file whose body is nothing but `dep(...)`
 lines is a **named set of targets**. Building it builds the set.
 
 ```aether
 // .presubmit.ae — what must be green before you push
-import build (start, dep)
+import bldr
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "libs/core/.tests.ae")
-    build.dep(b, "apps/api/.tests.ae")
-    build.dep(b, "apps/web/.tests.ae")
+    bldr.build() {
+        dep("libs/core/.tests.ae")
+        dep("apps/api/.tests.ae")
+        dep("apps/web/.tests.ae")
+    }
 }
 ```
 
@@ -499,7 +507,7 @@ aeb .presubmit.ae
 ```
 
 No flag, no registry, no special-casing — the existing rules already
-allow it. Any dot-prefixed `.ae` file is a node, `build.dep()` is the
+allow it. Any dot-prefixed `.ae` file is a node, `dep()` is the
 only edge mechanism, and the filename is the route, so `.presubmit.ae`
 self-classifies as type `presubmit` and reports as
 `aeb: 1 build + 1 tests + 1 presubmit`. Members run concurrently; if
@@ -508,9 +516,9 @@ one fails, the set exits non-zero.
 The name is yours — `.merge-queue.ae`, `.smoke.ae`, `.release.ae`,
 `.nightly.ae` all work identically, and sets may depend on sets.
 
-Add `meta.desc(b, "Must be green before push")` to say what the set is
+Add `meta.desc("Must be green before push")` to say what the set is
 for — it's the highest-value line in the file for whoever reads it next.
-A set may also carry an inline guard (failed via `build.fail`) for a
+A set may also carry an inline guard (failed via `bldr.fail`) for a
 condition that belongs to the set rather than to any member — but only a
 *reproducible* one, such as a missing tool the whole set needs. The doc
 works through why the guard people ask for first, "fail if the working
@@ -718,18 +726,19 @@ orchestrator — one process, all nodes in-process, tool output streamed
 inline. Simplest to debug, and fine for small builds. Design:
 [`docs/design/nodes-as-subprocesses.md`](docs/design/nodes-as-subprocesses.md).
 
-#### Composite targets via `build.scan()`
+#### Composite targets via `bldr.scan()`
 
 Where `--scan` is the imperative one-shot ("filter to .tests.ae
-right now"), `build.scan()` is the declarative recurring form:
+right now"), `bldr.scan()` is the declarative recurring form:
 commit a composite `.ae` file once, point CI at it forever.
 
 ```aether
 // .all-tests.ae at the repo root
-import build
+import bldr
 aeb(cap) {
-    b = build.start()
-    build.scan(b, "**/.tests.ae")
+    bldr.build() {
+        bldr.scan("**/.tests.ae")
+    }
 }
 ```
 
@@ -738,9 +747,9 @@ aeb .all-tests.ae --since main          # recurring CI shape
 aeb .all-tests.ae --since main --coverage
 ```
 
-`build.scan(b, "<glob>")` expands to every matching `.ae` file at
+`bldr.scan("<glob>")` expands to every matching `.ae` file at
 build-graph extraction time (the same grep pass that picks up
-`build.dep` lines), so the DAG is still grep-extractable from the
+`dep` lines), so the DAG is still grep-extractable from the
 source tree — `aeb --graph`, `aeb --since`, `aeb --print-affected`
 all see the expanded set.
 
@@ -749,17 +758,19 @@ Composes naturally with manual deps and other scans:
 ```aether
 // .smoke-tests.ae — narrower aggregator
 aeb(cap) {
-    b = build.start()
-    build.scan(b, "javatests/components/**/.tests.ae")
-    build.scan(b, "csharptests/components/**/.tests.ae")
+    bldr.build() {
+        bldr.scan("javatests/components/**/.tests.ae")
+        bldr.scan("csharptests/components/**/.tests.ae")
+    }
 }
 
 // .integration.ae — compose scans with explicit deps
 aeb(cap) {
-    b = build.start()
-    build.dep(b, ".smoke-tests.ae")
-    build.dep(b, ".release-builds.ae")
-    build.dep(b, "end-to-end/.tests.ae")
+    bldr.build() {
+        dep(".smoke-tests.ae")
+        dep(".release-builds.ae")
+        dep("end-to-end/.tests.ae")
+    }
 }
 ```
 
@@ -771,7 +782,7 @@ Implementation notes:
   excluded — self-loop avoidance.
 - Zero matches is a hard error at runtime (typo protection — better
   to fail loudly than silently produce a green build that ran nothing).
-- `build.dep` and `build.scan` interleave freely: dedup is automatic.
+- `dep` and `bldr.scan` interleave freely: dedup is automatic.
 
 ### Watch mode (`aeb --watch`)
 
@@ -1035,29 +1046,30 @@ throughout. `--sandbox` is Linux-only (needs aether ≥ 0.230.0). Full design in
 ### Distribution metadata (`meta` SDK) and exporters (`brew`, …)
 
 Distribution is just another target type. Declare metadata via
-the `meta` SDK and an exporter closure (e.g. `brew.formula(b)`)
+the `meta` SDK and an exporter closure (e.g. `brew.formula()`)
 inside a `.dist.ae` file; `aeb` walks it like any other target,
 running the exporter to emit the formula.
 
 ```aether
 // lib/hello/.dist.ae
-import build
+import bldr
 import meta
 import brew
 import brew (aeb_target, binary)
 
 aeb(cap) {
-    b = build.start()
-    meta.desc(b, "Tiny hello-world greeter")
-    meta.homepage(b, "https://example.com/hello")
-    meta.license(b, "MIT")
-    meta.version(b, "0.1.0")
-    meta.url(b, "https://example.com/dl/hello-0.1.0.tar.gz")
-    meta.sha256(b, "0123...cdef")
+    bldr.build() {
+        meta.desc("Tiny hello-world greeter")
+        meta.homepage("https://example.com/hello")
+        meta.license("MIT")
+        meta.version("0.1.0")
+        meta.url("https://example.com/dl/hello-0.1.0.tar.gz")
+        meta.sha256("0123...cdef")
 
-    brew.formula(b) {
-        aeb_target("lib/hello/.build.ae")  // what `def install` runs
-        binary("hello-world")               // optional override
+        brew.formula() {
+            aeb_target("lib/hello/.build.ae")  // what `def install` runs
+            binary("hello-world")               // optional override
+        }
     }
 }
 ```
@@ -1110,22 +1122,23 @@ Jira status/label/field checks:
 
 ```aether
 // apps/api/.dist.ae
-import build
+import bldr
 import approval
 import approval (base_url, issue, require_status, require_label,
                  require_field, token_env)
 
 aeb(cap) {
-    b = build.start()
-    build.dep(b, "apps/api/.tests.ae")
+    bldr.build() {
+        dep("apps/api/.tests.ae")
 
-    approval.jira(b) {
-        base_url("https://jira.example.com")
-        issue("REL-1234")
-        require_status("Approved")
-        require_label("release-approved")
-        require_field("Risk", "Accepted")
-        token_env("JIRA_TOKEN")        // default if omitted
+        approval.jira() {
+            base_url("https://jira.example.com")
+            issue("REL-1234")
+            require_status("Approved")
+            require_label("release-approved")
+            require_field("Risk", "Accepted")
+            token_env("JIRA_TOKEN")        // default if omitted
+        }
     }
 }
 ```
@@ -1149,7 +1162,7 @@ Jira's REST payload does not expose a friendly field name.
 For systems that expose approval rows, use the common approval grammar:
 
 ```aether
-approval.servicenow(b) {
+approval.servicenow() {
     base_url("https://instance.service-now.com")
     issue("CHG123456")
     require_approver("person1")
@@ -1163,7 +1176,7 @@ approval.servicenow(b) {
 The path setters map native JSON to normalized evidence:
 
 ```aether
-approval.http(b) {
+approval.http() {
     url("https://release.example.com/api/approval/release-1")
     subject("release-1")
     bearer_env("RELEASE_TOKEN")
@@ -1181,20 +1194,20 @@ approval.http(b) {
 
 Backend entry points:
 
-- `approval.jira(b)` — Jira/Jira Service Management issue checks.
-- `approval.servicenow(b)` — ServiceNow approval rows for a change.
-- `approval.github(b)` — GitHub approval JSON via `url(...)`, or
+- `approval.jira()` — Jira/Jira Service Management issue checks.
+- `approval.servicenow()` — ServiceNow approval rows for a change.
+- `approval.github()` — GitHub approval JSON via `url(...)`, or
   environment metadata via `owner(...)`, `repo(...)`, `environment(...)`.
-- `approval.gitlab(b)` — GitLab deployment approvals via `url(...)`, or
+- `approval.gitlab()` — GitLab deployment approvals via `url(...)`, or
   `project(...)` + `deployment(...)`.
-- `approval.azure_devops(b)` — Azure DevOps checks/approvals endpoint
+- `approval.azure_devops()` — Azure DevOps checks/approvals endpoint
   via `url(...)`.
-- `approval.http(b)` — generic bearer-token JSON endpoint.
-- `approval.command(b)` — command prints JSON to stdout, then aeb
+- `approval.http()` — generic bearer-token JSON endpoint.
+- `approval.command()` — command prints JSON to stdout, then aeb
   verifies the same paths/approvers:
 
   ```aether
-approval.command(b) {
+approval.command() {
     subject_env("CHANGE_ID")
     run("scripts/check-release-approval.sh")
     arg_env("CHANGE_ID")
@@ -1217,7 +1230,7 @@ Approval scripts can also emit a plain-text attestation claim and let
 aeb normalize, hash, and verify it against a Live Verify-style endpoint:
 
 ```aether
-approval.attestation(b) {
+approval.attestation() {
     subject_env("CHANGE_ID")
     attestation_command("scripts/approval-attestation.sh \"$CHANGE_ID\"")
     verify_via("https://verify.example.com/c")
@@ -1246,22 +1259,22 @@ through scripts.
 
 Every dependency — local module, third-party library, Maven coordinate, npm
 package, NuGet package, Cargo crate, or Python wheel — is declared with a
-single `build.dep()` call. The form of the argument distinguishes them:
+single `dep()` call. The form of the argument distinguishes them:
 
 ```aether
-// Local module (reference the dep module's .build.ae file)
-build.dep(b, "java/components/vowelbase/.build.ae")
+// Local module (reference the dep module's directory)
+dep("java/components/vowelbase/.build.ae")
 
-// Vendored / registry third-party (reference its .{name}.jar.ae etc.)
-build.dep(b, "libs/java/junit/.junit.jar.ae")
-build.dep(b, "libs/rust/registry/vendor/jni/.jni.crate.ae")
-build.dep(b, "libs/javascript/mocha/.mocha.npm.ae")
-build.dep(b, "libs/dotnet/Shouldly/.Shouldly.nupkg.ae")
-build.dep(b, "libs/python/pytest/.pytest.whl.ae")
+// Vendored / registry third-party (reference its directory)
+dep("libs/java/junit/.junit.jar.ae")
+dep("libs/rust/registry/vendor/jni/.jni.crate.ae")
+dep("libs/javascript/mocha/.mocha.npm.ae")
+dep("libs/dotnet/Shouldly/.Shouldly.nupkg.ae")
+dep("libs/python/pytest/.pytest.whl.ae")
 
 // Maven coordinate (colon-separated; version from BOM if omitted)
-build.dep(b, "org.springframework.boot:spring-boot-starter-data-jpa")
-build.dep(b, "com.github.javafaker:javafaker:1.0.2")
+dep("org.springframework.boot:spring-boot-starter-data-jpa")
+dep("com.github.javafaker:javafaker:1.0.2")
 ```
 
 All of these lines are greppable — the build graph is extracted by
@@ -1270,31 +1283,34 @@ scanning source files, not by compiling them. Same contract as Bazel's
 
 ### Third-party dep files: `.ae-as-dep`
 
-Rather than a dozen bespoke helpers (`build.npm_dep`, `build.cargo_dep`,
-`build.lib`, …), each third-party dep is its own `.ae` file that registers
+Rather than a dozen bespoke helpers (`bldr.npm_dep`, `bldr.cargo_dep`,
+`bldr.lib`, …), each third-party dep is its own `.ae` file that registers
 its contribution via a language-SDK builder. Examples:
 
 ```aether
 // libs/java/junit/.junit.jar.ae — vendored jar
 aeb(cap) {
-    b = build.start()
-    java.jar_vendored(b, "libs/java/junit/junit.jar")
+    bldr.build() {
+        java.jar_vendored("libs/java/junit/junit.jar")
+    }
 }
 ```
 
 ```aether
 // libs/rust/registry/vendor/jni/.jni.crate.ae — registry Rust crate
 aeb(cap) {
-    b = build.start()
-    rust.crate_registry(b, "jni~0.21.1")
+    bldr.build() {
+        rust.crate_registry("jni~0.21.1")
+    }
 }
 ```
 
 ```aether
 // libs/python/pytest/.pytest.whl.ae — pypi wheel
 aeb(cap) {
-    b = build.start()
-    python.wheel_registry(b, "pytest~")
+    bldr.build() {
+        python.wheel_registry("pytest~")
+    }
 }
 ```
 
@@ -1308,71 +1324,71 @@ Each SDK has symmetric `X_vendored` / `X_registry` builders:
 | .NET     | `dotnet.nuget_vendored` | `dotnet.nuget_registry` |
 | Python   | `python.wheel_vendored` | `python.wheel_registry` |
 
-Consumers don't care which — they just `build.dep(b, "libs/.../.foo.bar.ae")`.
+Consumers don't care which — they just `dep("libs/...")`.
 
 ## Language SDKs
 
 ```aether
 import java
-java.javac(b) { release("25") source_layout("maven idiomatic") }
-java.javac_test(b) { enable_preview() parameters() }
-java.junit(b)          // JUnit 4
-java.junit5(b)         // JUnit 5 / Jupiter
-java.shade(b, "com.Main", "app.jar")
+java.javac() { release("25") source_layout("maven idiomatic") }
+java.javac_test() { enable_preview() parameters() }
+java.junit()          // JUnit 4
+java.junit5()         // JUnit 5 / Jupiter
+java.shade("com.Main", "app.jar")
 ```
 
 ```aether
 import kotlin
-kotlin.kotlinc(b)
-kotlin.kotlinc_test(b)
-kotlin.kotlin_test(b, "pkg.TestClassKt")
+kotlin.kotlinc()
+kotlin.kotlinc_test()
+kotlin.kotlin_test("pkg.TestClassKt")
 ```
 
 ```aether
 import go
-go.go_build(b, "c-shared", "libname.so")
-go.go_test(b)
+go.go_build("c-shared", "libname.so")
+go.go_test()
 ```
 
 ```aether
 import rust
-rust.cargo_project(b) { crate_name("…") edition("2021") crate_type("cdylib") }
-rust.cargo_workspace(b) { … }    // root-level workspace Cargo.toml
-rust.cargo_crate(b) { … }        // workspace member Cargo.toml
-rust.check_workspace(b)
-rust.test_workspace(b)
+rust.cargo_project() { crate_name("…") edition("2021") crate_type("cdylib") }
+rust.cargo_workspace() { … }    // root-level workspace Cargo.toml
+rust.cargo_crate() { … }        // workspace member Cargo.toml
+rust.check_workspace()
+rust.test_workspace()
 ```
 
 ```aether
 import ts
-ts.tsc(b)
+ts.tsc()
 ```
 
 ```aether
 import scala
-scala.scalac(b)
-scala.scalac_test(b)
-scala.munit(b)
+scala.scalac()
+scala.scalac_test()
+scala.munit()
 ```
 
 ```aether
 import clojure
-clojure.compile(b)
-clojure.test(b)
+clojure.compile()
+clojure.test()
 ```
 
 ```aether
 import dotnet
-dotnet.csproj(b) { … }      // generates .{name}.generated.csproj
-dotnet.build(b)
-dotnet.test(b)
+dotnet.csproj() { … }      // generates .{name}.generated.csproj
+dotnet.build()
+dotnet.test()
 ```
 
 ```aether
 import python
-python.install(b)           // pip install deps into venv
-python.pytest(b)
-python.package(b) { … }     // generate pyproject.toml and build wheel
+python.install()           // pip install deps into venv
+python.pytest()
+python.package() { … }     // generate pyproject.toml and build wheel
 ```
 
 ```aether
@@ -1381,23 +1397,23 @@ import bash (script, jobs, pre_command, post_command, on_failure,
               fixture_seed, fixture_server,
               path, seed_bin, bin, args, port, ready_after_ms)  // see note below
 
-bash.test(b) {              // exit 0 = PASS, non-zero = FAIL
+bash.test() {              // exit 0 = PASS, non-zero = FAIL
     script("test_a.sh")
     script("test_b.sh")
 }
-bash.test(b)                // no script(...) → auto-discover test_*.sh
-bash.test(b) {              // run up to 4 scripts concurrently
+bash.test()                // no script(...) → auto-discover test_*.sh
+bash.test() {              // run up to 4 scripts concurrently
     jobs(4)
 }
-bash.test(b) { jobs(0) }    // 0 = auto = nproc/2
+bash.test() { jobs(0) }    // 0 = auto = nproc/2
 
-bash.test(b) {              // pre/post commands run around every script.
+bash.test() {              // pre/post commands run around every script.
     pre_command("source setup.sh")    // pres always run before each script
     post_command("source teardown.sh") // posts always run after, pass or fail
     script("test_acl.sh")
 }                           // (forces sequential mode if jobs(N>1) also set)
 
-bash.test(b) {              // on_failure fires ONCE if any script fails —
+bash.test() {              // on_failure fires ONCE if any script fails —
     script("test_acl.sh")   //   diagnostics / notification, not cleanup.
     on_failure("echo \"FAILED: \$AEB_MODULE_DIR (\$AEB_TEST_FAILED/\$AEB_TEST_TOTAL)\"")
     on_failure("curl -X POST \$SLACK_WEBHOOK -d \"text=tests broke\"")
@@ -1405,12 +1421,12 @@ bash.test(b) {              // on_failure fires ONCE if any script fails —
                             // $AEB_TEST_TOTAL, $AEB_MODULE_DIR.
                             // Compatible with parallel mode (fires after).
 
-bash.test(b) {                                       // structured server fixtures —
-    fixture_seed(b, "primary") {                     //   spawned per-script, env vars
+bash.test() {                                       // structured server fixtures —
+    fixture_seed("primary") {                     //   spawned per-script, env vars
         path("/tmp/myapp_data")                      //   exposed to the script,
         seed_bin("target/myapp-seed/bin/seed")       //   cleaned up after.
     }                                                //   $PRIMARY_PATH is exported
-    fixture_server(b, "primary") {                   //   to the script.
+    fixture_server("primary") {                   //   to the script.
         bin("target/myapp/bin/server")
         args("demo $PRIMARY_PATH 9540 --token X")    // shell-interpolates at run time
         port(9540)                                   //   ($PRIMARY_PATH from the seed
@@ -1419,19 +1435,19 @@ bash.test(b) {                                       // structured server fixtur
     script("test_acl.sh")                            // sees $PRIMARY_PATH, $PRIMARY_PORT,
 }                                                    // $PRIMARY_BIN, $PRIMARY_PID.
 
-bash.test(b) {                                       // multi-fixture: declare each
-    fixture_seed(b, "source")      { path("/tmp/r1") }      //   with a different name. Names
-    fixture_seed(b, "destination") { path("/tmp/r2") }      //   become env-var prefixes
-    fixture_server(b, "source")      {                       //   ($SOURCE_PORT,
+bash.test() {                                       // multi-fixture: declare each
+    fixture_seed("source")      { path("/tmp/r1") }      //   with a different name. Names
+    fixture_seed("destination") { path("/tmp/r2") }      //   become env-var prefixes
+    fixture_server("source")      {                       //   ($SOURCE_PORT,
         bin("target/myapp/bin/server"); port(9430); ready_after_ms(500)
     }                                                        //   $DESTINATION_PORT, …).
-    fixture_server(b, "destination") {                       // Ports are caller-chosen;
+    fixture_server("destination") {                       // Ports are caller-chosen;
         bin("target/myapp/bin/server"); port(9431); ready_after_ms(500)
     }                                                        //   ready-check is sleep-
     script("test_replication.sh")                            //   then-go (no real probe).
 }
 
-bash.run(b) {               // non-test runner: codegen, asset prep, etc.
+bash.run() {               // non-test runner: codegen, asset prep, etc.
     script("gen.sh")
 }
 ```
@@ -1440,11 +1456,11 @@ bash.run(b) {               // non-test runner: codegen, asset prep, etc.
 import aether
 import aether (source, output, caps, extra_source, extra_source_glob, link_flag, regen, regen_with, no_closure_regen)
 
-aether.program(b) {                   // shells out to `ae build` by default —
+aether.program() {                   // shells out to `ae build` by default —
     source("main.ae")                 //   honours aether.toml [[bin]].
     output("hello")
 }
-aether.program(b) {                   // declaring any of extra_source /
+aether.program() {                   // declaring any of extra_source /
     source("main.ae")                 //   link_flag / regen opts into the
     output("hello")                     //   manual aetherc + gcc path (.build.ae
     regen("ae/client/accessors.ae")   //   becomes the single source of truth,
@@ -1460,13 +1476,13 @@ aether.program(b) {                   // declaring any of extra_source /
                                       // std.tcp / std.net → net, std.fs → fs,
                                       // std.os → os.
 
-aether.program(b) {                   // regen_with overrides auto-detection —
+aether.program() {                   // regen_with overrides auto-detection —
     source("main.ae")                 //   use when caps come in transitively
     output("hello")                     //   and the import scan misses them.
     regen_with("ae/client/auth.ae", "net,fs")
 }
 
-aether.csrc(b) {                      // C-SOURCE package (aether 0.357
+aether.csrc() {                      // C-SOURCE package (aether 0.357
     source("greet.ae")                //   `ae build --emit=csrc`): emits
     output("greet")                   //   greet.c + greet.h (catalog header)
     caps("net")                       //   under target/<module>/ — no gcc,
@@ -1480,19 +1496,19 @@ aether.csrc(b) {                      // C-SOURCE package (aether 0.357
                                       //   caps("net,fs") → --with= opt-ins;
                                       //   omit when the module needs none.
 
-aether.program(b) {                   // hand-written extras still work via
+aether.program() {                   // hand-written extras still work via
     source("main.ae")                 //   extra_source(...) — combine freely
     output("hello")                     //   with regen(...) entries.
     extra_source("legacy_helper.c")
     regen("ae/client/accessors.ae")
 }
-aether.program(b) {                   // extra_source_glob expands a glob at
+aether.program() {                   // extra_source_glob expands a glob at
     source("main.ae")                 //   build-time. Pattern is module-relative;
     output("hello")                     //   the matched files are content-hashed
     extra_source_glob("contrib/*.c")  //   into the cache key, so adding/removing
     extra_source_glob("gen/*.c")      //   matched files invalidates the cache.
 }
-aether.program(b) {                   // no_closure_regen() — for "thin Aether
+aether.program() {                   // no_closure_regen() — for "thin Aether
     source("ui_live.ae")              //   over a C backend": the entry imports
     output("app")                       //   modules that are extern declarations
     no_closure_regen()                //   of a C ABI (ui.ae over GTK/AppKit/…).
@@ -1502,19 +1518,19 @@ aether.program(b) {                   // no_closure_regen() — for "thin Aether
 }                                     //   compiled, your extra_source C + flags
                                       //   link it. The closure still feeds the
                                       //   cache key; explicit regen(...) still runs.
-aether.program_test(b) { ... }        // same as program, plus runs the binary
+aether.program_test() { ... }        // same as program, plus runs the binary
 
-aether.driver_test(b) {                    // Aether driver program that
+aether.driver_test() {                    // Aether driver program that
     driver("test_app_driver.ae")           //   exercises a *separate* compiled
     output("app_driver")                   //   binary built elsewhere in the
                                            //   graph (e.g. a server, a CLI).
-    binary_under_test(b, "app") {          // The driver imports contrib.aeocha
+    binary_under_test("app") {          // The driver imports contrib.aeocha
         path("target/app/bin/app")         //   (or whatever), spawns $APP_BIN
     }                                      //   via os.run_capture, asserts
-    fixture_seed(b, "primary") {           //   about its output. Same fixture
+    fixture_seed("primary") {           //   about its output. Same fixture
         path("/tmp/app_data")              //   grammar as bash.test — env vars
     }                                      //   exposed to the driver are
-    fixture_server(b, "primary") {         //   $PRIMARY_PATH, $PRIMARY_PORT,
+    fixture_server("primary") {         //   $PRIMARY_PATH, $PRIMARY_PORT,
         bin("$APP_BIN")                    //   $PRIMARY_BIN, $PRIMARY_PID, plus
         args("demo $PRIMARY_PATH 9540")    //   $<NAME>_BIN (or env_var()
         port(9540)                         //   override) for each
@@ -1522,9 +1538,9 @@ aether.driver_test(b) {                    // Aether driver program that
     }                                      //   code is the PASS/FAIL signal.
 }
 
-aether.driver_test(b) {                    // Custom env-var name override.
+aether.driver_test() {                    // Custom env-var name override.
     driver("test_with_custom_env.ae")
-    binary_under_test(b, "app") {
+    binary_under_test("app") {
         path("target/app/bin/app")
         env_var("APP_BINARY")              // → $APP_BINARY (vs default $APP_BIN)
     }
@@ -1533,11 +1549,11 @@ aether.driver_test(b) {                    // Custom env-var name override.
 
 > **Note on the two `import` lines.** Aether resolves identifiers
 > inside a `receiver.method(args) { block }` body as plain top-level
-> calls, not against the receiver's namespace. So `bash.test(b) {
+> calls, not against the receiver's namespace. So `bash.test() {
 > script("…") }` won't find `script` unless it's also in scope at the
 > top level — hence the second `import bash (script, jobs)` line.
 > The alternative is to fully qualify every setter
-> (`bash.test(b) { bash.script("…") }`), which works but reads
+> (`bash.test() { bash.script("…") }`), which works but reads
 > noisily.
 
 ## Maven / BOM support
@@ -1549,8 +1565,8 @@ A `.bom.ae` file at the repo root declares Maven BOMs and extra repos:
 maven_bom("org.springframework.boot:spring-boot-dependencies:4.0.4")
 ```
 
-Modules load it via `load_bom_file(b, "../../spring-boot.bom.ae")`, then
-use `build.dep(b, "group:artifact")` with version omitted — the BOM
+Modules load it via `load_bom_file("../../spring-boot.bom.ae")`, then
+use `dep("group:artifact")` with version omitted — the BOM
 supplies it. Resolution is performed by `tools/aeb-resolve.jar`, which
 wraps the Maven Resolver API and caches to `~/.local/share/aeb/repo`
 (XDG data dir; `$XDG_DATA_HOME/aeb/repo` when set).
@@ -1560,9 +1576,9 @@ wraps the Maven Resolver API and caches to `~/.local/share/aeb/repo`
 Modules in different languages can depend on each other:
 
 ```aether
-build.dep(b, "rust/components/vowelbase/.build.ae")    // Java → Rust (JNI .so)
-build.dep(b, "kotlin/components/sonorants/.build.ae")  // Java → Kotlin (JVM classpath)
-build.dep(b, "go/components/nasal/.build.ae")          // Java → Go (shared library)
+dep("rust/components/vowelbase/.build.ae")    // Java → Rust (JNI .so)
+dep("kotlin/components/sonorants/.build.ae")  // Java → Kotlin (JVM classpath)
+dep("go/components/nasal/.build.ae")          // Java → Go (shared library)
 ```
 
 Each SDK writes artifact metadata to `target/<module>/`:
@@ -1657,9 +1673,9 @@ aeb/
 │   │  # helpers (lazy-built, pure-Aether)
 │   ├── encode-name.ae         # path → C-safe identifier
 │   ├── infer-type.ae          # filename suffix → build/test/dist
-│   ├── file-to-label.ae       # file path → build.begin() module label
+│   ├── file-to-label.ae       # file path → bldr.build() module label
 │   ├── resolve-dep.ae         # dep reference → file path
-│   ├── extract-deps.ae        # parse a .ae file's dep(b, "...") lines (+ --prereqs)
+│   ├── extract-deps.ae        # parse a .ae file's dep("...") lines (+ --prereqs)
 │   ├── scan-ae-files.ae       # walk cwd for every .*.ae build file
 │   ├── topo-sort.ae           # DFS post-order over the file dep graph
 │   ├── mvn-to-aeb.ae          # pom.xml → .build.ae migration helper
@@ -1716,7 +1732,7 @@ Source: [spring-projects/spring-data-examples](https://github.com/spring-project
 
 ~90 leaf modules across JPA, MongoDB, Redis, Cassandra, JDBC, R2DBC, REST,
 Web, and multi-store scenarios. Replaces 107 `pom.xml` files. Uses
-`java.javac(b)` + `java.junit5(b)` with a Spring Boot BOM for version
+`java.javac()` + `java.junit5()` with a Spring Boot BOM for version
 management, TestContainers for integration tests (Podman-compatible).
 
 ### nx-examples (Nx → aeb)
@@ -1752,7 +1768,7 @@ Source: [dotnet-architecture/eShopOnWeb](https://github.com/dotnet-architecture/
 10 .NET projects — ASP.NET Core MVC, Blazor WASM, REST API, EF Core,
 xUnit. Upgraded from .NET 8 to .NET 10. aeb **generates**
 `.{name}.generated.csproj` files from `.build.ae` declarations — NuGet
-via `dotnet.nuget_registry`, project refs via `build.dep()`.
+via `dotnet.nuget_registry`, project refs via `dep()`.
 
 ### fyne-io/fyne (Go workspace → aeb)
 
@@ -1775,7 +1791,7 @@ Source: [SystemCraftsman/pants-python-monorepo-demo](https://github.com/SystemCr
 
 A small Python monorepo. Uses `python.install` / `python.pytest` with
 `.whl.ae` dep files (`python.wheel_registry` / `wheel_vendored`).
-`python.package(b)` generates `pyproject.toml` at build time — no
+`python.package()` generates `pyproject.toml` at build time — no
 hand-written packaging metadata.
 
 ### mrhdias_rust_store (Tokio → aeb)
