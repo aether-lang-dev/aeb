@@ -153,5 +153,10 @@ jobs:
       # Config precedence: --jobs N beats AEB_JOBS beats the nproc default (aeb#10).
       - name: config precedence (jobs flag > env)
         run: itests/config-precedence.sh
+      # --watch validate-then-swap: a bad .build.ae edit keeps the last-good
+      # build (prior binary still runs); a fix recovers (aeb#11). Drives the
+      # rebuild path directly (no async watcher needed).
+      - name: watch validate-then-swap
+        run: itests/watch-validate-then-swap.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

@@ -104,7 +104,27 @@ run_rebuild() {
     fi
     echo
     echo "aeb-watch: change detected, rebuilding affected targets"
-    "$AEB_HOME/aeb" --changed-paths-from "$CHANGED_FILE" || true
+    # Validate-then-swap (aeb#11): a rebuild fails CLEANLY. A `.build.ae` that no
+    # longer compiles aborts at the orchestrator compile/link BEFORE any node
+    # executes and writes its target/ — so the last-good DAG and artifacts stay
+    # intact; the previously-built binaries still run. On failure we say so, so
+    # the dev round-trip is "fix the typo, save again, recover" rather than "now
+    # nothing builds". The loop is sequential (this call blocks), and the
+    # debounce above coalesces a save-burst into ONE rebuild, so the live state
+    # is never half-applied.
+    #
+    # Detect failure by BOTH the exit code AND a compile-error line in the output:
+    # a narrowed `--changed-paths-from` rebuild can exit 0 while still printing an
+    # aetherc error (the edges scan surfaces it before the narrowed build; a
+    # separate exit-code-propagation bug tracked in
+    # asks/changed-paths-from-swallows-compile-failure-rc.md). Keying on the error
+    # text too keeps the "kept last-good" message honest until that lands.
+    local _out _rc
+    _out="$("$AEB_HOME/aeb" --changed-paths-from "$CHANGED_FILE" 2>&1)"; _rc=$?
+    printf '%s\n' "$_out"
+    if [ "$_rc" -ne 0 ] || printf '%s' "$_out" | grep -qE 'error\[E[0-9]+\]|aborting: [0-9]+ error|FATAL'; then
+        echo "aeb-watch: rebuild FAILED — kept the last-good build (prior artifacts intact). Fix and save again to recover." >&2
+    fi
     : > "$CHANGED_FILE"  # truncate
 }
 

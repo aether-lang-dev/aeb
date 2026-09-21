@@ -864,6 +864,17 @@ source directory and re-runs aeb (against the affected-target
 set) on every change. Save a file, the right things rebuild —
 most cache-hit, telemetry shows what actually ran.
 
+**Validate-then-swap.** A bad edit never leaves you stuck. If an
+edited `.build.ae` no longer compiles, the rebuild aborts at the
+orchestrator compile/link — *before* any node executes and writes
+its `target/` — so the previous DAG and artifacts stay intact and
+the last-good binaries still run. The watch prints the compile
+error plus `kept the last-good build`, and stays watching; fix the
+typo, save again, and the next rebuild recovers with no manual
+`aeb` re-invocation. A rapid save-burst is debounced into a single
+rebuild, and the loop is sequential, so the live build state is
+never half-applied.
+
 ```bash
 # Watch everything visible from cwd
 aeb --watch
