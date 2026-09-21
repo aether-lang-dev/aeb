@@ -214,6 +214,12 @@ main() {
     println("    }")
     println("    println(bldr.render_telemetry(_records, _total_ms))")
     println("    }")
+    // NOTE (aeb#9): structured node-failure capture (target/_aeb/_failures.jsonl)
+    // is written by aeb-driver, the DEFAULT run path. This all-in-one in-process
+    // orchestrator (AEB_IN_PROCESS=1 / AEB_PER_NODE=0) does NOT yet emit it — a
+    // follow-up would add the same _failures_jsonl_line append in the loop above
+    // where a node's rc/status is known. Kept driver-only for now: #9's
+    // acceptance criteria are the driver engines (-jN / native / sequential).
     // Redden the build on any recorded failure. OUTSIDE the _sel guard so
     // it fires in BOTH modes: per-node, this node-subprocess exits
     // non-zero → aeb-driver's rc mark for it is non-zero → the driver's

@@ -135,5 +135,10 @@ jobs:
       # like an install problem (aeb#16).
       - name: retired build-grammar diagnostic
         run: itests/retired-build-grammar-diagnostic.sh
+      # Structured node-failure capture: a failing node writes a JSON record to
+      # target/_aeb/_failures.jsonl (label/node/tag/rc/phase/stderr_tail), across
+      # all engines, reset at build start (aeb#9).
+      - name: node-failure JSONL capture
+        run: itests/failures-jsonl-capture.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

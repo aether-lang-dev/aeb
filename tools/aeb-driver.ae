@@ -299,6 +299,73 @@ _node_cmd_timed(out_bin: string, root: string, node: string, label: string, log:
     return c
 }
 
+// _stderr_tail(log_path, n) — the last `n` lines of a node's captured
+// stdout+stderr log, as one string (bounded so _failures.jsonl stays small on a
+// wide -k run). Reads the whole log (node logs are small) and keeps the trailing
+// n lines. "" if the log is unreadable. Pure aside from the one read.
+_stderr_tail(log_path: string, n: int) {
+    raw, rerr = io.read_file(log_path)
+    if string.equals(rerr, "") == 0 { return "" }
+    // Count newlines; if <= n lines, return the whole thing trimmed.
+    total = 0
+    k = 0
+    ln = string.length(raw)
+    while k < ln {
+        if string.equals(string.substring(raw, k, k + 1), "\n") == 1 { total = total + 1 }
+        k = k + 1
+    }
+    if total <= n { return string.trim(raw) }
+    // Walk backward, keeping the substring after the (total-n)th newline from the
+    // front — i.e. skip the first (total-n) newlines, return the rest.
+    skip = total - n
+    seen = 0
+    pos = 0
+    while pos < ln {
+        if string.equals(string.substring(raw, pos, pos + 1), "\n") == 1 {
+            seen = seen + 1
+            if seen >= skip { return string.trim(string.substring(raw, pos + 1, ln)) }
+        }
+        pos = pos + 1
+    }
+    return string.trim(raw)
+}
+
+// _infer_phase(stderr_tail) — a best-effort build phase from the captured
+// output, for the _failures.jsonl `phase` field: "link" if the tail shows a link
+// failure (gcc/clang link, "undefined reference/symbol", ld error), "compile" if
+// it shows a compile error (aetherc/gcc compile, E0xxx, "error:"), "test" if a
+// test framework reported failures, else "" (present-but-unknown). Cheap
+// substring checks; the field is a hint, not a contract.
+_infer_phase(tail: string) {
+    if string.index_of(tail, "undefined reference") >= 0 { return "link" }
+    if string.index_of(tail, "undefined symbol") >= 0 { return "link" }
+    if string.index_of(tail, "ld returned") >= 0 { return "link" }
+    if string.index_of(tail, "linker command failed") >= 0 { return "link" }
+    if string.index_of(tail, "gcc link failed") >= 0 { return "link" }
+    if string.index_of(tail, "FAIL:") >= 0 { return "test" }
+    if string.index_of(tail, "tests FAILED") >= 0 { return "test" }
+    if string.index_of(tail, "E0") >= 0 { return "compile" }
+    if string.index_of(tail, "Type checking failed") >= 0 { return "compile" }
+    if string.index_of(tail, "error:") >= 0 { return "compile" }
+    return ""
+}
+
+// _failures_jsonl_line(label, node, tag, rc, phase, stderr_tail) — one structured
+// dead-letter record (aeb#9) as a single JSON object, no trailing newline. Uses
+// bldr._json_str for escaping so a stderr tail with quotes/newlines stays valid
+// JSON. `phase` is best-effort ("" when unknown); the schema keeps it present.
+_failures_jsonl_line(label: string, node: string, tag: string, rc: string, phase: string, tail: string) {
+    s = "{"
+    s = string.concat(s, string.concat("\"label\":", bldr._json_str(label)))
+    s = string.concat(s, string.concat(",\"node\":", bldr._json_str(node)))
+    s = string.concat(s, string.concat(",\"tag\":", bldr._json_str(tag)))
+    s = string.concat(s, string.concat(",\"rc\":", rc))
+    s = string.concat(s, string.concat(",\"phase\":", bldr._json_str(phase)))
+    s = string.concat(s, string.concat(",\"stderr_tail\":", bldr._json_str(tail)))
+    s = string.concat(s, "}")
+    return s
+}
+
 // Emit `<name>=$(date +%s%3N); case … esac; ` — a millisecond epoch in <name>
 // that is correct on both GNU and BSD date.
 _ms_clock(name: string) -> string {
@@ -325,6 +392,16 @@ main() {
     rc_dir = path.join(aeb_dir, "rc")
     bldr._mkdirs(logs_dir)
     bldr._mkdirs(rc_dir)
+
+    // Structured node-failure capture (aeb#9): target/_aeb/_failures.jsonl, one
+    // JSON object per failed node. RESET at build start so it reflects the last
+    // run only (like other target/_aeb scratch). The failure loop below appends
+    // to it; the telemetry FAIL render points at it when non-empty. `_aeb` (not
+    // `.aeb`) is where the orchestrator C already lives — the issue's path.
+    underscore_aeb = path.join(path.join(root, "target"), "_aeb")
+    bldr._mkdirs(underscore_aeb)
+    failures_path = path.join(underscore_aeb, "_failures.jsonl")
+    _ftrunc = io.write_file(failures_path, "")
 
     // --- Parse the edges file: ordered node list + per-node deps ---
     content, rerr = io.read_file(edges_file)
@@ -754,6 +831,17 @@ main() {
             log = path.join(logs_dir, _log_name(label))
             println("  ${type_word}: ${label} — FAILED (see ${log}):")
             _cat = bldr._sh(string.concat(string.concat("cat '", log), "' 2>/dev/null"))
+
+            // aeb#9: append a structured dead-letter record to
+            // target/_aeb/_failures.jsonl — label/node/tag/rc/phase + a bounded
+            // stderr tail — so a CI system, dashboard, or follow-up aeb has one
+            // place to read "what failed and why". One append per failed node,
+            // serial (this collection loop is single-threaded even when the nodes
+            // themselves ran under -jN), so no interleaving.
+            tail = _stderr_tail(log, 20)
+            phase = _infer_phase(tail)
+            fj_line = _failures_jsonl_line(label, node, type_word, rc_value, phase, tail)
+            _fap = io.append_file(failures_path, string.concat(fj_line, "\n"))
         }
     }
 
@@ -781,6 +869,14 @@ main() {
     }
 
     println(bldr.render_telemetry(records, total_ms))
+    // aeb#9: point at the structured failure records when there were any, so a
+    // human (or a follow-up tool) knows where the machine-readable "why" is.
+    if any_failed == 1 {
+        ftxt, _fte = io.read_file(failures_path)
+        if string.length(string.trim(ftxt)) > 0 {
+            println("  failures: ${failures_path}")
+        }
+    }
     if any_failed == 1 { exit(1) }
     return 0
 }
