@@ -474,6 +474,19 @@ main() {
     if file.exists(aeb_graph_bin) == 0 {
         bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-graph.ae -o "), string.concat(_toolbase(aebhome, "aeb-graph"), " >/dev/null 2>&1"))))
     }
+    // aeb-report: the render-from-artifacts timing/critical-path view (aeb#12),
+    // the read-only sibling of aeb-graph. Built lazily, --lib tools + lib so its
+    // aeblabel + bldr imports resolve.
+    aeb_report_bin = _toolbin(aebhome, "aeb-report")
+    if file.exists(aeb_report_bin) == 0 {
+        rbcmd = string.concat(aether_bin, " build ")
+        rbcmd = string.concat(rbcmd, string.concat(aebhome, "/tools/aeb-report.ae -o "))
+        rbcmd = string.concat(rbcmd, _toolbase(aebhome, "aeb-report"))
+        rbcmd = string.concat(rbcmd, string.concat(" --lib ", string.concat(aebhome, "/tools")))
+        rbcmd = string.concat(rbcmd, string.concat(" --lib ", string.concat(aebhome, "/lib")))
+        rbcmd = string.concat(rbcmd, " >/dev/null 2>&1")
+        bldr._sh(rbcmd)
+    }
     aeb_query_bin = _toolbin(aebhome, "aeb-query")
     if file.exists(aeb_query_bin) == 0 {
         bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-query.ae -o "), string.concat(_toolbase(aebhome, "aeb-query"), " >/dev/null 2>&1"))))
@@ -736,6 +749,23 @@ main() {
         }
         bldr._sh(gcmd)
         return 0
+    }
+
+    // --- --report: render the build timing / critical-path view, then exit ---
+    // Read-only over target/ artifacts a prior build left (edges + .rc/.ms +
+    // cache + _failures.jsonl) — no build, no exec. Sibling of --graph. Default
+    // format `text`; `mermaid`/`dot` emit a timing-annotated graph.
+    if string.equals(flag, "--report") == 1 {
+        rfmt = "text"
+        if string.length(flag_arg) > 0 { rfmt = flag_arg }
+        rcmd = string.concat(aeb_report_bin, " '")
+        rcmd = string.concat(rcmd, root)
+        rcmd = string.concat(rcmd, "' ")
+        rcmd = string.concat(rcmd, edges_path)
+        rcmd = string.concat(rcmd, " ")
+        rcmd = string.concat(rcmd, rfmt)
+        rc_report = bldr._sh(rcmd)
+        exit(rc_report)
     }
 
     // --- graph queries: answer from _edges.txt, then exit ---

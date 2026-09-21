@@ -1,0 +1,521 @@
+// aeb-report — render a build timing / critical-path view purely from the
+// artifacts a prior build left under target/. STRICTLY read-only: no exec, no
+// build, no probing — the same contract as tools/aeb-graph.ae (the pattern model
+// named in LLM.md). It only reads what a completed run wrote:
+//
+//   target/_aeb/_edges.txt          DAG shape (node + deps), same as aeb-graph
+//   target/.aeb/rc/<san>.rc         per-node exit code (0 ok / non-zero fail)
+//   target/.aeb/rc/<san>.ms         per-node wall time in ms
+//   <target_dir>/.aeb_cache         per-node cache outcome (hit/miss/n/a)
+//   target/_aeb/_failures.jsonl     structured failures (aeb#9), if present
+//
+// Usage: aeb-report <root> <edges-file> [text|mermaid|dot]
+//   text    (default) a compact per-node table + a critical-path line + rollup
+//   mermaid a `graph TD` flowchart, each node labelled with its wall-time and
+//           colored by outcome, the critical path highlighted
+//   dot     the same graph as graphviz DOT
+//
+// The critical path is the longest total-wall-time chain through the DAG (the
+// bottleneck): the sum of node wall-times along a root→leaf dependency path.
+// (aeb#12.)
+import bldr
+import aeblabel (file_to_label, infer_type)
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.map
+import std.path
+import std.strbuilder
+
+// _san — filesystem-safe form of a node path, matching the driver's marker
+// naming (target/.aeb/rc/<san>.rc / .ms). Must stay identical to
+// aeb-driver._san / aeb-graph._san.
+_san(s: string) {
+    keep = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-"
+    out = ""
+    n = string.length(s)
+    i = 0
+    while i < n {
+        ch = string.substring(s, i, i + 1)
+        if string.index_of(keep, ch) >= 0 { out = string.concat(out, ch) }
+        else { out = string.concat(out, "_") }
+        i = i + 1
+    }
+    return out
+}
+
+// --- edges parsing (same shape aeb-graph/aeb-driver read) --------------------
+// Each line: "<node> <dep1> <dep2> ...". Returns the ordered node list and a
+// node→deps(list) map.
+_parse_edges(edges_text: string, nodes: ptr, deps_of: ptr) {
+    rest = edges_text
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 { line = rest  rest = "" }
+        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        line = string.trim(line)
+        if string.length(line) > 0 {
+            toks = list.new()
+            _split_ws(line, toks)
+            if list.size(toks) > 0 {
+                node, _ = list.get(toks, 0)
+                dl = list.new()
+                k = 1
+                nk = list.size(toks)
+                while k < nk {
+                    d, _ = list.get(toks, k)
+                    _ad = list.add(dl, string.copy(d))
+                    k = k + 1
+                }
+                _an = list.add(nodes, string.copy(node))
+                _ao = map.put(deps_of, string.copy(node), dl)
+            }
+        }
+    }
+}
+
+_split_ws(line: string, acc: ptr) {
+    cur = ""
+    n = string.length(line)
+    i = 0
+    while i < n {
+        ch = string.substring(line, i, i + 1)
+        if string.equals(ch, " ") == 1 {
+            if string.length(cur) > 0 { _a = list.add(acc, cur)  cur = "" }
+        } else {
+            if string.equals(ch, "\t") == 1 {
+                if string.length(cur) > 0 { _a = list.add(acc, cur)  cur = "" }
+            } else {
+                cur = string.concat(cur, ch)
+            }
+        }
+        i = i + 1
+    }
+    if string.length(cur) > 0 { _a = list.add(acc, cur) }
+}
+
+// --- per-node artifact reads (read-only) -------------------------------------
+_node_ms(rc_dir: string, node: string) {
+    p = path.join(rc_dir, string.concat(_san(node), ".ms"))
+    if file.exists(p) == 0 { return 0 }
+    raw, _e = fs.read(p)
+    v, _ve = string.to_int(string.trim(raw))
+    if v < 0 { return 0 }
+    return v
+}
+
+_node_rc(rc_dir: string, node: string) {
+    p = path.join(rc_dir, string.concat(_san(node), ".rc"))
+    if file.exists(p) == 0 { return "-" }   // uninvoked
+    raw, _e = fs.read(p)
+    return string.trim(raw)
+}
+
+_node_status_word(rc: string) {
+    if string.equals(rc, "-") == 1 { return "uninvoked" }
+    if string.equals(rc, "0") == 1 { return "ok" }
+    return "fail"
+}
+
+_node_cache(root: string, node: string) {
+    label = file_to_label(node)
+    td = bldr._label_to_target_dir(root, label)
+    return bldr._read_cache_outcome(td)
+}
+
+// --- critical path (longest total-wall chain through the DAG) ----------------
+// Memoized DFS: cp_ms[node] = ms[node] + max over deps of cp_ms[dep]. The DAG is
+// acyclic (topo-sorted upstream), so a visited-guard suffices. Also records the
+// chosen successor to reconstruct the path. Returns the node that starts the
+// heaviest chain (a root/target) and fills path_ms + best_dep.
+_compute_cp(nodes: ptr, deps_of: ptr, ms: ptr, cp_ms: ptr, best_dep: ptr) {
+    nn = list.size(nodes)
+    // iterate to a fixed point over a topo order: since _edges.txt lists a node
+    // before OR after its deps depending on direction, do a simple relaxation
+    // pass repeated until stable (bounded by nn passes; DAGs are shallow here).
+    changed = 1
+    pass = 0
+    while changed == 1 {
+        changed = 0
+        pass = pass + 1
+        if pass > nn + 1 { changed = 0 }
+        else {
+            i = 0
+            while i < nn {
+                node, _ = list.get(nodes, i)
+                i = i + 1
+                self_ms = 0
+                if map.has(ms, node) == 1 { mv, _ = map.get(ms, node)  self_ms = mv }
+                best = 0
+                bdep = ""
+                if map.has(deps_of, node) == 1 {
+                    dl, _ = map.get(deps_of, node)
+                    dn = list.size(dl)
+                    j = 0
+                    while j < dn {
+                        d, _ = list.get(dl, j)
+                        j = j + 1
+                        dcp = 0
+                        if map.has(cp_ms, d) == 1 { dv, _ = map.get(cp_ms, d)  dcp = dv }
+                        if dcp > best { best = dcp  bdep = d }
+                    }
+                }
+                total = self_ms + best
+                prev = -1
+                if map.has(cp_ms, node) == 1 { pv, _ = map.get(cp_ms, node)  prev = pv }
+                if total != prev {
+                    _p1 = map.put(cp_ms, node, total)
+                    _p2 = map.put(best_dep, node, bdep)
+                    changed = 1
+                }
+            }
+        }
+    }
+}
+
+// _human_ms(ms) — "1234ms" or "1.23s" for readability in the table/labels.
+_human_ms(ms: int) {
+    if ms < 1000 { return string.concat(string.from_int(ms), "ms") }
+    whole = ms / 1000
+    freac = (ms - whole * 1000) / 10   // 2 decimal places
+    fs2 = string.from_int(freac)
+    if string.length(fs2) < 2 { fs2 = string.concat("0", fs2) }
+    return string.concat(string.from_int(whole), string.concat(".", string.concat(fs2, "s")))
+}
+
+// --- text renderer -----------------------------------------------------------
+_render_text(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
+    sb = strbuilder.new(1024)
+    // Read each node's markers once.
+    ms = map.new()
+    total_ms = 0
+    passed = 0
+    failed = 0
+    uninvoked = 0
+    hits = 0
+    nn = list.size(nodes)
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)
+        i = i + 1
+        m = _node_ms(rc_dir, node)
+        _pm = map.put(ms, node, m)
+        total_ms = total_ms + m
+        rc = _node_rc(rc_dir, node)
+        st = _node_status_word(rc)
+        if string.equals(st, "ok") == 1 { passed = passed + 1 }
+        if string.equals(st, "fail") == 1 { failed = failed + 1 }
+        if string.equals(st, "uninvoked") == 1 { uninvoked = uninvoked + 1 }
+        cache = _node_cache(root, node)
+        if string.equals(cache, "hit") == 1 { hits = hits + 1 }
+    }
+
+    strbuilder.append(sb, "aeb build report (read-only, from target/ artifacts)\n")
+    strbuilder.append(sb, "  node                                     status     wall     cache\n")
+    strbuilder.append(sb, "  ---------------------------------------- ---------- -------- --------\n")
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)
+        i = i + 1
+        label = file_to_label(node)
+        rc = _node_rc(rc_dir, node)
+        st = _node_status_word(rc)
+        m = 0
+        if map.has(ms, node) == 1 { mv, _ = map.get(ms, node)  m = mv }
+        cache = _node_cache(root, node)
+        strbuilder.append(sb, "  ")
+        strbuilder.append(sb, _pad(label, 40))
+        strbuilder.append(sb, " ")
+        strbuilder.append(sb, _pad(st, 10))
+        strbuilder.append(sb, " ")
+        strbuilder.append(sb, _pad(_human_ms(m), 8))
+        strbuilder.append(sb, " ")
+        strbuilder.append(sb, cache)
+        strbuilder.append(sb, "\n")
+    }
+
+    // Critical path.
+    cp_ms = map.new()
+    best_dep = map.new()
+    _compute_cp(nodes, deps_of, ms, cp_ms, best_dep)
+    // heaviest starting node.
+    heaviest = ""
+    hmax = -1
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)
+        i = i + 1
+        cv = 0
+        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv = c }
+        if cv > hmax { hmax = cv  heaviest = node }
+    }
+    strbuilder.append(sb, "\n  critical path (longest wall chain): ")
+    strbuilder.append(sb, _human_ms(hmax))
+    strbuilder.append(sb, "\n    ")
+    // reconstruct root→leaf via best_dep.
+    cur = heaviest
+    first = 1
+    guard = 0
+    while string.length(cur) > 0 {
+        if guard > nn + 1 { cur = "" }
+        else {
+            guard = guard + 1
+            if first == 0 { strbuilder.append(sb, " -> ") }
+            first = 0
+            strbuilder.append(sb, file_to_label(cur))
+            nxt = ""
+            if map.has(best_dep, cur) == 1 { nn2, _ = map.get(best_dep, cur)  nxt = nn2 }
+            cur = nxt
+        }
+    }
+    strbuilder.append(sb, "\n")
+
+    // Rollup + failures pointer.
+    strbuilder.append(sb, "\n  rollup: ")
+    strbuilder.append(sb, string.from_int(passed))
+    strbuilder.append(sb, " ok, ")
+    strbuilder.append(sb, string.from_int(failed))
+    strbuilder.append(sb, " failed, ")
+    strbuilder.append(sb, string.from_int(uninvoked))
+    strbuilder.append(sb, " uninvoked; ")
+    strbuilder.append(sb, string.from_int(hits))
+    strbuilder.append(sb, " cache hits; total node-wall ")
+    strbuilder.append(sb, _human_ms(total_ms))
+    strbuilder.append(sb, "\n")
+    fpath = path.join(path.join(path.join(root, "target"), "_aeb"), "_failures.jsonl")
+    if file.exists(fpath) == 1 {
+        ftxt, _fe = fs.read(fpath)
+        if string.length(string.trim(ftxt)) > 0 {
+            strbuilder.append(sb, "  failures: ")
+            strbuilder.append(sb, fpath)
+            strbuilder.append(sb, " (structured, one JSON object per failed node)\n")
+        }
+    }
+    return strbuilder.finish(sb)
+}
+
+_pad(s: string, w: int) {
+    out = string.concat(s, "")
+    n = string.length(s)
+    while n < w {
+        out = string.concat(out, " ")
+        n = n + 1
+    }
+    return out
+}
+
+// --- graph renderers (timing-annotated) --------------------------------------
+_gid(path_str: string) {
+    return _san(path_str)
+}
+
+_status_ms_label(root: string, rc_dir: string, node: string) {
+    label = file_to_label(node)
+    m = _node_ms(rc_dir, node)
+    return string.concat(label, string.concat("\\n", _human_ms(m)))
+}
+
+_mermaid_class(st: string, on_cp: int) {
+    if on_cp == 1 { return "crit" }
+    if string.equals(st, "ok") == 1 { return "ok" }
+    if string.equals(st, "fail") == 1 { return "fail" }
+    return "uninv"
+}
+
+_render_mermaid(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
+    // critical-path set for highlighting
+    ms = map.new()
+    nn = list.size(nodes)
+    i = 0
+    while i < nn { node, _ = list.get(nodes, i)  i = i + 1  _pm = map.put(ms, node, _node_ms(rc_dir, node)) }
+    cp_ms = map.new()
+    best_dep = map.new()
+    _compute_cp(nodes, deps_of, ms, cp_ms, best_dep)
+    on_cp = map.new()
+    // mark the heaviest chain
+    heaviest = ""
+    hmax = -1
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)  i = i + 1
+        cv = 0
+        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv = c }
+        if cv > hmax { hmax = cv  heaviest = node }
+    }
+    cur = heaviest
+    guard = 0
+    while string.length(cur) > 0 {
+        if guard > nn + 1 { cur = "" }
+        else {
+            guard = guard + 1
+            _oc = map.put(on_cp, cur, "1")
+            nxt = ""
+            if map.has(best_dep, cur) == 1 { nn2, _ = map.get(best_dep, cur)  nxt = nn2 }
+            cur = nxt
+        }
+    }
+
+    sb = strbuilder.new(1024)
+    strbuilder.append(sb, "graph TD\n")
+    // node declarations with timing labels
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)  i = i + 1
+        strbuilder.append(sb, "    ")
+        strbuilder.append(sb, _gid(node))
+        strbuilder.append(sb, "[\"")
+        strbuilder.append(sb, _status_ms_label(root, rc_dir, node))
+        strbuilder.append(sb, "\"]\n")
+        rc = _node_rc(rc_dir, node)
+        st = _node_status_word(rc)
+        ocp = 0
+        if map.has(on_cp, node) == 1 { ocp = 1 }
+        strbuilder.append(sb, "    class ")
+        strbuilder.append(sb, _gid(node))
+        strbuilder.append(sb, " ")
+        strbuilder.append(sb, _mermaid_class(st, ocp))
+        strbuilder.append(sb, "\n")
+    }
+    // edges
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)  i = i + 1
+        if map.has(deps_of, node) == 1 {
+            dl, _ = map.get(deps_of, node)
+            dn = list.size(dl)
+            j = 0
+            while j < dn {
+                d, _ = list.get(dl, j)  j = j + 1
+                strbuilder.append(sb, "    ")
+                strbuilder.append(sb, _gid(node))
+                strbuilder.append(sb, " --> ")
+                strbuilder.append(sb, _gid(d))
+                strbuilder.append(sb, "\n")
+            }
+        }
+    }
+    strbuilder.append(sb, "    classDef ok fill:#c8e6c9,stroke:#2e7d32;\n")
+    strbuilder.append(sb, "    classDef fail fill:#ffcdd2,stroke:#c62828;\n")
+    strbuilder.append(sb, "    classDef uninv fill:#eeeeee,stroke:#9e9e9e;\n")
+    strbuilder.append(sb, "    classDef crit fill:#fff3c4,stroke:#f9a825,stroke-width:3px;\n")
+    return strbuilder.finish(sb)
+}
+
+_render_dot(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
+    ms = map.new()
+    nn = list.size(nodes)
+    i = 0
+    while i < nn { node, _ = list.get(nodes, i)  i = i + 1  _pm = map.put(ms, node, _node_ms(rc_dir, node)) }
+    cp_ms = map.new()
+    best_dep = map.new()
+    _compute_cp(nodes, deps_of, ms, cp_ms, best_dep)
+    on_cp = map.new()
+    heaviest = ""
+    hmax = -1
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)  i = i + 1
+        cv = 0
+        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv = c }
+        if cv > hmax { hmax = cv  heaviest = node }
+    }
+    cur = heaviest
+    guard = 0
+    while string.length(cur) > 0 {
+        if guard > nn + 1 { cur = "" }
+        else { guard = guard + 1  _oc = map.put(on_cp, cur, "1")
+               nxt = ""  if map.has(best_dep, cur) == 1 { nn2, _ = map.get(best_dep, cur)  nxt = nn2 }  cur = nxt }
+    }
+    sb = strbuilder.new(1024)
+    strbuilder.append(sb, "digraph aeb_report {\n  rankdir=LR;\n  node [shape=box, style=filled];\n")
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)  i = i + 1
+        rc = _node_rc(rc_dir, node)
+        st = _node_status_word(rc)
+        ocp = 0
+        if map.has(on_cp, node) == 1 { ocp = 1 }
+        fill = "#eeeeee"
+        if ocp == 1 { fill = "#fff3c4" }
+        else { if string.equals(st, "ok") == 1 { fill = "#c8e6c9" }
+               else { if string.equals(st, "fail") == 1 { fill = "#ffcdd2" } } }
+        strbuilder.append(sb, "  \"")
+        strbuilder.append(sb, _gid(node))
+        strbuilder.append(sb, "\" [label=\"")
+        strbuilder.append(sb, file_to_label(node))
+        strbuilder.append(sb, "\\n")
+        m = 0
+        if map.has(ms, node) == 1 { mv, _ = map.get(ms, node)  m = mv }
+        strbuilder.append(sb, _human_ms(m))
+        strbuilder.append(sb, "\", fillcolor=\"")
+        strbuilder.append(sb, fill)
+        strbuilder.append(sb, "\"];\n")
+    }
+    i = 0
+    while i < nn {
+        node, _ = list.get(nodes, i)  i = i + 1
+        if map.has(deps_of, node) == 1 {
+            dl, _ = map.get(deps_of, node)
+            dn = list.size(dl)
+            j = 0
+            while j < dn {
+                d, _ = list.get(dl, j)  j = j + 1
+                strbuilder.append(sb, "  \"")
+                strbuilder.append(sb, _gid(node))
+                strbuilder.append(sb, "\" -> \"")
+                strbuilder.append(sb, _gid(d))
+                strbuilder.append(sb, "\";\n")
+            }
+        }
+    }
+    strbuilder.append(sb, "}\n")
+    return strbuilder.finish(sb)
+}
+
+main() {
+    argc = aether_args_count()
+    if argc < 3 {
+        println("Usage: aeb-report <root> <edges-file> [text|mermaid|dot]")
+        exit(1)
+    }
+    root = aether_args_get(1)
+    edges_path = aether_args_get(2)
+    format = "text"
+    if argc >= 4 {
+        f = aether_args_get(3)
+        if string.length(f) > 0 { format = f }
+    }
+
+    edges_text, _err = fs.read(edges_path)
+    if string.length(edges_text) == 0 {
+        println("aeb-report: no edges to render (empty or missing edges file — run a build first)")
+        exit(1)
+    }
+
+    nodes = list.new()
+    deps_of = map.new()
+    _parse_edges(edges_text, nodes, deps_of)
+
+    rc_dir = path.join(path.join(path.join(root, "target"), ".aeb"), "rc")
+
+    out = ""
+    if string.equals(format, "text") == 1 {
+        out = _render_text(root, rc_dir, nodes, deps_of)
+    } else {
+        if string.equals(format, "mermaid") == 1 {
+            out = _render_mermaid(root, rc_dir, nodes, deps_of)
+        } else {
+            if string.equals(format, "dot") == 1 {
+                out = _render_dot(root, rc_dir, nodes, deps_of)
+            } else {
+                println(string.concat("aeb-report: unknown format: ", format))
+                exit(1)
+            }
+        }
+    }
+    println(out)
+}

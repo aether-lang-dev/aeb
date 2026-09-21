@@ -140,5 +140,10 @@ jobs:
       # all engines, reset at build start (aeb#9).
       - name: node-failure JSONL capture
         run: itests/failures-jsonl-capture.sh
+      # Render-from-artifacts build report: aeb --report renders timing /
+      # critical-path / cache purely from target/ artifacts, read-only, two graph
+      # forms + text, composing with _failures.jsonl (aeb#12).
+      - name: report-view render
+        run: itests/report-view.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

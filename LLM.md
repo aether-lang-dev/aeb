@@ -330,7 +330,13 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
 - `tools/aeb-graph.ae` — `aeb --graph` renderer. Reads
   `target/_aeb/_edges.txt` and emits DOT (default) or Mermaid.
   Pure-render: no I/O beyond reading the edges file. Pattern model
-  for future render-from-edges tools (e.g. telemetry).
+  for render-from-artifacts tools.
+- `tools/aeb-report.ae` — `aeb --report` build timing / critical-path
+  view. The render-from-artifacts sibling of aeb-graph (same read-only
+  contract): reads `_edges.txt` + the per-node `.rc`/`.ms` markers +
+  cache outcome + `_failures.jsonl`, and emits a text table, or a
+  timing-annotated Mermaid/DOT graph, with the critical path (longest
+  wall-time dependency chain) surfaced. No build, no exec.
 - `lib/meta/module.ae` — distribution metadata SDK. Setters
   (`desc`, `homepage`, `license`, `version`, `url`, `sha256`,
   `maintainer`) record into the build map on `b`; orthogonal to
