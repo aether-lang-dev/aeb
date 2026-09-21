@@ -258,7 +258,7 @@ fetch_curl_cmd(url_str: string, dest_path: string) {
 // a literal in the format-string: an interpolated Aether string
 // processes `\\n` twice (the literal pass + the ${...} pre-pass)
 // and ends up emitting an actual newline, which breaks sh's
-// single-quoted printf format. See LLM.md § interpolation footgun.
+// single-quoted printf format. See AGENTS.md § interpolation footgun.
 sha256_verify_cmd(file_path: string, expected_hex: string) {
     bs_n = string.concat("\\", "n")
     return "printf '%s  %s${bs_n}' '${expected_hex}' '${file_path}' | sha256sum -c - >/dev/null"

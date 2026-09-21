@@ -126,7 +126,7 @@ fetch-upstream.sh snapshot time. Leaves consume it via
 
 **Why not bridge `maven_install.json`:** see
 `itests/selenium/Aeb_vs_Bazel.md` for the full musing. The short
-form: aeb doesn't parse external config formats (LLM.md's
+form: aeb doesn't parse external config formats (AGENTS.md's
 load-bearing principle). The `.bom.ae` is the idiomatic-aeb shape;
 it's more verbose at scale but every dep edge is a literal string
 in source, greppable, and translatable without consulting
@@ -385,7 +385,7 @@ intact).
    instead of bridging: `java/selenium-deps.bom.ae` carries the
    pinned headline set. See `Aeb_vs_Bazel.md` § "Why aeb won't parse
    `maven_install.json`" — bridging an external config format would
-   crack LLM.md's load-bearing principle. The hand-authored shape
+   crack AGENTS.md's load-bearing principle. The hand-authored shape
    is the idiomatic-aeb answer.
 
 5. **Pre-build file-staging gap.** Selenium's Bazel build uses

@@ -1,7 +1,7 @@
 // Tests for meta._vcs_version_cmd — the pure "which command asks this VCS
 // for its version" builder behind meta.version_from_vcs.
 //
-// Pure by design (LLM.md's string-builder rule): it returns a command
+// Pure by design (AGENTS.md's string-builder rule): it returns a command
 // string and runs nothing, so all EIGHT supported VCSes are covered here
 // without any of them being installed. Only git and svn could be
 // exercised end-to-end on the dev box; this is what keeps the other six

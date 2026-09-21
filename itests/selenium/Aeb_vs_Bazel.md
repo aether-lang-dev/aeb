@@ -81,7 +81,7 @@ would all consume the auto-translated BOM and "scale" trivially.
 
 We pushed back on that. Two reasons:
 
-1. **It crosses LLM.md's load-bearing principle.** aeb doesn't parse
+1. **It crosses AGENTS.md's load-bearing principle.** aeb doesn't parse
    external config formats. `pom.xml`, `Cargo.toml`, `pyproject.toml`,
    `package.json` are all honoured via shell-outs to tools that
    already parse them — aeb itself reads only `.ae` files. Adding a

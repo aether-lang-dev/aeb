@@ -156,7 +156,7 @@ turns that into "only re-test what changed").
 
 ## What it exercises — and the gaps it would expose
 
-A scorecard against aeb's own (from `../aeb/LLM.md`):
+A scorecard against aeb's own (from `../aeb/AGENTS.md`):
 
 | aeb capability | how the mega-DAG hammers it |
 |---|---|

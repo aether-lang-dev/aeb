@@ -312,4 +312,4 @@ Same A/B on a MINGW box. Bash `aeb` is the baseline (it runs under MINGW);
 - Windows TODO detail: `TODO.md` §"Windows support (cut-down runner)".
 - Supervision primitive reference:
   `../aether/examples/applications/build-supervisor.ae`.
-- aeb orientation: `LLM.md`.
+- aeb orientation: `AGENTS.md`.

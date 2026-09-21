@@ -19,12 +19,12 @@ Two problems, one design:
    restated N times. Implicit inheritance (file-level or root-level
    cascade) would fix it but is *un-aeb*: it's invisible to `grep` and
    requires walking up the tree to know what a module gets. aeb's identity
-   is "edges are explicit data, not inherited cascade" (LLM.md: no reverse
+   is "edges are explicit data, not inherited cascade" (AGENTS.md: no reverse
    edges, no implicit fan-out).
 
 2. **No lockfile for reproducibility.** `pip("numpy~2.1")` resolves the
    transitive closure at install time but writes nothing back. There is no
-   pinned, hash-bearing record of the resolved graph (LLM.md scores
+   pinned, hash-bearing record of the resolved graph (AGENTS.md scores
    "Lockfiles for reproducibility" ✗ TODO across all SDKs). A bare
    `requirements.txt` is *less* faithful than aeb could be, because it
    ignores the interpreter axis (see below).
@@ -186,7 +186,7 @@ the lock self-validates).
   among **already-installed** runtimes (discover-select-or-fail), and fail
   loudly naming what was found if none match. Installing a runtime stays
   the user's / CI's job (sdkman, apt, `actions/setup-java`). aeb is a
-  build engine, not a toolchain manager (LLM.md Nix §).
+  build engine, not a toolchain manager (AGENTS.md Nix §).
 - NOT an external-lockfile parser. aeb does not parse `requirements.txt` /
   `Gemfile.lock` / a foreign lock format. `requirements_file(...)` /
   `Gemfile` remain the *import* path for repos that already have one; the

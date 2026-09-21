@@ -98,7 +98,7 @@ more than the line itself, because the line is already self-evident.
 Three rules already in force compose to give it for free:
 
 1. **Any dot-prefixed `.ae` file under cwd is a node in the DAG.** There
-   are no special target source-file names (see the top of `LLM.md`).
+   are no special target source-file names (see the top of `AGENTS.md`).
    `.presubmit.ae` is a node because it is a dot-prefixed `.ae` file, for
    exactly the same reason `.build.ae` is.
 2. **`dep()` is the only edge-declaration mechanism, and it is a

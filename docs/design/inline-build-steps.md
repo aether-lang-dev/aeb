@@ -185,7 +185,7 @@ here is just the smallest thing that shows the hand-off.)
 ## When to promote to an SDK
 
 Inline Aether is the right tool for one-off, project-specific steps.
-But aeb's [load-bearing principle](../LLM.md) is that the
+But aeb's [load-bearing principle](../AGENTS.md) is that the
 dot-prefixed `.ae` file should stay declarative and greppable. So:
 
 - **One-off, this-project-only** (a bespoke changelog format, a

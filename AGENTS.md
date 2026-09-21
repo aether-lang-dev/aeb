@@ -1,7 +1,7 @@
-# Notes to self (LLM assisting on aeb / aeb)
+# Notes to self (agent assisting on aeb)
 
-Not a CLAUDE.md — short, opinionated, written for a future LLM picking
-up mid-task. Re-read at start of every session.
+Short, opinionated, written for a future agent/LLM picking up mid-task.
+Re-read at start of every session. (Renamed from LLM.md → AGENTS.md.)
 
 ## What aeb is, in one paragraph
 
@@ -985,7 +985,7 @@ exists if a need arises."
   longer fails codegen); `ae build` warns on a compiler/`libaether.a`
   version mismatch instead of failing cryptically at link.
 - **0.178 builder-vs-function name collision is now a compile error**
-  (consumed: it's why the LLM.md `bash.run`/`lib/ruby gem→package`
+  (consumed: it's why the AGENTS.md `bash.run`/`lib/ruby gem→package`
   note above says "now enforced"). aeb filed it as
   `../aether/builder-function-name-collision-silent-dispatch.md`;
   `[current]` generalises it to `E1001` (any user function forging an

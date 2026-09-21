@@ -3,7 +3,7 @@
 // {module_dir} placeholder substitution: run_post_build itself shells
 // out, so its behaviour is covered end-to-end by a smoke build rather
 // than here (this file stays I/O-free, per the string-builder rule in
-// LLM.md's "SDK extension shape").
+// AGENTS.md's "SDK extension shape").
 import std.spec
 import bldr (_subst)
 

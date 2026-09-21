@@ -1,7 +1,7 @@
 // aeb-report — render a build timing / critical-path view purely from the
 // artifacts a prior build left under target/. STRICTLY read-only: no exec, no
 // build, no probing — the same contract as tools/aeb-graph.ae (the pattern model
-// named in LLM.md). It only reads what a completed run wrote:
+// named in AGENTS.md). It only reads what a completed run wrote:
 //
 //   target/_aeb/_edges.txt          DAG shape (node + deps), same as aeb-graph
 //   target/.aeb/rc/<san>.rc         per-node exit code (0 ok / non-zero fail)

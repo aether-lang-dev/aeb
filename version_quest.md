@@ -102,7 +102,7 @@ Both were pre-existing, neither is a code bug — but both cost a measurement:
    `hiccup:hiccup:...`, `npm:left-pad:...` etc. where the test expects only the
    file dep. `rm -f tools/extract-deps*` and re-run → green. **Lesson: after a
    big `git pull`, wipe gitignored `tools/*` binaries so the suite rebuilds them
-   against the current source.** (This is the same family as the LLM.md warning
+   against the current source.** (This is the same family as the AGENTS.md warning
    about `ae`'s own build cache serving stale binaries.)
 
 2. **`ae` not on the non-login PATH** → the `_toolchain_version` failure above.

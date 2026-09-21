@@ -2024,7 +2024,7 @@ fixture API: keep the SDK surface small, let the escape hatch
 be a shell command. If the escape hatch isn't enough, the user
 can write a small `.ae` SDK in `.aeb/lib/notify/module.ae` —
 that's exactly the consumer-local SDK pattern documented in
-LLM.md.
+AGENTS.md.
 
 #### Build queue management / priority lanes
 

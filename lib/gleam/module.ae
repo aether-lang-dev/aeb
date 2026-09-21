@@ -73,7 +73,7 @@ warnings_as_errors(_ctx: ptr, v: string) {
 // (Named codegen_program, not codegen_cmd: a setter must not share its
 // mangled symbol with a function in the same module, and the pure
 // command-builder is `gleam_codegen_cmd` — `codegen_cmd` would mangle
-// to the same `gleam_codegen_cmd` and collide. See LLM.md
+// to the same `gleam_codegen_cmd` and collide. See AGENTS.md
 // "builder-vs-function name collision".)
 codegen_program(_ctx: ptr, prog: string) {
     _e = map.put(_ctx, "codegen_cmd_prog", prog)

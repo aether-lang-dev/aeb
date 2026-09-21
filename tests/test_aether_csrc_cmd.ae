@@ -7,7 +7,7 @@
 //
 // The exec itself rides the shared _shell_out_ae_build (already
 // covered for the binary path); these pin the csrc-specific string
-// surface per the string-builder pattern (LLM.md § SDK extension).
+// surface per the string-builder pattern (AGENTS.md § SDK extension).
 import std.spec
 import std.map
 import std.list

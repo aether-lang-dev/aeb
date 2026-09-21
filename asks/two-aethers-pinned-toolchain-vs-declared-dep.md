@@ -39,7 +39,7 @@ Concrete, from this session:
 - The failure surfaces as a **compile error inside a generated file**, not
   as "this aeb needs ae ≥ 0.442, you have 0.413". The information existed
   at startup; nothing used it.
-- LLM.md carries version floors as **prose** — "needs aether >= 0.230.0",
+- AGENTS.md carries version floors as **prose** — "needs aether >= 0.230.0",
   "aether 0.357", "ae >= 0.442". Not machine-readable, so nothing checks
   them and they drift.
 
@@ -249,5 +249,5 @@ CI-side test rather than a runtime concern.
 - `docs/design/toolchain-selection-and-locks.md` — selection vs provisioning.
 - `docs/guides/windows-cross-platform-notes.md` § 5 — the winbaz failure, plus
   the `MSYSTEM=MINGW64` trap found while fixing it.
-- `LLM.md` § "Recent upstream Aether features aeb could lean on" — where
+- `AGENTS.md` § "Recent upstream Aether features aeb could lean on" — where
   the version floors currently live as prose.

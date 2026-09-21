@@ -139,7 +139,7 @@ painful:
 4. **XML/UI config drift.** Classic Jenkins jobs were configured in the
    web UI and stored as XML — divergent from the repo, un-greppable,
    un-reviewable. aeb's whole identity (the load-bearing principle in
-   LLM.md) is the opposite: no out-of-tree config, the dot-`.ae` file is
+   AGENTS.md) is the opposite: no out-of-tree config, the dot-`.ae` file is
    the single source of truth. The as-CI feature must not add a
    click-ops job-config surface; a pipeline is a `.ae` file or it isn't a
    pipeline.

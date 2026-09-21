@@ -3,7 +3,7 @@
 Thanks for wanting to improve aeb. This is the short, human-facing
 guide. The deep material — how to author a language SDK, the design
 principles for what belongs in core, the recurring footguns — lives in
-[`LLM.md`](LLM.md), which is written for an assistant picking up
+[`AGENTS.md`](AGENTS.md), which is written for an assistant picking up
 mid-task but reads fine for people too. Read it before adding or
 changing an SDK.
 
@@ -102,5 +102,5 @@ prerequisite — it isn't one even for us.
 - `tests/` — the canonical, offline test surface.
 - `itests/` — real-world conversions (optional, partially-passing).
 - `docs/` — design notes, comparisons, and worked examples.
-- `LLM.md` — SDK-authoring patterns, design principles, footguns.
+- `AGENTS.md` — SDK-authoring patterns, design principles, footguns.
 - `TODO.md` — roadmap and known gaps.

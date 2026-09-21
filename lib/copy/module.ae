@@ -32,7 +32,7 @@
 // lib/cache) is a follow-up.
 //
 // Paths are resolved against source_dir when relative; absolute
-// passes through. The `path.join` trap (LLM.md § path.join) is
+// passes through. The `path.join` trap (AGENTS.md § path.join) is
 // dodged via the same `_resolve_path` shape lib/fetch uses.
 
 import bldr

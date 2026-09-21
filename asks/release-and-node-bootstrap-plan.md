@@ -182,4 +182,4 @@ Worth stating so the plan can be falsified rather than merely followed:
 - `TODO.md` § "Full Aether CLI entrypoint" — `aeb-cli`'s remaining work.
 - aeo's `docs/operations/agent-host-setup.md` + `docs/releasing-aeo.md` — the
   release + plant discipline being copied.
-- aeci's `LLM.md` / `DESIGN.md` — the shells-out-to-aeb seam.
+- aeci's `AGENTS.md` / `DESIGN.md` — the shells-out-to-aeb seam.

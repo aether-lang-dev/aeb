@@ -125,7 +125,7 @@ arg(_ctx: ptr, name: string, default_val: string) {
 // literal shell line (chain with && as in a Containerfile). NOT named `run`:
 // `container.run` is already a BUILDER, and a builder + a function sharing a
 // name mangle to the same symbol (container_run) — a silent shadow pre-0.178,
-// a hard error after. See LLM.md "builder-vs-function name collision".
+// a hard error after. See AGENTS.md "builder-vs-function name collision".
 run_step(_ctx: ptr, cmd: string) {
     _append_step(_ctx, "RUN", cmd)
     _e = map.put(_ctx, "recipe", "1")

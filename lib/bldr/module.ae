@@ -2530,7 +2530,7 @@ builder install_launcher(name: string): int {
 // _post_build_interp(ctx, cmd) — substitute {target_dir} / {module_dir}.
 // Deliberately NOT Aether's `${...}` interpolation: these are aeb-level
 // placeholders in a user-authored string, and `${...}` is consumed at
-// parse time by the compiler (see LLM.md's note on interpolation eating
+// parse time by the compiler (see AGENTS.md's note on interpolation eating
 // bash parameter expansions).
 _post_build_interp(ctx: ptr, cmd: string) {
     td = _get(ctx, "target_dir")

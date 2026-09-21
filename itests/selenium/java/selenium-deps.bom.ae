@@ -2,7 +2,7 @@
 //
 // Idiomatic aeb alternative to bridging upstream's
 // `java/maven_install.json` (a rules_jvm_external pinning artefact).
-// LLM.md's load-bearing principle says aeb doesn't parse external
+// AGENTS.md's load-bearing principle says aeb doesn't parse external
 // config formats; the closure DSL travels in `.ae` files. So instead
 // of writing a `maven_install.json` → `.bom.ae` converter, we
 // hand-author the pinned set as plain `dep("g:a:v")` lines.

@@ -3,7 +3,7 @@
 ## What happens
 Inside a `<module>.<verb>() { … }` builder block, the compiler resolves a bare
 setter call `foo(...)` to the module symbol `<module>_foo` (the documented
-block-receiver mangling — LLM.md:370). If the module ALSO defines a real
+block-receiver mangling — AGENTS.md:370). If the module ALSO defines a real
 function literally named `<module>_foo` with a DIFFERENT signature, the call
 silently dispatches to that function instead of the intended setter. With a
 mismatched arity the result is memory corruption — a `SIGSEGV in map_put_raw`

@@ -205,7 +205,7 @@ aether_dir = run_capture(...)                  # → ""
 ```
 
 But the empty `aether_dir` is the *symptom*. The real finding is **why**
-aeb-link needs it: aeb's core mechanism (LLM.md) is that **aeb-link compiles
+aeb-link needs it: aeb's core mechanism (AGENTS.md) is that **aeb-link compiles
 the `.build.ae` files into ONE native orchestrator binary (`_ae_build_all`),
 linking it with a LOCAL `gcc` + `libaether.a`, then runs it** — and that run
 is what does the per-target compiles. So the toolchain is needed at TWO

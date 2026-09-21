@@ -68,7 +68,7 @@ precedent already exists two ways —
 1. **in-process guest hosting** (`contrib.host.<lang>`): Lua/Python/Perl/
    Ruby/Tcl/JS linked into the aeb binary and run in its address space,
    no subprocess (`guest-languages.md` Way 2); and
-2. **`--emit=lib` binary-import SDKs** (LLM.md, aether `[current]`): an
+2. **`--emit=lib` binary-import SDKs** (AGENTS.md, aether `[current]`): an
    SDK compiled to a `.so` and `import`ed, its builder grammar
    reconstructed at full fidelity — a *step that is a linked library
    entry point*, not an `os.system`.

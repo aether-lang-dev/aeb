@@ -1160,7 +1160,7 @@ builder dispatch(): int {
         return 1
     }
     // Parse BEFORE freeing: response_body returns a borrowed buffer owned
-    // by cresp; response_free invalidates it (LLM.md borrowed-string rule).
+    // by cresp; response_free invalidates it (AGENTS.md borrowed-string rule).
     // Reading status/result first keeps the parse off freed memory.
     code = client.response_status(cresp)
     body = client.response_body(cresp)
