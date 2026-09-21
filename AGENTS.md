@@ -212,6 +212,11 @@ What modern build systems claim, and how aeb measures up today.
 "Scope" here means the dimension that system most prizes; "aeb
 status" is the unembellished current state, not the roadmap.
 
+(A TRIMMED, user-facing copy of this table — plus an "Interface at a glance"
+table — lives in `README.md` under "Scope coverage — honest status". This copy
+keeps the implementation asides; the README one is the public cut. Keep the two
+in step when a dimension's status changes.)
+
 | Dimension                          | What "good" looks like                                          | aeb status                                                                                              |
 |------------------------------------|-----------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
 | Build-graph topology               | Real DAG, statically extractable, greppable                     | ✓ Done. File-based DAG via `dep("path")` lines, scanned without compilation.            |

@@ -10,6 +10,58 @@ languages. Convention does the work; you declare the intent.
 (`aeb` was originally short for "Aether Build" — the runner is written
 in Aether and was the project's first non-trivial Aether application.)
 
+## Interface at a glance
+
+The ways to invoke aeb — one row each:
+
+| Invocation | What it is |
+|------------|------------|
+| `aeb <target>` | Build one node (`path/.build.ae`, or a `path:name` synonym). |
+| `aeb --scan '<glob>'` | Build every node matching a glob (fan-out under `-jN`). |
+| `aeb --since <ref>` / `aeb --print-affected <ref>` | Build (or list) only targets affected by a git change. |
+| `aeb --graph [dot\|mermaid]` | Render the build DAG (pipe to graphviz, or paste a Mermaid fence). |
+| `aeb --report [text\|mermaid\|dot]` | Render the last build's timing / critical path / cache, read-only over artifacts. |
+| `aeb --report=<tier>` | Dial the inline `[telemetry]` verbosity (`counts`\|`targets`\|`per-rule`\|`full`). |
+| `aeb --query '<expr>'` / `--owners <src>` / `--path a b` | Ask the DAG questions (deps, reverse-deps, ownership, why-depends). |
+| `aeb --list` | List the nodes here and their canonical labels. |
+| `aeb --watch [target]` | Rebuild on source change (inotify / fswatch). |
+| `aeb gcheckout <target>` | Sparse-checkout only the modules a target needs. |
+| `aeb --sandbox` / `aeb --vet` | Run contained (deny-by-default) / static supply-chain veto of the build tree. |
+| `aeb --prereqs <target>` / `--preflight <target>` | List a target's toolchain prerequisites / probe them against the host. |
+
+## Scope coverage — honest status
+
+`✓ Done` · `◐ Partial` · `✗ TODO`. The `✗` rows are shown, not hidden. (The
+[AGENTS.md](AGENTS.md) copy of this table carries the implementation detail; keep
+the two in step.)
+
+| Dimension | aeb status |
+|-----------|------------|
+| Build-graph topology | ✓ File-based DAG via `dep("path")`, scanned without compilation. |
+| Multi-language polyglot | ✓ 20+ SDKs (Java, Kotlin, Go, Rust, TS, Scala, Clojure, .NET, Python, Dart, MoonBit, Gleam, Ruby, Aether, Bash, Container, …). |
+| Cross-language FFI artifacts | ✓ JNI / cdylib / shared-lib handoff wired (Java→Rust, Java→Go, C#→Rust, Python→Rust, …). |
+| Local incremental cache | ✓ Content-addressed (sha256), wired into every artifact-producing JVM/native/TS/… SDK. |
+| Affected-target detection | ✓ `aeb --since <ref>` builds only impacted targets; `--print-affected` lists them. |
+| Dependency resolution (transitive) | ✓ Maven, npm (pnpm), NuGet, Cargo, Python wheels. |
+| Build graph visualisation | ✓ `aeb --graph` (DOT / Mermaid). |
+| Build report / bottleneck | ✓ `aeb --report` (timing, critical path, cache) + `--report=<tier>` verbosity. |
+| Watch mode | ✓ `aeb --watch` (inotify / fswatch → narrowed rebuild). |
+| Sandboxing / isolation | ✓ `aeb --sandbox` (deny-by-default, no tcp; Linux, aether ≥ 0.230). |
+| Supply-chain build veto | ✓ `aeb --vet` (AST deny-rules + allowlist, bring-your-own SAST, agent-side rules). |
+| Sparse checkout for monorepos | ✓ `aeb gcheckout` (DAG walk → `git sparse-checkout`). |
+| Configuration DSL ceiling | ✓ Closure-with-setters, Aether-native, no eval'd config. |
+| Migration story | ✓ Per-module `.build.ae`, coexists with existing tooling; proven against real repos. |
+| Structured node-failure capture | ✓ `target/_aeb/_failures.jsonl` — one JSON record per failed node. |
+| Test orchestration | ◐ Test SDKs + per-target pass/fail counts feed `[telemetry]`; structured XML reports TODO. |
+| Build telemetry | ◐ Per-module timing + cache in `[telemetry]`; standalone view + tiers done; file/web renderers TODO. |
+| Hermetic toolchains | ✗ Selects what's on `PATH`, never provisions (a deliberate divergence). |
+| Remote build cache | ✗ TODO — local cache units are the natural seed. |
+| Lockfiles for reproducibility | ✗ TODO — resolver computes the closure but writes no lockfile. |
+| Artifact publishing | ✗ TODO — builds fat jars; no publish step yet. |
+| IDE / LSP integration | ✗ TODO — no `aeb-lsp` yet. |
+| Cross-compilation | ✗ TODO — roadmap. |
+| CI system integration | ✗ Deliberately CI-agnostic today. |
+
 ## What it looks like
 
 A Java component with one dependency:
