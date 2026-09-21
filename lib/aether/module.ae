@@ -597,6 +597,41 @@ _toolchain_version() {
     return ver
 }
 
+// _cc_is_real_gcc() — 1 if the `gcc` the link command invokes is REAL GNU gcc,
+// 0 if it is a clang shim (macOS `gcc` is Apple clang) or unknown. Detection:
+// `gcc --version` prints "Free Software Foundation" and a "gcc (…" banner for
+// real GCC, and "clang"/"Apple" for the shim. Memoized in a per-build env var
+// (same pattern + lifetime as _toolchain_version): one `gcc --version` per
+// build, reused after.
+//
+// WHY: -fno-ipa-bit-cp guards a gcc-16 miscompile of aetherc-emitted C (77cdfdc),
+// but it is a GCC-ONLY flag — clang rejects it outright ("unknown argument:
+// '-fno-ipa-bit-cp'"), so adding it unconditionally broke every aether.program
+// link on macOS/clang. The flag exists solely for a gcc bug, so it must be gated
+// on gcc. (asks/fno-ipa-bit-cp-is-gcc-only-breaks-clang-macos.md.) Values cached
+// as "1"/"0" so a stored "0" is distinguishable from an unset memo.
+_cc_is_real_gcc() {
+    cached = os.getenv("_AEB_CC_IS_GCC_CACHE")
+    if string.equals(cached, "1") == 1 { return 1 }
+    if string.equals(cached, "0") == 1 { return 0 }
+    raw, _err = bldr._sh_capture("gcc --version 2>/dev/null")
+    v = raw
+    is_gcc = 0
+    // Real GNU gcc: banner carries "Free Software Foundation". A clang shim
+    // carries "clang" / "Apple" and lacks the FSF line — so the FSF marker is
+    // the reliable positive signal, and an explicit "clang" is a hard negative.
+    if string.index_of(v, "clang") >= 0 { is_gcc = 0 }
+    else {
+        if string.index_of(v, "Free Software Foundation") >= 0 { is_gcc = 1 }
+    }
+    stored = "0"
+    if is_gcc == 1 { stored = "1" }
+    // Only memoize a real reading (non-empty banner); an empty probe (gcc absent
+    // momentarily) must not poison the memo into a permanent 0.
+    if string.length(string.trim(v)) > 0 { _s = os.setenv("_AEB_CC_IS_GCC_CACHE", stored) }
+    return is_gcc
+}
+
 // --- Transitive Aether import-closure scan -------------------------
 //
 // aeb's DAG models bldr.dep() target edges only; the Aether `import`
@@ -1682,7 +1717,23 @@ aether_link_cmd(opts: ptr) {
     // alone is fine), confirmed in both directions; gcc 12 is unaffected.
     // Disabling only bit-cp keeps the rest of -O2. Remove once a fixed gcc is
     // the floor. See asks/gcc16-ipa-bit-cp-miscompiles-emitted-c.md.
-    opt_flags = "-O2 -fno-ipa-bit-cp"
+    //
+    // GATED ON REAL GCC: -fno-ipa-bit-cp is a GCC-only flag. On macOS `gcc` is an
+    // Apple clang shim that rejects it outright ("unknown argument"), so adding
+    // it unconditionally broke every aether.program link on clang hosts. The flag
+    // guards a *gcc* bug, so it is added only when the caller detected real gcc
+    // (opts "cc_is_gcc" == "1", from _cc_is_real_gcc()). Empty/"0" (clang or
+    // unknown, incl. the pure unit tests) → plain -O2, which clang accepts and
+    // which never had the miscompile. See
+    // asks/fno-ipa-bit-cp-is-gcc-only-breaks-clang-macos.md.
+    opt_flags = "-O2"
+    cc_is_gcc = ""
+    if map.has(opts, "cc_is_gcc") == 1 {
+        cc_is_gcc, _ = map.get(opts, "cc_is_gcc")
+    }
+    if string.equals(cc_is_gcc, "1") == 1 {
+        opt_flags = "-O2 -fno-ipa-bit-cp"
+    }
     cov_flag = ""
     // strip_unused() — dead-strip unreferenced C: -ffunction-sections
     // -fdata-sections on the compile side, -Wl,--gc-sections on the link. Only
@@ -2638,6 +2689,12 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
         if map.has(builder_map, "strip_unused") == 1 { strip_unused, _ = map.get(builder_map, "strip_unused") }
     }
     _eo10b = map.put(opts, "strip_unused", strip_unused)
+    // Whether the link's `gcc` is real GNU gcc (memoized probe). Gates the
+    // GCC-only -fno-ipa-bit-cp so a clang shim (macOS `gcc`) is not handed a flag
+    // it rejects. See _cc_is_real_gcc / asks/fno-ipa-bit-cp-is-gcc-only-*.
+    cc_is_gcc = "0"
+    if _cc_is_real_gcc() == 1 { cc_is_gcc = "1" }
+    _eo10c = map.put(opts, "cc_is_gcc", cc_is_gcc)
     // Resolve pkg-config HERE (one shell-out per module, through the
     // chokepoint) and hand aether_link_cmd literal flags. Keeps that builder
     // pure/testable and keeps `$(...)` off a command line whose shell we do

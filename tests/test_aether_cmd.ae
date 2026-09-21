@@ -27,6 +27,11 @@ _link_opts(c_path: string, bin_path: string, lib_dir: string, inc_flags: string,
     // link failed on undefined deflate/EVP_*/pcre2_*.
     // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
     map_put(o, "sysdeps", " -lz -lssl -lcrypto -lpcre2-8")
+    // Default the fixtures to the real-gcc case so the existing assertions (which
+    // expect -fno-ipa-bit-cp) reflect a gcc host. The clang case (no flag) is
+    // covered by its own it-block below. _cc_is_real_gcc() gates this at runtime;
+    // aether_link_cmd is pure and just reads opts "cc_is_gcc".
+    map_put(o, "cc_is_gcc", "1")
     return o
 }
 
@@ -261,6 +266,30 @@ main() {
             map_put(o_nosu, "strip_unused", "")
             spec.assert_false(string.contains(aether_link_cmd(o_nosu), "gc-sections"), "no gc-sections")
             spec.assert_false(string.contains(aether_link_cmd(o_nosu), "function-sections"), "no function-sections")
+        }
+
+        // -fno-ipa-bit-cp is GCC-ONLY: gated on cc_is_gcc so a clang shim (macOS
+        // `gcc`) is never handed a flag it rejects (unknown argument).
+        spec.it("cc_is_gcc=\"1\" → -fno-ipa-bit-cp present") callback {
+            o_gcc = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            map_put(o_gcc, "cc_is_gcc", "1")
+            spec.assert_contains(aether_link_cmd(o_gcc), "-O2 -fno-ipa-bit-cp", "gcc gets the flag")
+        }
+        spec.it("cc_is_gcc=\"0\" (clang) → plain -O2, NO -fno-ipa-bit-cp") callback {
+            o_clang = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            map_put(o_clang, "cc_is_gcc", "0")
+            cmd = aether_link_cmd(o_clang)
+            spec.assert_contains(cmd, "gcc -O2 -pipe", "clang gets plain -O2")
+            spec.assert_false(string.contains(cmd, "fno-ipa-bit-cp"), "no gcc-only flag for clang")
+        }
+        spec.it("cc_is_gcc missing → plain -O2 (safe default, no gcc-only flag)") callback {
+            o_none = _link_opts(
+                "main.c", "out/bin", "/lib", "", "", "", "", "", "")
+            // _link_opts sets it to "1"; override to unset by putting "".
+            map_put(o_none, "cc_is_gcc", "")
+            spec.assert_false(string.contains(aether_link_cmd(o_none), "fno-ipa-bit-cp"), "unset → no flag")
         }
 
         // Coverage WINS over strip_unused: a coverage build must not carry the
