@@ -387,7 +387,7 @@ _rbenv_version_prefix(builder_map: ptr) {
 // then ~/.rbenv/bin/rbenv. "" if none found.
 _rbenv_bin() {
     tp = os.which("rbenv")
-    if tp != "" { return tp }
+    if string.length(tp) > 0 { return tp }
     r, _re = bldr._sh_capture("if [ -n \"$RBENV_ROOT\" ] && [ -x \"$RBENV_ROOT/bin/rbenv\" ]; then printf %s \"$RBENV_ROOT/bin/rbenv\"; elif [ -x \"$HOME/.rbenv/bin/rbenv\" ]; then printf %s \"$HOME/.rbenv/bin/rbenv\"; fi")
     return string.trim(r)
 }
@@ -433,44 +433,64 @@ _resolve_ruby_tool(builder_map: ptr, tool: string) {
     mgr = _ruby_env_manager(builder_map)
     if mgr == "rbenv" {
         w = _rbenv_which(builder_map, tool)
-        if w != "" { return w }
+        if string.length(w) > 0 { return w }
         // rbenv declared but couldn't resolve — fall through to PATH so the
         // failure surfaces at the command, but the builder already announced it.
     }
-    return os.which(tool)
+    // NORMALIZE: os.which returns NULL (not "") for a tool that is not on PATH,
+    // and in Aether `null != ""` is TRUE while string.length(null) is 0. Every
+    // caller that guarded with `!= ""` therefore accepted the null, returned it,
+    // and interpolated it into a command — which is how a missing `bundle`
+    // produced `sh: line 1: (null): command not found` instead of either a real
+    // path or an honest error. Hand back "" so length checks work.
+    t = os.which(tool)
+    if string.length(t) == 0 { return "" }
+    return t
 }
 
 // Resolve `bundle`: declared manager first, then PATH, then RubyGems' Gem.bin_path
 // (modern RubyGems puts `bundle` in a gem bindir often off the non-interactive
 // PATH). builder_map selects system (default) vs a declared ruby_env.
+// Resolve `bundle`, or return "" if it genuinely is not installed.
+//
+// Two ways of ASKING, not a good path and a degraded one: PATH is a guess,
+// Gem.bin_path is RubyGems' authoritative answer for where its own executable
+// lives. On a distro that installs gems under the user (Arch, and any
+// `gem install --user-install`), `bundle` is routinely off a non-interactive
+// PATH while RubyGems knows exactly where it is.
+//
+// What is NOT here any more: the old `return "bundle"` last line. Handing the
+// shell a bare name already known not to resolve is not a fallback, it is a
+// worse error message — the caller then reports "bundle install FAILED" when
+// the truth is "bundler is not installed". Return "" and let the caller say so.
 _resolve_bundle_bin(builder_map: ptr) {
     t = _resolve_ruby_tool(builder_map, "bundle")
-    if t != "" { return t }
-    // Gem.bin_path fallback, run under the resolved ruby (rbenv-aware).
+    if string.length(t) > 0 { return t }
     rb = _resolve_ruby_bin(builder_map)
+    if string.length(rb) == 0 { return "" }
     q, _qe = bldr._sh_capture("'${rb}' -e 'begin; print Gem.bin_path(\"bundler\",\"bundle\"); rescue Exception; end' 2>/dev/null")
     tq = string.trim(q)
-    if tq != "" { return tq }
-    return "bundle"
+    if string.length(tq) > 0 { return tq }
+    return ""
 }
 
 _resolve_gem_bin(builder_map: ptr) {
     t = _resolve_ruby_tool(builder_map, "gem")
-    if t != "" { return t }
+    if string.length(t) > 0 { return t }
     return "gem"
 }
 
 // Resolve `ruby` itself (used by mri_cmd and the Gem.bin_path probe).
 _resolve_ruby_bin(builder_map: ptr) {
     t = _resolve_ruby_tool(builder_map, "ruby")
-    if t != "" { return t }
+    if string.length(t) > 0 { return t }
     return "ruby"
 }
 
 // Resolve `rake` (the no-Gemfile branch of rake_cmd).
 _resolve_rake_bin(builder_map: ptr) {
     t = _resolve_ruby_tool(builder_map, "rake")
-    if t != "" { return t }
+    if string.length(t) > 0 { return t }
     return "rake"
 }
 
@@ -564,6 +584,15 @@ builder bundle(): int {
     // install() — resolve the gem closure.
     if _builder != null {
         if map.has(_builder, "ruby_do_install") == 1 {
+            if string.length(bundle_bin) == 0 {
+                // Name the actual problem. "bundle install FAILED" for a
+                // bundler that was never found sends the reader to their
+                // Gemfile; the truth is there is no bundler to run.
+                println("${mod_dir}: bundler NOT FOUND — not on PATH, and RubyGems reports no `bundle` executable")
+                println("${mod_dir}: install it (gem install bundler) or declare a ruby_env, then re-run")
+                bldr.fail(ctx, "bundler not found")
+                return 1
+            }
             println("${mod_dir}: installing gems (bundle)")
             bp = _resolve_bundle_path(_builder, root)
             bldr._mkdirs(bp)

@@ -410,11 +410,20 @@ _clojure_runtime_jars() {
 }
 
 // _clojure_cli() — the `clojure` or `clj` CLI path, or "". It brings its own
-// runtime, so it's the fallback when no jars are found.
+// runtime, so it's what we use when no jars are found.
+//
+// The trailing normalize is not cosmetic: os.which returns NULL, not "", for a
+// tool that is not on PATH. Callers here happen to test with string.length
+// (which is 0 for null, so they are correct), but returning a null from a
+// function documented as returning "" is how the same bug bit lib/ruby — a
+// caller there guarded with `!= ""`, which is TRUE for null, so the null went
+// into a command string and the shell reported `(null): command not found`.
 _clojure_cli() {
     c = os.which("clojure")
     if string.length(c) > 0 { return c }
-    return os.which("clj")
+    j = os.which("clj")
+    if string.length(j) == 0 { return "" }
+    return j
 }
 
 // clojure.run_main(b) — run a Clojure `-main` namespace as a conformance suite,

@@ -456,6 +456,29 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
 
 ## Idioms that keep biting
 
+- **`os.which` returns NULL, not `""`, when a tool is not on PATH — and in
+  Aether `null != ""` is TRUE.** So the natural-looking guard
+
+      t = os.which("bundle")
+      if t != "" { return t }        // TAKEN when bundle is missing
+
+  accepts the null, returns it, and whatever comes after is dead code. The null
+  then interpolates into a command string and the shell reports
+  `sh: line 1: (null): command not found` — a message that names neither the
+  tool nor the real problem. This is exactly how `lib/ruby` shipped with a
+  RubyGems `Gem.bin_path` lookup that could never run: on any distro that
+  installs gems under the user (Arch, or any `gem install --user-install`),
+  `bundle` is off a non-interactive PATH, RubyGems knew where it was, and the
+  guard threw that away. `string.length(t) == 0` is the correct test — it is 0
+  for null as well as for "" — and a resolver documented as returning `""`
+  should normalize before returning, not hand a null to its callers.
+
+  While fixing one of these, check what the resolver does when it finds
+  nothing. `return "bundle"` is not a fallback, it is a worse error message:
+  the caller then reports `bundle install FAILED` for a bundler that was never
+  installed, sending the reader to their Gemfile. Return `""` and let the
+  caller say what is actually wrong.
+
 - **Never end a test-runner command with `| tee`. Use `bldr._sh_tee`.** A
   pipeline exits with the status of its LAST command, so `cmd 2>&1 | tee log`
   returns tee's `0` and reports a failing suite — or a compile that produced no
