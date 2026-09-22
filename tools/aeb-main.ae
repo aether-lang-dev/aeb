@@ -708,6 +708,33 @@ main() {
     edges_path = string.concat(build_dir, "/_edges.txt")
     edges_buf = string.concat("", "")
     line = string.concat("", "")
+    // A dep naming a file that is not on disk is an AUTHORING ERROR, and it
+    // has to be caught here, before _edges.txt is written.
+    //
+    // The BFS above enqueues "any unseen dep that exists on disk" and simply
+    // skips one that doesn't — but the dep still sits in file_deps, so it was
+    // written out as an edge, became a prerequisite of the referring node in
+    // target/.aeb/bldr.mk, and make stopped with
+    //   make: *** No rule to make target 'libs_shared_styles_.build.ae',
+    //             needed by 'apps_cart_.build.ae'.
+    // The referring node and everything downstream of it then never ran. How
+    // visible that was varied: on a small graph the node at least rendered
+    // `FAILED`, but on nx-examples it rendered `0.00s [n/a]` — byte-identical
+    // to a node deduped by the visited set — with nothing in the summary, the
+    // FAILED roll-up or _failures.jsonl naming the missing file. Either way
+    // the only statement of the actual cause was a raw make line, carrying
+    // the MANGLED label (`libs_shared_styles_.build.ae`) rather than the
+    // source line that declared it. (Found by the nx-examples itest, where
+    // two apps depended on a `libs/shared/styles/.build.ae` that had never
+    // been written.)
+    //
+    // Reported, not silently dropped: dropping the edge would build the
+    // referrer as if it had no such dependency, which is the falsely-green
+    // outcome. Every word extract-deps emits is a repo-root-relative .ae
+    // path — maven/npm coordinates are filtered there, and git:/npm: forms
+    // are resolved to real on-disk paths — so a missing one is never a
+    // legitimate shape.
+    missing_list = list.new()
     nfiles = list.size(files)
     j = 0
     while j < nfiles {
@@ -716,11 +743,44 @@ main() {
         if map.has(file_deps, f) == 1 {
             ds, _ = map.get(file_deps, f)
         }
+        mrest = string.concat(ds, "")
+        mword = string.concat("", "")
+        while string.length(mrest) > 0 {
+            msp = string.index_of(mrest, " ")
+            if msp < 0 {
+                mword = string.concat(mrest, "")
+                mrest = ""
+            } else {
+                mword = string.substring(mrest, 0, msp)
+                mrest = string.substring(mrest, msp + 1, string.length(mrest))
+            }
+            if string.length(mword) > 0 {
+                if file.exists(mword) == 0 {
+                    mmsg = string.concat("  ", f)
+                    mmsg = string.concat(mmsg, ": dep(\"")
+                    mmsg = string.concat(mmsg, mword)
+                    mmsg = string.concat(mmsg, "\") — no such file")
+                    _lm = list.add(missing_list, mmsg)
+                }
+            }
+        }
         line = string.concat(f, " ")
         line = string.concat(line, ds)
         edges_buf = string.concat(edges_buf, line)
         edges_buf = string.concat(edges_buf, "\n")
         j = j + 1
+    }
+    mn = list.size(missing_list)
+    if mn > 0 {
+        println("aeb: unresolved dep(...) edge — the named build file does not exist:")
+        mi = 0
+        while mi < mn {
+            mline, _ = list.get(missing_list, mi)
+            println(mline)
+            mi = mi + 1
+        }
+        println("     Create the node, or remove the dep(...) line that names it.")
+        exit(1)
     }
     werr = io.write_file(edges_path, edges_buf)
     if werr != "" {
@@ -1172,6 +1232,29 @@ main() {
     if serr != "" {
         println(string.concat("aeb-main: ", serr))
         exit(1)
+    }
+    // topo-sort FAILING is not the same as _sh_capture erroring. `serr` is an
+    // EXECUTION error (could the process be started at all); a topo-sort that
+    // runs and exits 1 — which is what it does on a dependency cycle, after
+    // writing "error: circular dependency involving <file>" straight to our
+    // stderr — leaves serr empty and stdout empty. The same os.exec trap
+    // AGENTS.md documents for probes, on the critical path.
+    //
+    // Unguarded, that empty stdout became "0 targets": aeb went on to call
+    // gen-orchestrator with no file arguments, gen-orchestrator printed its
+    // USAGE LINE, the usage line was written out as the orchestrator's .ae
+    // source, and aetherc produced 19 E0100 parse errors — under which
+    // aeb-link said "the error above is the real cause", which it was not.
+    // The one true line had scrolled off the top.
+    //
+    // An empty sort of a non-empty graph can only be a topo-sort failure, so
+    // stop here and say so.
+    if string.length(string.trim(sorted_raw)) == 0 {
+        if list.size(files) > 0 {
+            println("aeb: topo-sort produced no build order for a non-empty graph.")
+            println("     The error it printed above (e.g. a circular dependency) is the cause.")
+            exit(1)
+        }
     }
 
     // --- --overrideDep: substitute one build NODE for another (applied LATE) ---
