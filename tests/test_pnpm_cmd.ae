@@ -4,7 +4,8 @@ import std.list
 import std.map
 
 import pnpm (pnpm_spec_from_dep, pnpm_add_cmd, pnpm_install_cmd,
-             pnpm_run_cmd, script_arg, frozen_lockfile)
+             pnpm_run_cmd, script_arg, frozen_lockfile,
+             pnpm_locked_cmd, pnpm_wait_unlocked_cmd, _line_present)
 
 main() {
     fw = spec.init()
@@ -98,6 +99,49 @@ main() {
             frozen_lockfile(bm2)
             frozen_marker, _ = map_get(bm2, "pnpm_frozen_lockfile")
             spec.assert_str_eq(frozen_marker, "1", "frozen_lockfile marker set")
+        }
+    }
+
+    // --- Concurrency: one shared .aeb prefix, parallel make subprocesses ---
+    //
+    // `pnpm add` rewrites package.json and prunes node_modules to match, so
+    // two adds racing means one reverts the other, and a compile overlapping
+    // an add reads a half-relinked tree. Both guards are plain POSIX shell —
+    // `sh` is dash on Debian/Ubuntu, so no flock and no bashisms.
+    spec.describe(fw, "pnpm locking") {
+        spec.it("locked_cmd takes the lock, runs, unlocks, preserves $?") callback {
+            spec.assert_str_eq(pnpm_locked_cmd("/t/.lock", "pnpm add x"),
+                "__i=0; while [ $__i -lt 900 ]; do mkdir '/t/.lock' 2>/dev/null && break; __i=$((__i+1)); sleep 0.2; done; pnpm add x; __rc=$?; rmdir '/t/.lock' 2>/dev/null; exit $__rc",
+                "locked_cmd shape")
+        }
+        // The spin is BOUNDED: a lock left behind by a killed process must not
+        // wedge every later build, so it gives up and proceeds.
+        spec.it("wait_unlocked_cmd spins on the lock dir, bounded") callback {
+            spec.assert_str_eq(pnpm_wait_unlocked_cmd("/t/.lock"),
+                "__i=0; while [ -d '/t/.lock' ] && [ $__i -lt 900 ]; do __i=$((__i+1)); sleep 0.2; done; exit 0",
+                "wait_unlocked_cmd shape")
+        }
+    }
+
+    // --- Which specs have already been added to the shared prefix ---
+    // Whole-line matching: the marker decides whether `pnpm add` runs at all,
+    // so a substring match would skip installing a package that shares a
+    // prefix with one already there.
+    spec.describe(fw, "_line_present") {
+        spec.it("matches a whole line") callback {
+            spec.assert_eq(_line_present("react@18.3.1\ntslib@2.8.1\n", "tslib@2.8.1"), 1,
+                "whole line matches")
+        }
+        spec.it("does not match a prefix of a longer line") callback {
+            spec.assert_eq(_line_present("react-dom@18.3.1\n", "react"), 0,
+                "react does not match react-dom")
+        }
+        spec.it("distinguishes versions") callback {
+            spec.assert_eq(_line_present("vite@5.1.0\n", "vite@5"), 0,
+                "vite@5 does not match vite@5.1.0")
+        }
+        spec.it("empty marker matches nothing") callback {
+            spec.assert_eq(_line_present("", "react@18.3.1"), 0, "empty marker")
         }
     }
 

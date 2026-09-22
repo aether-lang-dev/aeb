@@ -61,6 +61,106 @@ pnpm_add_cmd(prefix_dir: string, deps: ptr) {
     return cmd
 }
 
+// _line_present(haystack, needle) — is `needle` one of the newline-separated
+// lines of `haystack`? Whole-line match, so "react" does not match
+// "react-dom" and "vite@5" does not match "vite@5.1".
+_line_present(haystack: string, needle: string) -> int {
+    rest = haystack
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = ""
+        if nl < 0 {
+            line = rest
+            rest = ""
+        } else {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        }
+        if string.equals(string.trim(line), needle) == 1 { return 1 }
+    }
+    return 0
+}
+
+// pnpm_locked_cmd(lock_dir, inner) — run `inner` while holding an advisory
+// lock at `lock_dir`. Pure (returns the shell string).
+//
+// WHY. Every node installs into ONE shared prefix, `<root>/.aeb`, and nodes
+// run as parallel make subprocesses. `pnpm add` is not a concurrent-safe
+// operation on a prefix: it rewrites `package.json` and then prunes
+// node_modules to match, so two adds racing means one silently reverts the
+// other. Observed on nx-examples, where `libs/cart/cart-page` failed with
+//   error TS2307: Cannot find module 'react'
+// while `react` sat in `.aeb/package.json` the whole time — a sibling node's
+// add had re-pruned the tree out from under the running tsc.
+//
+// `mkdir` (POSIX, WITHOUT -p) is the lock: it is atomic and fails if the
+// directory exists. Bounded spin, then proceed anyway — a stale lock from a
+// killed process must not wedge every later build, and the worst case of
+// proceeding is the race we already had.
+//
+// `$?` is captured before the rmdir so the caller still sees pnpm's real
+// exit status, not the unlock's. `sh` here is dash on Debian/Ubuntu, so this
+// stays POSIX: no `flock`, no bashisms.
+pnpm_locked_cmd(lock_dir: string, inner: string) {
+    c = "__i=0; while [ $__i -lt 900 ]; do mkdir '${lock_dir}' 2>/dev/null && break; "
+    c = string.concat(c, "__i=$((__i+1)); sleep 0.2; done; ")
+    c = string.concat(c, inner)
+    c = string.concat(c, "; __rc=$?; rmdir '${lock_dir}' 2>/dev/null; exit $__rc")
+    return c
+}
+
+// pnpm_wait_unlocked_cmd(lock_dir) — block while somebody else is adding.
+// Pure (returns the shell string).
+//
+// The lock above stops two adds from corrupting each other. This stops a
+// node from COMPILING against a node_modules that an add is halfway through
+// relinking — which is the shape that actually failed: cart-page's tsc ran
+// while a sibling's `pnpm add` was mid-prune and reported `Cannot find
+// module 'react'` for a package that was present before and after.
+//
+// RESIDUAL, and it is honest to state it: this closes the window only for an
+// add already in flight when the node checks. An add that STARTS during a
+// long compile can still disturb it. Closing that needs a real shared/
+// exclusive lock held for the whole compile, which is a bigger change than
+// lib/pnpm should carry — the real answer is resolving the union of every
+// node's npm deps once, before any node compiles. Until then, note that the
+// marker file makes each spec install exactly once per build, so adds all
+// cluster at the start and the exposure shrinks as the build proceeds.
+pnpm_wait_unlocked_cmd(lock_dir: string) {
+    c = "__i=0; while [ -d '${lock_dir}' ] && [ $__i -lt 900 ]; do "
+    c = string.concat(c, "__i=$((__i+1)); sleep 0.2; done; exit 0")
+    return c
+}
+
+// _link_root_node_modules(root, nm_dir) — make <root>/node_modules point at
+// aeb's .aeb/node_modules, unless something is already there.
+//
+// aeb installs into .aeb/node_modules and hands the TOOL path to the
+// builders (`.aeb/node_modules/.bin/tsc`). That runs the tool, but it does
+// nothing for the tool's OWN module resolution: TypeScript, jest and every
+// other Node tool resolve a bare `import "react"` by walking UP the
+// directory chain from the importing file looking for `node_modules/`, and
+// `.aeb/node_modules` is not on that chain. So a library that imports a real
+// npm package failed with
+//   error TS2307: Cannot find module 'react'
+// while react sat installed and correct in .aeb/node_modules. Only libraries
+// importing nothing but path aliases worked, which is why it stayed hidden.
+//
+// A root symlink is what `pnpm install` itself would create, and
+// `node_modules` is gitignored everywhere, so this puts nothing new in front
+// of the developer. Guarded on fs.exists: a project with a REAL root
+// node_modules (its own pnpm/npm install) keeps it untouched — aeb adds a
+// convenience, it does not take the directory over. A failure is silent:
+// Windows needs a privilege for symlinks, and the builders still work there
+// for path-alias-only projects exactly as they did before.
+_link_root_node_modules(root: string, nm_dir: string) {
+    link_path = path.join(root, "node_modules")
+    if fs.exists(link_path) == 1 { return 0 }
+    if dir.exists(nm_dir) == 0 { return 0 }
+    _serr = fs.symlink(nm_dir, link_path)
+    return 0
+}
+
 // --- npm dependency resolution ---
 //
 // All npm deps (npm:pkg:version) are collected via dep() in build
@@ -84,13 +184,63 @@ resolve(ctx: ptr) {
     nm_dir = path.join(aeb_dir, "node_modules")
     mod_dir = bldr._get(ctx, "module_dir")
 
-    // Check if node_modules already exists and has content
-    if file.exists(nm_dir) == 1 {
+    // Skip only what has ALREADY BEEN ADDED — not "does node_modules exist".
+    //
+    // Every node declares its own npm deps, and they all install into one
+    // shared .aeb/node_modules. The old guard was `if file.exists(nm_dir)`,
+    // which asks a regular-file-only predicate about a DIRECTORY and so
+    // always answered 0 (one of the three-way exists() traps AGENTS.md
+    // calls out). Two bugs cancelled: the guard never fired, so every node
+    // ran `pnpm add` with its own package list and between them the tree
+    // ended up complete — at the cost of one pnpm invocation per node.
+    //
+    // Correcting the predicate alone breaks that: the FIRST node's install
+    // creates node_modules, and every later node then skips, so react,
+    // @emotion/styled and jest are never installed and their consumers fail
+    // with "Cannot find module 'react'" and "jest: No such file or
+    // directory". The directory existing says nothing about whether THIS
+    // node's packages are in it.
+    //
+    // So track the specs added so far in .aeb/.aeb_npm_added and add only
+    // what is missing. Correct like the accidental behaviour was, and
+    // cheaper — a node whose deps are all present shells out to nothing.
+    added_marker = path.join(aeb_dir, ".aeb_npm_added")
+    added_txt = ""
+    if file.exists(added_marker) == 1 {
+        raw_added, _rerr = io.read_file(added_marker)
+        added_txt = raw_added
+    }
+    missing = list.new()
+    di = 0
+    while di < dep_count {
+        d_pkg, _ = list.get(npm_deps, di)
+        d_spec = pnpm_spec_from_dep(d_pkg)
+        if _line_present(added_txt, d_spec) == 0 {
+            _lm = list.add(missing, d_pkg)
+        }
+        di = di + 1
+    }
+    if list.size(missing) == 0 {
+        // Nothing to add — but do not hand node_modules to a compiler while
+        // somebody else is relinking it.
+        _wl = bldr._sh(pnpm_wait_unlocked_cmd(path.join(aeb_dir, ".aeb_npm_lock")))
+        _lr1 = _link_root_node_modules(root, nm_dir)
         _e2 = map.put(ctx, "_npm_resolved", nm_dir)
+        bldr._write_artifact(ctx, "npm_node_modules", nm_dir)
         return nm_dir
     }
 
     println("${mod_dir}: resolving npm dependencies via pnpm")
+
+    // .aeb is aeb's per-project dir; `aeb --init` creates it, but --init is
+    // optional (SDK resolution falls back to $AEB_HOME/lib), so a project
+    // that never ran it has no .aeb at all. Without this the two writes
+    // below silently failed — their io.write_file returns went into discard
+    // variables — and `pnpm add --dir <root>/.aeb` then died with
+    //   [ERROR] ENOENT: no such file or directory, lstat '<root>/.aeb'
+    // which was downgraded to a warning, so the real error surfaced later
+    // and elsewhere as `.aeb/node_modules/.bin/tsc: No such file`.
+    bldr._mkdirs(aeb_dir)
 
     // Ensure .aeb has a package.json and hoisted layout config
     aeb_pkg = path.join(aeb_dir, "package.json")
@@ -104,12 +254,33 @@ resolve(ctx: ptr) {
 
     // COREPACK_ENABLE_STRICT=0 allows pnpm to work even when
     // a parent package.json declares a different package manager
-    cmd = pnpm_add_cmd(aeb_dir, npm_deps)
+    cmd = pnpm_locked_cmd(path.join(aeb_dir, ".aeb_npm_lock"),
+                          pnpm_add_cmd(aeb_dir, missing))
     exit_code = bldr._sh(cmd)
+    if exit_code == 0 {
+        // Record what landed, so a later node asking for the same specs
+        // shells out to nothing. Only on success: a failed add must be
+        // retried, not remembered.
+        mi = 0
+        mn = list.size(missing)
+        while mi < mn {
+            m_pkg, _ = list.get(missing, mi)
+            added_txt = string.concat(added_txt, pnpm_spec_from_dep(m_pkg))
+            added_txt = string.concat(added_txt, "\n")
+            mi = mi + 1
+        }
+        _ewm = io.write_file(added_marker, added_txt)
+    }
     if exit_code != 0 {
-        println("${mod_dir}: warning: pnpm add failed")
+        // Deliberately a warning, not a bldr.fail: the consumer that
+        // actually needs the packages (tsc, jest, ng) fails loudly on its
+        // own and attributes to the right node. Carry the exit code so the
+        // root cause is greppable in the node log rather than inferred from
+        // a missing binary three lines later.
+        println("${mod_dir}: warning: pnpm add failed (exit ${exit_code})")
     }
 
+    _lr2 = _link_root_node_modules(root, nm_dir)
     _e5 = map.put(ctx, "_npm_resolved", nm_dir)
     bldr._write_artifact(ctx, "npm_node_modules", nm_dir)
     return nm_dir

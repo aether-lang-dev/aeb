@@ -360,7 +360,13 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
 _ensure_venv(root: string) {
     venv = path.join(root, ".aeb/venv")
     venv_py = path.join(venv, "bin/python")
-    if file.exists(venv) == 0 {
+    // dir.exists, NOT file.exists: .aeb/venv is a DIRECTORY and std's
+    // file.exists is regular-file-only, so this always answered 0 and
+    // `python3 -m venv` re-ran for every node in the graph. Harmless to
+    // correctness (venv creation is idempotent) but it is why a second
+    // Python module in the same tree cost ~4x the first. The venv_py
+    // check below is a real file, so file.exists is right there.
+    if dir.exists(venv) == 0 {
         rc = bldr._sh("python3 -m venv '${venv}'")
         if rc != 0 {
             println("aeb: python3 -m venv failed (rc=${rc}) — is python3-venv installed? (e.g. apt install python3-venv)")

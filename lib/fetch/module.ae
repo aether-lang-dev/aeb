@@ -684,7 +684,12 @@ builder git(): int {
 
     // Up-to-date check: an existing clone whose HEAD satisfies the pin.
     git_dir = path.join(into_abs, ".git")
-    if file.exists(git_dir) == 1 {
+    // fs.exists, NOT file.exists: in an ordinary clone .git is a DIRECTORY
+    // (file.exists is regular-file-only and answered 0), and in a worktree
+    // or submodule it is a FILE — so only the path-agnostic probe is right
+    // for both. Until this was fixed the up-to-date short-circuit below
+    // never fired and every build re-cloned the repository.
+    if fs.exists(git_dir) == 1 {
         head_raw, head_err = bldr._sh_capture(git_head_sha_cmd(into_abs))
         head = string.trim(head_raw)
         if string.length(head_err) == 0 {
