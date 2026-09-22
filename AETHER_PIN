@@ -289,4 +289,19 @@
 # asks/closure-var-collides-with-function-body-name.md. Verified against the real
 # 0.699.0 linux tarball: aeb builds clean, cold-gate + override-dep + ae-add +
 # libaether-floor-guard smokes + full suite green; GLIBC floor 2.34.
-0.699.0
+#
+# Raised 0.699.0 -> 0.706.0 (2026-09-22). FETCH-side lockstep: aeb calls no new
+# primitive from 0.700-0.706, so its own sources still compile on 0.681 — the
+# floor moves with FETCH per the no-back-compat DSL policy. Scanned 0.700-0.706;
+# all fixes + additive stdlib, no grammar/API/removed change aeb touches. One is
+# an ecosystem bookend worth naming: 0.701 fixes #2083 — "a `!` send from a
+# non-scheduler thread was silently lost" — the SPSC from_queues[MAX_CORES]
+# illegitimate-second-producer bug aeb's session root-caused for the selaenium
+# grid arc (traced from the runtime, filed the ask). It's a runtime fix, not an
+# aeb-called primitive. Also: 0.700 float-array-literal inference, 0.702 branch-
+# hoisted-local type, 0.703 fn-typed-param `run` collision, 0.705 @source (a
+# module ships its own C), 0.706 std.math f32 family. Verified against the real
+# 0.706.0 linux tarball: aeb builds clean, cold-gate + override-dep + ae-add +
+# libaether-floor-guard + retired-grammar + failures-jsonl + report-view/-tiers +
+# config-precedence + watch smokes + full suite 151/151 green; GLIBC floor 2.34.
+0.706.0

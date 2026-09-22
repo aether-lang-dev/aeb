@@ -223,4 +223,10 @@
 # vr_idx/vr_entry rename workaround; pinning >= 0.698 lets aeb revert it. We fetch
 # 0.699 (newest published, carries the 0.698 fix). Verified against the real
 # 0.699.0 tarball: aeb builds clean, all smokes + full suite green; GLIBC 2.34.
-0.699.0
+#
+# Raised 0.699.0 -> 0.706.0 (2026-09-22). FETCH-side lockstep (see AETHER_PIN for
+# the 0.700-0.706 scan): no new aeb-called primitive, all fixes + additive stdlib.
+# 0.701 carries the #2083 non-scheduler-send fix aeb's session root-caused for the
+# selaenium arc. Newest published. Verified against the real 0.706.0 tarball: aeb
+# builds clean, all 10 smokes + full suite 151/151 green; GLIBC 2.34.
+0.706.0
