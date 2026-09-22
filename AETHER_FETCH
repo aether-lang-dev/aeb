@@ -227,6 +227,15 @@
 # Raised 0.699.0 -> 0.706.0 (2026-09-22). FETCH-side lockstep (see AETHER_PIN for
 # the 0.700-0.706 scan): no new aeb-called primitive, all fixes + additive stdlib.
 # 0.701 carries the #2083 non-scheduler-send fix aeb's session root-caused for the
-# selaenium arc. Newest published. Verified against the real 0.706.0 tarball: aeb
-# builds clean, all 10 smokes + full suite 151/151 green; GLIBC 2.34.
+# selaenium arc. Newest published.
+#   First cut (v0.324 @ ff23ad1) FAILED to build: 0.702 tightened branch-hoisted-
+#   local typing, so tools/aeb-report.ae (a LAZY-built tool, not a `make build`
+#   target) hit E0200 re-binding an int local from a ptr-returning map.get; and the
+#   opt-in tools/aeb-keygen.ae carried a latent wrong-module base64 call that had
+#   never been cold-compiled. The warm suite + the report smokes ran cached binaries
+#   built on 0.699, so they stayed green while the release couldn't build the tools.
+#   Both fixed (e964459); a new gate (itests/tools-cold-compile-smoke.sh, wired into
+#   CI) now cold-compiles EVERY tools/*.ae so this class can't recur. Re-verified
+#   against the real 0.706.0 tarball with a fresh AETHER_HOME: all 27 tools cold-
+#   compile, all 11 smokes + full suite 151/151 green; GLIBC 2.34.
 0.706.0
