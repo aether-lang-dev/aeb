@@ -275,7 +275,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
 // at end. Self-contained (no extern). `sep` is "\n" for the single-line maps
 // (args/env) and "\x1e" (RS) for recipe_steps (whose payloads may themselves
 // contain newlines — a multi-line heredoc RUN).
-_next_field(s: string, from: int, sep: string) {
+_next_field(s: string, from: int, sep: string) -> (string, int) {
     n = string.length(s)
     if from >= n { return "", -1 }
     nl = string.index_of_from(s, sep, from)
@@ -290,7 +290,7 @@ _next_field(s: string, from: int, sep: string) {
 // this order: FROM, ARG*, the ordered recipe_steps (RUN etc. in call order —
 // ordering is load-bearing), ENV*, EXPOSE*, ENTRYPOINT. The "Containerfile
 // lines inline" path; chosen by image() when opts has "recipe" set.
-dockerfile_full_content(opts: ptr) {
+dockerfile_full_content(opts: ptr) -> string {
     base_img = "debian:trixie-slim"
     if map.has(opts, "base") == 1 { base_img, _ = map.get(opts, "base") }
     df = string.concat("FROM ", base_img)
@@ -508,6 +508,15 @@ builder image(): int {
         }
     }
     if string.length(df_path) == 0 {
+        // target/<type>/<dir> is NOT created for us — every other SDK mkdirs
+        // its own output dir before writing (lib/c does it five times over,
+        // container.run does it below). image() didn't, so io.write_file
+        // failed, its return was discarded into `_e5`, and the builder went
+        // on to report a green build with no Dockerfile on disk. Under
+        // emit-only that was the whole node succeeding having written
+        // nothing; on the normal path it surfaced later and confusingly as
+        // `podman build` failing to open a missing -f file.
+        bldr._mkdirs(target_dir)
         df_path = path.join(target_dir, "Dockerfile")
         // Full-recipe mode (from()/run() called) generates a complete
         // Containerfile from the inline DSL; otherwise the artifact-
@@ -522,7 +531,13 @@ builder image(): int {
         } else {
             df_content = dockerfile_content(artifact, _builder)
         }
-        _e5 = io.write_file(df_path, df_content)
+        // io.write_file returns "" on success, an error string on failure.
+        werr = io.write_file(df_path, df_content)
+        if string.length(werr) > 0 {
+            fail(ctx, string.concat("could not write ", string.concat(df_path, string.concat(": ", werr))))
+            println("${mod_dir}: could not write ${df_path}: ${werr}")
+            return 1
+        }
     }
 
     // Emit-only mode: write the Dockerfile and STOP — do not `podman build`.
@@ -585,6 +600,10 @@ builder lxc(): int {
     cmd = lxc_create_cmd(name, _builder)
     exit_code = bldr._sh(cmd)
     if exit_code != 0 {
+        // Same channel image() uses, and for the same reason: the
+        // orchestrator discards a builder's return value, so a bare
+        // `return exit_code` reported a green build with no container.
+        fail(ctx, string.concat("lxc-create failed (exit ", string.concat(string.from_int(exit_code), ")")))
         println("${mod_dir}: lxc-create failed")
         return exit_code
     }
