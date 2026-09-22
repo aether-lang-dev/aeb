@@ -339,6 +339,19 @@ javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) 
     // won't resolve. The builder sets "modular" when it detects one (and
     // no_module_info() wasn't given). A manual module_path(...) above adds
     // its own --module-path; javac takes the last, so don't set both.
+    //
+    // BOTH paths, same entries. Maven's compiler plugin splits the deps —
+    // module-path for what module-info `requires`, classpath for the rest —
+    // which aeb cannot do without parsing module-info. Giving the module
+    // path alone is the wrong half of that split: a jar the module does not
+    // `requires` becomes unreachable, and an annotation-only jar is exactly
+    // such a jar. On spring-data-examples that meant javac could not
+    // complete `org.jspecify.annotations.Nullable` and then CRASHED while
+    // formatting a diagnostic, emitting a bare "1 error" with no message
+    // and a /tmp/javac.*.args report — for code that compiles clean once
+    // the classpath is there. Listing the same entries on both is safe:
+    // a named module resolves from the module path, and everything else
+    // stays reachable through the unnamed module.
     modular = 0
     if opts != null {
         if map.has(opts, "modular") == 1 {
@@ -347,7 +360,7 @@ javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) 
         }
     }
     if modular == 1 {
-        cmd = string.concat(cmd, " --module-path ${classpath} ${file_list}")
+        cmd = string.concat(cmd, " --module-path ${classpath} -cp ${classpath} ${file_list}")
     } else {
         cmd = string.concat(cmd, " -cp ${classpath} ${file_list}")
     }
