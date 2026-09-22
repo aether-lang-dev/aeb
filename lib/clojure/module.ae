@@ -645,10 +645,18 @@ builder test(): int {
 // the Clojure twist that *source* must ride inside the jar (most
 // namespaces aren't AOT'd), not just classes.
 //
-// Maven classpath is read from the `maven_classpath` artifact in
-// target_dir (written by `clojure.compile`); declaring this builder
-// in a `.dist.ae` alongside a `.build.ae` in the same directory means
-// they share target_dir, so the artifact is present after compile.
+// Maven classpath comes from THIS node's own declared deps, via
+// maven.classpath(ctx) — the same call clojure.compile makes. The
+// earlier version instead read a `maven_classpath` file out of
+// target_dir on the theory that a `.dist.ae` and its sibling
+// `.build.ae` share one; they do not. A node's target_dir is
+// target/<TYPE>/<dir>, so the dist node looked in target/dist/... for
+// a file clojure.compile had written to target/build/..., found
+// nothing, and AOT-compiled with only src/ on the classpath — failing
+// with "Could not find or load main class clojure.main" while the
+// .dist.ae's own dep("org.clojure:clojure:1.12.0") line sat unused.
+// The same-target_dir read is kept as a fallback so a .dist.ae that
+// declares no coordinates of its own still behaves as before.
 builder uberjar(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -688,13 +696,16 @@ builder uberjar(): int {
 
     src_root = path.join(source_dir, "src")
 
-    // Compose the classpath used for AOT: src + maven deps. Maven cp
-    // comes from the artifact a sibling clojure.compile wrote.
-    maven_cp = ""
-    mvn_file = path.join(target_dir, "maven_classpath")
-    if file.exists(mvn_file) == 1 {
-        mvn_raw, _emv = io.read_file(mvn_file)
-        maven_cp = string.trim(mvn_raw)
+    // Compose the classpath used for AOT: src + maven deps. Resolve this
+    // node's own coordinates first; only if it declared none fall back to
+    // a maven_classpath artifact sitting in our own target_dir.
+    maven_cp = maven.classpath(ctx)
+    if string.length(maven_cp) == 0 {
+        mvn_file = path.join(target_dir, "maven_classpath")
+        if file.exists(mvn_file) == 1 {
+            mvn_raw, _emv = io.read_file(mvn_file)
+            maven_cp = string.trim(mvn_raw)
+        }
     }
     aot_cp = bldr._cp_append(src_root, maven_cp)
 
