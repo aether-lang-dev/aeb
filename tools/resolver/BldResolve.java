@@ -14,7 +14,9 @@
  *
  *   --output   classpath (default) | sbom
  *   --bom      G:A:V     import an external BOM's managed versions (may repeat)
- *   --bom-file <path>    import a local BOM POM's managed versions (may repeat)
+ *   --bom-file <path>    import a local BOM: either an aeb `.bom.ae` (scanned
+ *                        as text for maven_bom()/maven_repo()/dep() lines) or
+ *                        a Maven BOM POM's managed versions (may repeat)
  *   --repo     <url>     add a repository besides Maven Central (may repeat)
  *   --cache    <dir>     download directory (default XDG data / ~/.local/share)
  *   <coord>              group:artifact[:version] positional, transitively resolved
@@ -54,6 +56,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -95,6 +99,35 @@ public class BldResolve {
                     }
             }
         }
+
+        // A --bom-file is EITHER an aeb `.bom.ae` — the aeb DSL, scanned as text
+        // for maven_bom()/maven_repo()/dep() lines, which is the contract every
+        // `*.bom.ae` in the tree documents — OR a literal Maven BOM POM (XML).
+        // The Eclipse-Aether shim this class replaced handled both; the rewrite
+        // to bld kept only the XML branch, so each `.bom.ae` died with
+        // "Content is not allowed in prolog" and its repo/coordinate lines were
+        // dropped with only a warning. The visible symptom was one step removed
+        // from the cause: a Clojars- or Jitpack-hosted closure reported as
+        // "couldn't find artifact ... at repo1.maven.org".
+        //
+        // Discriminate on CONTENT, not on the filename: a POM's first non-blank
+        // character is always '<' (prolog or root element), and an .ae file's
+        // never is.
+        List<String> bomPomFiles = new ArrayList<>();
+        for (String bomFile : bomFiles) {
+            try {
+                Path bp = Paths.get(bomFile);
+                if (looksLikeXml(bp)) {
+                    bomPomFiles.add(bomFile);
+                } else {
+                    parseBomAeFile(bp, boms, repoUrls, deps);
+                }
+            } catch (Exception e) {
+                System.err.println("warning: could not read BOM file " + bomFile
+                        + " \u2014 " + e.getMessage());
+            }
+        }
+        bomFiles = bomPomFiles;
 
         // Repository list: Central always present, plus any --repo URLs.
         List<Repository> repos = new ArrayList<>();
@@ -236,6 +269,53 @@ public class BldResolve {
         String xml = fetchPom(p[0], p[1], p[2], repoUrls);
         if (xml == null) throw new IllegalStateException("POM not found in any repository");
         parsePomInto(xml, repoUrls, overrides);
+    }
+
+    /**
+     * True when `path` holds an XML document (a Maven BOM POM) rather than an
+     * aeb `.bom.ae`. Checked by first non-whitespace byte: '<' opens either the
+     * XML prolog or the root element, and never begins an .ae line.
+     */
+    private static boolean looksLikeXml(Path path) throws Exception {
+        String head = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
+        for (int i = 0; i < head.length(); i++) {
+            char c = head.charAt(i);
+            if (Character.isWhitespace(c)) continue;
+            return c == '<';
+        }
+        return false;   // empty file: nothing to XML-parse
+    }
+
+    /**
+     * Scan an aeb `.bom.ae` for maven_bom(), maven_repo() and dep() lines and
+     * append what they declare to the caller's lists. Text-only by design — the
+     * greppable contract aeb's build files rest on (no Aether evaluation).
+     *
+     * A BOM coordinate and a dep coordinate are both "g:a:v" (exactly two
+     * colons); a repo is a URL (contains "://"). Lines commented with // or #
+     * are skipped, so a coordinate quoted inside a comment does not register.
+     */
+    private static void parseBomAeFile(Path file, List<String> boms,
+                                       List<String> repoUrls, List<String> deps)
+            throws Exception {
+        Pattern quoted = Pattern.compile("\"([^\"]+)\"");
+        for (String line : Files.readAllLines(file, StandardCharsets.UTF_8)) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith("//") || trimmed.startsWith("#")) continue;
+
+            Matcher m = quoted.matcher(line);
+            while (m.find()) {
+                String val = m.group(1);
+                long colons = val.chars().filter(c -> c == ':').count();
+                if (line.contains("maven_bom(") && colons == 2) {
+                    boms.add(val);
+                } else if (line.contains("maven_repo(") && val.contains("://")) {
+                    if (!repoUrls.contains(val)) repoUrls.add(val);
+                } else if (line.contains("dep(") && colons == 2) {
+                    deps.add(val);
+                }
+            }
+        }
     }
 
     private static void loadBomFile(Path path, List<String> repoUrls,

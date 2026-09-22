@@ -213,8 +213,33 @@ mvn_lifecycle_cmd(source_dir: string, pom_path: string, goal: string) {
 // will mask the change. Conversely, things that don't affect the
 // resolved set (mod_dir, target_dir, log verbosity) MUST NOT be
 // added.
+//
+// THE RESOLVER ITSELF IS ONE OF THOSE INPUTS. It was missing, and the
+// omission bit exactly as predicted: aeb-resolve.jar had lost its
+// `.bom.ae` text-parsing branch, every Clojars coordinate failed to
+// resolve, and repairing the jar changed nothing on the next run —
+// the broken closure came straight back out of the cache under an
+// unchanged key. Same reasoning as the toolchain-version component of
+// the aether cache key: the tool that produces the artifact is part of
+// what the artifact depends on. Hashing the ~2 MB jar costs a few ms
+// against the seconds-to-minutes of network resolution it guards.
 _cache_key_for_resolve(ctx: ptr) {
     parts = list.new()
+
+    // Resolver identity. Read the jar in place — deliberately NOT via
+    // bldr._ensure_resolver_jar, which may DOWNLOAD: a cache-key function
+    // must not have side effects. An absent jar contributes nothing and
+    // resolve() fails loudly on the live path a moment later.
+    aeb_home_k = os.getenv("AEB_HOME")
+    if string.length(aeb_home_k) > 0 {
+        jar_k = path.join(aeb_home_k, "tools/aeb-resolve.jar")
+        if file.exists(jar_k) == 1 {
+            jhash, jerr = cache.hash_file(jar_k)
+            if string.length(jerr) == 0 {
+                _ej = list.add(parts, string.concat("resolver:", jhash))
+            }
+        }
+    }
 
     // BOM file contents — canonicalise on content rather than path
     // so the same BOM at two different paths produces the same key.
