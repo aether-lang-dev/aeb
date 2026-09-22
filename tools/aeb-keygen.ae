@@ -16,6 +16,7 @@
 // Then: aeb-agent --lease-secrets <that file> ; aeb-lease --secret <that file> …
 
 import std.cryptography
+import std.encoding
 import std.string
 import agent (_secret_marker, _secret_key_material, _secret_strength_ok, _looks_like_token)
 
@@ -25,8 +26,10 @@ extern exit(code: int)
 main() {
     raw, n, err = cryptography.random_bytes(32)
     if string.length(err) > 0 { println("aeb-keygen: CSPRNG failed: ${err}"); exit(1) }
-    material, b64err = cryptography.base64_encode(raw, n)
-    if string.length(b64err) > 0 { println("aeb-keygen: base64 failed: ${b64err}"); exit(1) }
+    // encoding.base64_encode(data, length) -> string (single value, "" on
+    // empty/invalid input); it lives in std.encoding, not std.cryptography.
+    material = encoding.base64_encode(raw, n)
+    if string.length(material) == 0 { println("aeb-keygen: base64 failed (empty output)"); exit(1) }
     secret = string.concat(_secret_marker(), material)
     // Self-check against the SAME gates the agent/minter enforce, so generated
     // output is guaranteed usable (and we'd catch a future floor/marker change).

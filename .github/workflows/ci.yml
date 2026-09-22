@@ -116,6 +116,15 @@ jobs:
       # node pulls lib/<sdk> in, invisible to the warm unit suite below.
       - name: SDK cold-compile smoke
         run: itests/sdk-cold-compile-smoke.sh
+      # Cold-compile EVERY tools/*.ae (incl. opt-in aeb-agent/lease/keygen and
+      # lazy-built aeb-report/graph/query) from a fresh AETHER_HOME. Catches the
+      # class where a cached binary from an older toolchain masks a source that no
+      # longer compiles on the newly-pinned Aether — which stayed invisible to
+      # `make build` (those tools aren't build targets) until a release failed to
+      # build them. Bit us pinning 0.706 twice (aeb-report E0200, aeb-keygen
+      # wrong-module base64).
+      - name: tools cold-compile smoke
+        run: itests/tools-cold-compile-smoke.sh
       - name: --overrideDep node-substitution smoke
         run: itests/override-dep-smoke.sh
       # ae-add binary-package emitter: aeb builds an Aether .so and stages it as
