@@ -5,6 +5,26 @@ is driven by `.build.ae` / `.tests.ae` files using the Java SDK + a
 shared Spring Boot BOM. No `pom.xml`, Surefire, or Maven plugins are
 invoked.
 
+## `enable_preview()` removed (2026-09-22)
+
+Every `.build.ae` and `.tests.ae` here carried `enable_preview()` alongside
+`release("25")`. Upstream does **not** compile with preview features: its
+`jvm.enable-preview` property is declared **empty** in the root `pom.xml` and
+used in exactly one place — a surefire `argLine` prefix in
+`jpa/eclipselink/pom.xml`. It is a hook for turning preview on ad hoc, not a
+setting. The migration had promoted it into an unconditional compiler flag.
+
+That made the whole project JDK-25-only, because javac accepts
+`--enable-preview` only for its OWN release:
+
+    error: invalid source release 25 with --enable-preview
+      (preview language features are only supported for release 26)
+
+On a JDK 26 box that was **83 of 90 modules failing**, all with the same
+message, for a flag upstream never sets. Removed across all 174 files; the
+`release("25")` pin stays, since that is upstream's real
+`maven.compiler.source`/`target`.
+
 ## Upstream pinning
 
 Upstream `spring-data-examples` tracks the current Spring Data milestone

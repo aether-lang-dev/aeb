@@ -2,7 +2,7 @@ import bldr
 import bldr (dep)
 import maven (load_bom_file)
 import java
-import java (release, source_layout, enable_preview, generated_sources)
+import java (release, source_layout, generated_sources)
 
 main() {
     bldr.build() {
@@ -20,7 +20,6 @@ main() {
         java.javac() {
             release("25")
             source_layout("maven idiomatic")
-            enable_preview()
             parameters()
             generated_sources("target/rest/starbucks/generated-sources")
         }

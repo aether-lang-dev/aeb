@@ -20,6 +20,39 @@ aeb --init
 AETHER=/path/to/ae aeb
 ```
 
+### Pin the upstreams, or the subject of the test changes under you
+
+`fetch_repo` takes an optional third argument — a commit or tag — and an entry
+without one **tracks upstream HEAD**. That is not a snapshot; it means the
+project being tested is whatever upstream looked like on the day someone last
+ran the fetch, while the `.build.ae` files next to it were written against
+whatever it looked like on the day of the migration.
+
+It is not hypothetical. nx-examples migrated to TypeScript solution-style
+configs (#458) — `tsconfig` `paths` aliases replaced by npm-workspace package
+resolution, babel and webpack configs deleted, and `libs/shared/product/types`
+now re-exporting a `./generated` module an `nx codegen` target produces. An
+unpinned fetch replaced the test subject wholesale: 82 of its 88 recorded
+upstream files were simply gone, and the itest failed with `Cannot find module
+'@nx-example/shared-jsxify'` — nothing to do with aeb. It is now pinned to
+`2cae706`, the parent of that migration, which matches its recorded file list
+exactly.
+
+When an itest starts failing in ways that do not look like aeb, check drift
+before debugging aeb:
+
+```bash
+cd itests/<project>
+while read -r f; do [ -e "$f" ] || echo "MISSING $f"; done < git-ls-files.txt | wc -l
+```
+
+(`nx-examples` and `spring-data-examples` carry a cleaner `upstream_git_files.txt`
+— prefer it where present.) A non-trivial count means the upstream moved and
+the migration needs either a pin or a re-migration. As of 2026-09-22:
+`rust-multi-module-oxen` has drifted far and is unpinned; `go-multimodule-fyne`
+and `spring-data-examples` have drifted mildly; clojure, dotnet, python, flutter
+and jooby have not drifted at all.
+
 ## Cache smoke test
 
 `cache-smoke.sh` is the end-to-end check that the content-addressed cache
@@ -167,6 +200,70 @@ cd itests
 ./std-symbol-collision.sh
 ```
 
+## Resolver `.bom.ae` check
+
+`resolver-bom-ae.sh` pins what `aeb-resolve.jar --bom-file` accepts. A path
+handed to it is one of two things: an aeb `.bom.ae` — the DSL, scanned as
+text for `maven_bom()` / `maven_repo()` / `dep()` lines — or a literal Maven
+BOM POM (XML). The Eclipse-Aether resolver handled both; the Aug-2026 rewrite
+onto bld kept only the XML branch, so every `.bom.ae` in the tree hit an XML
+parser, warned `Content is not allowed in prolog`, **and exited 0** having
+silently dropped every repository and coordinate it declared. The damage
+surfaced one step removed from its cause, as Clojars-hosted artifacts
+reported missing from Maven Central — which is what the Clojure itest had
+been failing on.
+
+Nothing caught it: `tests/run.sh` is Aether-only and cannot exercise a Java
+jar, and `tests/test_maven_cmd.ae` asserts the command string aeb builds,
+which was right throughout.
+
+Offline. A `python3 -m http.server` serves a two-file fake repository on
+127.0.0.1 holding one artifact that exists in no public repository, so "did
+`maven_repo()` register" and "did `dep()` register" are answered by whether
+that coordinate comes back — no network, no flakes, and a pass that cannot
+come from a warm Central cache. Assertions are about bytes, not `$?`, since
+the broken resolver's exit code was 0.
+
+Mutation-checked: against the pre-fix jar 3 assertions fail, while the XML
+round still passes — the two `--bom-file` meanings are independent and both
+need pinning.
+
+```bash
+cd itests
+./resolver-bom-ae.sh
+```
+
+## Container emit-only check
+
+`container-emit-only.sh` is the other half of
+`tests/test_container_dockerfile.ae`. That unit test asserts the exact string
+`dockerfile_full_content()` generates, including ordered `run`/`workdir`/`run`
+rendering, and it passed throughout the bug below — because the string was
+never wrong. The defect was in what the builder did with it: `container.image`
+never created `target/<type>/<dir>` before writing (every other SDK mkdirs its
+own output dir), and dropped `io.write_file`'s error return into a discard
+variable. So the write failed, nothing said so, and the builder returned 0 —
+under `AEB_CONTAINER_EMIT_ONLY` that was the entire node: a green build, an
+ordinary-looking telemetry row, and no Dockerfile on disk.
+
+`tests/run.sh` runs Aether unit tests with no builder context and no
+filesystem, so it cannot reach a builder body at all. This script drives the
+same grammar through a real aeb node and asserts on the file — both the
+full-recipe path (`from()`/`run_step()`, the shape `agent-container/.image.ae`
+uses) and the artifact-packaging default, plus the other direction: a
+destination that cannot be written must redden the build and name the file.
+
+Emit-only is the right harness because it needs no container engine, no image
+pull and no network — and it is the path where the bug was total rather than
+merely confusing.
+
+Mutation-checked: remove the `bldr._mkdirs(target_dir)` and 5 assertions fail.
+
+```bash
+cd itests
+./container-emit-only.sh
+```
+
 ## Projects
 
 | Directory | Language | Upstream | What aeb replaces |
@@ -183,17 +280,51 @@ cd itests
 
 ## Results summary
 
+Last measured **2026-09-22** on CachyOS: JDK 26, .NET 10 SDK, Go, node 26 /
+pnpm 11, rustc 1.98, Clojure CLI 1.12, Python 3.14, Ruby 3.4, gcc 16, Aether
+0.706.0. Where a row differs from a previous reading, the reason is named —
+several are properties of THIS host, not of aeb.
+
 | Project | Modules | Compile | Tests |
 |---------|---------|---------|-------|
-| spring-data-examples | 90 | 68+ OK | 9+ pass |
-| nx-examples | 13 | 13 OK | 7/7 pass |
-| clojure-multiproject | 6 | 6 OK | 3/5 pass (1 intentional fail, 1 port conflict) |
-| dotnet-eShopOnWeb | 9 | 9 OK | 3/3 pass |
+| spring-data-examples | 90 | 61 OK | 69/77 |
+| nx-examples | 14 | 12 OK | 0 (jest undeclared — see its status doc) |
+| clojure-multiproject | 6 | 6 OK | 4/5 pass (1 intentional upstream fail) |
+| dotnet-eShopOnWeb | 9 | 9 OK | blocked (host has no `Microsoft.AspNetCore.App` runtime) |
 | go-multimodule-fyne | 1 + 11 test | 1 OK | 11/11 pass |
-| rust-multi-module-oxen | 3 | 0 (env) | — (RocksDB C++ build issue) |
+| python-monorepo-demo | 2 | 2 OK + wheel/sdist | 3/4 (1 upstream assertion) |
+| aether-program-spike | 1 + 2 test | 1 OK | 2/2 pass |
+| c-hello / c-aether-spike-a / -b / c-bootstrap-tool | 1 each | all OK | binaries run |
+| rust-workspace-demo | 3 | 3 OK | 1/1 pass |
+| rust-registry-crate-demo | 1 | 1 OK | — |
+| agent-container | 1 | OK (emit-only) | — |
+| rust-multi-module-oxen | 3 | 0 (env) | — (RocksDB C++ build issue; also heavily drifted, unpinned) |
 | mrhdias_rust_store | 1 | 0 (upstream) | — (ord_subset crate incompatible with current rustc) |
-| flutter-melos-monorepo | 6 | 6 OK | 20/20 pass (needs Flutter 3.3.x) |
-| jooby | 5 of 82 | 5 OK | core 1285/1285, kotlin 9/9 (partial; see status) |
+| flutter-melos-monorepo | 6 | not run | — (no Flutter on this host; dart 3.13 alone) |
+| jooby | 5 of 82 | not run this round | core 1285/1285, kotlin 9/9 (partial; see status) |
+
+Notes on the rows that moved:
+
+- **spring-data-examples 6 → 61.** Two fixes. The migration had added
+  `enable_preview()` to all 174 build/test files although upstream's
+  `jvm.enable-preview` property is empty, which pinned the project to JDK 25
+  and failed 83 of 90 modules on a JDK 26 host; and `lib/java`'s modular
+  compile passed deps on `--module-path` only, so javac could not complete
+  `org.jspecify.annotations.Nullable` and crashed while formatting a
+  diagnostic, printing a bare `1 error`. The remaining 29 are the Spring Boot
+  4.0.1 → 4.0.4 drift that `AEB_MIGRATION_STATUS.md` already describes.
+- **nx-examples.** Was failing wholesale against an upstream that had moved
+  on; now pinned to `2cae706` and 12 of 14 modules compile. The tests need
+  workspace dev-dependencies the migration never declared — listed, with
+  versions, in its `AEB_MIGRATION_STATUS.md`.
+- **clojure-multiproject 3/5 → 4/5.** `aeb-resolve.jar` had lost its
+  `.bom.ae` parsing, so no Clojars coordinate resolved; `clojure.uberjar`
+  also read `maven_classpath` from the wrong target dir. The one remaining
+  failure is upstream's deliberate `(= 0 1)` FIXME.
+- **dotnet-eShopOnWeb.** All 9 projects compile. The test runs abort in the
+  VSTest host because the box has only `Microsoft.NETCore.App 10.0.11` and no
+  ASP.NET Core shared runtime at any version, so a net8.0 test assembly has
+  nothing to load. Nothing to do with aeb.
 
 ## What gets committed
 

@@ -1,6 +1,47 @@
 # Nx to aeb Migration — Dependency Status
 
+> **Upstream is PINNED to `2cae706`** (see `../fetch-upstream.sh`). The
+> `.build.ae` files here were authored against the layout before nx-examples
+> #458, "migrate to TypeScript solution-style configs", which:
+>
+> - dropped the `tsconfig` `paths` aliases in favour of npm-workspace package
+>   resolution — a `customConditions: ["@nx-example/source"]` entry plus a
+>   per-lib `package.json` with an `exports` map;
+> - deleted every `.babelrc` and `apps/cart/webpack.config.js`;
+> - made `libs/shared/product/types` re-export a `./generated` module that an
+>   `nx codegen` target produces from an OpenAPI document.
+>
+> Fetching HEAD instead replaced the subject of the test: 82 of the 88 recorded
+> upstream files were gone and the build failed with `Cannot find module
+> '@nx-example/shared-jsxify'` and `Cannot find module './generated'` — neither
+> of which says anything about aeb.
+>
+> **Re-migrating to the current upstream is worth doing** and is the natural
+> next piece of work here: it would exercise aeb against TS project references
+> and workspace-package resolution, which nothing in itests/ covers today. It
+> is a migration, not a fix, and the pin moves in the same commit.
+
+
 After dropping nx as orchestrator, the dev team still needs:
+
+## Known gap: the workspace dev-dependencies are not declared
+
+Under Nx these arrive from one `pnpm install` of the root `package.json`.
+Under aeb every npm package a node needs is declared in a `.deps.ae`, and the
+migration declared only the runtime set (typescript, tslib, rxjs, react,
+@emotion, @angular, @ngrx). Everything the *test* and *bundle* paths need was
+missed, so those nodes fail on absence rather than on anything aeb did:
+
+| node | fails with | needs |
+|------|-----------|-------|
+| every `.tests.ae` | `jest: No such file or directory` | `jest@30.3.0`, `ts-jest@29.2.4`, `jest-environment-jsdom@30.2.0`, `@types/jest@30.0.0`, and `@nx/jest@23.0.0-beta.18` for `jest.preset.js`'s `@nx/jest/preset` + `@nx/jest/plugins/resolver` |
+| `apps/cart` | `Cannot find type definition file for '@nx/react/typings/cssmodule.d.ts'` | `@nx/react@23.0.0-beta.18` |
+| `libs/shared/e2e-utils` | `Cannot find name 'cy'` | `cypress@15.15.0`, plus `typeRoots`/`types` plumbing — cypress ships its types at `node_modules/cypress/types`, not under `node_modules/@types`, which is where `tsconfig.base.json` points |
+
+Versions are upstream's `package.json` at the pinned revision. Declaring the
+`@nx/*` entries keeps the "lingering nx tentacles" this document describes
+below; rewriting `jest.preset.js` to drop `@nx/jest` is the alternative, and
+the better end state.
 
 ## Still invoked by aeb daily
 

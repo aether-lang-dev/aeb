@@ -2,7 +2,7 @@ import bldr
 import bldr (dep)
 import maven (load_bom_file)
 import java
-import java (release, source_layout, enable_preview, test_timeout, parameters)
+import java (release, source_layout, test_timeout, parameters)
 
 main() {
     bldr.build() {
@@ -14,12 +14,10 @@ main() {
         java.javac_test() {
             release("25")
             source_layout("maven idiomatic")
-            enable_preview()
             parameters()
         }
         java.junit5() {
             test_timeout("30")
-            enable_preview()
         }
     }
 }

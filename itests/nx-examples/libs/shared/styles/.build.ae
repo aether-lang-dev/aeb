@@ -1,0 +1,25 @@
+// shared-styles — an Nx library with `"targets": {}`.
+//
+// Upstream's project.json declares no build at all: the lib is SCSS that
+// apps/cart and apps/products pull in through their own styles config.
+// There is nothing to compile, so this node declares no builder — and a
+// node with no builder does no work of its own; its EDGES are its
+// contribution (same rule the `.presubmit.ae` convention rests on).
+//
+// The node still has to exist. Both apps declare an edge to this file,
+// which is a faithful record of the Nx dependency, and a dep naming a file
+// that is not there is an unsatisfiable prerequisite, not an absent edge.
+//
+// (Deliberately not spelling that edge out here: extract-deps is a TEXT
+// scan and does not skip comments, so a dep call written in prose becomes
+// a real edge — naming this file in one made it its own dependency, and
+// the build died with "circular dependency".)
+
+import bldr
+import meta
+
+aeb(cap) {
+    bldr.build() {
+        meta.desc("shared SCSS consumed by the app builds; no compile step")
+    }
+}

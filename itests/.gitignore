@@ -10,12 +10,26 @@
 
 # Upstream repos — fetched by fetch-upstream.sh, not committed.
 # Everything inside is ignored, then our aeb files are un-ignored with !
+#
+# Every project fetch-upstream.sh clones belongs in this list. The six below
+# it used to carry instead a generated per-file list (the ~29k lines further
+# down, one `git ls-files` line per upstream file at migration time), which
+# only ignores the files that existed on the day the list was made. A later
+# fetch brings new upstream files, none of them listed, and `git add -A
+# itests/` then stages hundreds of them — go-multimodule-fyne alone offered
+# ~800. The glob does not go stale.
 nx-examples/**
 spring-data-examples/**
 clojure-multiproject-example/**
 dotnet-architecture-eShopOnWeb/**
 flutter-melos-monorepo/**
 jooby/**
+go-multimodule-fyne/**
+rust-multi-module-oxen/**
+python-monorepo-demo/**
+mrhdias_rust_store/**
+pytorch/**
+selenium/**
 
 # aeb files we DO track (un-ignore)
 !**/.build.ae

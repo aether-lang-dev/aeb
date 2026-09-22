@@ -2,7 +2,7 @@ import bldr
 import bldr (dep)
 import maven (load_bom_file)
 import java
-import java (release, source_layout, enable_preview, parameters)
+import java (release, source_layout, parameters)
 
 main() {
     bldr.build() {
@@ -14,7 +14,6 @@ main() {
         java.javac() {
             release("25")
             source_layout("maven idiomatic")
-            enable_preview()
             parameters()
         }
     }
