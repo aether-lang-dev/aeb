@@ -12,24 +12,38 @@
 // captured into the build context's metadata map; downstream
 // exporters read it.
 //
-// Usage:
+// Usage — the two-import idiom, and the BARE call form:
 //   import meta
 //   import meta (desc, homepage, license, version, url, sha256, maintainer)
 //
-//   aether.program(b) { source("main.ae") output("hello") }
-//   meta.desc(b, "Tiny hello-world greeter")
-//   meta.homepage(b, "https://example.com/hello")
-//   meta.license(b, "Apache-2.0")
-//   meta.version(b, "1.2.3")
-//   meta.url(b, "https://example.com/releases/hello-1.2.3.tar.gz")
-//   meta.sha256(b, "abc123...")
-//   meta.maintainer(b, "Alice <alice@example.com>")
-//   meta.maintainer(b, "Bob <bob@example.com>")
+//   aeb(cap) {
+//       bldr.build() {
+//           aether.program() { source("main.ae") output("hello") }
+//           desc("Tiny hello-world greeter")
+//           homepage("https://example.com/hello")
+//           license("Apache-2.0")
+//           version("1.2.3")
+//           url("https://example.com/releases/hello-1.2.3.tar.gz")
+//           sha256("abc123...")
+//           maintainer("Alice <alice@example.com>")
+//           maintainer("Bob <bob@example.com>")
+//       }
+//   }
 //
-// All setters live at the build-context level (b), not inside a
-// language-SDK builder block. Repeated single-value calls
-// (desc, homepage, license, version, url, sha256) are last-writer-
-// wins. `maintainer` accumulates.
+// All setters live at the build-context level, not inside a language-SDK
+// builder block. Repeated single-value calls (desc, homepage, license,
+// version, url, sha256) are last-writer-wins. `maintainer` accumulates.
+//
+// THE FIRST PARAMETER MUST BE NAMED `_ctx`. That literal name is what makes
+// aetherc inject builder_context() at the call site — it is the whole
+// mechanism behind the invisible first argument. These setters were left
+// taking `ctx` by the b-free DSL rework, so every one of them failed with
+//   error[E0200]: Function 'meta.desc' expects 2 argument(s), got 1
+// and the entire SDK was uncallable from a build file. It went unnoticed
+// because nothing called it: no itest used meta, and tests/test_brew.ae
+// exercises brew_formula_render() — a pure string builder — without ever
+// going through a setter. The old usage block above this one still showed
+// the pre-rework `meta.desc(b, "...")` form, which had stopped compiling too.
 
 import bldr
 import std.string
@@ -40,20 +54,20 @@ import std.map
 
 // --- Single-value setters (last-writer-wins) ---
 
-desc(ctx: ptr, text: string) {
-    _e = map.put(ctx, "_meta_desc", text)
+desc(_ctx: ptr, text: string) {
+    _e = map.put(_ctx, "_meta_desc", text)
 }
 
-homepage(ctx: ptr, url_text: string) {
-    _e = map.put(ctx, "_meta_homepage", url_text)
+homepage(_ctx: ptr, url_text: string) {
+    _e = map.put(_ctx, "_meta_homepage", url_text)
 }
 
-license(ctx: ptr, spdx: string) {
-    _e = map.put(ctx, "_meta_license", spdx)
+license(_ctx: ptr, spdx: string) {
+    _e = map.put(_ctx, "_meta_license", spdx)
 }
 
-version(ctx: ptr, ver: string) {
-    _e = map.put(ctx, "_meta_version", ver)
+version(_ctx: ptr, ver: string) {
+    _e = map.put(_ctx, "_meta_version", ver)
 }
 
 // --- version_from_vcs: derive the version from the working copy ---
@@ -100,10 +114,10 @@ version(ctx: ptr, ver: string) {
 // is the honest answer when nothing can be determined but is a poor
 // default for a formula/package that requires a version — hence the
 // two-arg form exists.
-version_from_vcs(ctx: ptr, fallback: string) {
-    v = _vcs_version(ctx)
+version_from_vcs(_ctx: ptr, fallback: string) {
+    v = _vcs_version(_ctx)
     if string.length(v) == 0 { v = fallback }
-    _e = map.put(ctx, "_meta_version", v)
+    _e = map.put(_ctx, "_meta_version", v)
 }
 
 // _vcs_version(ctx) -> the working copy's own version string, or "".
@@ -189,21 +203,21 @@ _vcs_version_cmd(kind: string, root: string) {
     return string.concat("", "")
 }
 
-url(ctx: ptr, url_text: string) {
-    _e = map.put(ctx, "_meta_url", url_text)
+url(_ctx: ptr, url_text: string) {
+    _e = map.put(_ctx, "_meta_url", url_text)
 }
 
-sha256(ctx: ptr, hash: string) {
-    _e = map.put(ctx, "_meta_sha256", hash)
+sha256(_ctx: ptr, hash: string) {
+    _e = map.put(_ctx, "_meta_sha256", hash)
 }
 
 // --- Multi-value setter (accumulates) ---
 
-maintainer(ctx: ptr, who: string) {
-    if map.has(ctx, "_meta_maintainers") == 0 {
-        _e1 = map.put(ctx, "_meta_maintainers", list.new())
+maintainer(_ctx: ptr, who: string) {
+    if map.has(_ctx, "_meta_maintainers") == 0 {
+        _e1 = map.put(_ctx, "_meta_maintainers", list.new())
     }
-    maintainers, _ = map.get(ctx, "_meta_maintainers")
+    maintainers, _ = map.get(_ctx, "_meta_maintainers")
     _e2 = list.add(maintainers, who)
 }
 

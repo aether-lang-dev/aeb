@@ -519,6 +519,24 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   surface (never has), but SDK-setter design here previously cited
   fixed-arity to justify never adding optional args; that justification
   is gone. Genuine variable-COUNT still needs the repeat-call idiom.
+- **A setter's first parameter MUST be named `_ctx` — literally.** That name
+  is the whole mechanism behind the invisible first argument: aetherc injects
+  `builder_context()` at the call site only when it sees a first parameter
+  called `_ctx` (`codegen.c`, `typechecker.c` — five sites all doing
+  `strcmp(..., "_ctx")`). Name it `ctx` and the setter compiles fine and is
+  then uncallable from a build file:
+
+      error[E0200]: Function 'meta.desc' expects 2 argument(s), got 1
+
+  `lib/meta` was left that way by the b-free DSL rework, so the whole
+  distribution-metadata SDK — and `lib/brew`, which reads it — was dead until
+  2026-09-22. Nothing noticed because nothing called it: no itest used `meta`,
+  and `tests/test_brew.ae` exercises `brew_formula_render()`, a pure string
+  builder, without going through a setter. The READ accessors that an exporter
+  calls explicitly (`meta.get_desc(ctx)`) keep the plain `ctx` name — the rule
+  is about setters, which are called with the argument elided. When adding an
+  SDK, grep your new module for `(ctx: ptr` before shipping.
+
 - **`_builder` is magic, only in scope inside `builder { ... }`
   bodies.** Plain helpers can't see it. Pass through as
   `builder_map: ptr` parameter from the call site. See
