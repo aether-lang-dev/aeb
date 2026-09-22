@@ -25,6 +25,7 @@ import std.path
 import std.dir
 import std.zip
 import std.strarr
+import std.strbuilder
 
 // --- Session (shared across all modules in one build) ---
 
@@ -4677,7 +4678,21 @@ _walk_collect(root: string, ext: string, name_excludes: string, path_excludes: s
     pe = string.split(path_excludes, "\n")
     ne_n = string.array_size(ne)
     pe_n = string.array_size(pe)
-    out = ""
+    // A strbuilder, NOT an accumulating `out = string.concat(out, p)`.
+    // The accumulator is captured by the fs.walk closure and REASSIGNED
+    // inside it, and aetherc's heap-string ownership tracker frees the
+    // buffer at the callback boundary — so the walk returned a dangling
+    // pointer. Observed as a 6-byte run of junk written straight into
+    // target/<mod>/tsc_sources.txt, which then reached the shell as
+    //   printf '%s\n' '<junk>' | sort
+    //   sh: -c: line 2: unexpected EOF while looking for matching `''
+    // and left every lib/ts and lib/dotnet cache key computed over
+    // garbage. A strbuilder sidesteps it because `sb` is a ptr that is
+    // never reassigned, so the tracker is not involved at all — and it is
+    // also the right shape for a loop whose N scales with the tree.
+    // Reduced to a 20-line repro and filed upstream:
+    // ../aether/asks/heap-string-captured-by-closure-freed-at-callback-boundary.md
+    sb = strbuilder.new(4096)
     _n, _werr = fs.walk(root, |p: string, kind: int, depth: int| {
         // Directory: prune the whole subtree if its path hits an exclude segment.
         // Append "/" so a dir node ".../node_modules" matches a "/node_modules/"
@@ -4714,13 +4729,13 @@ _walk_collect(root: string, ext: string, name_excludes: string, path_excludes: s
             }
             k = k + 1
         }
-        if string.length(out) > 0 { out = string.concat(out, "\n") }
-        out = string.concat(out, p)
+        if strbuilder.length(sb) > 0 { strbuilder.append(sb, "\n") }
+        strbuilder.append(sb, p)
         return 0
     })
     string.array_free(ne)
     string.array_free(pe)
-    return out
+    return strbuilder.finish(sb)
 }
 
 // _dedup_dirnames(nl) — for each non-empty line of nl, take its dirname; return
