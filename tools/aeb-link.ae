@@ -31,6 +31,7 @@ import std.fs
 import std.io
 import std.os
 import std.list
+import std.map
 import std.strbuilder
 
 // Label / tag derivation is shared via the aeblabel module (built
@@ -473,6 +474,101 @@ _aether_link_libs_link(c_path: string, seen: string) {
     }
     return out
 }
+
+// Twin of lib/bldr's `// aether-source:` reader (aeb-link is a separate binary and
+// cannot import lib/bldr). Read the C files a TU's modules ship via `@source`
+// (aether #2125) back from the generated C header. Returns a map with:
+//   "files" — leading-space-prefixed, quoted new source tokens for the gcc line
+//   "seen"  — the canonical keys of those tokens (each "<key> "), to fold back
+//             into the caller's running `seen` so the NEXT TU dedups against them
+// deduped against `seen` (a "<space><canonical-path><space>" set string) so a
+// source named by two TUs — or spelled two ways for the same file — compiles once.
+// The fan-out link bypasses `ae build`, which reads these itself. Relative paths
+// anchor to `base_dir` (the repo root); absolutes (the usual form codegen emits
+// for a relocated compile) pass through. `.m` ObjC files pass straight to the
+// compiler (dispatched by extension; no `-x c`). Twin of the ae.c reader.
+_aether_source_files_link(c_path: string, base_dir: string, seen: string) {
+    r = map.new()
+    _r1 = map.put(r, "files", "")
+    _r2 = map.put(r, "seen", "")
+    if string.length(c_path) == 0 { return r }
+    if file.exists(c_path) == 0 { return r }
+    raw, rerr = io.read_file(c_path)
+    if string.length(rerr) > 0 { return r }
+    out = ""
+    seen_add = ""
+    rest = raw
+    marker = "// aether-source:"
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = rest
+        if nl >= 0 {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        } else {
+            rest = ""
+        }
+        // The header block is the leading run of `//` comment lines; stop at the
+        // first non-comment line (same rule as ae.c and lib/bldr's reader).
+        if string.index_of(string.trim(line), "//") != 0 {
+            rest = ""
+        } else {
+            mi = string.index_of(line, marker)
+            if mi >= 0 {
+                p = string.trim(string.substring(line, mi + string.length(marker), string.length(line)))
+                if string.length(p) > 0 {
+                    resolved = p
+                    if _is_abs_path_link(p) == 0 {
+                        if string.length(base_dir) > 0 { resolved = string.concat(base_dir, string.concat("/", p)) }
+                    }
+                    key = _canonical_path_link(resolved)
+                    probe = string.concat(" ", string.concat(key, " "))
+                    // Dedup against BOTH the caller's running seen and the keys
+                    // already collected within this same TU.
+                    if string.index_of(seen, probe) < 0 {
+                        if string.index_of(string.concat(" ", seen_add), probe) < 0 {
+                            out = string.concat(out, string.concat(" \"", string.concat(resolved, "\"")))
+                            seen_add = string.concat(seen_add, string.concat(key, " "))
+                        }
+                    }
+                }
+            }
+        }
+    }
+    _r3 = map.put(r, "files", out)
+    _r4 = map.put(r, "seen", seen_add)
+    return r
+}
+
+// Split-accessors for the _aether_source_files_link result map (AGENTS.md: prefer
+// a map + split accessors over chaining a multi-value return).
+_asres_files(r: ptr) { v, _ = map.get(r, "files")  return v }
+_asres_seen(r: ptr)  { v, _ = map.get(r, "seen")   return v }
+
+// 1 if `p` is an absolute path (leading '/', Windows drive, or UNC). Local twin.
+_is_abs_path_link(p: string) {
+    if string.length(p) == 0 { return 0 }
+    if string.index_of(p, "/") == 0 { return 1 }
+    if string.length(p) >= 3 {
+        c1 = string.substring(p, 1, 3)
+        if string.equals(c1, ":/") == 1 { return 1 }
+        if string.equals(c1, ":\\") == 1 { return 1 }
+    }
+    if string.index_of(p, "\\\\") == 0 { return 1 }
+    return 0
+}
+
+// Canonical spelling for dedup: fs.realpath when it resolves (so two spellings of
+// one file collapse), else the path as written. (resolved, kind, msg) tuple;
+// kind 0 == KIND_OK.
+_canonical_path_link(p: string) {
+    rp, rkind, _rmsg = fs.realpath(p)
+    if rkind == 0 {
+        if string.length(rp) > 0 { return rp }
+    }
+    return p
+}
+
 // ` -L<lib_dir>/contrib` when it exists, else "".
 _contrib_L_link(lib_dir: string) {
     if string.length(lib_dir) == 0 { return "" }
@@ -1071,6 +1167,25 @@ main() {
         // next TU's index_of(" -lx ") dedup sees them.
         _al_seen = string.concat(_al_seen, string.concat(string.trim(_alnew), " "))
         _kk = _kk + 1
+    }
+    // Module-shipped C from `@source` (aether #2125): read each TU's
+    // `// aether-source:` header and compile the named C files into the same
+    // fan-out link, deduped across TUs by canonical path. Sibling of the
+    // `// aether-link:` loop above — `ae build` handles these itself, aeb's own
+    // orchestrator link does not, so a program (or build node) importing a module
+    // that ships its own C linked with undefined symbols unless it restated the
+    // file via extra_source. Relative paths anchor to repo_root; the usual codegen
+    // form here is absolute. Empty in the common case (nothing in the closure
+    // ships C). One `seen` threaded across every TU so a shared source, or one
+    // spelled two ways, compiles exactly once.
+    _as_seen = " "
+    _sk = 0
+    while _sk < n {
+        _ascf, _ = list.get(c_files, _sk)
+        _asres = _aether_source_files_link(_ascf, repo_root, _as_seen)
+        cc = string.concat(cc, _asres_files(_asres))
+        _as_seen = string.concat(_as_seen, _asres_seen(_asres))
+        _sk = _sk + 1
     }
     cc = string.concat(cc, " -o ")
     cc = string.concat(cc, out_bin)

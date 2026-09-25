@@ -4,6 +4,26 @@
 
 ### Fixed
 
+- **aeb compiles a module's `@source` C files (aether #2125).** A module can
+  ship its own C — `@source("foo.c")` at the top of `module.ae` — and the
+  compiler emits a `// aether-source: <path>` header line in the generated C,
+  which `ae run`/`ae build` read and compile into the link. aeb read only the
+  sibling `// aether-link:` line, so a program importing such a module linked
+  with `undefined symbols` on aeb's two own-link paths (the manual
+  `aether.program` path — `extra_source`/`link_flag`/`ui_backend` — and the
+  fan-out orchestrator link) unless it restated the file with `extra_source()`.
+  OpenDisk-ae carried exactly that workaround (two `extra_source` lines for its
+  `od_stat`/`od_text` modules). Both paths now read `// aether-source:` next to
+  `// aether-link:`, resolve each path (relative → the module's dir, as `ae`
+  does), and compile it into the same link, deduped across TUs by canonical path
+  so a source named by two modules — or spelled relative in one TU and absolute
+  in another — compiles once. Transitive and `-D`-sensitive for free (codegen
+  emits the header only for imports that survived). Objective-C `.m` files pass
+  to the compiler as ObjC by extension (no forced `-x c`). Pinned by
+  `tests/test_aether_source_files.ae` (the pure reader + resolve/dedup) and
+  `itests/module-source-c-smoke.sh` (a real `@source` module built by aeb with
+  no `extra_source`, cold and warm, on both link paths).
+
 - **The fan-out orchestrator links on macOS with Homebrew libraries.**
   `_aether_published_libs` took the external libraries from `ae cflags
   --libs` but kept only the `-l` flags and dropped every `-L` directory.

@@ -1778,7 +1778,13 @@ aether_link_cmd(opts: ptr) {
     if map.has(opts, "aether_link") == 1 { aether_link, _ = map.get(opts, "aether_link") }
     contrib_L = ""
     if map.has(opts, "contrib_L") == 1 { contrib_L, _ = map.get(opts, "contrib_L") }
-    return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str} -L${lib_dir}${contrib_L} -laether ${extra_link} ${rpath_link}${aether_link}${user_flags}${gc_flag} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
+    // Module-shipped C from `@source` (aether #2125), read from the TUs'
+    // `// aether-source:` headers by the caller: leading-space-prefixed, quoted,
+    // or "". Placed right after extras_str — same role (a .c compiled into this
+    // link), just discovered from the header rather than named by extra_source().
+    source_str = ""
+    if map.has(opts, "source_str") == 1 { source_str, _ = map.get(opts, "source_str") }
+    return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str}${source_str} -L${lib_dir}${contrib_L} -laether ${extra_link} ${rpath_link}${aether_link}${user_flags}${gc_flag} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
 }
 
 // Decide whether a regen entry needs aetherc work, given the .ae and
@@ -2708,6 +2714,35 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // dev-layout <lib_dir>/contrib on -L so a contrib veneer archive resolves.
     _eo12 = map.put(opts, "aether_link", bldr._aether_link_libs(c_path))
     _eo13 = map.put(opts, "contrib_L", bldr._contrib_lib_dir_flag(lib_dir))
+    // Module-shipped C from `@source("foo.c")`, read back from every TU's
+    // `// aether-source:` header (aether #2125). Sibling of aether_link above:
+    // `ae build` compiles these in itself, aeb's manual gcc path does not, so a
+    // program importing a module that ships its own C linked with undefined
+    // symbols unless it restated the file via extra_source() (what OpenDisk-ae
+    // did as a workaround). Scan the main program TU AND each regen'd module
+    // _generated.c (the extra_source list carries them), so a source declared by
+    // an imported module — not just the entry — is picked up; dedup across TUs so
+    // a shared source compiles once. Relative paths anchor to source_dir, the
+    // same base extra_source uses. Empty in the common case (nothing ships C).
+    _src_tus = list.new()
+    _st1 = list.add(_src_tus, c_path)
+    if builder_map != null {
+        if map.has(builder_map, "extra_source") == 1 {
+            _est, _ = map.get(builder_map, "extra_source")
+            _nest = list.size(_est)
+            _iest = 0
+            while _iest < _nest {
+                _estf, _ = list.get(_est, _iest)
+                _iest = _iest + 1
+                _estr = _estf
+                if string.length(_estf) > 0 {
+                    if _is_abs_path(_estf) == 0 { _estr = path.join(source_dir, _estf) }
+                }
+                _sta = list.add(_src_tus, _estr)
+            }
+        }
+    }
+    _eo14 = map.put(opts, "source_str", bldr._aether_sources_link_str(_src_tus, source_dir))
     gcc_cmd = aether_link_cmd(opts)
     // Capture gcc stderr to a per-module file so a link failure can
     // be mined for `undefined reference` symbols (Option B in

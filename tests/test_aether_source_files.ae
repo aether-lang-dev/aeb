@@ -1,0 +1,131 @@
+// Tests for reading a module's `@source` C files back from the generated C's
+// `// aether-source:` header — aeb's manual gcc + fan-out orchestrator paths
+// mirroring aether #2125 (what `ae run`/`ae build` do in tools/ae.c). Sibling of
+// test_aether_link_flags.ae.
+//   bldr._aether_source_line_file(line)       — PURE line parser
+//   bldr._aether_source_files_in(c_path)      — file read → list of raw paths
+//   bldr._aether_sources_link_str(tus, base)  — resolve + dedup → gcc token run
+import std.spec
+import std.string
+import std.io
+import std.os
+import std.file
+import std.fs
+import std.list
+import std.path
+
+import bldr (_sh_capture, _aether_source_line_file, _aether_source_files_in, _aether_sources_link_str)
+
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    return d
+}
+
+// Write a generated-C stub with the given header lines followed by real code, so
+// the readers see the same top-of-file `//` block shape codegen emits.
+_write_c(dir_path: string, name: string, header: string) {
+    p = path.join(dir_path, name)
+    body = string.concat(header, "\nint main(void){return 0;}\n")
+    _w = io.write_file(p, body)
+    return p
+}
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "_aether_source_line_file (pure line parser)") {
+        spec.it("extracts the path after the marker, trimmed") callback {
+            spec.assert_str_eq(
+                _aether_source_line_file("// aether-source: shim.c"),
+                "shim.c", "bare relative path")
+            spec.assert_str_eq(
+                _aether_source_line_file("// aether-source:   /abs/od stat.c  "),
+                "/abs/od stat.c", "absolute path with spaces survives, trimmed")
+        }
+        spec.it("returns '' for a non-source line") callback {
+            spec.assert_str_eq(
+                _aether_source_line_file("// aether-link: -lssl"), "",
+                "the link header is not a source header")
+            spec.assert_str_eq(
+                _aether_source_line_file("int main(void){return 0;}"), "",
+                "a code line yields nothing")
+        }
+    }
+
+    spec.describe(fw, "_aether_source_files_in (read the header block)") {
+        d = _mktempdir()
+        spec.it("collects every source line in the top comment block") callback {
+            c = _write_c(d, "two.c",
+                "// aether-link: -lz\n// aether-source: a.c\n// aether-source: sub/b.c")
+            files = _aether_source_files_in(c)
+            spec.assert_eq(list.size(files), 2, "two @source lines read")
+            f0, _ = list.get(files, 0)
+            f1, _ = list.get(files, 1)
+            spec.assert_str_eq(f0, "a.c", "first path")
+            spec.assert_str_eq(f1, "sub/b.c", "second path")
+        }
+        spec.it("stops at the first non-comment line") callback {
+            // A source line AFTER code must not be read (matches ae.c).
+            c = _write_c(d, "stop.c",
+                "// aether-source: before.c\nint x;\n// aether-source: after.c")
+            files = _aether_source_files_in(c)
+            spec.assert_eq(list.size(files), 1, "only the pre-code source line")
+            f0, _ = list.get(files, 0)
+            spec.assert_str_eq(f0, "before.c", "the one before the code")
+        }
+        spec.it("returns an empty list when there is no header") callback {
+            c = _write_c(d, "none.c", "// just a comment")
+            spec.assert_eq(list.size(_aether_source_files_in(c)), 0, "no @source → empty")
+        }
+    }
+
+    spec.describe(fw, "_aether_sources_link_str (resolve + dedup across TUs)") {
+        d = _mktempdir()
+        // A real C file on disk so fs.realpath resolves it (dedup key).
+        shim = path.join(d, "shim.c")
+        _ws = io.write_file(shim, "int shim(void){return 42;}\n")
+
+        spec.it("resolves a relative path against base_dir and quotes it") callback {
+            c = _write_c(d, "rel.c", "// aether-source: shim.c")
+            tus = list.new()
+            _t = list.add(tus, c)
+            out = _aether_sources_link_str(tus, d)
+            // leading space + quoted absolute (base_dir/shim.c)
+            expected = string.concat(" \"", string.concat(path.join(d, "shim.c"), "\""))
+            spec.assert_str_eq(out, expected, "relative resolved against base_dir, quoted")
+        }
+
+        spec.it("dedups a source named by two TUs, spelled two ways") callback {
+            // TU 1 names it relative; TU 2 names it absolute — same file on disk,
+            // so it must appear ONCE (aether #2125 / ae.c same_source_file).
+            c1 = _write_c(d, "one.c", "// aether-source: shim.c")
+            c2 = _write_c(d, "two.c", string.concat("// aether-source: ", shim))
+            tus = list.new()
+            _a = list.add(tus, c1)
+            _b = list.add(tus, c2)
+            out = _aether_sources_link_str(tus, d)
+            // Exactly one quoted token → exactly one closing-then-opening quote pair.
+            // Count occurrences of '.c"' — must be 1.
+            n = 0
+            rest = out
+            while string.length(rest) > 0 {
+                i = string.index_of(rest, ".c\"")
+                if i < 0 { rest = "" } else {
+                    n = n + 1
+                    rest = string.substring(rest, i + 3, string.length(rest))
+                }
+            }
+            spec.assert_eq(n, 1, "shared source compiled once despite two spellings")
+        }
+
+        spec.it("returns '' when no TU ships C") callback {
+            c = _write_c(d, "plain.c", "// aether-link: -lm")
+            tus = list.new()
+            _t = list.add(tus, c)
+            spec.assert_str_eq(_aether_sources_link_str(tus, d), "", "nothing to add")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

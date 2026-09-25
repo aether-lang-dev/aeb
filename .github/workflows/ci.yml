@@ -134,6 +134,12 @@ jobs:
       # green whatever ae the CI toolchain pins.
       - name: ae-add binary-package emitter smoke
         run: itests/ae-add-binary-package-smoke.sh
+      # A module that ships its own C via @source (aether #2125): aeb compiles those
+      # files into BOTH its manual aether.program link and the fan-out orchestrator
+      # link, the way `ae run`/`ae build` do — so a consumer needn't restate the C
+      # with extra_source(). SKIPs on ae < 0.705 (no `// aether-source:` emitter).
+      - name: module @source C smoke
+        run: itests/module-source-c-smoke.sh
       # Aether >= 0.681 floor is enforced on the libaether.a aeb-link LINKS, so a
       # stale archive beside a current ae fails with a legible floor error rather
       # than a cryptic `undefined reference to os_arch_raw` (servirtium-vcr).

@@ -1021,6 +1021,144 @@ _aether_link_libs(c_path: string) {
     return ""
 }
 
+// _aether_source_line_file(line) — PURE: given one header line, return the path
+// after `// aether-source:` (trimmed) or "" if the line is not that header. One
+// path per line, so a path containing spaces survives intact (mirrors ae.c
+// get_aether_source_files). Tested in tests/test_aether_source_files.ae.
+_aether_source_line_file(line: string) {
+    marker = "// aether-source:"
+    mi = string.index_of(line, marker)
+    if mi < 0 { return "" }
+    p = string.substring(line, mi + string.length(marker), string.length(line))
+    return string.trim(p)
+}
+
+// _aether_source_files_in(c_path) — read the `// aether-source: <path>` header
+// lines the Aether compiler emits after the `// aether-link:` line (aether
+// #2125): the C files the modules of this TU's import closure ship via
+// `@source("foo.c")`. `ae run` / `ae build` compile these in on their own; aeb's
+// MANUAL gcc link (and its fan-out orchestrator link) bypass `ae build`, so they
+// must read the header themselves — otherwise a program importing such a module
+// links with undefined symbols unless it restates the file via extra_source().
+// Returns a list of the paths AS EMITTED (unresolved). One path per line; scan
+// the top comment block only (ae.c stops at the first non-`//` line). The paths
+// are `-D`-sensitive and transitive for free: codegen emits the header only for
+// imports that survived, so aeb reads exactly what is there.
+_aether_source_files_in(c_path: string) {
+    files = list.new()
+    if string.length(c_path) == 0 { return files }
+    if file.exists(c_path) == 0 { return files }
+    raw, rerr = io.read_file(c_path)
+    if string.length(rerr) > 0 { return files }
+    rest = raw
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = rest
+        if nl >= 0 {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        } else {
+            rest = ""
+        }
+        // The header block is the leading run of `//` comment lines; the first
+        // non-comment line ends it (same rule as ae.c and _aether_link_libs).
+        if string.index_of(string.trim(line), "//") != 0 {
+            rest = ""
+        } else {
+            f = _aether_source_line_file(line)
+            if string.length(f) > 0 { _sf = list.add(files, f) }
+        }
+    }
+    return files
+}
+
+// _canonical_source_path(p) — canonical spelling for dedup: fs.realpath when the
+// path resolves on disk (so a relative spelling from one TU and the absolute one
+// another TU emitted collapse to the same key — the string analog of ae.c's
+// dev+inode compare), else the path as written (matching ae.c's fallback for a
+// spelling that does not stat).
+_canonical_source_path(p: string) {
+    // fs.realpath returns a (resolved_path, kind, message) tuple; kind 0 (KIND_OK)
+    // means it resolved on disk. Non-OK (missing/permission/etc.) → fall back to
+    // the path as written, exactly as ae.c's same_source_file does for a spelling
+    // that does not stat.
+    rp, rkind, _rmsg = fs.realpath(p)
+    if rkind == 0 {
+        if string.length(rp) > 0 { return rp }
+    }
+    return p
+}
+
+// _accumulate_aether_sources(sources, seen, c_path, base_dir) — read one TU's
+// `// aether-source:` paths, resolve each (relative → base_dir, absolute passes
+// through — same rule as extra_source), and append the ones not already present
+// (deduped by canonical path via `seen`, a map used as a set) to `sources` (a
+// list of resolved paths). Mutates `sources` and `seen`; returns nothing useful.
+// base_dir is the directory the relative paths are anchored to — the module's own
+// dir for a `@source` — which for the program's main TU is its source_dir.
+_accumulate_aether_sources(sources: ptr, seen: ptr, c_path: string, base_dir: string) {
+    found = _aether_source_files_in(c_path)
+    nf = list.size(found)
+    i = 0
+    while i < nf {
+        raw_path, _ = list.get(found, i)
+        i = i + 1
+        resolved = raw_path
+        if _is_abs_path_bldr(raw_path) == 0 {
+            if string.length(base_dir) > 0 { resolved = path.join(base_dir, raw_path) }
+        }
+        key = _canonical_source_path(resolved)
+        if map.has(seen, key) == 0 {
+            _sk = map.put(seen, key, "1")
+            _sa = list.add(sources, resolved)
+        }
+    }
+}
+
+// _is_abs_path_bldr(p) — 1 if `p` is an absolute path (leading '/', or a Windows
+// drive/UNC spelling). Small local twin so this file needn't reach into lib/aether.
+_is_abs_path_bldr(p: string) {
+    if string.length(p) == 0 { return 0 }
+    if string.index_of(p, "/") == 0 { return 1 }
+    if string.length(p) >= 3 {
+        c1 = string.substring(p, 1, 3)
+        if string.equals(c1, ":/") == 1 { return 1 }
+        if string.equals(c1, ":\\") == 1 { return 1 }
+    }
+    if string.index_of(p, "\\\\") == 0 { return 1 }   // UNC \\server\share
+    return 0
+}
+
+// _aether_sources_link_str(c_paths, base_dir) — the gcc-ready `@source` C run for
+// a MANUAL link: read every TU in `c_paths` (a list of generated .c files) for
+// its `// aether-source:` header, resolve + dedup across all of them (a shared
+// source named by two TUs, or spelled relative in one and absolute in another,
+// compiles once — the aether #2125 contract), and return a leading-space-prefixed
+// run of quoted paths (or "" when nothing in the closure ships C). Quoted so a
+// path with spaces survives (as ae.c does). Objective-C `.m` files pass straight
+// through — the C compiler dispatches them as ObjC by extension; we do not force
+// `-x c`. Relative paths anchor to base_dir (the program's source_dir).
+_aether_sources_link_str(c_paths: ptr, base_dir: string) {
+    sources = list.new()
+    seen = map.new()
+    n = list.size(c_paths)
+    i = 0
+    while i < n {
+        cp, _ = list.get(c_paths, i)
+        i = i + 1
+        _accumulate_aether_sources(sources, seen, cp, base_dir)
+    }
+    out = ""
+    ns = list.size(sources)
+    j = 0
+    while j < ns {
+        s, _ = list.get(sources, j)
+        j = j + 1
+        out = string.concat(out, string.concat(" \"", string.concat(s, "\"")))
+    }
+    return out
+}
+
 // _contrib_lib_dir_flag(lib_dir) — ` -L<lib_dir>/contrib` when that dir exists,
 // else "". The dev-layout path make-contrib veneers install to; aether's own
 // link resolves it (PR #1555), so aeb's manual gcc line adds it too so a module
