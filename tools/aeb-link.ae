@@ -490,10 +490,13 @@ _pkg_config_libs_link(mod: string) {
 // _aether_published_libs(aether_bin) — the EXTERNAL link libs aether says
 // libaether.a needs, from `ae cflags --libs`, as a space-joined " -lx -ly" run.
 // This is aether's own probe result for this box (the same flags `ae build`
-// links with), so aeb never hand-curates the list. We keep only the external
-// `-l<name>` tokens: `-L<dir>`, `-laether`, `-pthread`, `-lm` are dropped
-// because aeb already adds them (and a duplicated `-laether` can disturb static
-// link ordering on MinGW). Returns "" if the command fails or emits nothing
+// links with), so aeb never hand-curates the list. We keep the external
+// `-l<name>` tokens AND every `-L<dir>`: `-laether`, `-pthread`, `-lm` are
+// dropped because aeb already adds them (and a duplicated `-laether` can
+// disturb static link ordering on MinGW). The `-L` dirs matter on macOS:
+// Homebrew's openssl, nghttp2 and pcre2 are keg-only, off the default search
+// path, so `-lssl` alone fails with "library 'ssl' not found". A repeated
+// `-L` of aeb's own libaether dir is harmless. Returns "" if the command fails or emits nothing
 // (an ae too old for the subcommand) — the caller then falls back to pkg-config.
 // (asks/win32-link-needs-ldbghelp-after-0541.md)
 _aether_published_libs(aether_bin: string) {
@@ -510,10 +513,13 @@ _aether_published_libs(aether_bin: string) {
         else { tok = string.substring(rest, 0, sp)  rest = string.substring(rest, sp + 1, string.length(rest)) }
         tok = string.trim(tok)
         if string.length(tok) > 0 {
-            // Keep external -l<name>; drop -laether / -lpthread / -lm (aeb adds),
-            // and anything that isn't a -l flag (-L dirs, stray tokens).
+            // Keep external -l<name> and -L<dir>; drop -laether / -lpthread /
+            // -lm (aeb adds them) and any stray token.
             keep = 0
             if string.starts_with(tok, "-l") == 1 { keep = 1 }
+            // -L dirs ARE kept: on macOS Homebrew's openssl/nghttp2/pcre2 are
+            // keg-only, so `-lssl` without its `-L…/openssl@3/lib` fails to link.
+            if string.starts_with(tok, "-L") == 1 { keep = 1 }
             if string.equals(tok, "-laether") == 1 { keep = 0 }
             if string.equals(tok, "-lpthread") == 1 { keep = 0 }
             if string.equals(tok, "-lm") == 1 { keep = 0 }

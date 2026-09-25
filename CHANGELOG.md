@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **The fan-out orchestrator links on macOS with Homebrew libraries.**
+  `_aether_published_libs` took the external libraries from `ae cflags
+  --libs` but kept only the `-l` flags and dropped every `-L` directory.
+  Homebrew's openssl, nghttp2 and pcre2 are keg-only, so on macOS the link
+  failed with `ld: library 'ssl' not found` and the whole fan-out stopped
+  (`aeb-link: FATAL — failed to link the fan-out orchestrator`). The `-L`
+  directories are now kept alongside the `-l` flags.
+
 - **aeb builds on Aether 0.713+: `file.mtime` → `fs.file_mtime`.** Aether
   0.713 (#2172) started enforcing standard-library export lists, and
   `std.file` never exported `mtime`: `file.mtime(p)` had only ever worked by
