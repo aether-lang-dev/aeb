@@ -95,13 +95,13 @@ _resolve_path(source_dir: string, p: string) {
 // (dst missing, or src newer than dst). Return 0 when dst is fresh
 // enough to skip. Mtime-based. Pure.
 _needs_copy(src_abs: string, dst_abs: string) {
-    src_t = file.mtime(src_abs)
+    src_t = fs.file_mtime(src_abs)
     if src_t == 0 {
         // Src missing — let the builder fail loud (we return 1 so
         // the cp invocation runs and its non-zero exit propagates).
         return 1
     }
-    dst_t = file.mtime(dst_abs)
+    dst_t = fs.file_mtime(dst_abs)
     if dst_t == 0 { return 1 }
     if dst_t >= src_t { return 0 }
     return 1

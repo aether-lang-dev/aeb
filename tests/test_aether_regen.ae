@@ -17,6 +17,7 @@ import aether (_run_regen_pass, _regen_target_c)
 import std.string
 import std.os
 import std.file
+import std.fs
 import std.list
 import std.map
 import std.path
@@ -57,7 +58,7 @@ main() {
 
             // 1. Fresh: the .c does not exist → regen produces it.
             rc1 = _run_regen_pass(bm, base, tgt, aec, "regen-test")
-            m1 = file.mtime(genc)
+            m1 = fs.file_mtime(genc)
             if spec.skip_all_if(fw, rc1 != 0, "regen test skipped — aetherc --emit=lib unavailable") == 1 {
                 os.system("rm -rf ${base}")
                 return 0
@@ -67,13 +68,13 @@ main() {
             // 2. Nothing changed → regen skips, .c mtime stays put.
             os.system("sleep 2")
             rc2 = _run_regen_pass(bm, base, tgt, aec, "regen-test")
-            m2 = file.mtime(genc)
+            m2 = fs.file_mtime(genc)
             spec.assert_true(_eqi(m1, m2), "unchanged inputs: regen skipped (mtime stable)")
 
             // 3. Source edited → regen re-runs (the basic mtime-stale path).
             os.system("sleep 2; touch ${base}/dep.ae")
             rc3 = _run_regen_pass(bm, base, tgt, aec, "regen-test")
-            m3 = file.mtime(genc)
+            m3 = fs.file_mtime(genc)
             spec.assert_true(_gti(m3, m2), "edited .ae source: regen re-ran")
 
             // 4. Toolchain rebuilt (aetherc newer than the .c, .ae unchanged)
@@ -81,7 +82,7 @@ main() {
             //    claimed was missing.
             os.system("sleep 2; touch ${aec}")
             rc4 = _run_regen_pass(bm, base, tgt, aec, "regen-test")
-            m4 = file.mtime(genc)
+            m4 = fs.file_mtime(genc)
             spec.assert_true(_gti(m4, m3), "rebuilt toolchain: regen re-ran")
 
             os.system("rm -rf ${base}")

@@ -716,13 +716,13 @@ load_files(path: string) {
 // (asks/orchestrator-failures-silenced-and-stale-helper-tools.md, ask 2)
 _helper_stale(bin: string, src: string, dep: string) {
     if file.exists(bin) == 0 { return 1 }
-    bin_mt = file.mtime(bin)
+    bin_mt = fs.file_mtime(bin)
     if file.exists(src) == 1 {
-        if file.mtime(src) > bin_mt { return 1 }
+        if fs.file_mtime(src) > bin_mt { return 1 }
     }
     if string.length(dep) > 0 {
         if file.exists(dep) == 1 {
-            if file.mtime(dep) > bin_mt { return 1 }
+            if fs.file_mtime(dep) > bin_mt { return 1 }
         }
     }
     return 0

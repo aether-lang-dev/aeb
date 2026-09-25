@@ -341,14 +341,14 @@ _sources_changed(source_dir: string, srcs: ptr, ts_file: string) {
     if file.exists(ts_file) == 0 {
         return 1
     }
-    ts = file.mtime(ts_file)
+    ts = fs.file_mtime(ts_file)
     n = list.size(srcs)
     i = 0
     while i < n {
         rel, _ = list.get(srcs, i)
         i = i + 1
         full = path.join(source_dir, rel)
-        if file.mtime(full) > ts {
+        if fs.file_mtime(full) > ts {
             return 1
         }
     }

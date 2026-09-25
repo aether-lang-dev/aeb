@@ -855,7 +855,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
         while i < n {
             p, _ = list.get(inputs, i)
             abs_p = _codegen_resolve(cwd, p)
-            t = file.mtime(abs_p)
+            t = fs.file_mtime(abs_p)
             if t > newest_in { newest_in = t }
             i = i + 1
         }
@@ -877,7 +877,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
     while j < no {
         op, _ = list.get(outputs, j)
         abs_o = _codegen_resolve(cwd, op)
-        ot = file.mtime(abs_o)
+        ot = fs.file_mtime(abs_o)
         if ot == 0 { return 0 }
         if oldest_out == 0 { oldest_out = ot }
         if ot < oldest_out { oldest_out = ot }
@@ -907,7 +907,7 @@ _dir_newest_mtime(dir_abs: string) -> long {
                     sub = _dir_newest_mtime(full)
                     if sub > newest { newest = sub }
                 } else {
-                    t = file.mtime(full)
+                    t = fs.file_mtime(full)
                     if t > newest { newest = t }
                 }
             }

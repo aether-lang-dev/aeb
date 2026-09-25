@@ -2183,12 +2183,12 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
         c_abs = _regen_target_c(target_dir, ae_abs)
         c_rel = path.basename(c_abs)
 
-        ae_mtime = file.mtime(ae_abs)
+        ae_mtime = fs.file_mtime(ae_abs)
         if ae_mtime == 0 {
             println("${mod_dir}: regen source not found: ${ae_abs}")
             return 1
         }
-        c_mtime = file.mtime(c_abs)
+        c_mtime = fs.file_mtime(c_abs)
         action = _regen_action(ae_mtime, c_mtime)
         // A toolchain rebuilt between release tags leaves the .ae
         // mtime untouched, so _regen_action would skip — but the
@@ -2197,7 +2197,7 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
         // match regen's existing mtime-skip model; `make install`
         // bumps the binary's mtime).
         if string.equals(action, "skip") == 1 {
-            tc_mtime = file.mtime(aetherc)
+            tc_mtime = fs.file_mtime(aetherc)
             if c_mtime < tc_mtime {
                 action = "toolchain"
             }

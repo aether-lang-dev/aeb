@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- **aeb builds on Aether 0.713+: `file.mtime` → `fs.file_mtime`.** Aether
+  0.713 (#2172) started enforcing standard-library export lists, and
+  `std.file` never exported `mtime`: `file.mtime(p)` had only ever worked by
+  falling through to the C symbol. On 0.713+ `tools/aeb-link.ae` failed with
+  `E0303 'mtime' is not exported from module 'file'`, so `make` produced no
+  `aeb-link` and every build died with `aeb-link: No such file or directory`.
+  The same call sat in seven SDKs (aether, c, copy, dart, gleam, moonbit,
+  python). All now call `fs.file_mtime`, the same C function exported from
+  `std.fs`, with the same "0 when missing" result.
+
 - **A fan-out with ~140 nodes could not build at all: the generated
   orchestrator blew aetherc's 50,000-token cap on a main file.**
   `gen-orchestrator` emitted the whole per-node bookkeeping (selector gate,
