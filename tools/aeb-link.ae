@@ -1009,12 +1009,9 @@ main() {
         //    chokepoint's own `sh -c '...'` wrap (cmd.exe mangles the POSIX
         //    `'\''` escape) and abort the whole link with "unexpected EOF
         //    matching `'`". A quote-free sed script survives both the cmd.exe
-        //    and sh layers. Same reason `*.h` is unquoted: it is a find
-        //    operand, not a glob the shell should expand — and it cannot be,
-        //    because `find` is given a directory, so no `*.h` exists in cwd
-        //    to expand against. (If one ever did, the pattern would expand
-        //    and break; that is why the whole expression stays inside `$(...)`
-        //    with a directory-only cwd contract.)
+        //    and sh layers. Disable shell pathname expansion with `set -f`
+        //    so *.h remains find's pattern even when the consumer checkout
+        //    has headers in its working directory (mquickjs, for example).
         //
         //  - **Header-bearing dirs only.** This used to `-print` every
         //    directory. On a *dev tree* (`_resolve_aether_include`'s last
@@ -1044,7 +1041,7 @@ main() {
         //    now via _sh_capture_link, so the 32 KB arg-limit work above is
         //    preserved exactly.
         //    (asks/windows-pkg-config-substitution-runs-in-cmd.md)
-        find_cmd = string.concat("find ", inc_root)
+        find_cmd = string.concat("set -f; find ", inc_root)
         find_cmd = string.concat(find_cmd, " -type d -name .git -prune -o -type d -name build -prune -o -name *.h -print | sed -e s,/[^/]*$,, -e s,^,-I, | sort -u")
         inc_raw, _ferr = _sh_capture_link(find_cmd)
         cc = string.concat(cc, _flags_from_lines_link(inc_raw))
