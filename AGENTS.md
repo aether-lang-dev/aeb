@@ -1089,6 +1089,55 @@ exists if a need arises."
   fixes `--emit=lib` catalog exports on Windows MinGW
   (`-Wl,--export-all-symbols`) — relevant to the winbaz Axis-2 path,
   nothing for aeb to change.
+- **0.749 (#2321/#2324) `build/.alien/<target>/` cross-build cache
+  segregation** — the Aether *compiler source tree's* own Makefile now
+  keeps a native build flat in `build/` and quarantines each cross build
+  under `build/.alien/<os>-<cpu>/`, so a warm native tree and warm cross
+  trees coexist and switching between them rebuilds nothing. Each tree
+  carries a `.build-target` stamp; a parse-time guard errors (telling you
+  to `make clean`) only if it finds a pre-split flat `build/` a cross build
+  had contaminated. **Deliberately NOT consumed, and nothing for aeb to
+  change — checked 2026-10-01.** Three reasons, in order of why it does
+  not reach aeb:
+  1. **It is internal to building the compiler from source.** aeb never
+     builds `ae`/`aetherc`; it consumes an installed/pinned toolchain from
+     PATH (or `~/.cache/aeb/toolchain/`). So aeb never sees the `.alien`
+     layout on its normal path. The one place aeb reaches into an aether
+     `build/` dir — `bldr._aether_dev_root`'s `<root>/build/libaether.a`
+     probe for a dev-tree checkout — targets *native* dev trees only, and
+     `.alien` leaves native builds flat in `build/`, so that probe's path
+     is unchanged. (A cross-only tree with no native `libaether.a` would
+     correctly read as "not a dev tree"; you cannot natively link a
+     cross-only tree anyway.)
+  2. **`.alien` is a compiler-bootstrap dir, not a user-program artifact
+     location.** When aeb cross-builds a *user* program it goes through
+     `ae build --target=<triple>`, whose output lands in the program's own
+     `target/build/<module>/` tree — a separate mechanism that never
+     touches `.alien`. Verified against the real cross-release consumer,
+     `../libphonenumber-ae` (`release/build.sh`): it loops a triple matrix
+     via `LIBPHONENUMBER_AE_TARGET=<triple> aeb core/.build.ae` and the
+     `.so`/`.dylib`/`.dll` land in `target/build/core/lib/` + the ae-add
+     trio in `target/build/core/ae-add/`. Zero `.alien` involvement; it
+     "seamlessly works" by not intersecting with it at all.
+  3. **The per-triple-dir idea does NOT belong in aeb — context mismatch.**
+     `.alien`'s warm native↔cross coexistence earns its complexity on a
+     *build machine* you iterate on, where a `make clean` between every
+     target switch would cost minutes all day. aeb's one cross context
+     today is the *release matrix* (libphonenumber-ae), a one-shot forward
+     loop where a clean per triple is free — and `release/build.sh`
+     deliberately does exactly that (`rm -rf target/build/core/lib` before
+     each triple) to prevent a stale platform's `.so` being mis-stapled as
+     another's asset. That wipe is correct for a release script, not a
+     smell to fix. aeb would only want `.alien`-style per-triple output
+     dirs if someone started *interactive* cross-dev with aeb (flipping
+     `--target` repeatedly while hacking) — the build-machine eagerness
+     pattern, which is hypothetical today. **aeb has no core cross-compile
+     grammar anyway** (Scope table: ✗ TODO): libphonenumber-ae's cross
+     story lives in its own `.build.ae` reading an env var + `ae build
+     --target` + shell, not in aeb's `lib/aether`. If/when aeb grows a
+     first-class `target(<triple>)` setter, revisit per-triple segregation
+     *then* — and even then driven by the interactive-dev case, not the
+     release-matrix one.
 
 A note on resolution order (general, still true): an `ae` binary
 installed under `~/.local/bin/` will pick up `contrib.*` modules from
