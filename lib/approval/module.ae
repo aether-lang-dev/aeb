@@ -558,7 +558,7 @@ builder jira(): int {
 
     script = jira_check_script(base, issue_key, token, req_status, labels, fields, evidence_path, timeout_s)
     script_path = path.join(target_dir, "jira-approval-check.sh")
-    _e = fs.write_atomic(script_path, script, string.length(script))
+    _e = fs.write_atomic(script_path, string.bytes(script))
     bldr._sh(string.concat("chmod +x ", script_path))
     rc = bldr._sh(string.concat("bash ", script_path))
     if rc != 0 {
@@ -642,7 +642,7 @@ _write_and_run(ctx: ptr, provider: string, script: string, evidence_path: string
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
     script_path = path.join(target_dir, string.concat(provider, "-approval-check.sh"))
-    _e = fs.write_atomic(script_path, script, string.length(script))
+    _e = fs.write_atomic(script_path, string.bytes(script))
     bldr._sh(string.concat("chmod +x ", script_path))
     rc = bldr._sh(string.concat("bash ", script_path))
     if rc != 0 {
@@ -688,7 +688,7 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
     }
 
     canon = canonicalize_attestation(raw)
-    digest, derr = cryptography.sha256_hex(canon, string.length(canon))
+    digest, derr = cryptography.sha256_hex(string.bytes(canon))
     if string.length(derr) > 0 {
         println("${mod_dir}: approval.${provider} sha256 failed: ${derr}")
         bldr.fail(ctx, "approval.${provider} sha256 failed: ${derr}")
@@ -716,7 +716,7 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
         return 1
     }
     evidence_body = attestation_evidence_json(provider, subj, digest, verify_url, canon)
-    werr = fs.write_atomic(evidence_path, evidence_body, string.length(evidence_body))
+    werr = fs.write_atomic(evidence_path, string.bytes(evidence_body))
     if string.length(werr) > 0 {
         println("${mod_dir}: approval.${provider} could not write evidence: ${werr}")
         bldr.fail(ctx, "approval.${provider} could not write evidence: ${werr}")

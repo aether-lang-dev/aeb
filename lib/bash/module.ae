@@ -524,10 +524,10 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     runner_file = bldr._to_native_path(string.trim(runner_raw))
 
     list_body = string.concat(items, "\n")
-    _ewl = fs.write_atomic(list_file, list_body, string.length(list_body))
+    _ewl = fs.write_atomic(list_file, string.bytes(list_body))
 
     runner_body = bash_runner_body()
-    _ewr = fs.write_atomic(runner_file, runner_body, string.length(runner_body))
+    _ewr = fs.write_atomic(runner_file, string.bytes(runner_body))
     bldr._sh(string.concat("chmod +x ", runner_file))
 
     pipe = bash_xargs_cmd(list_file, runner_file, jobs_arg)

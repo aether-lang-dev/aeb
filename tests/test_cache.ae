@@ -74,7 +74,7 @@ _run(fw: ptr) {
     // --- 4. hash_file round-trip ---
     src = path.join(tmp_root, "src.bin")
     sample = "hello, cache"
-    werr = fs.write_atomic(src, sample, string.length(sample))
+    werr = fs.write_atomic(src, string.bytes(sample))
     spec.assert_str_eq(werr, "", "write_atomic ok")
 
     fh, fherr = cache.hash_file(src)

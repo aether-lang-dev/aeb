@@ -49,7 +49,7 @@ available() {
     if zlib.available() == 0 { return 0 }
     // Probe sha256 by hashing the empty buffer — returns "" + err when
     // OpenSSL is unavailable, a 64-char digest otherwise.
-    digest, err = cryptography.sha256_hex("", 0)
+    digest, err = cryptography.sha256_hex(string.bytes(""))
     if string.length(err) > 0 { return 0 }
     return 1
 }
@@ -180,7 +180,7 @@ _copy_atomic(src: string, dest: string) {
     if string.length(merr) > 0 { return 0 }
     bytes, length, rerr = fs.read_binary(src)
     if rerr != "" { return 0 }
-    werr = fs.write_atomic(dest, bytes, length)
+    werr = fs.write_atomic(dest, string.bytes(bytes))
     if werr != "" { return 0 }
     return 1
 }
@@ -223,7 +223,7 @@ hash_file(p: string) {
     if string.length(rerr) > 0 {
         return "", rerr
     }
-    return cryptography.sha256_hex(bytes, length)
+    return cryptography.sha256_hex(string.bytes(bytes))
 }
 
 // hash_inputs(parts) — sha256 of length-prefixed concatenation of
@@ -250,7 +250,7 @@ hash_inputs(parts: ptr) {
         buf = string.concat(buf, part)
         i = i + 1
     }
-    return cryptography.sha256_hex(buf, string.length(buf))
+    return cryptography.sha256_hex(string.bytes(buf))
 }
 
 // put(hash, src_path) — read src_path, deflate, write to path(hash).
@@ -276,7 +276,7 @@ put(hash: string, src_path: string) {
     // -1 picks zlib's default level (typically 6). The corpus most
     // likely to land here is a mix of already-compressed jars and
     // plain-text classpath manifests — default tuned for both.
-    compressed, clen, cerr = zlib.deflate(bytes, length, -1)
+    compressed, clen, cerr = zlib.deflate(string.bytes(bytes), -1)
     if string.length(cerr) > 0 {
         return cerr
     }
@@ -288,7 +288,7 @@ put(hash: string, src_path: string) {
         return merr
     }
 
-    werr = fs.write_atomic(dest, compressed, clen)
+    werr = fs.write_atomic(dest, string.bytes(compressed))
     if string.length(werr) == 0 {
         // Write-through to the shared remote. Best-effort.
         _remote_push(hash)
@@ -316,12 +316,12 @@ get(hash: string, dest_path: string) {
         return rerr
     }
 
-    decompressed, dlen, derr = zlib.inflate(bytes, length)
+    decompressed, dlen, derr = zlib.inflate(string.bytes(bytes))
     if string.length(derr) > 0 {
         return derr
     }
 
-    return fs.write_atomic(dest_path, decompressed, dlen)
+    return fs.write_atomic(dest_path, string.bytes(decompressed))
 }
 
 // put_string(hash, value) — string-shaped put, skipping the
@@ -334,7 +334,7 @@ put_string(hash: string, value: string) {
         return ""
     }
 
-    compressed, clen, cerr = zlib.deflate(value, string.length(value), -1)
+    compressed, clen, cerr = zlib.deflate(string.bytes(value), -1)
     if string.length(cerr) > 0 {
         return cerr
     }
@@ -345,7 +345,7 @@ put_string(hash: string, value: string) {
         return merr
     }
 
-    werr = fs.write_atomic(dest, compressed, clen)
+    werr = fs.write_atomic(dest, string.bytes(compressed))
     if string.length(werr) == 0 {
         _remote_push(hash)
     }
@@ -377,7 +377,7 @@ get_string(hash: string) {
         return "", rerr
     }
 
-    decompressed, dlen, derr = zlib.inflate(bytes, length)
+    decompressed, dlen, derr = zlib.inflate(string.bytes(bytes))
     if string.length(derr) > 0 {
         return "", derr
     }

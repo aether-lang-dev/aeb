@@ -2230,7 +2230,7 @@ _unzip_to_dir(archive_path: string, dest_dir: string) {
     data, dlen, rerr = fs.read_binary(archive_path)
     if string.length(rerr) > 0 { return string.concat("read failed: ", rerr) }
     if dlen <= 0 { return "empty or unreadable archive" }
-    ar, oerr = zip.open(data, dlen)
+    ar, oerr = zip.open(string.bytes(data)[0..dlen])
     if string.equals(oerr, "") == 0 { return string.concat("not a zip: ", oerr) }
     _mkdirs(dest_dir)
     n = zip.count(ar)
@@ -2258,7 +2258,7 @@ _unzip_to_dir(archive_path: string, dest_dir: string) {
                     out_err = string.concat(string.concat("entry '", name), string.concat("': ", eerr))
                     i = n
                 } else {
-                    werr = fs.write_binary(dest, body, blen)
+                    werr = fs.write_binary(dest, string.bytes(body)[0..blen])
                     if string.length(werr) > 0 {
                         out_err = string.concat(string.concat("write '", dest), string.concat("': ", werr))
                         i = n
@@ -2529,7 +2529,7 @@ program_binary_of(_ctx: ptr, dep_module: string) {
 _write_artifact(ctx: ptr, artifact: string, content: string) {
     td = _get(ctx, "target_dir")
     p = path.join(td, artifact)
-    _e = fs.write_atomic(p, content, string.length(content))
+    _e = fs.write_atomic(p, string.bytes(content))
 }
 
 // --- Post-build steps (the other half of the build sandwich) ---
@@ -2987,7 +2987,7 @@ _record_cache(ctx: ptr, outcome: string) {
     td = _get(ctx, "target_dir")
     _mkdirs(td)
     p = path.join(td, ".aeb_cache")
-    _e = fs.write_atomic(p, outcome, string.length(outcome))
+    _e = fs.write_atomic(p, string.bytes(outcome))
 }
 
 // _read_cache_outcome(target_dir) — orchestrator-side read of the
@@ -3416,7 +3416,7 @@ _record_test_result_r(ctx: ptr, passed: int, failed: int, skipped: int, has_repo
     body = string.concat(body, "\nreport=")
     body = string.concat(body, string.from_int(has_report))
     body = string.concat(body, "\n")
-    _e = fs.write_atomic(p, body, string.length(body))
+    _e = fs.write_atomic(p, string.bytes(body))
 }
 
 // _read_test_result(target_dir) — orchestrator-side read of the
@@ -3521,7 +3521,7 @@ _record_test_failures(ctx: ptr, names: string) {
             body = string.concat(body, "\n")
         }
     }
-    _e = fs.write_atomic(p, body, string.length(body))
+    _e = fs.write_atomic(p, string.bytes(body))
     return 0
 }
 

@@ -6,15 +6,15 @@ import std.os
 import std.file
 import std.map
 import std.path
-// Narrow import of bldr.fail ONLY: the orchestrator ignores a builder's
-// return value (tools/gen-orchestrator.ae explains why — a trailing-block
-// builder's implicit return is garbage), so failures redden the build ONLY
-// via the explicit bldr.fail() channel. A container build that returned
-// non-zero but didn't call bldr.fail() reported a green build with no image
-// (observed). Every other SDK calls bldr.fail; container must too. (The old
-// "no import build — double-import conflicts" note predated the narrow-import
-// support; `import bldr (fail)` resolves cleanly.)
-import bldr (fail)
+// Plain `import bldr`, like every other SDK. The orchestrator ignores a
+// builder's return value (tools/gen-orchestrator.ae explains why — a
+// trailing-block builder's implicit return is garbage), so failures redden the
+// build ONLY via the explicit bldr.fail() channel. A container build that
+// returned non-zero but didn't call bldr.fail() reported a green build with no
+// image (observed). This was once a narrow `import bldr (fail)`, but the module
+// also calls bldr._sh / _sh_capture / _glob_first / _mkdirs qualified, and
+// Aether 0.713 (#2172) enforces selective imports, so those stopped resolving.
+import bldr
 
 // --- OCI image DSL setters ---
 
@@ -534,7 +534,7 @@ builder image(): int {
         // io.write_file returns "" on success, an error string on failure.
         werr = io.write_file(df_path, df_content)
         if string.length(werr) > 0 {
-            fail(ctx, string.concat("could not write ", string.concat(df_path, string.concat(": ", werr))))
+            bldr.fail(ctx, string.concat("could not write ", string.concat(df_path, string.concat(": ", werr))))
             println("${mod_dir}: could not write ${df_path}: ${werr}")
             return 1
         }
@@ -575,7 +575,7 @@ builder image(): int {
         // bldr.fail is the channel the orchestrator actually reads — a bare
         // `return exit_code` is silently discarded (see gen-orchestrator),
         // which is why a failed `podman build` used to report a green build.
-        fail(ctx, string.concat("container build failed (podman build exit ", string.concat(string.from_int(exit_code), ")")))
+        bldr.fail(ctx, string.concat("container build failed (podman build exit ", string.concat(string.from_int(exit_code), ")")))
         println("${mod_dir}: container build failed")
         return exit_code
     }
@@ -603,7 +603,7 @@ builder lxc(): int {
         // Same channel image() uses, and for the same reason: the
         // orchestrator discards a builder's return value, so a bare
         // `return exit_code` reported a green build with no container.
-        fail(ctx, string.concat("lxc-create failed (exit ", string.concat(string.from_int(exit_code), ")")))
+        bldr.fail(ctx, string.concat("lxc-create failed (exit ", string.concat(string.from_int(exit_code), ")")))
         println("${mod_dir}: lxc-create failed")
         return exit_code
     }

@@ -313,7 +313,7 @@ builder formula(): int {
 
     // Write to target_dir/<binary>.rb
     out_path = path.join(target_dir, string.concat(bin_name, ".rb"))
-    _e = fs.write_atomic(out_path, formula_text, string.length(formula_text))
+    _e = fs.write_atomic(out_path, string.bytes(formula_text))
 
     println("${mod_dir}: wrote Homebrew formula → ${out_path}")
     bldr._write_artifact(ctx, "brew_formula", out_path)

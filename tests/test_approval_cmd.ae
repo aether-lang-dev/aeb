@@ -99,7 +99,7 @@ _run(fw: ptr) {
     _sh(string.concat("mkdir -p ", string.concat(root, "/bin")))
     fake_curl = "#!/usr/bin/env bash\nout=\"\"\nwhile [ $# -gt 0 ]; do\n  if [ \"$1\" = \"-o\" ]; then shift; out=\"$1\"; fi\n  shift || true\ndone\ncat > \"$out\" <<'JSON'\n{\"key\":\"REL-1234\",\"fields\":{\"status\":{\"name\":\"Approved\"},\"labels\":[\"release-approved\",\"cab-ok\"],\"Risk\":{\"value\":\"Accepted\"},\"customfield_123\":\"Approved\"}}\nJSON\n"
     curl_path = string.concat(root, "/bin/curl")
-    fs.write_atomic(curl_path, fake_curl, string.length(fake_curl))
+    fs.write_atomic(curl_path, string.bytes(fake_curl))
     _sh(string.concat("chmod +x ", curl_path))
     script_path = string.concat(root, "/check.sh")
     evidence_path = string.concat(root, "/evidence.json")
@@ -107,7 +107,7 @@ _run(fw: ptr) {
                                    "JIRA_TOKEN", "Approved",
                                    labels, fields,
                                    evidence_path, "30")
-    fs.write_atomic(script_path, run_script, string.length(run_script))
+    fs.write_atomic(script_path, string.bytes(run_script))
     _sh(string.concat("chmod +x ", script_path))
     // POSIX form for the PATH prepend — a native "C:/..bin" would split on its
     // own colon inside a ':'-separated PATH and the fake curl would never be
@@ -131,7 +131,7 @@ _run(fw: ptr) {
     generic_json = "{\"change\":{\"status\":\"approved\"},\"approvals\":[{\"id\":\"person1\",\"approved_at\":\"2026-05-09T10:00:00Z\",\"status\":\"approved\"},{\"id\":\"person2\",\"approved_at\":\"2026-05-09T10:05:00Z\",\"status\":\"approved\"},{\"id\":\"person3\",\"approved_at\":\"2026-05-09T10:07:00Z\",\"status\":\"approved\"}]}\n"
     generic_src = string.concat(root, "/generic-response.json")
     generic_evidence = string.concat(root, "/generic-evidence.json")
-    fs.write_atomic(generic_src, generic_json, string.length(generic_json))
+    fs.write_atomic(generic_src, string.bytes(generic_json))
     fetch_cmd = string.concat("cat ", string.concat(generic_src, " > \"$tmp\""))
     generic_script = approval_json_check_script("command", "release-1", fetch_cmd,
                                                 req_json, req_approvers,
@@ -139,7 +139,7 @@ _run(fw: ptr) {
                                                 "status", "approved",
                                                 generic_evidence, "30")
     generic_script_path = string.concat(root, "/generic-check.sh")
-    fs.write_atomic(generic_script_path, generic_script, string.length(generic_script))
+    fs.write_atomic(generic_script_path, string.bytes(generic_script))
     _sh(string.concat("chmod +x ", generic_script_path))
     generic_out, generic_err = _sh_capture(string.concat("bash ", generic_script_path))
     spec.assert_str_eq(string.trim(generic_err), "", "generic approval stderr")
@@ -154,7 +154,7 @@ _run(fw: ptr) {
     att_canon = "Release: R-2026-05-09\nChange: CHG123456\nperson1: approved at 2026-05-09T10:00:00Z\nperson2: approved at 2026-05-09T10:05:00Z\nperson3: approved at 2026-05-09T10:07:00Z\n"
     spec.assert_str_eq(canonicalize_attestation(att_text), att_canon, "attestation canonicalizes text")
     verify_prefix = "https://verify.example.com/c"
-    digest, derr = cryptography.sha256_hex(att_canon, string.length(att_canon))
+    digest, derr = cryptography.sha256_hex(string.bytes(att_canon))
     spec.assert_str_eq(derr, "", "attestation sha256 err")
     att_url = string.concat(string.concat(verify_prefix, "/"), digest)
     att_body = attestation_evidence_json("attestation", "CHG123456", digest, att_url, att_canon)

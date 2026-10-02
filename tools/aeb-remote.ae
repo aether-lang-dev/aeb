@@ -150,7 +150,7 @@ main() {
     url = string.concat(ep, "/dispatch")
     creq = client.request("POST", url)
     _sh = client.set_header(creq, "X-AEB-Token", tok)
-    _sb = client.set_body(creq, req_body, string.length(req_body), "application/json")
+    _sb = client.set_body(creq, string.bytes(req_body), "application/json")
     cresp, err = client.send_request(creq)
     if string.length(err) > 0 {
         client.request_free(creq)

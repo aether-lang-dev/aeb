@@ -57,7 +57,7 @@ _write_node_script(dir: string, n: int) {
     abs_raw, _e = _sh_capture("readlink -f tools/gen-orchestrator")
     gen = string.trim(abs_raw)
     body = "#!/bin/sh\nset -e\nargs=\"\"\ni=0\nwhile [ $i -lt ${n} ]; do\n  args=\"$args node_$i/.build.ae\"\n  i=$((i+1))\ndone\nexec '${gen}' $args\n"
-    fs.write_atomic(path.join(dir, "gen.sh"), body, string.length(body))
+    fs.write_atomic(path.join(dir, "gen.sh"), string.bytes(body))
     return 0
 }
 

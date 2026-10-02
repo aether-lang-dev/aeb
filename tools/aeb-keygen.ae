@@ -26,9 +26,9 @@ extern exit(code: int)
 main() {
     raw, n, err = cryptography.random_bytes(32)
     if string.length(err) > 0 { println("aeb-keygen: CSPRNG failed: ${err}"); exit(1) }
-    // encoding.base64_encode(data, length) -> string (single value, "" on
+    // encoding.base64_encode(data: byte[]) -> string (single value, "" on
     // empty/invalid input); it lives in std.encoding, not std.cryptography.
-    material = encoding.base64_encode(raw, n)
+    material = encoding.base64_encode(string.bytes(raw)[0..n])
     if string.length(material) == 0 { println("aeb-keygen: base64 failed (empty output)"); exit(1) }
     secret = string.concat(_secret_marker(), material)
     // Self-check against the SAME gates the agent/minter enforce, so generated

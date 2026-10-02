@@ -107,7 +107,7 @@ _fetch_verified(url: string, sha256_source: string, dest: string) -> (string, st
     if blen <= 0 {
         return dest, string.concat("download failed: ", url)
     }
-    _w = fs.write_binary(dest, body, blen)
+    _w = fs.write_binary(dest, string.bytes(body)[0..blen])
 
     // Verify (when a checksum is published).
     if string.length(want) > 0 {
@@ -122,7 +122,7 @@ _fetch_verified(url: string, sha256_source: string, dest: string) -> (string, st
 }
 
 // GET a URL, following GitHub's CDN redirect; (body, length), length <= 0 on any
-// failure. Binary-safe (response_body_length, not str length).
+// failure. Binary-safe (response_body_bytes carries the length, not strlen).
 _fv_download_bytes(url: string) -> (string, int) {
     req = client.request("GET", url)
     if req == null { return "", 0 }
@@ -131,7 +131,7 @@ _fv_download_bytes(url: string) -> (string, int) {
     if string.length(err) > 0 { return "", 0 }
     if client.response_status(resp) != 200 { return "", 0 }
     body = client.response_body(resp)
-    len = client.response_body_length(resp)
+    len = client.response_body_bytes(resp).len
     return body, len
 }
 

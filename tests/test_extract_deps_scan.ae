@@ -87,23 +87,23 @@ _setup_fixture(root: string) {
 
     // Aggregator using scan
     all_tests = "import bldr\nmain() {\n    b = bldr.start()\n    scan(\"**/.tests.ae\")\n}\n"
-    fs.write_atomic("${root}/.all-tests.ae", all_tests, string.length(all_tests))
+    fs.write_atomic("${root}/.all-tests.ae", string.bytes(all_tests))
 
     // Aggregator with potential self-match
     everything = "import bldr\nmain() {\n    b = bldr.start()\n    scan(\"**/.*.ae\")\n}\n"
-    fs.write_atomic("${root}/.everything.ae", everything, string.length(everything))
+    fs.write_atomic("${root}/.everything.ae", string.bytes(everything))
 
     // Stub leaf files (content irrelevant — extract-deps reads, doesn't compile)
     stub = "import bldr\nmain() { b = bldr.start(); return 0 }\n"
-    fs.write_atomic("${root}/lib/foo/.tests.ae", stub, string.length(stub))
-    fs.write_atomic("${root}/lib/bar/.tests.ae", stub, string.length(stub))
-    fs.write_atomic("${root}/apps/baz/.tests.ae", stub, string.length(stub))
-    fs.write_atomic("${root}/single/.build.ae", stub, string.length(stub))
-    fs.write_atomic("${root}/single/.tests.ae", stub, string.length(stub))
+    fs.write_atomic("${root}/lib/foo/.tests.ae", string.bytes(stub))
+    fs.write_atomic("${root}/lib/bar/.tests.ae", string.bytes(stub))
+    fs.write_atomic("${root}/apps/baz/.tests.ae", string.bytes(stub))
+    fs.write_atomic("${root}/single/.build.ae", string.bytes(stub))
+    fs.write_atomic("${root}/single/.tests.ae", string.bytes(stub))
 
     // Mixed: dep + scan, expect dedup if scan matches one of the deps
     mixed = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"lib/foo/.tests.ae\")\n    scan(\"**/.tests.ae\")\n}\n"
-    fs.write_atomic("${root}/.mixed.ae", mixed, string.length(mixed))
+    fs.write_atomic("${root}/.mixed.ae", string.bytes(mixed))
 }
 
 // Sort whitespace-separated tokens so test assertions don't depend on
@@ -141,7 +141,7 @@ main() {
 
             // --- dep alone (regression: pass 1 unchanged) ---
             dep_only = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"single/.build.ae\")\n}\n"
-            fs.write_atomic("${root}/.dep-only.ae", dep_only, string.length(dep_only))
+            fs.write_atomic("${root}/.dep-only.ae", string.bytes(dep_only))
             out_dep = _run_extract_deps(root, ".dep-only.ae")
             spec.assert_str_eq(_normalise(out_dep), "single/.build.ae", "dep-only: pass 1 still works")
 
@@ -179,14 +179,14 @@ main() {
             // mirror the runtime bldr.dep colon rule and must emit no edge. Only
             // the real file-path dep survives.
             coords = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"hiccup:hiccup:2.0.0-RC3\")\n    dep(\"org.springframework.boot:spring-boot-starter\")\n    dep(\"npm:left-pad:1.3.0\")\n    dep(\"single/.build.ae\")\n}\n"
-            fs.write_atomic("${root}/.coords.ae", coords, string.length(coords))
+            fs.write_atomic("${root}/.coords.ae", string.bytes(coords))
             out_coords = _run_extract_deps(root, ".coords.ae")
             spec.assert_str_eq(_normalise(out_coords), "single/.build.ae",
                 "coord deps (maven/npm) excluded; only file dep emitted")
 
             // --- empty file: no deps, no scans ---
             empty = "import bldr\nmain() { b = bldr.start(); return 0 }\n"
-            fs.write_atomic("${root}/.empty.ae", empty, string.length(empty))
+            fs.write_atomic("${root}/.empty.ae", string.bytes(empty))
             out_empty = _run_extract_deps(root, ".empty.ae")
             spec.assert_str_eq(out_empty, "", "empty: no deps")
 

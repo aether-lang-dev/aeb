@@ -712,7 +712,7 @@ _lease_signed_prefix(purpose: string, expiry: string) {
 // prefix. Returns "" if openssl is unavailable (caller treats as fail-closed).
 _lease_sign(secret: string, purpose: string, expiry: string) {
     pre = _lease_signed_prefix(purpose, expiry)
-    sig, err = cryptography.hmac_sha256_hex(secret, string.length(secret), pre, string.length(pre))
+    sig, err = cryptography.hmac_sha256_hex(string.bytes(secret), string.bytes(pre))
     if string.length(err) > 0 { return "" }
     return sig
 }
@@ -1150,7 +1150,7 @@ builder dispatch(): int {
     // couldn't tell reject(403) from busy(503) from a real outage).
     creq = client.request("POST", url)
     _sh = client.set_header(creq, "X-AEB-Token", tok)
-    _sb = client.set_body(creq, req_body, string.length(req_body), "application/json")
+    _sb = client.set_body(creq, string.bytes(req_body), "application/json")
     cresp, err = client.send_request(creq)
     if string.length(err) > 0 {
         // Transport failure — agent unreachable. v1: fail back to user.

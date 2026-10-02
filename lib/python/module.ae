@@ -413,7 +413,7 @@ builder wheel_registry(name_and_ver: string): int {
         new_content = string.concat(existing, "\n")
         new_content = string.concat(new_content, name_and_ver)
     }
-    _ew = fs.write_atomic(artifact_path, new_content, string.length(new_content))
+    _ew = fs.write_atomic(artifact_path, string.bytes(new_content))
     println("${mod_dir}: registry pypi ${name_and_ver}")
     return 0
 }
@@ -439,7 +439,7 @@ builder wheel_vendored(wheel_path: string): int {
         new_content = string.concat(existing, "\n")
         new_content = string.concat(new_content, wheel_path)
     }
-    _ew = fs.write_atomic(artifact_path, new_content, string.length(new_content))
+    _ew = fs.write_atomic(artifact_path, string.bytes(new_content))
     println("${mod_dir}: vendored wheel ${wheel_path}")
     return 0
 }

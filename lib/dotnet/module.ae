@@ -674,7 +674,7 @@ builder nuget_registry(name_and_ver: string): int {
         new_content = string.concat(existing, "\n")
         new_content = string.concat(new_content, name_and_ver)
     }
-    _e = fs.write_atomic(artifact_path, new_content, string.length(new_content))
+    _e = fs.write_atomic(artifact_path, string.bytes(new_content))
     println("${mod_dir}: registry nuget ${name_and_ver}")
     return 0
 }
@@ -724,7 +724,7 @@ builder nuget_vendored(name_and_path: string): int {
         new_content = string.concat(existing, "\n")
         new_content = string.concat(new_content, name_and_path)
     }
-    _e = fs.write_atomic(artifact_path, new_content, string.length(new_content))
+    _e = fs.write_atomic(artifact_path, string.bytes(new_content))
     println("${mod_dir}: vendored dll ${name_and_path}")
     return 0
 }

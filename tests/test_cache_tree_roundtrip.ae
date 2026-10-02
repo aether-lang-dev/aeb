@@ -52,8 +52,8 @@ _mktempdir() {
 // so the test exercises binary-safe tar/zlib, not aether string escapes.
 _stage_tree(root: string) {
     _sh("mkdir -p '${root}/com/example/sub' '${root}/mod_name'")
-    fs.write_atomic("${root}/com/example/A.class", "AAAA-bytes\n", 11)
-    fs.write_atomic("${root}/top.txt", "top\n", 4)
+    fs.write_atomic("${root}/com/example/A.class", string.bytes("AAAA-bytes\n"))
+    fs.write_atomic("${root}/top.txt", string.bytes("top\n"))
     // 64 arbitrary bytes (NULs + high bytes likely) — proves the
     // tar+zlib round-trip is binary-safe, not just text-safe.
     _sh("head -c 64 /dev/urandom > '${root}/com/example/sub/B.class'")

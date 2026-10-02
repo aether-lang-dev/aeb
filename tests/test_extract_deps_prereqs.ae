@@ -96,7 +96,7 @@ main() {
 
             // A leaf with two distinct prereqs + a dep + a duplicate prereq.
             leaf = "import bldr\nimport bldr (prereq)\nmain() {\n    b = bldr.start()\n    dep(\"shared/.build.ae\")\n    prereq(\"zig:0.13\")\n    prereq(\"python:3.14\")\n    prereq(\"zig:0.13\")\n}\n"
-            fs.write_atomic("${root}/.build.ae", leaf, string.length(leaf))
+            fs.write_atomic("${root}/.build.ae", string.bytes(leaf))
 
             // --- tokens emitted, deduped, sorted ---
             out_pq = _run_prereqs(root, ".build.ae")
@@ -111,7 +111,7 @@ main() {
 
             // --- a file with no prereq() emits nothing ---
             noprq = "import bldr\nmain() {\n    b = bldr.start()\n    dep(\"x/.build.ae\")\n}\n"
-            fs.write_atomic("${root}/.noprq.ae", noprq, string.length(noprq))
+            fs.write_atomic("${root}/.noprq.ae", string.bytes(noprq))
             out_none = _run_prereqs(root, ".noprq.ae")
             spec.assert_str_eq(out_none, "", "prereqs: none declared -> empty")
 

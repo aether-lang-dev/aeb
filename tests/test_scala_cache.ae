@@ -35,7 +35,7 @@ _mktempdir() {
 }
 
 _write(p: string, content: string) {
-    fs.write_atomic(p, content, string.length(content))
+    fs.write_atomic(p, string.bytes(content))
 }
 
 _minimal_ctx(root: string) {

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Changed
+
+- **aeb now builds on Aether 0.758+ (floor raised 0.706 -> 0.758; fetch 0.760).**
+  Aether 0.758 (#2301) changed byte-payload std calls to take a `byte[]` slice
+  with no separate length: `fs.write_atomic` / `write_binary`,
+  `cryptography.sha256_hex` / `hmac_sha256_hex`, `encoding.base64_encode`,
+  `zlib.deflate` / `inflate`, `zip.open` and the http client's `set_body`.
+  `response_body_length` was removed. Every aeb call site (lib/, tools/,
+  tests/, and the code gen-orchestrator emits) now passes `string.bytes(s)`.
+  Separately, Aether 0.713 (#2172) enforces selective imports, so
+  lib/container's narrow `import bldr (fail)` no longer resolved its
+  qualified `bldr._sh*` calls; it is now a plain `import bldr`. Both
+  failures stopped aeb from building at all on Aether 0.758+.
+
 ### Fixed
 
 - **aeb compiles a module's `@source` C files (aether #2125).** A module can

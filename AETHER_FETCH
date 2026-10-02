@@ -238,4 +238,8 @@
 #   CI) now cold-compiles EVERY tools/*.ae so this class can't recur. Re-verified
 #   against the real 0.706.0 tarball with a fresh AETHER_HOME: all 27 tools cold-
 #   compile, all 11 smokes + full suite 151/151 green; GLIBC 2.34.
-0.706.0
+# Raised 0.706.0 -> 0.760.0 (2026-10-02). Lockstep with AETHER_PIN's real floor
+# move to 0.758 (the #2301 byte[] slice APIs). 0.758 and 0.759 were tagged but
+# never published as releases; 0.760.0 is the first published release that
+# carries the slice APIs.
+0.760.0

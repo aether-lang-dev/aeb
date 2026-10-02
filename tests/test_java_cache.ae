@@ -37,7 +37,7 @@ _mktempdir() {
 }
 
 _write(path: string, content: string) {
-    fs.write_atomic(path, content, string.length(content))
+    fs.write_atomic(path, string.bytes(content))
 }
 
 // Build a minimal ctx that satisfies _cache_key_for_javac's reads.

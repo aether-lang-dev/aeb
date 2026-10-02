@@ -710,7 +710,7 @@ main() {
             mk = string.concat(mk, "\n")
         }
         mk_path = path.join(aeb_dir, "bldr.mk")
-        _we = fs.write_atomic(mk_path, mk, string.length(mk))
+        _we = fs.write_atomic(mk_path, string.bytes(mk))
         // -k: keep building independent nodes after a failure (parity with
         // the all-in-one run-everything behavior); rc != 0 if any failed.
         run = string.concat("make -j", jobs)
@@ -851,21 +851,21 @@ main() {
         tj_dir = path.dirname(telemetry_json)
         if string.length(tj_dir) > 0 { bldr._mkdirs(tj_dir) }
         tj_body = bldr.render_telemetry_json(records, total_ms)
-        _tje = fs.write_atomic(telemetry_json, tj_body, string.length(tj_body))
+        _tje = fs.write_atomic(telemetry_json, string.bytes(tj_body))
     }
     tests_json = os.getenv("AEB_TESTS_JSON")
     if string.length(tests_json) > 0 {
         testj_dir = path.dirname(tests_json)
         if string.length(testj_dir) > 0 { bldr._mkdirs(testj_dir) }
         testj_body = bldr.render_tests_json(records)
-        _testje = fs.write_atomic(tests_json, testj_body, string.length(testj_body))
+        _testje = fs.write_atomic(tests_json, string.bytes(testj_body))
     }
     artifacts_json = os.getenv("AEB_ARTIFACTS_JSON")
     if string.length(artifacts_json) > 0 {
         artj_dir = path.dirname(artifacts_json)
         if string.length(artj_dir) > 0 { bldr._mkdirs(artj_dir) }
         artj_body = bldr.render_artifacts_json(root, records)
-        _artje = fs.write_atomic(artifacts_json, artj_body, string.length(artj_body))
+        _artje = fs.write_atomic(artifacts_json, string.bytes(artj_body))
     }
 
     println(bldr.render_telemetry(records, total_ms))
