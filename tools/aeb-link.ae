@@ -1016,7 +1016,17 @@ main() {
         ac_cmd = string.concat(ac_cmd, ae_tmp)
         ac_cmd = string.concat(ac_cmd, " ")
         ac_cmd = string.concat(ac_cmd, c_out)
-        _sh_link(ac_cmd)
+        // A build file that no longer compiles must stop the build. Its
+        // previous run's .c is still on disk, so carrying on would link the
+        // OLD graph and exit 0 with the type error scrolled past: a stale,
+        // falsely green build. Delete that .c so nothing can link it.
+        ac_rc = _sh_link(ac_cmd)
+        if ac_rc != 0 {
+            _rm = _sh_link(string.concat("rm -f ", c_out))
+            println("aeb-link: FATAL — ${file_path} does not compile (the error above).")
+            println("aeb-link:   stopping rather than building from its last good version.")
+            exit(1)
+        }
 
         _lc = list.add(c_files, c_out)
         i = i + 1

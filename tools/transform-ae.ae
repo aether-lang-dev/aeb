@@ -423,4 +423,65 @@ main() {
             }
         }
     }
+
+    // Step 4: end the node function with `return 0`. It is int-typed so the
+    // orchestrator can read its status, but Aether returns a block body's
+    // last expression only for arrow functions: a node whose block has no
+    // `return 0` fell off the end of an int function, and its status was
+    // whatever the return register held (0 on Linux x86-64 by luck; not on
+    // arm64 macOS, where green nodes reported FAILED). A failure still
+    // reaches the orchestrator through bldr.fail, and a block that returns
+    // explicitly makes this line unreachable, so the default changes nothing
+    // that was already right.
+    body2, rerr = io.read_file(out)
+    if rerr == "" {
+        fixed = _append_node_return(body2, string.concat(func_name, "(s: ptr): int {"))
+        if fixed != "" {
+            werr3 = io.write_file(out, fixed)
+            if werr3 != "" {
+                println(string.concat("transform-ae: ", werr3))
+                exit(1)
+            }
+        }
+    }
+}
+
+// Insert `    return 0` before the closing brace of the function whose
+// signature line is `sig`. Braces are counted outside strings and `//`
+// comments. Returns "" when the signature or its end is not found (the file
+// is left as it was).
+_append_node_return(text: string, sig: string) {
+    at = string.index_of(text, sig)
+    if at < 0 { return "" }
+    n = string.length(text)
+    i = at + string.length(sig)
+    depth = 1
+    in_str = 0
+    while i < n {
+        ch = string.substring(text, i, i + 1)
+        if in_str == 1 {
+            if string.equals(ch, "\\") == 1 {
+                i = i + 1
+            } else if string.equals(ch, "\"") == 1 {
+                in_str = 0
+            }
+        } else if string.equals(ch, "\"") == 1 {
+            in_str = 1
+        } else if string.equals(ch, "/") == 1 && string.equals(string.substring(text, i + 1, i + 2), "/") == 1 {
+            nl = string.index_of(string.substring(text, i, n), "\n")
+            if nl < 0 { return "" }
+            i = i + nl
+        } else if string.equals(ch, "{") == 1 {
+            depth = depth + 1
+        } else if string.equals(ch, "}") == 1 {
+            depth = depth - 1
+            if depth == 0 {
+                head = string.substring(text, 0, i)
+                tail = string.substring(text, i, n)
+                return string.concat(string.concat(head, "    return 0\n"), tail)
+            }
+        }
+        i = i + 1
+    }
+    return ""
 }

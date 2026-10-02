@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **A `.build.ae` that stops compiling fails the build.** aeb-link ignored the
+  exit code of each build file's aetherc compile, so after one good build a
+  broken build file printed its error, linked the previous run's `.c` and
+  exited 0 on the old graph. It now stops with a FATAL naming the file, and
+  deletes the stale `.c`. (`itests/build-file-error-not-stale.sh`.)
+- **Node functions return 0 by default.** transform-ae makes each node
+  function int-typed, but Aether returns a body's last expression only for
+  arrow functions, so a node without `return 0` fell off the end of an int
+  function. Its status was the leftover return register: 0 on Linux x86-64,
+  not on arm64 macOS, where green builds reported FAILED
+  (`build-failure-visibility` and `failures-jsonl-capture` failed there).
+  transform-ae now ends the node function with `return 0`; failures still
+  arrive through `bldr.fail`.
 - **`c.program` relinks when an imported module changes, and per output.**
   Its "not changed" check looked only at the declared sources, so editing a
   project module that an `aether_source` imports kept the old binary; it now
