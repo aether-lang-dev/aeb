@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **`c.program` relinks when an imported module changes, and per output.**
+  Its "not changed" check looked only at the declared sources, so editing a
+  project module that an `aether_source` imports kept the old binary; it now
+  walks the transitive import closure, as lib/aether's cache key already did.
+  And the skip-stamp was one `.timestamp` per bin dir, so a node whose
+  `output_file()` depends on the environment (sae builds `sae` and a
+  driver-enabled `sae-driver` from one node) skipped whichever output it built
+  second; the stamp is now `.timestamp-<output>`. Covered by
+  `itests/c-program-rebuild-smoke.sh`, which fails on the old code.
 - **`c.program` / `c.generated_header` give each `aether_source` its own
   object.** The generated `<stem>_gen.c/.o` was named from the source's
   basename. A builder listing several `<dir>/module.ae` files therefore wrote

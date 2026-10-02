@@ -337,6 +337,88 @@ _include_flags(opts: ptr) {
 // bldr._needs_rebuild this checks the *actual resolved sources*,
 // so it sees files in subdirectories (src/foo.c), which a shallow
 // source_dir/* glob would miss.
+// Module name from a trimmed `import ...` line: `import a.b (x, y)` -> a.b.
+_c_import_name(line: string) {
+    rest = string.trim(string.substring(line, 7, string.length(line)))
+    n = string.length(rest)
+    i = 0
+    while i < n {
+        ch = string.substring(rest, i, i + 1)
+        if string.equals(ch, " ") == 1 { return string.substring(rest, 0, i) }
+        if string.equals(ch, "(") == 1 { return string.substring(rest, 0, i) }
+        i = i + 1
+    }
+    return rest
+}
+
+// A project module's file, relative to source_dir ("" for std/contrib or
+// anything that does not resolve under the project root or src/, where
+// aetherc looks).
+_c_resolve_import(source_dir: string, modname: string) {
+    if string.starts_with(modname, "std.") == 1 { return "" }
+    if string.starts_with(modname, "contrib.") == 1 { return "" }
+    rel = ""
+    n = string.length(modname)
+    i = 0
+    while i < n {
+        ch = string.substring(modname, i, i + 1)
+        if string.equals(ch, ".") == 1 {
+            rel = string.concat(rel, "/")
+        } else {
+            rel = string.concat(rel, ch)
+        }
+        i = i + 1
+    }
+    c1 = string.concat(rel, "/module.ae")
+    if file.exists(path.join(source_dir, c1)) == 1 { return c1 }
+    c2 = string.concat(rel, ".ae")
+    if file.exists(path.join(source_dir, c2)) == 1 { return c2 }
+    c3 = string.concat("src/", c1)
+    if file.exists(path.join(source_dir, c3)) == 1 { return c3 }
+    c4 = string.concat("src/", c2)
+    if file.exists(path.join(source_dir, c4)) == 1 { return c4 }
+    return ""
+}
+
+// Append to `out` every project .ae that `entry` (relative to source_dir)
+// imports, transitively. A breadth-first walk over `import` lines.
+_c_add_import_closure(source_dir: string, entry: string, out: ptr) {
+    seen = map.new()
+    queue = list.new()
+    _q0 = list.add(queue, entry)
+    _s0 = map.put(seen, entry, "1")
+    head = 0
+    while head < list.size(queue) {
+        f, _ = list.get(queue, head)
+        head = head + 1
+        content, rerr = io.read_file(path.join(source_dir, f))
+        if string.equals(rerr, "") == 1 {
+            rest = content
+            while string.length(rest) > 0 {
+                nl = string.index_of(rest, "\n")
+                line = rest
+                if nl < 0 {
+                    rest = ""
+                } else {
+                    line = string.substring(rest, 0, nl)
+                    rest = string.substring(rest, nl + 1, string.length(rest))
+                }
+                t = string.trim(line)
+                if string.starts_with(t, "import ") == 1 {
+                    r = _c_resolve_import(source_dir, _c_import_name(t))
+                    if string.length(r) > 0 {
+                        if map.has(seen, r) == 0 {
+                            _sm = map.put(seen, r, "1")
+                            _qm = list.add(queue, r)
+                            _om = list.add(out, r)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 _sources_changed(source_dir: string, srcs: ptr, ts_file: string) {
     if file.exists(ts_file) == 0 {
         return 1
@@ -745,7 +827,12 @@ builder program(): int {
     // Rebuild when any resolved source — C or Aether — changed, or
     // the binary is missing. (dep-object changes are caught by the
     // depended-on module's own rebuild check.)
-    ts_file = path.join(bin_dir, ".timestamp")
+    //
+    // The timestamp is per OUTPUT: a node whose output_file() depends on
+    // the environment (a test build and a release build of one program)
+    // otherwise shares one stamp, and the second output is skipped as
+    // "not changed" after the first one links.
+    ts_file = path.join(bin_dir, string.concat(".timestamp-", out_name))
     change_set = _expand_sources(source_dir, _opt_str(_builder, "c_sources"))
     ae_for_check = _expand_sources(source_dir, _opt_str(_builder, "c_aether_sources"))
     ci = 0
@@ -754,6 +841,11 @@ builder program(): int {
         aep, _ = list.get(ae_for_check, ci)
         ci = ci + 1
         list.add(change_set, aep)
+        // ...and every project module it imports: editing an imported
+        // module changes the generated C of the importer, so it must
+        // count as a change (lib/aether hashes the same closure into its
+        // cache key for the same reason).
+        _c_add_import_closure(source_dir, aep, change_set)
     }
     if file.exists(out_path) == 1 {
         if _sources_changed(source_dir, change_set, ts_file) == 0 {
