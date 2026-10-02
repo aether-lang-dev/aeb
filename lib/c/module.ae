@@ -472,7 +472,7 @@ builder aether_objects(): int {
         ae_rel, _ = list.get(ae_srcs, i)
         i = i + 1
         ae_full = path.join(source_dir, ae_rel)
-        stem = _strip_ext(path.basename(ae_rel))
+        stem = _gen_stem(ae_rel)
         gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
         gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
         emit_cmd = "${aenv}${aetherc} --emit=lib${with_flag} ${ae_full} ${gen_c}"
@@ -553,7 +553,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
             ae_rel, _ = list.get(ae_srcs, k)
             k = k + 1
             ae_full = path.join(source_dir, ae_rel)
-            stem = _strip_ext(path.basename(ae_rel))
+            stem = _gen_stem(ae_rel)
             gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
             gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
             eg = bldr._sh("${aenv}${aetherc} --emit=lib${twith} ${ae_full} ${gen_c}")
@@ -820,7 +820,7 @@ builder program(): int {
             ae_rel, _ = list.get(ae_srcs, k)
             k = k + 1
             ae_full = path.join(source_dir, ae_rel)
-            stem = _strip_ext(path.basename(ae_rel))
+            stem = _gen_stem(ae_rel)
             gen_c = path.join(gen_dir, string.concat(stem, "_gen.c"))
             gen_o = path.join(gen_dir, string.concat(stem, "_gen.o"))
             emit_cmd = "${aenv}${aetherc} --emit=lib${pwith} ${ae_full} ${gen_c}"
@@ -1051,6 +1051,21 @@ _collect_dep_header_dirs(ctx: ptr) {
 // Strip the final extension from a filename ("foo.c" -> "foo",
 // "a.b.c" -> "a.b"). Used to derive object names from sources.
 // std.string has no last_index_of, so scan for the last '.'.
+// _gen_stem(ae_rel) — the per-source stem for a generated `<stem>_gen.c/.o`.
+// Built from the whole relative path, not the basename: a builder that lists
+// several `<dir>/module.ae` files (mquickjs-port lists ~30) would otherwise
+// write every one to the same `module_gen.o`, each overwriting the last, and
+// link the survivor N times ("multiple definition of ..."). `../` and `./`
+// segments are spelled out so `../ae/x.ae` and `ae/x.ae` stay distinct.
+_gen_stem(ae_rel: string) {
+    s = _strip_ext(ae_rel)
+    s = string.replace_all(s, "../", "up__")
+    s = string.replace_all(s, "./", "")
+    s = string.replace_all(s, "/", "__")
+    s = string.replace_all(s, "\\", "__")
+    return s
+}
+
 _strip_ext(name: string) {
     n = string.length(name)
     last_dot = 0 - 1

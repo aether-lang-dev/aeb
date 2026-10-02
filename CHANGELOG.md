@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`c.program` / `c.generated_header` give each `aether_source` its own
+  object.** The generated `<stem>_gen.c/.o` was named from the source's
+  basename. A builder listing several `<dir>/module.ae` files therefore wrote
+  them all to one `module_gen.o`, each overwriting the last, and linked the
+  survivor N times. mquickjs-port lists about 30 such modules. The stem is now
+  the whole relative path (`ae/gc/module.ae` → `ae__gc__module_gen.o`;
+  `../` → `up__`).
+
 ### Changed
 
 - **aeb now builds on Aether 0.758+ (floor raised 0.706 -> 0.758; fetch 0.760).**
