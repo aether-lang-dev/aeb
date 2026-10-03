@@ -242,4 +242,7 @@
 # move to 0.758 (the #2301 byte[] slice APIs). 0.758 and 0.759 were tagged but
 # never published as releases; 0.760.0 is the first published release that
 # carries the slice APIs.
-0.760.0
+#
+# 0.766.0 (2026-10-03): the family-wide floor (see AETHER_PIN), so FETCH
+# equals PIN again. Verified as AETHER_PIN describes.
+0.766.0

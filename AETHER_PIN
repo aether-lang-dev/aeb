@@ -318,4 +318,14 @@
 # dev tree: all lib/ + tools/ type-check, `make build` clean, full suite 152/152,
 # tools-cold-compile (27/27), sdk-cold-compile, retired-grammar and
 # module-source-c smokes green.
-0.758.0
+#
+# Raised to 0.766.0 (2026-10-03). A POLICY floor, not a primitive: Paul set
+# 0.766.0 as the floor for the whole Aether family (aeb, aeo, aether-ui,
+# macae, OpenDisk-ae, fight-flash-fraud-port, selaenium, aephysics, ae3d,
+# mquickjs-ae, sae), so every repo builds against one known release.
+# Verified against the installed 0.766.0 RELEASE (not a dev tree): make build
+# clean, tests/run.sh 152/152 (test_node_exit_code needs the installed aeb
+# to be current; a Sep 29 aeb on PATH failed it, as ebcb508 predicts),
+# tools-cold-compile, sdk-cold-compile, module-source-c, libaether-floor-
+# guard and std-symbol-collision smokes green.
+0.766.0
