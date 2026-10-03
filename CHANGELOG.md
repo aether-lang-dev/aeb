@@ -1,9 +1,16 @@
 # Changelog
 
-## Unreleased
+## v0.325 (2026-10-03)
 
 ### Fixed
 
+- **A module's `@source` `.m` compiles without the program's ARC flag.** The
+  manual link is one compiler call with one flag set, and an aether-ui program
+  passes `-fobjc-arc` there for its AppKit backend, so a module's `@source`
+  Objective-C written for manual retain/release (macae's) failed to compile and
+  OpenDisk-ae could not build. Each `@source` `.m` is now compiled on its own,
+  without ARC, as `ae build` does, and its object linked. Plain C `@source`
+  files are unchanged.
 - **A `.build.ae` that stops compiling fails the build.** aeb-link ignored the
   exit code of each build file's aetherc compile, so after one good build a
   broken build file printed its error, linked the previous run's `.c` and
@@ -36,6 +43,7 @@
 
 ### Changed
 
+- **Aether floor and fetch 0.766.0**, the floor shared by the whole Aether family.
 - **aeb now builds on Aether 0.758+ (floor raised 0.706 -> 0.758; fetch 0.760).**
   Aether 0.758 (#2301) changed byte-payload std calls to take a `byte[]` slice
   with no separate length: `fs.write_atomic` / `write_binary`,
