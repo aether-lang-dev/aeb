@@ -1159,6 +1159,46 @@ _aether_sources_link_str(c_paths: ptr, base_dir: string) {
     return out
 }
 
+// _aether_sources_link_str_objc_apart(c_paths, base_dir, obj_dir, cc_flags) —
+// as _aether_sources_link_str, but each Objective-C `.m` source is compiled on
+// its own first (`cc -c <cc_flags>`, no ARC flag) and its object linked in its
+// place. A manual link is ONE compiler call sharing one flag set, and a program
+// built on aether-ui passes -fobjc-arc there for its AppKit backend; a module's
+// @source .m written for manual retain/release (macae's, by its own rule) then
+// failed to compile ("ARC forbids explicit message send of 'release'"). `ae
+// build` never adds ARC to @source files, so compiling them apart, without it,
+// is what they were written for. Plain C sources still go into the link as
+// before. A failed compile leaves the .m in the link line, so the link fails
+// with the compiler's own errors rather than silently dropping the file.
+_aether_sources_link_str_objc_apart(c_paths: ptr, base_dir: string, obj_dir: string, cc_flags: string) {
+    sources = list.new()
+    seen = map.new()
+    n = list.size(c_paths)
+    i = 0
+    while i < n {
+        cp, _ = list.get(c_paths, i)
+        i = i + 1
+        _accumulate_aether_sources(sources, seen, cp, base_dir)
+    }
+    out = ""
+    ns = list.size(sources)
+    j = 0
+    while j < ns {
+        s, _ = list.get(sources, j)
+        j = j + 1
+        item = s
+        if string.ends_with(s, ".m") == 1 {
+            _mk = fs.mkdir_p(obj_dir)
+            // Path-unique object name, so two modules' foo.m never collide.
+            obj = string.concat(obj_dir, string.concat("/", string.concat(string.replace_all(string.replace_all(s, "/", "_"), " ", "_"), ".o")))
+            rc = os.system("cc -c ${cc_flags} -o \"${obj}\" \"${s}\"")
+            if rc == 0 { item = obj } else { println("aeb: compiling @source ${s} without ARC failed (rc ${rc})") }
+        }
+        out = string.concat(out, string.concat(" \"", string.concat(item, "\"")))
+    }
+    return out
+}
+
 // _contrib_lib_dir_flag(lib_dir) — ` -L<lib_dir>/contrib` when that dir exists,
 // else "". The dev-layout path make-contrib veneers install to; aether's own
 // link resolves it (PR #1555), so aeb's manual gcc line adds it too so a module

@@ -2742,7 +2742,11 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
             }
         }
     }
-    _eo14 = map.put(opts, "source_str", bldr._aether_sources_link_str(_src_tus, source_dir))
+    // Objective-C @source files compile apart from the link, without the ARC
+    // flag an aether-ui program passes it (see _aether_sources_link_str_objc_apart).
+    _objc_dir = path.join(bldr._get(ctx, "target_dir"), "aether_source_objc")
+    _eo14 = map.put(opts, "source_str",
+        bldr._aether_sources_link_str_objc_apart(_src_tus, source_dir, _objc_dir, "-O2 -pipe -w${inc_flags}"))
     gcc_cmd = aether_link_cmd(opts)
     // Capture gcc stderr to a per-module file so a link failure can
     // be mined for `undefined reference` symbols (Option B in

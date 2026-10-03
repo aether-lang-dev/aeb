@@ -106,12 +106,12 @@ set_value 2
 build
 if [ "$(run prog)" = "2" ]; then pass "editing only the imported module rebuilds"; else fail "import edit kept a stale binary (got '$(run prog)', want 2)"; fi
 
-VARIANT=b build
+(export VARIANT=b; build)
 if [ "$(run prog-b)" = "2" ]; then pass "the env-selected second output builds"; else fail "second output (got '$(run prog-b)', want 2)"; fi
 
 set_value 3
 build
-VARIANT=b build
+(export VARIANT=b; build)
 a=$(run prog)
 b=$(run prog-b)
 if [ "$a" = "3" ] && [ "$b" = "3" ]; then pass "both outputs relink after an edit"; else fail "after edit: prog=$a prog-b=$b, want 3 and 3"; fi
