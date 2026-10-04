@@ -140,6 +140,13 @@ jobs:
       # with extra_source(). SKIPs on ae < 0.705 (no `// aether-source:` emitter).
       - name: module @source C smoke
         run: itests/module-source-c-smoke.sh
+      # The same for c.program: the C its aether_source()s' modules ship
+      # (@source), the headers they declare (@c_include) and the libraries they
+      # link (@link), so a C program with an Aether half (sae, on contrib.quickjs)
+      # needn't restate the module's C with sources(). SKIPs on an ae that does
+      # not emit `// aether-include:`.
+      - name: c.program module @source smoke
+        run: itests/c-program-module-source-smoke.sh
       # Aether >= 0.681 floor is enforced on the libaether.a aeb-link LINKS, so a
       # stale archive beside a current ae fails with a legible floor error rather
       # than a cryptic `undefined reference to os_arch_raw` (servirtium-vcr).

@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`c.program` follows the modules its `aether_source()`s import.** It compiles
+  the C they ship (`@source`), puts the directories of their `@c_include` headers
+  on the include path, and links the libraries they declare (`@link`). It reads
+  these from the generated C's `// aether-source:`, `// aether-include:` and
+  `// aether-link:` lines, the way `ae build` and `aether.program` do. Toolchain-managed
+  libraries are filtered, as in ae.c. Editing only a module's shipped C relinks.
+  Before, a C program with an Aether half that imported such a module (sae, on
+  `contrib.quickjs`) linked with undefined symbols unless its `.build.ae`
+  restated the module's C with `sources()`.
+  (`itests/c-program-module-source-smoke.sh`.)
+
 ## v0.325 (2026-10-03)
 
 ### Fixed

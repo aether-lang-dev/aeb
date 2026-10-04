@@ -429,7 +429,8 @@ _sources_changed(source_dir: string, srcs: ptr, ts_file: string) {
     while i < n {
         rel, _ = list.get(srcs, i)
         i = i + 1
-        full = path.join(source_dir, rel)
+        full = rel
+        if bldr._is_abs_path_bldr(rel) == 0 { full = path.join(source_dir, rel) }
         if fs.file_mtime(full) > ts {
             return 1
         }
@@ -630,6 +631,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
         twith = _with_flag(opts)
         gen_dir = path.join(target_dir, "tool_gen")
         bldr._mkdirs(gen_dir)
+        tool_gens = list.new()
         k = 0
         while k < aen {
             ae_rel, _ = list.get(ae_srcs, k)
@@ -643,7 +645,8 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
                 println("${mod_dir}: aetherc --emit=lib failed for ${ae_rel}")
                 return eg
             }
-            eo = bldr._sh("${compiler} ${cflags}${ainc} -c -o ${gen_o} ${gen_c}")
+            _tg = list.add(tool_gens, gen_c)
+            eo = bldr._sh("${compiler} ${cflags}${ainc}${_c_header_includes(gen_c)} -c -o ${gen_o} ${gen_c}")
             if eo != 0 {
                 println("${mod_dir}: C compile of generated ${gen_c} failed")
                 return eo
@@ -654,8 +657,15 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
         // Duplicate-symbol flag — empty since aether 0.538.0 clones imported
         // functions per TU as `static` (no cross-TU duplicates). Kept via the
         // helper so this stays consistent with the other link sites.
+        // The C the modules of their import closures ship (@source) and
+        // the libraries they declared (@link), as `ae build` takes them.
+        tinc = _c_tus_includes(tool_gens)
+        shipped, es = _c_compile_shipped(tool_gens, source_dir, path.join(target_dir, "tool_shipped"),
+                                         compiler, "${cflags}${ainc}${tinc}", "${ainc}${tinc}")
+        if es != 0 { return es }
+        ae_objs = string.concat(ae_objs, shipped)
         dup = bldr._dup_symbol_link_flag()
-        aether_link = " -L${ldir} -laether -lpthread -lm ${dup}"
+        aether_link = " -L${ldir} -laether -lpthread -lm ${dup}${_c_shipped_links(tool_gens, ldir)}"
     }
 
     link = "${compiler} ${own_objs}${ae_objs} ${link_flags}${aether_link} -o ${bin_path}"
@@ -847,6 +857,24 @@ builder program(): int {
         // cache key for the same reason).
         _c_add_import_closure(source_dir, aep, change_set)
     }
+    // ...and the C its modules ship with @source, as the last build's
+    // generated C named it (a new @source arrives with an edited .ae,
+    // which is a change already).
+    prev_gens = list.new()
+    pi = 0
+    while pi < cn {
+        pae, _ = list.get(ae_for_check, pi)
+        pi = pi + 1
+        _pg = list.add(prev_gens, path.join(path.join(target_dir, "gen"), string.concat(_gen_stem(pae), "_gen.c")))
+    }
+    prev_shipped = _c_shipped_sources(prev_gens, source_dir)
+    psn = list.size(prev_shipped)
+    psi = 0
+    while psi < psn {
+        psrc, _ = list.get(prev_shipped, psi)
+        psi = psi + 1
+        _ps = list.add(change_set, psrc)
+    }
     if file.exists(out_path) == 1 {
         if _sources_changed(source_dir, change_set, ts_file) == 0 {
             println("${mod_dir}: skipping C program link (not changed)")
@@ -907,6 +935,7 @@ builder program(): int {
         pwith = _with_flag(_builder)
         gen_dir = path.join(target_dir, "gen")
         bldr._mkdirs(gen_dir)
+        gens = list.new()
         k = 0
         while k < ae_n {
             ae_rel, _ = list.get(ae_srcs, k)
@@ -922,7 +951,8 @@ builder program(): int {
                 bldr.fail(ctx, "aetherc --emit=lib failed for ${ae_rel}")
                 return ecg
             }
-            ocmd = "${compiler} ${cflags}${ae_inc} -c -o ${gen_o} ${gen_c}"
+            _gl = list.add(gens, gen_c)
+            ocmd = "${compiler} ${cflags}${ae_inc}${_c_header_includes(gen_c)} -c -o ${gen_o} ${gen_c}"
             eco = bldr._sh(ocmd)
             if eco != 0 {
                 println("${mod_dir}: C compile of generated ${gen_c} failed")
@@ -932,10 +962,20 @@ builder program(): int {
             ae_objs = string.concat(ae_objs, " ")
             ae_objs = string.concat(ae_objs, gen_o)
         }
+        // The C the modules of their import closures ship (@source) and
+        // the libraries they declared (@link), as `ae build` takes them.
+        pinc = _c_tus_includes(gens)
+        shipped, es = _c_compile_shipped(gens, source_dir, path.join(target_dir, "shipped"),
+                                         compiler, "${cflags}${ae_inc}${pinc}", "${ae_inc}${pinc}")
+        if es != 0 {
+            bldr.fail(ctx, "C compile of a module's @source failed")
+            return es
+        }
+        ae_objs = string.concat(ae_objs, shipped)
         // See _build_tool_binary: multi-file Aether builds need the
         // dup-symbol linker flag.
         dup = bldr._dup_symbol_link_flag()
-        aether_link = " -L${lib_dir} -laether -lpthread -lm ${dup}"
+        aether_link = " -L${lib_dir} -laether -lpthread -lm ${dup}${_c_shipped_links(gens, lib_dir)}"
     }
 
     // A dependency module's c.aether_objects may have published
@@ -1149,6 +1189,152 @@ _collect_dep_header_dirs(ctx: ptr) {
 // write every one to the same `module_gen.o`, each overwriting the last, and
 // link the survivor N times ("multiple definition of ..."). `../` and `./`
 // segments are spelled out so `../ae/x.ae` and `ae/x.ae` stay distinct.
+// _c_header_includes(gen_c) — ` -I"<dir>"` for each `// aether-include:
+// <dir>` line aetherc wrote at the top of a generated C file: the dirs of
+// the modules in its import closure that declared a `@c_include` (aether
+// #1986). The generated C names the header as the module wrote it, so it
+// and the module's own @source files compile only with these on the path.
+// "" in the common case. Scans the leading `//` block, as ae.c does.
+_c_header_includes(gen_c: string) {
+    out = ""
+    raw = ""
+    if file.exists(gen_c) == 1 {
+        content, rerr = io.read_file(gen_c)
+        if string.length(rerr) == 0 { raw = content }
+    }
+    marker = "// aether-include:"
+    rest = raw
+    while string.length(rest) > 0 {
+        nl = string.index_of(rest, "\n")
+        line = rest
+        if nl >= 0 {
+            line = string.substring(rest, 0, nl)
+            rest = string.substring(rest, nl + 1, string.length(rest))
+        } else {
+            rest = ""
+        }
+        if string.index_of(line, "//") != 0 {
+            rest = ""
+        } else {
+            if string.index_of(line, marker) == 0 {
+                d = string.trim(string.substring(line, string.length(marker), string.length(line)))
+                if string.length(d) > 0 {
+                    out = string.concat(out, string.concat(" -I\"", string.concat(d, "\"")))
+                }
+            }
+        }
+    }
+    return out
+}
+
+// _c_tus_includes(gen_cs) — _c_header_includes over several TUs, each
+// flag once: a module's @source may include a header another TU's import
+// declared, and the -I set is shared by every shipped file.
+_c_tus_includes(gen_cs: ptr) {
+    out = ""
+    seen = map.new()
+    n = list.size(gen_cs)
+    i = 0
+    while i < n {
+        g, _ = list.get(gen_cs, i)
+        i = i + 1
+        rest = _c_header_includes(g)
+        while string.length(rest) > 0 {
+            nx = string.index_of_from(rest, " -I", 1)
+            one = rest
+            if nx > 0 {
+                one = string.substring(rest, 0, nx)
+                rest = string.substring(rest, nx, string.length(rest))
+            } else {
+                rest = ""
+            }
+            if map.has(seen, one) == 0 {
+                _sk = map.put(seen, one, "1")
+                out = string.concat(out, one)
+            }
+        }
+    }
+    return out
+}
+
+// _c_shipped_sources(gen_cs, source_dir) — the C (and Objective-C) files the
+// modules of these generated TUs' import closures ship with `@source`
+// (aether #2125), read from their `// aether-source:` lines, resolved
+// (relative ones against source_dir) and deduplicated across TUs. `ae build`
+// compiles these in itself; a c.program link that left them out failed with
+// undefined symbols unless the build restated each one with c.sources().
+_c_shipped_sources(gen_cs: ptr, source_dir: string) {
+    found = list.new()
+    seen = map.new()
+    n = list.size(gen_cs)
+    i = 0
+    while i < n {
+        g, _ = list.get(gen_cs, i)
+        i = i + 1
+        bldr._accumulate_aether_sources(found, seen, g, source_dir)
+    }
+    return found
+}
+
+// _c_compile_shipped(gen_cs, source_dir, obj_dir, compiler, flags) — compile
+// each @source file of these TUs (see _c_shipped_sources) to an object with
+// `flags` (the flags the generated C itself compiles with), and return the
+// objects as a leading-space-prefixed run plus the first failing exit code
+// (0 when all compiled). An Objective-C file compiles with the compiler's
+// defaults and the include flags only, never the caller's cflags: `ae build`
+// adds no ARC flag to @source files, and macae's are written for manual
+// retain/release (see bldr._aether_sources_link_str_objc_apart).
+_c_compile_shipped(gen_cs: ptr, source_dir: string, obj_dir: string,
+                   compiler: string, flags: string, objc_flags: string) -> (string, int) {
+    objs = ""
+    rc = 0
+    srcs = _c_shipped_sources(gen_cs, source_dir)
+    n = list.size(srcs)
+    if n > 0 { bldr._mkdirs(obj_dir) }
+    i = 0
+    while i < n {
+        s, _ = list.get(srcs, i)
+        i = i + 1
+        if rc == 0 {
+            // Path-unique object name, so two modules' foo.c never collide.
+            obj = path.join(obj_dir, string.concat(string.replace_all(string.replace_all(string.replace_all(s, "/", "_"), "\\", "_"), " ", "_"), ".o"))
+            f = flags
+            if string.ends_with(s, ".m") == 1 { f = objc_flags }
+            ec = bldr._sh("${compiler} ${f} -c -o \"${obj}\" \"${s}\"")
+            if ec != 0 {
+                println("C compile of @source ${s} failed")
+                rc = ec
+            }
+            objs = string.concat(objs, string.concat(" \"", string.concat(obj, "\"")))
+        }
+    }
+    return objs, rc
+}
+
+// _c_shipped_links(gen_cs, lib_dir) — the `-l` flags the modules of these
+// TUs declared with `@link` (their `// aether-link:` lines, less the ones the
+// toolchain supplies itself), plus the dev-layout contrib -L, as
+// bldr._aether_link_libs and lib/aether's manual link use them. "" when none.
+_c_shipped_links(gen_cs: ptr, lib_dir: string) {
+    out = ""
+    seen = map.new()
+    n = list.size(gen_cs)
+    i = 0
+    while i < n {
+        g, _ = list.get(gen_cs, i)
+        i = i + 1
+        libs = bldr._aether_link_libs(g)
+        if string.length(libs) > 0 {
+            if map.has(seen, libs) == 0 {
+                _sk = map.put(seen, libs, "1")
+                out = string.concat(out, libs)
+            }
+        }
+    }
+    if string.length(out) > 0 { out = string.concat(bldr._contrib_lib_dir_flag(lib_dir), out) }
+    return out
+}
+
 _gen_stem(ae_rel: string) {
     s = _strip_ext(ae_rel)
     s = string.replace_all(s, "../", "up__")
