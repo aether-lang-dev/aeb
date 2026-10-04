@@ -328,4 +328,15 @@
 # to be current; a Sep 29 aeb on PATH failed it, as ebcb508 predicts),
 # tools-cold-compile, sdk-cold-compile, module-source-c, libaether-floor-
 # guard and std-symbol-collision smokes green.
-0.766.0
+#
+# Raised to 0.778.0 (2026-10-05). The family-wide POLICY floor again, moved
+# with the whole family at Paul's request; no new primitive in aeb needs it.
+# Verified against the installed 0.778.0 RELEASE (get.sh): make build clean,
+# tests/run.sh 152/152, and the CI itests std-symbol-collision,
+# sdk-cold-compile, tools-cold-compile (27/27), module-source-c,
+# c-program-module-source, libaether-floor-guard, retired-build-grammar,
+# failures-jsonl-capture, report-view, report-tiers, config-precedence and
+# watch-validate-then-swap green. override-dep and ae-add-binary-package
+# fail on macOS exactly as on 0.766.0 (GNU `sed -i`, a `.so` name); CI is
+# Linux.
+0.778.0
