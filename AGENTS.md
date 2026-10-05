@@ -627,11 +627,13 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   (a) a test that `import std.spec` needs the **toolchain** to have it
   (it's stdlib as of aether 0.538 — always present; the old
   `import contrib.aeocha` + `make install-contrib` dance is retired);
-  (b) aeb's ancestor-walk is *ancestor-only* — a
-  project module in a true **sibling** dir (not a parent) won't be
-  picked up by the cache hasher, so editing it may not bust a
-  consumer's key (express cross-dir shares as a repo-root dotted path,
-  per the "share a source module across directories" idiom above).
+  (b) the cache hasher's roots are source_dir + ancestors, the node's
+  `lib()` dirs (symlinked sibling checkouts included), `<source_dir>/src`
+  and the `AEB_COMPILE_LIB` entries (`_key_import_roots`); every candidate
+  an import resolves to across them is hashed. A module in a **sibling**
+  dir that is on none of those roots still isn't seen — put it on the
+  path with `lib()` or express it as a repo-root dotted path, per the
+  "share a source module across directories" idiom above.
   **With or without a test framework:** `program_test`/`driver_test`
   work fine with NO `std.spec` import — plain exit code is PASS/FAIL;
   `std.spec` only *adds* the granular per-`it()` report, which aeb reads

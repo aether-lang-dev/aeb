@@ -147,6 +147,12 @@ jobs:
       # not emit `// aether-include:`.
       - name: c.program module @source smoke
         run: itests/c-program-module-source-smoke.sh
+      # aether.program's link cache key follows the import closure through every
+      # root aetherc searches — lib() dirs (incl. a symlinked sibling checkout,
+      # the `aether-ui -> ../aether-ui` shape) and transitive imports — so an
+      # edit to such a module rebuilds instead of restoring a stale binary.
+      - name: import-closure cache smoke
+        run: itests/import-closure-cache-smoke.sh
       # Aether >= 0.681 floor is enforced on the libaether.a aeb-link LINKS, so a
       # stale archive beside a current ae fails with a legible floor error rather
       # than a cryptic `undefined reference to os_arch_raw` (servirtium-vcr).

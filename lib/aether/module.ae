@@ -714,14 +714,129 @@ _resolve_import_ae(modname: string, roots: ptr) {
     return ""
 }
 
+// Every candidate file an import module name could resolve to, across ALL
+// roots (not just the first hit) — for the cache key. aetherc's own search
+// order (its --lib dirs first, then cwd/src, cwd, the source file's dir) is
+// not the order `_ancestor_dirs`-first resolution uses, so a module present
+// in two roots could be hashed from one and compiled from the other. Hashing
+// every candidate makes the key a superset of what aetherc can pick: an
+// ambiguous name can at worst cost a spurious miss, never a stale hit.
+// "" -> empty list for std / contrib (toolchain-covered, see above).
+_resolve_import_ae_all(modname: string, roots: ptr) {
+    out = list.new()
+    if string.starts_with(modname, "std.") == 1 { return out }
+    if string.starts_with(modname, "contrib.") == 1 { return out }
+    if string.equals(modname, "std") == 1 { return out }
+    rel = ""
+    n = string.length(modname)
+    i = 0
+    while i < n {
+        ch = string.substring(modname, i, i + 1)
+        if string.equals(ch, ".") == 1 {
+            rel = string.concat(rel, "/")
+        } else {
+            rel = string.concat(rel, ch)
+        }
+        i = i + 1
+    }
+    nr = list.size(roots)
+    ri = 0
+    rdir = ""
+    c1 = ""
+    c2 = ""
+    while ri < nr {
+        rdir, _ = list.get(roots, ri)
+        c1 = path.join(rdir, string.concat(rel, "/module.ae"))
+        if file.exists(c1) == 1 { _a1 = list.add(out, c1) }
+        c2 = path.join(rdir, string.concat(rel, ".ae"))
+        if file.exists(c2) == 1 { _a2 = list.add(out, c2) }
+        ri = ri + 1
+    }
+    return out
+}
+
+// _split_search_path(s) — a PATH-style list (AEB_COMPILE_LIB) split on the
+// platform separator into its non-empty entries. Same rule as
+// _ae_build_lib_flags, returned as a list rather than rendered as flags.
+_split_search_path(s: string) {
+    out = list.new()
+    if string.length(s) == 0 { return out }
+    sep = bldr._path_sep()
+    rest = s
+    entry = ""
+    idx = 0
+    while string.length(rest) > 0 {
+        idx = string.index_of(rest, sep)
+        if idx < 0 {
+            entry = rest
+            rest = ""
+        } else {
+            entry = string.substring(rest, 0, idx)
+            rest = string.substring(rest, idx + string.length(sep), string.length(rest))
+        }
+        if string.length(entry) > 0 { _a = list.add(out, entry) }
+    }
+    return out
+}
+
+// _key_import_roots(builder_map, source_dir) — every directory aetherc can
+// resolve a project `import` against for this node, for the cache key's
+// closure walk:
+//   - source_dir and its ancestors (the historical roots; the repo root is
+//     among them),
+//   - source_dir/src (aetherc probes `src/<mod>` too),
+//   - the node's lib() dirs — sibling checkouts, often reached through a
+//     relative symlink (OpenDisk-ae's `aether-ui -> ../aether-ui`),
+//   - the orchestrator's AEB_COMPILE_LIB entries (`<aeb_lib>:<repo_root>`),
+//     which phase 1 passes to aetherc as --lib.
+// Without the lib() and AEB_COMPILE_LIB roots, a module reached only through
+// them never resolved here, so neither it nor anything IT imported was
+// hashed — editing aether-ui's ui/module.ae left a consumer's key unchanged
+// and a stale binary was restored from the cache.
+_key_import_roots(builder_map: ptr, source_dir: string) {
+    roots = _ancestor_dirs(source_dir)
+    sd = source_dir
+    if string.length(sd) == 0 { sd = "." }
+    _as = list.add(roots, path.join(sd, "src"))
+    nlds = _node_lib_dirs(builder_map, source_dir)
+    n1 = list.size(nlds)
+    i1 = 0
+    while i1 < n1 {
+        d1, _ = list.get(nlds, i1)
+        _a1 = list.add(roots, d1)
+        i1 = i1 + 1
+    }
+    cls = _split_search_path(os.getenv("AEB_COMPILE_LIB"))
+    n2 = list.size(cls)
+    i2 = 0
+    while i2 < n2 {
+        d2, _ = list.get(cls, i2)
+        _a2 = list.add(roots, d2)
+        i2 = i2 + 1
+    }
+    return roots
+}
+
 // Every project .ae transitively imported by `entry` (entry itself
 // excluded — it is hashed separately). BFS over `import` lines.
+// First-match resolution per import (the regen expansion's view).
 _transitive_import_aes(entry: string, roots: ptr) {
+    return _transitive_import_aes_ex(entry, roots, 0)
+}
+
+// _transitive_import_aes_ex(entry, roots, all_matches) — the BFS. With
+// all_matches=1 every candidate an import resolves to across `roots` is
+// followed and returned (the cache key's superset view — see
+// _resolve_import_ae_all). Dedup is on the canonical spelling so a module
+// reached by two path spellings (`a/../b`, a root listed twice) is hashed
+// once. Symlinks are NOT resolved: hashing reads through them, so the key
+// tracks the content the link points at, which is what aetherc compiles.
+_transitive_import_aes_ex(entry: string, roots: ptr, all_matches: int) {
     found = list.new()
     seen = map.new()
     queue = list.new()
     _q0 = list.add(queue, entry)
-    _s0 = map.put(seen, entry, "1")
+    _s0 = map.put(seen, _canonical_path(entry), "1")
     head = 0
     qs = 1
     f = ""
@@ -752,10 +867,21 @@ _transitive_import_aes(entry: string, roots: ptr) {
                 if string.starts_with(t, "import ") == 1 {
                     modname = _import_module_name(t)
                     if string.length(modname) > 0 {
-                        resolved = _resolve_import_ae(modname, roots)
-                        if string.length(resolved) > 0 {
-                            if map.has(seen, resolved) == 0 {
-                                _sm = map.put(seen, resolved, "1")
+                        cands = list.new()
+                        if all_matches == 1 {
+                            cands = _resolve_import_ae_all(modname, roots)
+                        } else {
+                            resolved = _resolve_import_ae(modname, roots)
+                            if string.length(resolved) > 0 { _c1 = list.add(cands, resolved) }
+                        }
+                        ncand = list.size(cands)
+                        ic = 0
+                        while ic < ncand {
+                            resolved, _ = list.get(cands, ic)
+                            ic = ic + 1
+                            ckey = _canonical_path(resolved)
+                            if map.has(seen, ckey) == 0 {
+                                _sm = map.put(seen, ckey, "1")
                                 _fm = list.add(found, resolved)
                                 _qm = list.add(queue, resolved)
                                 qs = qs + 1
@@ -925,9 +1051,12 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
     // pulls in via `import`, directly or indirectly. Without this a
     // change to a widely-imported module (avn's repo_storage was the
     // motivating case) never busts a consumer's key. `import` modules
-    // are resolved against source_dir and its ancestor directories.
-    imp_roots = _ancestor_dirs(source_dir)
-    imps = _transitive_import_aes(src_path, imp_roots)
+    // are resolved against EVERY root aetherc can search for this node —
+    // source_dir + ancestors, the node's lib() dirs (sibling checkouts,
+    // symlinked or not) and AEB_COMPILE_LIB — following every candidate
+    // (see _key_import_roots / _resolve_import_ae_all).
+    imp_roots = _key_import_roots(builder_map, source_dir)
+    imps = _transitive_import_aes_ex(src_path, imp_roots, 1)
     nimp = list.size(imps)
     iidx = 0
     impf = ""
@@ -1037,11 +1166,12 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
             }
         }
 
-        // Per-node lib() dirs: hash the dir path AND the .ae modules directly
-        // inside (so a changed sibling module on the lib path busts the key —
-        // the transitive-import scan resolves against source_dir/ancestors, not
-        // these extra lib dirs, so it wouldn't otherwise see them). Mirrors the
-        // include_dir contribution above.
+        // Per-node lib() dirs: hash the dir path AND the .ae files directly
+        // inside. The modules actually imported from a lib dir (including
+        // `<dir>/<mod>/module.ae` and their own imports) are covered by the
+        // import-closure walk above, which searches these dirs as roots; this
+        // shallow pass is kept so the dir's path still moves the key on its
+        // own. Mirrors the include_dir contribution above.
         if map.has(builder_map, "lib") == 1 {
             lib_dirs = _node_lib_dirs(builder_map, source_dir)
             nld = list.size(lib_dirs)

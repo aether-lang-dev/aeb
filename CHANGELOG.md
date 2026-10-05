@@ -15,6 +15,21 @@
   restated the module's C with `sources()`.
   (`itests/c-program-module-source-smoke.sh`.)
 
+### Fixed
+
+- **Editing a module imported through a `lib()` dir rebuilds the program.**
+  `aether.program`'s link cache key walks the import closure, but it searched
+  only the source dir and its ancestors. A module reached through a node's
+  `lib()` dir, such as a sibling checkout behind a symlink (OpenDisk-ae's
+  `aether-ui -> ../aether-ui`), was not hashed, and neither was anything it
+  imported. After an edit to aether-ui's `ui/module.ae`, OpenDisk-ae got a
+  cache hit and kept the old binary. The walk now also searches the `lib()`
+  dirs, `<source_dir>/src` and the `AEB_COMPILE_LIB` entries that aetherc gets
+  as `--lib`. It hashes every file an import could resolve to, so a module
+  name found in two roots can cause an extra rebuild but never a stale hit.
+  `std.*`/`contrib.*` are still covered by the toolchain hash.
+  (`itests/import-closure-cache-smoke.sh`.)
+
 ## v0.325 (2026-10-03)
 
 ### Fixed

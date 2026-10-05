@@ -15,6 +15,8 @@ import std.spec
 import aether (_cache_key_for_aether_link)
 import std.string
 import std.os
+import std.list
+import std.map
 
 main() {
     fw = spec.init()
@@ -55,6 +57,45 @@ main() {
             os.system("printf 'unrelated() { return 7 }\\n' > ${base}/other/module.ae")
             k4, _e4 = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
             spec.assert_true(string.equals(k3, k4), "editing an unrelated module leaves the key unchanged")
+
+            os.system("rm -rf ${base}")
+        }
+    }
+
+    spec.describe(fw, "aether.program cache key follows imports through lib() dirs") {
+        spec.it("a module reached via a (symlinked) lib() dir, and what it imports, bust the key") callback {
+            // shared/ sits OUTSIDE app/'s ancestor chain and is reached only
+            // through lib("sib"), where app/sib -> ../shared (the
+            // OpenDisk-ae `aether-ui -> ../aether-ui` shape). Before the fix
+            // the closure walk searched source_dir + ancestors only, so
+            // neither shared/greet nor shared/deep was ever hashed.
+            base = "/tmp/aeb_test_import_closure_lib"
+            os.system("rm -rf ${base}; mkdir -p ${base}/w/app ${base}/w/shared/greet ${base}/w/shared/deep; ln -s ../shared ${base}/w/app/sib")
+            appdir = "${base}/w/app"
+            entry = "${base}/w/app/main.ae"
+            os.system("printf 'import greet\\nmain() {}\\n' > ${entry}")
+            os.system("printf 'import deep\\nfoo() { return 1 }\\n' > ${base}/w/shared/greet/module.ae")
+            os.system("printf 'bar() { return 1 }\\n' > ${base}/w/shared/deep/module.ae")
+            bm = map.new()
+            ld = list.new()
+            list.add(ld, "sib")
+            map.put(bm, "lib", ld)
+
+            k1, e1 = _cache_key_for_aether_link(bm, appdir, entry, "/libx", "dup", "")
+            if spec.skip_all_if(fw, string.equals(e1, "") == 0, "lib-dir import-closure test skipped — ${e1}") == 1 {
+                os.system("rm -rf ${base}")
+                return 0
+            }
+            k1b, _eb = _cache_key_for_aether_link(bm, appdir, entry, "/libx", "dup", "")
+            spec.assert_true(string.equals(k1, k1b), "key is stable across recomputation")
+
+            os.system("printf 'import deep\\nfoo() { return 2 }\\n' > ${base}/w/shared/greet/module.ae")
+            k2, _e2 = _cache_key_for_aether_link(bm, appdir, entry, "/libx", "dup", "")
+            spec.assert_true(1 - string.equals(k1, k2), "editing a lib-dir module (via symlink) busts the key")
+
+            os.system("printf 'bar() { return 2 }\\n' > ${base}/w/shared/deep/module.ae")
+            k3, _e3 = _cache_key_for_aether_link(bm, appdir, entry, "/libx", "dup", "")
+            spec.assert_true(1 - string.equals(k2, k3), "editing a module the lib-dir module imports busts the key")
 
             os.system("rm -rf ${base}")
         }
