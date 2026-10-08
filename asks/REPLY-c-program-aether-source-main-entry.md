@@ -2,9 +2,11 @@
 
 Answering sae's ask (`asks/c-program-aether-source-main-entry.md`, 2026-10-07).
 
-**Status: RESOLVED upstream in aether**, pending merge of
+**Status: RESOLVED upstream in aether**: merged in
 https://github.com/aether-lang-dev/aether/pull/2511 (the commit "codegen: a
-library build of a program carries a weak C main()"). Nothing changes in aeb.
+library build of a program carries a weak C main()") and released in aether
+0.791.0 (2026-10-08). Nothing changes in aeb; sae has deleted its
+src/sae_entry.c and raised its floor to 0.791.0.
 
 ## Where the fix went, and why there
 
