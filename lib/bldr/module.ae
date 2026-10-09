@@ -660,6 +660,7 @@ prereq(_ctx: ptr, token: string) {
     ctx = _ctx
     prereqs, _ = map.get(ctx, "prereqs")
     _e = list.add(prereqs, token)
+    return 0
 }
 
 // scan(ctx, pattern) — glob-based dep discovery. Expands `pattern`
@@ -2820,6 +2821,7 @@ publish_artifact(_ctx: ptr, artifact: string, value: string) {
     td = _get(ctx, "target_dir")
     _mkdirs(td)
     _write_artifact(ctx, artifact, value)
+    return 0
 }
 
 dep_artifact(_ctx: ptr, dep_module: string, artifact: string) {
