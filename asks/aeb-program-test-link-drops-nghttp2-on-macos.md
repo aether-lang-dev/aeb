@@ -1,7 +1,7 @@
 # aeb drops `-lnghttp2` from aether.program_test's manual link, so it fails on macOS
 
-**Upstream:** belongs in `~/scm/aeb/asks/` (not filed there yet; this local copy
-was written 2026-10-10 during the aether 0.801.0 + aeb v0.326 move). OPEN.
+**From:** selaenium, 2026-10-10, found during the aether 0.801.0 + aeb v0.326
+move (selaenium keeps a copy in its own asks/). OPEN.
 
 ## Symptom
 
