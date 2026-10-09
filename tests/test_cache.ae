@@ -39,7 +39,7 @@ _run(fw: ptr) {
     serr = io.setenv("AEB_CACHE_DIR", tmp_root)
     if string.length(serr) > 0 {
         println("SKIP: cannot set AEB_CACHE_DIR: ${serr}")
-        return 0
+        return
     }
 
     if cache.available() == 0 {
@@ -47,7 +47,7 @@ _run(fw: ptr) {
         // cache module's documented contract is "fall back to the
         // existing timestamp cache when 0".
         println("SKIP: cache.available() == 0 (no OpenSSL or zlib)")
-        return 0
+        return
     }
 
     // --- 2. dir() / path() shape ---

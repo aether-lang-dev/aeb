@@ -63,7 +63,7 @@ main() {
         spec.it("PUT on machine A restored by GET on machine B; mode gating") callback {
             if cache.available() == 0 {
                 println("SKIP: cache.available() == 0 (no OpenSSL or zlib)")
-                return 0
+                return
             }
 
             tmp = _mktempdir()

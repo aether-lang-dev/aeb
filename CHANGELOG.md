@@ -17,6 +17,27 @@
 
 ### Fixed
 
+- **`java.java_main` runs the class it is given.** Its parameter was named
+  `main_class`, like lib/java's `main_class()` setter, and inside a builder body
+  Aether resolves that name to the setter. Every `${main_class}` in the run
+  command and its messages therefore named the setter's address, and since
+  aether added its interpolation check a `.build.ae` that called
+  `java.java_main` did not compile at all (E0200); 0.801 rejects lib/java for
+  every importer. The parameter is now `main_cls` (and `shade()`'s too).
+- **`bldr.install_launcher`'s `with_path()` reaches the wrapper.** The builder's
+  local `with_path` resolved to the `with_path()` setter, so `if with_path == 1`
+  compared the setter's address with 1 and the wrapper never exported BINDIR
+  on PATH.
+- **`fetch.git`'s `depth(N)` is honoured.** The local `depth` resolved to the
+  `depth()` setter, so the clone got the setter's address, truncated to an
+  int, as its depth: a C compile error under macOS clang, a meaningless
+  `--depth` under gcc. (`tests/test_builder_local_shadow.ae` covers this and
+  `with_path()`; `asks/builder-local-resolves-to-module-function.md` asks
+  aether to scope builder locals like a plain function's.)
+- **`bldr.prereq` and `bldr.publish_artifact` return 0 on every path**, and
+  `aether.program`'s `@source` `.m` handling no longer re-binds a local from
+  `list.get`'s pointer to a string: both broke compiles on Aether 0.801 (E0700
+  missing return; E0200 re-bind, which failed aeb-agent's cold compile).
 - **Editing a module imported through a `lib()` dir rebuilds the program.**
   `aether.program`'s link cache key walks the import closure, but it searched
   only the source dir and its ancestors. A module reached through a node's
@@ -29,6 +50,12 @@
   name found in two roots can cause an extra rebuild but never a stale hit.
   `std.*`/`contrib.*` are still covered by the toolchain hash.
   (`itests/import-closure-cache-smoke.sh`.)
+
+### Changed
+
+- **Aether floor and fetch 0.801.0.** A real floor: 0.801's missing-return
+  (E0700) and stricter E0200 checks reject the aeb sources fixed above, so aeb
+  now needs 0.801. See `AETHER_PIN` for what was verified.
 
 ## v0.325 (2026-10-03)
 

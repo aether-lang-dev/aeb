@@ -339,4 +339,37 @@
 # watch-validate-then-swap green. override-dep and ae-add-binary-package
 # fail on macOS exactly as on 0.766.0 (GNU `sed -i`, a `.so` name); CI is
 # Linux.
-0.778.0
+#
+# Raised to 0.801.0 (2026-10-09) at Paul's request, and a real floor this
+# time: 0.801's stricter checks reject aeb sources that every earlier floor
+# accepted, so no aeb before this commit builds cleanly on 0.801 and the fixed
+# sources are what this floor is for. What 0.801 found:
+#   - E0700 missing return: bldr.prereq and bldr.publish_artifact (127d621),
+#     and eight tests whose callbacks/helpers early-`return 0`ed from a body
+#     that otherwise returns nothing.
+#   - E0200 `${main_class}` renders an ADDRESS: java.java_main's parameter
+#     `main_class` resolved, inside the builder body, to lib/java's
+#     main_class() setter, so its run command named the setter's address
+#     (since 97b3855; on every release with the interpolation check it simply
+#     did not compile for a caller). 0.801 now rejects lib/java for any
+#     importer. The same builder-scope resolution bug also hid, uncaught by any
+#     compiler check, bldr.install_launcher's `with_path` (with_path() never
+#     reached the wrapper) and fetch.git's `depth` (depth(N) passed the
+#     setter's address). Renamed; asks/builder-local-resolves-to-module-function.md.
+#   - E0200 re-bind: bldr._aether_sources_link_str_objc_apart bound a local
+#     from list.get's ptr then re-bound it to a string (broke aeb-agent's cold
+#     compile).
+# Verified against the 0.801.0 RELEASE (macOS install; linux-x86_64 tarball on
+# ae-x64): make build clean (also on the 0.801.0+main dev tree), tests/run.sh
+# 153/153 on both, and on Linux every CI itest green (std-symbol-collision,
+# sdk-cold-compile, tools-cold-compile 27/27, override-dep, ae-add-binary-
+# package, module-source-c, c-program-module-source, import-closure-cache,
+# libaether-floor-guard, retired-build-grammar, failures-jsonl-capture,
+# report-view, report-tiers, config-precedence, watch-validate-then-swap).
+# override-dep and ae-add still fail on macOS only, as on 0.766/0.778.
+# Downstream: an aether-ui app (apps/turtle) builds through this aeb on the
+# release, and sae builds (sae + sae-driver, spec_nav 45/45) through it on the
+# 0.801.0+main dev tree; sae cannot link on the bare release because the
+# release ships contrib/sqlite's source but not its -laether_sqlite veneer
+# archive (plain `ae build` of `import contrib.sqlite` fails the same way).
+0.801.0

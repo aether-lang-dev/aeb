@@ -87,7 +87,7 @@ main() {
             if string.equals(e1, "") == 0 {
                 spec.assert_true(1, "toolchain-key test skipped — ${e1}")
                 _sh("rm -rf '${base}'")
-                return 0
+                return
             }
 
             k1b, _eb = _cache_key_for_aether_link(null, srcdir, src, libdir, "dup", "")

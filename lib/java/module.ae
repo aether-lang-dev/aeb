@@ -1795,7 +1795,7 @@ builder junit5() {
 // kotlin_test's shape in lib/java: it puts the module's own prod classes on the
 // run classpath, gates the JDK (min_jdk -> SKIP green, not fail on an old JDK),
 // and honours env()/jvm_args — the non-obvious parts worth not re-deriving.
-builder java_main(main_class: string): int {
+builder java_main(main_cls: string): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     target_dir = bldr._get(ctx, "target_dir")
@@ -1823,13 +1823,13 @@ builder java_main(main_class: string): int {
     // skip_below_jdk("22") is a portable-fleet floor (SKIP if unmet).
     min_jdk_v = bldr._str_key(_builder, "java_min_jdk")
     skip_jdk_v = bldr._str_key(_builder, "java_skip_below_jdk")
-    run_java_bin, jdk_status = bldr._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, main_class)
+    run_java_bin, jdk_status = bldr._resolve_run_jdk(ctx, mod_dir, min_jdk_v, skip_jdk_v, main_cls)
     if string.equals(jdk_status, "toolow") == 1 {
         bldr.fail(ctx, "java_main: min_jdk/skip_below_jdk below the supported floor (aeb supports JDK 6+)")
         return 1
     }
     if string.equals(jdk_status, "fail") == 1 {
-        bldr.fail(ctx, "java_main: no JDK ${min_jdk_v}+ to run ${main_class} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
+        bldr.fail(ctx, "java_main: no JDK ${min_jdk_v}+ to run ${main_cls} on (min_jdk is a hard requirement — use skip_below_jdk to skip instead)")
         return 1
     }
     if string.equals(jdk_status, "skip") == 1 { return 0 }
@@ -1847,7 +1847,7 @@ builder java_main(main_class: string): int {
         lib_path_arg = " -Djava.library.path='${ld_path}'"
     }
 
-    println("${mod_dir}: running ${main_class}")
+    println("${mod_dir}: running ${main_cls}")
     run_cmd = "${ld_prefix}'${run_java_bin}' -ea${lib_path_arg}"
     if _builder != null {
         if map.has(_builder, "jvm_args") == 1 {
@@ -1855,19 +1855,19 @@ builder java_main(main_class: string): int {
             run_cmd = string.concat(run_cmd, " ${val}")
         }
     }
-    run_cmd = string.concat(run_cmd, " -cp ${classpath} ${main_class}")
+    run_cmd = string.concat(run_cmd, " -cp ${classpath} ${main_cls}")
     // Honour env(K,V) on the run (e.g. HTMLSANITIZER_LIB a Panama/JNI binding
     // reads). Empty when no env() set.
     run_cmd = string.concat(bldr._env_export_prefix(_builder), run_cmd)
     exit_code = bldr._sh(run_cmd)
     if exit_code != 0 {
         bldr._record_test_result_exitcode(ctx, 0, 1)
-        println("${mod_dir}: ${main_class} FAILED")
+        println("${mod_dir}: ${main_cls} FAILED")
         bldr.fail(ctx, "java_main FAILED")
         return exit_code
     }
     bldr._record_test_result_exitcode(ctx, 1, 0)
-    println("${mod_dir}: ${main_class} PASSED")
+    println("${mod_dir}: ${main_cls} PASSED")
     return 0
 }
 
@@ -1952,7 +1952,7 @@ _parse_junit5_count(output: string, marker: string) {
 // works on directories (you can't -C into a .jar), and the per-entry
 // echo emitted embedded newlines that split the jar command into
 // separate shell lines (`sh: -C: not found`). Staging sidesteps both.
-shade(_ctx: ptr, main_class: string, jar_name: string) {
+shade(_ctx: ptr, main_cls: string, jar_name: string) {
     if _ctx == 0 { return 0 }
     ctx = _ctx
     target_dir = bldr._get(ctx, "target_dir")
@@ -2039,7 +2039,7 @@ shade(_ctx: ptr, main_class: string, jar_name: string) {
     // Manifest (stage wins over any META-INF copied from classes).
     sh = string.concat(sh, "mkdir -p \"$st/META-INF\"; printf 'Manifest-Version: 1.0")
     sh = string.concat(sh, "\\n")
-    sh = string.concat(sh, "Main-Class: ${main_class}")
+    sh = string.concat(sh, "Main-Class: ${main_cls}")
     sh = string.concat(sh, "\\n")
     sh = string.concat(sh, "' > \"$st/META-INF/MANIFEST.MF\"; ")
     // Package.

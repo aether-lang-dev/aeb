@@ -1,0 +1,82 @@
+// Regression: a builder's local or parameter that shares its name with one of
+// the SAME module's top-level functions must hold the local's value.
+//
+// Aether resolves such a name, inside a `builder` body, to the module function
+// (bldr_with_path, fetch_depth, java_main_class) rather than to the local or
+// parameter — a plain function gets this right, a builder does not. Aether 0.801
+// rejects it only when the name is string-interpolated (E0200 "renders its
+// ADDRESS"); everywhere else the function's address is used silently. That hid
+// three aeb bugs, each fixed by renaming the local/param:
+//
+//   - bldr.install_launcher: `if with_path == 1` compared the with_path()
+//     SETTER's address with 1, so with_path() never put BINDIR on the wrapper's
+//     PATH. Checked below.
+//   - fetch.git: git_clone_cmd(..., depth) passed the depth() SETTER's address
+//     (truncated to int) instead of the parsed depth(N), so depth(1) never made
+//     a depth-1 clone. Checked below.
+//   - java.java_main(main_class): every ${main_class} rendered the main_class()
+//     setter's address, so the run command named no real class. Covered by every
+//     test that imports lib/java (they no longer build on 0.801 without the fix).
+
+import std.spec
+import std.string
+import std.os
+import std.io
+import bldr
+import bldr (from_dist, with_path)
+import fetch
+import fetch (repo, into, depth)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "builder locals named like a module function") {
+        spec.it("install_launcher: with_path() puts BINDIR on the wrapper's PATH") callback {
+            base = "/tmp/aeb_test_builder_local_shadow_il"
+            os.system("rm -rf ${base}; mkdir -p ${base}/home ${base}/target/dist/m/bin")
+            os.system("printf '#!/bin/sh\\necho hi\\n' > ${base}/target/dist/m/bin/shadowx; chmod +x ${base}/target/dist/m/bin/shadowx")
+            old_home = os.getenv("HOME")
+            _se = io.setenv("HOME", "${base}/home")
+
+            s = bldr.session(base)
+            bldr.build(s, "m_il") {
+                bldr.install_launcher("shadowx") {
+                    from_dist("m")
+                    with_path()
+                }
+            }
+            _sr = io.setenv("HOME", old_home)
+
+            wrapper, _ = os.exec("cat ${base}/home/.local/bin/shadowx 2>/dev/null")
+            spec.assert_contains(wrapper, "exec ", "install_launcher wrote the wrapper")
+            spec.assert_contains(wrapper, "export PATH=", "with_path() exported BINDIR on PATH")
+            os.system("rm -rf ${base}")
+        }
+
+        spec.it("fetch.git: depth(1) makes a depth-1 clone") callback {
+            gchk, _ = os.exec("command -v git >/dev/null 2>&1 && echo y || echo n")
+            if spec.skip_all_if(fw, string.equals(string.trim(gchk), "y") == 0, "fetch.git depth test skipped — git not available") == 1 {
+                return
+            }
+            base = "/tmp/aeb_test_builder_local_shadow_git"
+            g = "git -c user.name=t -c user.email=t@t -c commit.gpgsign=false"
+            os.system("rm -rf ${base}; mkdir -p ${base}/origin")
+            os.system("cd ${base}/origin && git init -q && for i in 1 2 3; do echo $i > f; git add f; ${g} commit -q -m c$i; done")
+
+            s = bldr.session(base)
+            bldr.build(s, "m_git") {
+                fetch.git() {
+                    repo("file://${base}/origin")
+                    into("${base}/clone")
+                    depth(1)
+                }
+            }
+
+            cnt, _ = os.exec("git -C ${base}/clone rev-list --count HEAD 2>/dev/null")
+            spec.assert_str_eq(string.trim(cnt), "1", "depth(1) clone has exactly one commit")
+            os.system("rm -rf ${base}")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

@@ -672,10 +672,10 @@ builder git(): int {
     if map.has(_builder, "fetch_commit") == 1 {
         commit_str, _ = map.get(_builder, "fetch_commit")
     }
-    depth = 0
+    depth_n = 0
     if map.has(_builder, "fetch_depth") == 1 {
         depth_s, _ = map.get(_builder, "fetch_depth")
-        depth, _ = string.to_int(depth_s)
+        depth_n, _ = string.to_int(depth_s)
     }
 
     if string.length(commit_str) == 0 {
@@ -712,7 +712,7 @@ builder git(): int {
 
     bldr._mkdirs(path.dirname(into_abs))
     println("${mod_dir}: cloning ${repo_url} (ref=${ref_str}) → ${into_rel}")
-    rc_cl = bldr._sh(git_clone_cmd(repo_url, ref_str, into_abs, depth))
+    rc_cl = bldr._sh(git_clone_cmd(repo_url, ref_str, into_abs, depth_n))
     if rc_cl != 0 {
         println("${mod_dir}: fetch.git: git clone failed for ${repo_url}")
         bldr.fail(ctx, "fetch.git: git clone failed for ${repo_url}")

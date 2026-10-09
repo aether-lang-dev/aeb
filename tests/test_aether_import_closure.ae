@@ -37,7 +37,7 @@ main() {
             // unavailable (no OpenSSL/zlib) — skip cleanly in that case.
             if spec.skip_all_if(fw, string.equals(e1, "") == 0, "import-closure test skipped — ${e1}") == 1 {
                 os.system("rm -rf ${base}")
-                return 0
+                return
             }
 
             k1b, _eb = _cache_key_for_aether_link(null, appdir, entry, "/libx", "dup", "")
@@ -84,7 +84,7 @@ main() {
             k1, e1 = _cache_key_for_aether_link(bm, appdir, entry, "/libx", "dup", "")
             if spec.skip_all_if(fw, string.equals(e1, "") == 0, "lib-dir import-closure test skipped — ${e1}") == 1 {
                 os.system("rm -rf ${base}")
-                return 0
+                return
             }
             k1b, _eb = _cache_key_for_aether_link(bm, appdir, entry, "/libx", "dup", "")
             spec.assert_true(string.equals(k1, k1b), "key is stable across recomputation")
