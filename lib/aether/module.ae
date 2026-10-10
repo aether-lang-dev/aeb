@@ -610,11 +610,23 @@ _toolchain_version() {
 // link on macOS/clang. The flag exists solely for a gcc bug, so it must be gated
 // on gcc. (asks/fno-ipa-bit-cp-is-gcc-only-breaks-clang-macos.md.) Values cached
 // as "1"/"0" so a stored "0" is distinguishable from an unset memo.
+// _link_cc() -- the C compiler aether.program links with: $CC when set, else
+// gcc. FreeBSD has cc (clang) and no gcc, so a hardcoded `gcc` failed every
+// link there (aether-ui's ci.sh on ghostbsd: 300 "gcc: not found"); Linux CI
+// and macOS, with CC unset, still get gcc.
+_link_cc() -> string {
+    cc = os.getenv("CC")
+    if cc != null {
+        if string.length(cc) > 0 { return cc }
+    }
+    return "gcc"
+}
+
 _cc_is_real_gcc() {
     cached = os.getenv("_AEB_CC_IS_GCC_CACHE")
     if string.equals(cached, "1") == 1 { return 1 }
     if string.equals(cached, "0") == 1 { return 0 }
-    raw, _err = bldr._sh_capture("gcc --version 2>/dev/null")
+    raw, _err = bldr._sh_capture("${_link_cc()} --version 2>/dev/null")
     v = raw
     is_gcc = 0
     // Real GNU gcc: banner carries "Free Software Foundation". A clang shim
@@ -1914,7 +1926,7 @@ aether_link_cmd(opts: ptr) {
     // link), just discovered from the header rather than named by extra_source().
     source_str = ""
     if map.has(opts, "source_str") == 1 { source_str, _ = map.get(opts, "source_str") }
-    return "gcc ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str}${source_str} -L${lib_dir}${contrib_L} -laether ${extra_link} ${rpath_link}${aether_link}${user_flags}${gc_flag} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
+    return "${_link_cc()} ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str}${source_str} -L${lib_dir}${contrib_L} -laether ${extra_link} ${rpath_link}${aether_link}${user_flags}${gc_flag} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
 }
 
 // Decide whether a regen entry needs aetherc work, given the .ae and
