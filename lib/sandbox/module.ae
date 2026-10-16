@@ -42,7 +42,7 @@ _wild(dir: string) {
 }
 
 // _add(s, cat, pat) — append one grant pair.
-_add(s: ptr, cat: string, pat: string) {
+_add(s: @keep ptr, cat: string, pat: string) {
     _c = list.add(s, cat)
     _p = list.add(s, pat)
     return s
@@ -50,24 +50,24 @@ _add(s: ptr, cat: string, pat: string) {
 
 // --- grant verbs (Aether's sandbox vocabulary, verbatim) ----------------
 
-grant_fs_read(s: ptr, path: string)   { return _add(s, "fs_read", path) }
-grant_fs_write(s: ptr, path: string)  { return _add(s, "fs_write", path) }
-grant_exec(s: ptr, cmd: string)       { return _add(s, "exec", cmd) }
-grant_tcp(s: ptr, host: string)       { return _add(s, "tcp", host) }
-grant_tcp_listen(s: ptr, host: string){ return _add(s, "tcp_listen", host) }
-grant_env(s: ptr, var_name: string)   { return _add(s, "env", var_name) }
+grant_fs_read(s: @keep ptr, path: string)   { return _add(s, "fs_read", path) }
+grant_fs_write(s: @keep ptr, path: string)  { return _add(s, "fs_write", path) }
+grant_exec(s: @keep ptr, cmd: string)       { return _add(s, "exec", cmd) }
+grant_tcp(s: @keep ptr, host: string)       { return _add(s, "tcp", host) }
+grant_tcp_listen(s: @keep ptr, host: string){ return _add(s, "tcp_listen", host) }
+grant_env(s: @keep ptr, var_name: string)   { return _add(s, "env", var_name) }
 // fork/vfork/clone are denied by default; a build orchestrator MUST be able
 // to spawn compilers, so the default profile grants this. Pattern is "*".
-grant_fork(s: ptr)                    { return _add(s, "fork", "*") }
+grant_fork(s: @keep ptr)                    { return _add(s, "fork", "*") }
 // native: executable memory (JIT mmap/mprotect) + dlopen of escape-target
 // libraries. Most native builds don't need it; toolchains that JIT or
 // dlopen plugins do. Not in the default profile — grant per toolchain.
-grant_native(s: ptr, what: string)    { return _add(s, "native", what) }
+grant_native(s: @keep ptr, what: string)    { return _add(s, "native", what) }
 
 // grant_all(s) — the escape hatch (grant-all). A profile that calls this
 // is effectively unsandboxed; the veto/operator should flag it. Present so
 // "no --sandbox" / legacy can be expressed as a real grant set.
-grant_all(s: ptr)                     { return _add(s, "*", "*") }
+grant_all(s: @keep ptr)                     { return _add(s, "*", "*") }
 
 // --- introspection ------------------------------------------------------
 
@@ -140,7 +140,7 @@ intersect(a: ptr, b: ptr) {
 }
 
 // _copy_into(dst, src) — append every grant of src to dst; return dst.
-_copy_into(dst: ptr, src: ptr) {
+_copy_into(dst: @keep ptr, src: ptr) {
     n = pair_count(src)
     i = 0
     while i < n {
@@ -227,7 +227,7 @@ default_profile(repo: string, target_dir: string, aeb_home: string) {
 // `parse()`s it back into a grant list to hand to spawn_sandboxed. One
 // "category\tpattern" line per grant (tab-separated; patterns may contain
 // spaces, categories never do).
-emit(s: ptr) {
+emit(s: @keep ptr) {
     n = pair_count(s)
     i = 0
     while i < n {

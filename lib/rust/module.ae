@@ -720,11 +720,11 @@ cargo_crate_toml_content(opts: ptr) {
         }
         // Individual feature declarations
         if map.has(opts, "_features") == 1 {
-            feats, _ = map.get(opts, "_features")
-            fcount = list.size(feats)
+            feat_list, _ = map.get(opts, "_features")
+            fcount = list.size(feat_list)
             fi = 0
             while fi < fcount {
-                fentry, _ = list.get(feats, fi)
+                fentry, _ = list.get(feat_list, fi)
                 fname = _split_first(fentry, "~")
                 fdeps_csv = _split_second(fentry, "~")
                 if string.length(fdeps_csv) == 0 {

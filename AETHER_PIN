@@ -372,4 +372,19 @@
 # 0.801.0+main dev tree; sae cannot link on the bare release because the
 # release ships contrib/sqlite's source but not its -laether_sqlite veneer
 # archive (plain `ae build` of `import contrib.sqlite` fails the same way).
-0.801.0
+#
+# Raised to 0.818.0 (2026-10-16), a REAL floor move: 0.818's ownership rework
+# (aether #2916/#2926) borrows a `ptr` parameter for the call unless it is
+# declared `p: @keep ptr` (E0902), and aeb's sources now say `@keep` where
+# the checker requires it (lib/bldr's _append_lines, lib/sandbox's grant_*,
+# _add, _copy_into and emit). 0.817 and older cannot parse `@keep`, so no
+# older Aether compiles this tree. Two 0.818 behaviours this commit also had
+# to meet: lib/rust's cargo_crate_toml_content re-bound its string `feats` to
+# a list through a tuple destructure, which 0.818 then managed as a string
+# (the [features] section came out as "(null) = []"; renamed feat_list), and
+# bldr._jvm_dir_major returned freed memory, because a function with no
+# return annotation that returns a string local is inferred `void*` and frees
+# the local before returning it (a compiler bug, being fixed in an aether PR;
+# the helper now says `-> string`). Verified against the 0.818.0 RELEASE
+# (macOS arm64): make install clean, tests/run.sh 153/153.
+0.818.0

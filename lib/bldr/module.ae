@@ -1999,7 +1999,7 @@ _reset_dir(d: string) {
 // the dep-parsing paths — no per-line `sed`/`echo` fork, and no interpolating
 // captured text back into a shell (embedded quotes/newlines no longer corrupt
 // it). Each stored line is an owned copy (string.copy).
-_append_lines(dst: ptr, raw: string) {
+_append_lines(dst: @keep ptr, raw: string) {
     lines = string.lines(string.trim(raw))
     string.seq_each(lines, |ln: string| {
         t = string.trim(ln)
@@ -5145,7 +5145,7 @@ _match_major_version(want: string, have: string) {
 // Returns "" when no version-looking segment is found. The rule: scan
 // '-'-separated segments for the first that begins with a digit; if it is
 // the legacy "1.X.0" shape (leading "1." then more), take the X.
-_jvm_dir_major(dirname: string) {
+_jvm_dir_major(dirname: string) -> string {
     rest = dirname
     seg = ""
     out = ""

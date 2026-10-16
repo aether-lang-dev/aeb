@@ -250,4 +250,6 @@
 # equals PIN. Verified as AETHER_PIN describes.
 #
 # 0.801.0 (2026-10-09): the new floor (see AETHER_PIN); FETCH equals PIN.
-0.801.0
+#
+# 0.818.0 (2026-10-16): the new floor (see AETHER_PIN); FETCH equals PIN.
+0.818.0
