@@ -81,7 +81,7 @@ cat > "$PROBE/p.ae" <<'EOF'
 import shimmod (answer)
 main() { let _ = answer() }
 EOF
-( cd "$PROBE" && "$AETHER" build shimmod.ae --emit=csrc -o out >/dev/null 2>&1 )
+( cd "$PROBE" && "$AETHER" build shimmod.ae --emit=csrc --with=extern -o out >/dev/null 2>&1 )
 if ! grep -q 'aether-source' "$PROBE"/out.c 2>/dev/null && ! grep -rq 'aether-source' "$PROBE"/*.c 2>/dev/null; then
   echo "  SKIP: this ae does not emit '// aether-source:' (needs Aether >= 0.705)"
   echo

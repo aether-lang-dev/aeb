@@ -1997,6 +1997,13 @@ _regen_target_c(target_dir: string, ae_abs: string) {
 //   import std.http | std.tcp | std.net  → net
 //   import std.fs                        → fs
 //   import std.os                        → os
+//   a top-level `extern` declaration     → extern
+//
+// The extern grant: Aether's `--emit=lib` and `--emit=csrc` refuse a
+// source that declares an `extern` without --with=extern, since a C
+// function reaches past the fs/net/os gates. A module shipping its own
+// C through @source does exactly that, so its regen needs the grant;
+// the node that links it is the program that owns that authority.
 //
 // Imports through transitive modules aren't seen — caller falls
 // back to regen_with(path, "net,fs,...") for those. Returns "" when
@@ -2019,6 +2026,15 @@ _detect_caps_from_content(content: string) {
     if string.index_of(content, "import std.net")  >= 0 { has_net = 1 }
     if string.index_of(content, "import std.fs")   >= 0 { has_fs  = 1 }
     if string.index_of(content, "import std.os")   >= 0 { has_os  = 1 }
+    has_extern = 0
+    if string.index_of(content, "extern ") == 0 { has_extern = 1 }
+    if string.index_of(content, "\nextern ") >= 0 { has_extern = 1 }
+    return _caps_csv(has_net, has_fs, has_os, has_extern)
+}
+
+// _caps_csv — the --with csv for a set of grant flags, in the fixed order
+// net,fs,os,extern. Shared by _detect_caps_from_content and _union_caps.
+_caps_csv(has_net: int, has_fs: int, has_os: int, has_extern: int) {
     out = ""
     if has_net == 1 { out = "net" }
     if has_fs == 1 {
@@ -2029,11 +2045,15 @@ _detect_caps_from_content(content: string) {
         if string.length(out) > 0 { out = string.concat(out, ",") }
         out = string.concat(out, "os")
     }
+    if has_extern == 1 {
+        if string.length(out) > 0 { out = string.concat(out, ",") }
+        out = string.concat(out, "extern")
+    }
     return out
 }
 
 // _union_caps(a, b) — merge two comma-separated capability lists into one
-// with no duplicates, order net,fs,os (matching _detect_caps_from_content).
+// with no duplicates, order net,fs,os,extern (matching _detect_caps_from_content).
 // Used to floor a regen'd module's auto-detected caps with the node's
 // declared entry caps: `--emit=lib` cap-gates over the TRANSITIVE import
 // closure (aetherc follows imports), so a module that itself imports only
@@ -2052,17 +2072,9 @@ _union_caps(a: string, b: string) {
     if string.index_of(both, "net") >= 0 { has_net = 1 }
     if string.index_of(both, "fs")  >= 0 { has_fs  = 1 }
     if string.index_of(both, "os")  >= 0 { has_os  = 1 }
-    out = ""
-    if has_net == 1 { out = "net" }
-    if has_fs == 1 {
-        if string.length(out) > 0 { out = string.concat(out, ",") }
-        out = string.concat(out, "fs")
-    }
-    if has_os == 1 {
-        if string.length(out) > 0 { out = string.concat(out, ",") }
-        out = string.concat(out, "os")
-    }
-    return out
+    has_extern = 0
+    if string.index_of(both, "extern") >= 0 { has_extern = 1 }
+    return _caps_csv(has_net, has_fs, has_os, has_extern)
 }
 
 // Expand the regen list with every project-local sibling module the

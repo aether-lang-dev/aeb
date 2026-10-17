@@ -2,7 +2,7 @@
 //   _paired_generated_c   — .ae path → _generated.c sibling
 //   _detect_caps_from_content — `import std.X` → --with cap mapping
 import std.spec
-import aether (_paired_generated_c, _detect_caps_from_content, _regen_action)
+import aether (_paired_generated_c, _detect_caps_from_content, _union_caps, _regen_action)
 
 main() {
     fw = spec.init()
@@ -91,7 +91,35 @@ main() {
         }
         spec.it("realistic mix") callback {
             src = "import std.io\nimport std.http\nimport std.fs\nextern println(s: string)\n"
-            spec.assert_str_eq(_detect_caps_from_content(src), "net,fs", "realistic")
+            spec.assert_str_eq(_detect_caps_from_content(src), "net,fs,extern", "realistic")
+        }
+    }
+
+    // --emit=lib / --emit=csrc refuse an `extern` declaration without
+    // --with=extern; a module carrying its own C through @source needs it.
+    spec.describe(fw, "_detect_caps_from_content: extern declarations") {
+        spec.it("a leading extern") callback {
+            spec.assert_str_eq(_detect_caps_from_content("extern shim_answer() -> int\n"), "extern", "leading")
+        }
+        spec.it("an extern after @source") callback {
+            src = "@source(\"shim.c\")\nextern shim_answer() -> int\nanswer() -> int { return shim_answer() }\n"
+            spec.assert_str_eq(_detect_caps_from_content(src), "extern", "@source")
+        }
+        spec.it("extern ordered after os") callback {
+            spec.assert_str_eq(_detect_caps_from_content("extern f()\nimport std.os\n"), "os,extern", "os+extern")
+        }
+        spec.it("the word in a comment or a name is not a declaration") callback {
+            spec.assert_str_eq(_detect_caps_from_content("// an extern call\nmy_extern() {}\n"), "", "not a decl")
+        }
+    }
+
+    spec.describe(fw, "_union_caps: the node's caps floor a module's own") {
+        spec.it("keeps extern from either side") callback {
+            spec.assert_str_eq(_union_caps("extern", "os"), "os,extern", "module extern + node os")
+            spec.assert_str_eq(_union_caps("fs", "net,extern"), "net,fs,extern", "node extern")
+        }
+        spec.it("dedups") callback {
+            spec.assert_str_eq(_union_caps("os,extern", "os,extern"), "os,extern", "dedup")
         }
     }
 

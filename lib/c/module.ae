@@ -119,9 +119,10 @@ aether_source(_ctx: ptr, pat: string) {
 
 // Capabilities passed to `aetherc --emit=lib --with=<caps>` for every
 // aether_source in this builder. `caps` is a comma-separated list:
-// os, fs, net. Required when an Aether source imports a gated std
-// module — including transitively, which an import scan can't see, so
-// this is declared rather than auto-detected. A program linking
+// os, fs, net, extern. Required when an Aether source imports a gated std
+// module, or a module declaring an `extern` (one shipping its own C via
+// @source needs "extern") — including transitively, which an import scan
+// can't see, so this is declared rather than auto-detected. A program linking
 // handwritten C + Aether IS the capability owner, so granting them
 // here is the intended use (see aetherc's --emit=lib gating message).
 aether_caps(_ctx: ptr, caps: string) {

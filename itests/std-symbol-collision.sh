@@ -72,8 +72,11 @@ fi
 # the wrong tree. Then try the layouts seen in practice.
 AE_REAL="$(readlink -f "$AE_PATH" 2>/dev/null || echo "$AE_PATH")"
 STD_DIR=""
-for base in "$(dirname "$AE_REAL")/.." "$(dirname "$AE_PATH")/.." "$HOME/.aether/current"; do
-    cand="$base/share/aether/std"
+# An aether source tree run from build/ (ae at <tree>/build/ae) keeps std at
+# <tree>/std; check that before $HOME/.aether/current, which may be another
+# version entirely.
+for cand in "$(dirname "$AE_REAL")/../share/aether/std" "$(dirname "$AE_PATH")/../share/aether/std" \
+            "$(dirname "$AE_REAL")/../std" "$HOME/.aether/current/share/aether/std"; do
     if [ -d "$cand" ]; then STD_DIR="$(cd "$cand" && pwd)"; break; fi
 done
 if [ -z "$STD_DIR" ]; then

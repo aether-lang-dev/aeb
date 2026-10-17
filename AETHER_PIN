@@ -387,4 +387,31 @@
 # the local before returning it (a compiler bug, being fixed in an aether PR;
 # the helper now says `-> string`). Verified against the 0.818.0 RELEASE
 # (macOS arm64): make install clean, tests/run.sh 153/153.
-0.818.0
+#
+# Raised to 0.823.0 (2026-10-17), the family-wide floor, moved with the whole
+# family at Paul's request. aeb's own sources needed no change for 0.819-0.823:
+# the 0.818 commit already says `@keep` wherever the checker wants it, and
+# 0.822's fix for an untyped function returning a freed string local (the
+# compiler bug bldr._jvm_dir_major met; its `-> string` stays) asks nothing of
+# aeb. Not a primitive floor: 0.818.0 still compiles this tree.
+# What the move did find is that two CI itests had stopped testing anything.
+# module-source-c and c-program-module-source probe with `--emit=csrc` /
+# `--emit=lib` on a module declaring an `extern`, which the extern grant now
+# refuses without --with=extern, so both printed "SKIPPED (toolchain too old)"
+# and passed. With the probes granted, both failed for real: aether.program's
+# manual path regen'd an @source module without --with=extern.
+# _detect_caps_from_content now maps a top-level `extern` declaration to the
+# extern grant (and _union_caps keeps it); c.program declares its grants by
+# design, so that itest's fixture says aether_caps("extern"). Two test-only
+# fixes rode along: c-program-module-source's mtime helper tried BSD `stat -f`
+# first, which GNU stat answers with file-system free-block counts, so its warm
+# check failed whenever the disk was busy (always, from a fresh HOME as in CI);
+# std-symbol-collision now finds std/ in an aether source tree run from build/.
+# Verified against 0.823.0 built from its tag. macOS arm64: make install clean,
+# tests/run.sh 151/153 (test_container_lua/run fail: this Mac's podman cannot
+# start a new container, an overlay-storage I/O error, not the toolchain), CI
+# itests green except override-dep and ae-add-binary-package, which fail on
+# macOS only as since 0.766. ae-x64 (Ubuntu 22.04 x86_64, gcc 11, 0.823.0 built
+# with -Werror) and aether-linux (Ubuntu 22.04 arm64): tests/run.sh 153/153
+# and all 15 CI itests green.
+0.823.0

@@ -76,12 +76,14 @@ void report(void);
 int main(void) { report(); return 0; }
 EOF
 # No sources("shim/shim.c"), no include("shim"), no link_flag("-lshimk"): the
-# whole point is that the module says so itself.
+# whole point is that the module says so itself. aether_caps("extern") is the
+# grant --emit=lib needs for the module's extern; c.program declares grants
+# rather than scanning the import closure (see lib/c aether_caps).
 cat > "$APP/.build.ae" <<'EOF'
 import bldr
 import c
-import c (sources, aether_source, output_file)
-aeb(cap) { bldr.build() { c.program() { aether_source("half.ae") sources("main.c") output_file("prog") } } }
+import c (sources, aether_source, aether_caps, output_file)
+aeb(cap) { bldr.build() { c.program() { aether_source("half.ae") aether_caps("extern") sources("main.c") output_file("prog") } } }
 EOF
 
 # @c_include needs an Aether that emits `// aether-include:`; skip on older.
@@ -89,7 +91,7 @@ PROBE="$WORK/probe"; mkdir -p "$PROBE"
 cp -R "$APP/shim" "$APP/half.ae" "$PROBE/"
 AETHERC="${AETHERC:-$(dirname "$(command -v "$AETHER")")/aetherc}"
 [ -x "$AETHERC" ] || AETHERC=aetherc
-if ! ( cd "$PROBE" && "$AETHERC" --emit=lib half.ae out.c >/dev/null 2>&1 && grep -q '^// aether-include:' out.c && grep -q '^// aether-source:' out.c ); then
+if ! ( cd "$PROBE" && "$AETHERC" --emit=lib --with=extern half.ae out.c >/dev/null 2>&1 && grep -q '^// aether-include:' out.c && grep -q '^// aether-source:' out.c ); then
   echo "  SKIP: this toolchain does not emit '// aether-include:'/'// aether-source:'"
   echo
   echo "c-program-module-source-smoke: SKIPPED (toolchain too old)"
@@ -110,7 +112,11 @@ fi
 
 # --- 2. WARM: nothing changed, so the binary is not relinked (aeb's node
 #     cache or c.program's own check may be what skips it).
-mt() { stat -f %m "$1" 2>/dev/null || stat -c %Y "$1"; }
+# GNU first: GNU stat takes `-f %m FILE` as two operands and prints the file
+# system's status (free-block counts that change under any write) before
+# failing on '%m', so the BSD-first order compared noise on Linux. BSD stat
+# rejects -c outright, so it falls through to -f there.
+mt() { stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"; }
 sleep 1
 M1="$(mt "$BIN")"
 OUT2="$( cd "$APP" && "$AEB" .build.ae 2>&1 )"
