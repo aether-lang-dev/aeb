@@ -414,4 +414,16 @@
 # macOS only as since 0.766. ae-x64 (Ubuntu 22.04 x86_64, gcc 11, 0.823.0 built
 # with -Werror) and aether-linux (Ubuntu 22.04 arm64): tests/run.sh 153/153
 # and all 15 CI itests green.
-0.823.0
+#
+# Raised to 0.824.0 (2026-10-18), the family-wide floor, again at Paul's request:
+# a tracking-only bump, no new primitive and no source change. 0.824's helper
+# rename into `_aether_` (#2804; `spawn_<Actor>` as a function name is now an
+# error), E0900's closure-slice checks (#2846) and --emit=lib exports hidden
+# under their own name (#2937) ask nothing of aeb's tree. 0.823.0 still
+# compiles it. Verified against 0.824.0 built from its tag. macOS arm64: make
+# install clean, tests/run.sh 151/153 (test_container_lua/run: this Mac's podman
+# cannot start new containers), CI itests green except override-dep and
+# ae-add-binary-package (macOS-only, as since 0.766). ae-x64 (Ubuntu 22.04
+# x86_64, gcc 11, 0.824.0 built with -Werror) and aether-linux (Ubuntu 22.04
+# arm64, the same): tests/run.sh 153/153 and all 15 CI itests green.
+0.824.0

@@ -254,4 +254,6 @@
 # 0.818.0 (2026-10-16): the new floor (see AETHER_PIN); FETCH equals PIN.
 #
 # 0.823.0 (2026-10-17): the family-wide floor (see AETHER_PIN); FETCH equals PIN.
-0.823.0
+#
+# 0.824.0 (2026-10-18): the family-wide floor (see AETHER_PIN); FETCH equals PIN.
+0.824.0
