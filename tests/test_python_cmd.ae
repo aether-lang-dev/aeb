@@ -84,7 +84,7 @@ main() {
             pyproject_path(bm, "py/pyproject.toml")
             pyproject_stored = ""
             if map.has(bm, "pyproject_path") == 1 {
-                pyproject_stored, _ = map.get(bm, "pyproject_path")
+                pyproject_stored, _ = map.get_string(bm, "pyproject_path")
             }
             spec.assert_str_eq(pyproject_stored, "py/pyproject.toml", "pyproject_path setter stores the path")
         }

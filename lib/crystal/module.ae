@@ -57,8 +57,8 @@ shard_yml_content(opts: ptr) {
     name = "app"
     ver = "0.1.0"
     if opts != null {
-        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
-        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get_string(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get_string(opts, "manifest_version") }
     }
     yaml = "name: ${name}\nversion: ${ver}\n"
 
@@ -130,7 +130,7 @@ builder test(): int {
 
     spec = "spec"
     if _builder != null {
-        if map.has(_builder, "crystal_spec") == 1 { spec, _ = map.get(_builder, "crystal_spec") }
+        if map.has(_builder, "crystal_spec") == 1 { spec, _ = map.get_string(_builder, "crystal_spec") }
     }
 
     println("${mod_dir}: running tests (crystal spec)")

@@ -72,8 +72,8 @@ pubspec_yaml_content(opts: ptr) {
     name = "app"
     ver = "0.1.0"
     if opts != null {
-        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
-        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get_string(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get_string(opts, "manifest_version") }
     }
     yaml = "name: ${name}\nversion: ${ver}\nenvironment:\n  sdk: \">=3.0.0 <4.0.0\"\n"
 
@@ -528,10 +528,10 @@ builder test(): int {
     flags = null
     tpath = ""
     if _builder != null {
-        if map.has(_builder, "test_concurrency") == 1 { conc, _ = map.get(_builder, "test_concurrency") }
+        if map.has(_builder, "test_concurrency") == 1 { conc, _ = map.get_string(_builder, "test_concurrency") }
         if map.has(_builder, "test_names") == 1 { names, _ = map.get(_builder, "test_names") }
         if map.has(_builder, "test_flags") == 1 { flags, _ = map.get(_builder, "test_flags") }
-        if map.has(_builder, "test_path") == 1 { tpath, _ = map.get(_builder, "test_path") }
+        if map.has(_builder, "test_path") == 1 { tpath, _ = map.get_string(_builder, "test_path") }
     }
     args_part = test_args_part(conc, names, flags, tpath)
 
@@ -642,7 +642,7 @@ builder compile(): int {
     fmt = "exe"
     if _builder != null {
         if map.has(_builder, "compile_format") == 1 {
-            f, _ = map.get(_builder, "compile_format")
+            f, _ = map.get_string(_builder, "compile_format")
             if string.length(f) > 0 { fmt = f }
         }
     }
@@ -650,7 +650,7 @@ builder compile(): int {
     entry = "bin/main.dart"
     if _builder != null {
         if map.has(_builder, "compile_entrypoint") == 1 {
-            e, _ = map.get(_builder, "compile_entrypoint")
+            e, _ = map.get_string(_builder, "compile_entrypoint")
             if string.length(e) > 0 { entry = e }
         }
     }
@@ -659,7 +659,7 @@ builder compile(): int {
     out_name = ""
     if _builder != null {
         if map.has(_builder, "compile_output") == 1 {
-            o, _ = map.get(_builder, "compile_output")
+            o, _ = map.get_string(_builder, "compile_output")
             if string.length(o) > 0 { out_name = o }
         }
     }
@@ -738,7 +738,7 @@ builder codegen(): int {
     cwd = source_dir
     if _builder != null {
         if map.has(_builder, "codegen_cwd") == 1 {
-            rel, _ = map.get(_builder, "codegen_cwd")
+            rel, _ = map.get_string(_builder, "codegen_cwd")
             if string.length(rel) > 0 {
                 if bldr._is_abs_path(rel) == 1 {
                     cwd = rel
@@ -756,10 +756,10 @@ builder codegen(): int {
     dart = "dart"
     if _builder != null {
         if map.has(_builder, "codegen_dart") == 1 {
-            dart, _ = map.get(_builder, "codegen_dart")
+            dart, _ = map.get_string(_builder, "codegen_dart")
         } else {
             if map.has(_builder, "dart_bin") == 1 {
-                db, _ = map.get(_builder, "dart_bin")
+                db, _ = map.get_string(_builder, "dart_bin")
                 if string.length(db) > 0 { dart = db }
             }
         }
@@ -772,11 +772,11 @@ builder codegen(): int {
     if _builder != null {
         if map.has(_builder, "codegen_driver") == 1 {
             driver_form = "package"
-            driver_name, _ = map.get(_builder, "codegen_driver")
+            driver_name, _ = map.get_string(_builder, "codegen_driver")
         } else {
             if map.has(_builder, "codegen_script") == 1 {
                 driver_form = "script"
-                driver_name, _ = map.get(_builder, "codegen_script")
+                driver_name, _ = map.get_string(_builder, "codegen_script")
             }
         }
     }
@@ -1107,12 +1107,12 @@ builder consumer_example(): int {
 
     run_dir = "consumer"
     if _builder != null {
-        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get(_builder, "run_in") }
+        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get_string(_builder, "run_in") }
     }
     run_abs = path.join(stageroot, run_dir)
     run_command = "cargo run --offline --"
     if _builder != null {
-        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get(_builder, "run_cmd") }
+        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get_string(_builder, "run_cmd") }
     }
     // optional build step before the per-arg runs.
     if _builder != null {

@@ -444,7 +444,7 @@ builder run_main(): int {
 
     mns = ""
     if _builder != null {
-        if map.has(_builder, "main_ns") == 1 { mns, _ = map.get(_builder, "main_ns") }
+        if map.has(_builder, "main_ns") == 1 { mns, _ = map.get_string(_builder, "main_ns") }
     }
     if string.length(mns) == 0 {
         bldr.fail(ctx, "clojure.run_main: main_ns(\"...\") is required")
@@ -605,7 +605,7 @@ builder test(): int {
     timeout_secs = ""
     if _builder != null {
         if map.has(_builder, "test_timeout") == 1 {
-            timeout_secs, _ = map.get(_builder, "test_timeout")
+            timeout_secs, _ = map.get_string(_builder, "test_timeout")
         }
     }
     cmd = clj_test_cmd(cp, quoted, timeout_secs)
@@ -687,7 +687,7 @@ builder uberjar(): int {
 
     jar_name = ""
     if map.has(_builder, "clojure_output_jar") == 1 {
-        jar_name, _ = map.get(_builder, "clojure_output_jar")
+        jar_name, _ = map.get_string(_builder, "clojure_output_jar")
     }
     if string.length(jar_name) == 0 {
         base = path.basename(source_dir)

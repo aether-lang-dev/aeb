@@ -124,8 +124,8 @@ package_swift_content(opts: ptr) {
     name = "App"
     ver = "0.1.0"
     if opts != null {
-        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
-        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get_string(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get_string(opts, "manifest_version") }
     }
     s = "// swift-tools-version:5.9\n// version: ${ver}\nimport PackageDescription\n\n"
     s = string.concat(s, "let package = Package(\n    name: \"${name}\",\n")

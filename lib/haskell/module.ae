@@ -107,8 +107,8 @@ cabal_content(opts: ptr) {
     name = "app"
     ver = "0.1.0"
     if opts != null {
-        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
-        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get_string(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get_string(opts, "manifest_version") }
     }
     c = "cabal-version: 2.4\nname: ${name}\nversion: ${ver}\n\nlibrary\n"
 
@@ -153,7 +153,7 @@ builder generate_manifest(): int {
 
     name = "app"
     if _builder != null {
-        if map.has(_builder, "manifest_name") == 1 { name, _ = map.get(_builder, "manifest_name") }
+        if map.has(_builder, "manifest_name") == 1 { name, _ = map.get_string(_builder, "manifest_name") }
     }
     content = cabal_content(_builder)
     manifest_path = path.join(source_dir, "${name}.cabal")

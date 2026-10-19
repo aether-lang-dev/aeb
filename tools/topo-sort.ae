@@ -85,7 +85,7 @@ dfs_visit(file: string, file_deps: ptr, visited_map: ptr, order: ptr) {
     _mp1 = map.put(visited_map, file, "visiting")
     deps_str = ""
     if map.has(file_deps, file) == 1 {
-        deps_str, _ = map.get(file_deps, file)
+        deps_str, _ = map.get_string(file_deps, file)
     }
     deps_list = list.new()
     split_words(deps_str, deps_list)

@@ -151,7 +151,7 @@ _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_
 
     ext_out = "htmlsanitizer_native.so"
     if bmap != null {
-        if map.has(bmap, "lua_ext_output") == 1 { ext_out, _ = map.get(bmap, "lua_ext_output") }
+        if map.has(bmap, "lua_ext_output") == 1 { ext_out, _ = map.get_string(bmap, "lua_ext_output") }
     }
     // Placed in source_dir so LUA_CPATH ./?.so resolves it next to the tests.
     ext_path = path.join(source_dir, ext_out)
@@ -269,7 +269,7 @@ builder conformance(): int {
 
     conf = "test/conformance.lua"
     if _builder != null {
-        if map.has(_builder, "lua_conformance") == 1 { conf, _ = map.get(_builder, "lua_conformance") }
+        if map.has(_builder, "lua_conformance") == 1 { conf, _ = map.get_string(_builder, "lua_conformance") }
     }
 
     println("${mod_dir}: running ${conf} (lua)")
@@ -431,12 +431,12 @@ builder consumer_example(): int {
 
     run_dir = "consumer"
     if _builder != null {
-        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get(_builder, "run_in") }
+        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get_string(_builder, "run_in") }
     }
     run_abs = path.join(stageroot, run_dir)
     run_command = "cargo run --offline --"
     if _builder != null {
-        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get(_builder, "run_cmd") }
+        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get_string(_builder, "run_cmd") }
     }
     // optional build step before the per-arg runs.
     if _builder != null {

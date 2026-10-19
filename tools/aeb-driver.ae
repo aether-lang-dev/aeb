@@ -101,7 +101,7 @@ _node_run_cmd(out_bin: string, root: string, node: string, label: string,
     inner = string.concat(inner, "'")
     if node_container == 1 {
         img = ""
-        if map.has(node_image, node) == 1 { img, _ = map.get(node_image, node) }
+        if map.has(node_image, node) == 1 { img, _ = map.get_string(node_image, node) }
         if string.length(img) > 0 {
             inner = _container_node_invocation(node, root, label, img, engine, selabel)
         }
@@ -623,12 +623,12 @@ main() {
                         ltok, _ = list.get(live, li)
                         ltk = string.from_int(ltok)
                         lseed = "0"
-                        if map.has(tok_start, ltk) == 1 { lseed, _ = map.get(tok_start, ltk) }
+                        if map.has(tok_start, ltk) == 1 { lseed, _ = map.get_string(tok_start, ltk) }
                         lst_ns, _lse = string.to_long(lseed)
                         elapsed_s = (now_ns - lst_ns) / 1000000000
                         if elapsed_s >= node_timeout {
                             lnode = ""
-                            if map.has(tok_node, ltk) == 1 { lnode, _ = map.get(tok_node, ltk) }
+                            if map.has(tok_node, ltk) == 1 { lnode, _ = map.get_string(tok_node, ltk) }
                             println("aeb-driver: node ${lnode} exceeded AEB_NODE_TIMEOUT=${node_timeout}s; terminating")
                             _kk = os.kill(ltok, 9)
                         }
@@ -639,7 +639,7 @@ main() {
                 }
                 rtk = string.from_int(rtok)
                 rnode = ""
-                if map.has(tok_node, rtk) == 1 { rnode, _ = map.get(tok_node, rtk) }
+                if map.has(tok_node, rtk) == 1 { rnode, _ = map.get_string(tok_node, rtk) }
                 if string.length(rnode) > 0 {
                     rcm = path.join(rc_dir, string.concat(_san(rnode), ".rc"))
                     _we2 = io.write_file(rcm, string.from_int(rcode))
@@ -649,7 +649,7 @@ main() {
                     // to_long reassignment then truncates back to 32 bits,
                     // which is the same 163906.57s garbage in a new hat.
                     st_seed = "0"
-                    if map.has(tok_start, rtk) == 1 { st_seed, _ = map.get(tok_start, rtk) }
+                    if map.has(tok_start, rtk) == 1 { st_seed, _ = map.get_string(tok_start, rtk) }
                     st_ns, _sne = string.to_long(st_seed)
                     msm2 = path.join(rc_dir, string.concat(_san(rnode), ".ms"))
                     _wm2 = io.write_file(msm2, string.from_long((clock_ns() - st_ns) / 1000000))
@@ -703,7 +703,7 @@ main() {
             }
             nimg = ""
             if node_container == 1 {
-                nimg, _ = map.get(node_image, node)
+                nimg, _ = map.get_string(node_image, node)
             }
             mk = string.concat(mk, "\n\t@")
             mk = string.concat(mk, _node_cmd_timed(out_bin, root, node, label, log, rcmark, msmark, nimg, engine, selabel))

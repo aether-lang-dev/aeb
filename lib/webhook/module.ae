@@ -143,7 +143,7 @@ interpolate(template: string, ctx: ptr, url_encode: int) {
                 name = string.substring(seg, 0, close)
                 rest = string.substring(seg, close + 2, string.length(seg))
                 if map.has(ctx, name) == 1 {
-                    val, _ = map.get(ctx, name)
+                    val, _ = map.get_string(ctx, name)
                     if url_encode == 1 {
                         val = _url_encode(val)
                     }
@@ -272,8 +272,8 @@ builder fire(): int {
     on_preds = list.new()
     headers = list.new()
     if _builder != null {
-        if map.has(_builder, "url") == 1 { url_tmpl, _ = map.get(_builder, "url") }
-        if map.has(_builder, "method") == 1 { method_v, _ = map.get(_builder, "method") }
+        if map.has(_builder, "url") == 1 { url_tmpl, _ = map.get_string(_builder, "url") }
+        if map.has(_builder, "method") == 1 { method_v, _ = map.get_string(_builder, "method") }
         if map.has(_builder, "on") == 1 { on_preds, _ = map.get(_builder, "on") }
         if map.has(_builder, "headers") == 1 { headers, _ = map.get(_builder, "headers") }
     }
@@ -294,7 +294,7 @@ builder fire(): int {
     gn = list.size(on_preds)
     pred = ""
     while gi < gn {
-        pred, _ = list.get(on_preds, gi)
+        pred, _ = list.get_string(on_preds, gi)
         if gate_passes(pred, is_ci, ci_system, branch) == 0 {
             println("${mod_dir}: webhook skipped — on(\"${pred}\") not met")
             return 0
@@ -330,7 +330,7 @@ builder fire(): int {
     hv = ""
     tab = 0
     while hi < hn {
-        pair, _ = list.get(headers, hi)
+        pair, _ = list.get_string(headers, hi)
         tab = string.index_of(pair, "\t")
         if tab >= 0 {
             hk = string.substring(pair, 0, tab)

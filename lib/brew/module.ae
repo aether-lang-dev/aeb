@@ -238,7 +238,7 @@ builder formula(): int {
     aeb_t = ""
     if _builder != null {
         if map.has(_builder, "aeb_target") == 1 {
-            aeb_t, _ = map.get(_builder, "aeb_target")
+            aeb_t, _ = map.get_string(_builder, "aeb_target")
         }
     }
     if string.length(aeb_t) == 0 {
@@ -265,7 +265,7 @@ builder formula(): int {
     bin_name = ""
     if _builder != null {
         if map.has(_builder, "binary") == 1 {
-            bin_name, _ = map.get(_builder, "binary")
+            bin_name, _ = map.get_string(_builder, "binary")
         }
     }
     if string.length(bin_name) == 0 {
@@ -286,7 +286,7 @@ builder formula(): int {
     cname = ""
     if _builder != null {
         if map.has(_builder, "class_name") == 1 {
-            cname, _ = map.get(_builder, "class_name")
+            cname, _ = map.get_string(_builder, "class_name")
         }
     }
     if string.length(cname) == 0 {
@@ -297,7 +297,7 @@ builder formula(): int {
     test_line = ""
     if _builder != null {
         if map.has(_builder, "test_assertion") == 1 {
-            test_line, _ = map.get(_builder, "test_assertion")
+            test_line, _ = map.get_string(_builder, "test_assertion")
         }
     }
 

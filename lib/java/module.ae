@@ -240,7 +240,7 @@ javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) 
     javac_bin = "javac"
     if opts != null {
         if map.has(opts, "_javac_bin") == 1 {
-            jb, _ = map.get(opts, "_javac_bin")
+            jb, _ = map.get_string(opts, "_javac_bin")
             if string.length(jb) > 0 { javac_bin = jb }
         }
     }
@@ -429,7 +429,7 @@ _accumulate_classpath_jar(ctx: ptr, abs_jar: string) {
     n = list.size(vj)
     k = 0
     while k < n {
-        jp, _ = list.get(vj, k)
+        jp, _ = list.get_string(vj, k)
         if k == 0 { content = jp } else { content = string.concat(string.concat(content, "\n"), jp) }
         k = k + 1
     }
@@ -512,7 +512,7 @@ builder mvn_repo(): int {
         nr = list.size(rl)
         j = 0
         while j < nr {
-            u, _ = list.get(rl, j)
+            u, _ = list.get_string(rl, j)
             if j == 0 { repos_nl = u } else { repos_nl = string.concat(string.concat(repos_nl, "\n"), u) }
             j = j + 1
         }
@@ -693,7 +693,7 @@ builder mvn_project(): int {
     java_ver = ""
     if _builder != null {
         if map.has(_builder, "release") == 1 {
-            java_ver, _ = map.get(_builder, "release")
+            java_ver, _ = map.get_string(_builder, "release")
         }
     }
 
@@ -1030,7 +1030,7 @@ builder javac(): int {
     // (the helper already printed the actionable not-found message).
     want_jdk = ""
     if map.has(_builder, "select_jdk") == 1 {
-        want_jdk, _ = map.get(_builder, "select_jdk")
+        want_jdk, _ = map.get_string(_builder, "select_jdk")
     }
     javac_bin = _javac_bin_for(want_jdk, _builder)
     if string.length(javac_bin) == 0 {
@@ -1206,7 +1206,7 @@ builder package_jar(): int {
 
     jar_nm = ""
     if _builder != null {
-        if map.has(_builder, "jar_name") == 1 { jar_nm, _ = map.get(_builder, "jar_name") }
+        if map.has(_builder, "jar_name") == 1 { jar_nm, _ = map.get_string(_builder, "jar_name") }
     }
     if string.length(jar_nm) == 0 {
         bldr.fail(ctx, "java.package_jar: jar_name(\"...\") is required")
@@ -1225,7 +1225,7 @@ builder package_jar(): int {
 
     from_cp = ""
     if _builder != null {
-        if map.has(_builder, "jar_from_classes") == 1 { from_cp, _ = map.get(_builder, "jar_from_classes") }
+        if map.has(_builder, "jar_from_classes") == 1 { from_cp, _ = map.get_string(_builder, "jar_from_classes") }
     }
 
     if string.length(string.trim(from_cp)) > 0 {
@@ -1673,7 +1673,7 @@ junit5_cmd(classpath: string, test_classes_dir: string, ld_path: string, opts: p
     timeout_secs = "60"
     if opts != null {
         if map.has(opts, "test_timeout") == 1 {
-            timeout_secs, _ = map.get(opts, "test_timeout")
+            timeout_secs, _ = map.get_string(opts, "test_timeout")
         }
     }
     cmd = "timeout ${timeout_secs}"
@@ -2099,7 +2099,7 @@ builder thin_jar(out_name: string): int {
 
     main_cls = ""
     if _builder != null {
-        if map.has(_builder, "thin_main_class") == 1 { main_cls, _ = map.get(_builder, "thin_main_class") }
+        if map.has(_builder, "thin_main_class") == 1 { main_cls, _ = map.get_string(_builder, "thin_main_class") }
     }
     if string.length(main_cls) == 0 {
         bldr.fail(ctx, "java.thin_jar: main_class(\"...\") is required")
@@ -2223,9 +2223,9 @@ builder consumer_example(): int {
     cmain = ""
     asset = ""
     if _builder != null {
-        if map.has(_builder, "consumer_source") == 1 { csrc, _ = map.get(_builder, "consumer_source") }
-        if map.has(_builder, "consumer_main") == 1 { cmain, _ = map.get(_builder, "consumer_main") }
-        if map.has(_builder, "asset_in_jar") == 1 { asset, _ = map.get(_builder, "asset_in_jar") }
+        if map.has(_builder, "consumer_source") == 1 { csrc, _ = map.get_string(_builder, "consumer_source") }
+        if map.has(_builder, "consumer_main") == 1 { cmain, _ = map.get_string(_builder, "consumer_main") }
+        if map.has(_builder, "asset_in_jar") == 1 { asset, _ = map.get_string(_builder, "asset_in_jar") }
     }
     if string.length(csrc) == 0 {
         bldr.fail(ctx, "java.consumer_example: consumer_source(\"...\") is required")

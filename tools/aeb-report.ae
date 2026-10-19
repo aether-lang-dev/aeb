@@ -157,7 +157,7 @@ _compute_cp(nodes: ptr, deps_of: ptr, ms: ptr, cp_ms: ptr, best_dep: ptr) {
                     dn = list.size(dl)
                     j = 0
                     while j < dn {
-                        d, _ = list.get(dl, j)
+                        d, _ = list.get_string(dl, j)
                         j = j + 1
                         dcp = 0
                         if map.has(cp_ms, d) == 1 { dv, _ = map.get(cp_ms, d)  dcp, _ = string.to_int(dv) }
@@ -247,7 +247,7 @@ _render_text(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     hmax = -1
     i = 0
     while i < nn {
-        node, _ = list.get(nodes, i)
+        node, _ = list.get_string(nodes, i)
         i = i + 1
         cv = 0
         if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv, _ = string.to_int(c) }
@@ -268,7 +268,7 @@ _render_text(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
             first = 0
             strbuilder.append(sb, file_to_label(cur))
             nxt = ""
-            if map.has(best_dep, cur) == 1 { nn2, _ = map.get(best_dep, cur)  nxt = nn2 }
+            if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur)  nxt = nn2 }
             cur = nxt
         }
     }
@@ -341,7 +341,7 @@ _render_mermaid(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     hmax = -1
     i = 0
     while i < nn {
-        node, _ = list.get(nodes, i)  i = i + 1
+        node, _ = list.get_string(nodes, i)  i = i + 1
         cv = 0
         if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv, _ = string.to_int(c) }
         if cv > hmax { hmax = cv  heaviest = node }
@@ -354,7 +354,7 @@ _render_mermaid(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
             guard = guard + 1
             _oc = map.put(on_cp, cur, "1")
             nxt = ""
-            if map.has(best_dep, cur) == 1 { nn2, _ = map.get(best_dep, cur)  nxt = nn2 }
+            if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur)  nxt = nn2 }
             cur = nxt
         }
     }
@@ -418,7 +418,7 @@ _render_dot(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     hmax = -1
     i = 0
     while i < nn {
-        node, _ = list.get(nodes, i)  i = i + 1
+        node, _ = list.get_string(nodes, i)  i = i + 1
         cv = 0
         if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv, _ = string.to_int(c) }
         if cv > hmax { hmax = cv  heaviest = node }
@@ -428,7 +428,7 @@ _render_dot(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     while string.length(cur) > 0 {
         if guard > nn + 1 { cur = "" }
         else { guard = guard + 1  _oc = map.put(on_cp, cur, "1")
-               nxt = ""  if map.has(best_dep, cur) == 1 { nn2, _ = map.get(best_dep, cur)  nxt = nn2 }  cur = nxt }
+               nxt = ""  if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur)  nxt = nn2 }  cur = nxt }
     }
     sb = strbuilder.new(1024)
     strbuilder.append(sb, "digraph aeb_report {\n  rankdir=LR;\n  node [shape=box, style=filled];\n")

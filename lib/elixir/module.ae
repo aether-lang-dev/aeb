@@ -100,8 +100,8 @@ mix_exs_content(opts: ptr) {
     name = "app"
     ver = "0.1.0"
     if opts != null {
-        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
-        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get_string(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get_string(opts, "manifest_version") }
     }
     // Elixir module names (defmodule) MUST start uppercase — a lowercase alias
     // is a compile error. Capitalise the first char for the module; the app

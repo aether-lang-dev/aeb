@@ -517,7 +517,7 @@ builder codegen(): int {
     cwd = source_dir
     if _builder != null {
         if map.has(_builder, "codegen_cwd") == 1 {
-            rel, _ = map.get(_builder, "codegen_cwd")
+            rel, _ = map.get_string(_builder, "codegen_cwd")
             if string.length(rel) > 0 {
                 if bldr._is_abs_path(rel) == 1 {
                     cwd = rel
@@ -536,11 +536,11 @@ builder codegen(): int {
     if _builder != null {
         if map.has(_builder, "codegen_cmd_prog") == 1 {
             driver_form = "prog"
-            driver_name, _ = map.get(_builder, "codegen_cmd_prog")
+            driver_name, _ = map.get_string(_builder, "codegen_cmd_prog")
         } else {
             if map.has(_builder, "codegen_script") == 1 {
                 driver_form = "script"
-                driver_name, _ = map.get(_builder, "codegen_script")
+                driver_name, _ = map.get_string(_builder, "codegen_script")
             }
         }
     }

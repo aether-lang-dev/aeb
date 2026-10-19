@@ -211,10 +211,10 @@ builder fixture_seed(name: string): int {
     seed_bin_v = ""
     if _builder != null {
         if map.has(_builder, "path") == 1 {
-            path_v, _ = map.get(_builder, "path")
+            path_v, _ = map.get_string(_builder, "path")
         }
         if map.has(_builder, "seed_bin") == 1 {
-            seed_bin_v, _ = map.get(_builder, "seed_bin")
+            seed_bin_v, _ = map.get_string(_builder, "seed_bin")
         }
     }
     if map.has(b, "_pending_fixture_seeds") == 0 {
@@ -258,16 +258,16 @@ builder fixture_server(name: string): int {
     ready_v = "0"
     if _builder != null {
         if map.has(_builder, "bin") == 1 {
-            bin_v, _ = map.get(_builder, "bin")
+            bin_v, _ = map.get_string(_builder, "bin")
         }
         if map.has(_builder, "args") == 1 {
-            args_v, _ = map.get(_builder, "args")
+            args_v, _ = map.get_string(_builder, "args")
         }
         if map.has(_builder, "port") == 1 {
-            port_v, _ = map.get(_builder, "port")
+            port_v, _ = map.get_string(_builder, "port")
         }
         if map.has(_builder, "ready_after_ms") == 1 {
-            ready_v, _ = map.get(_builder, "ready_after_ms")
+            ready_v, _ = map.get_string(_builder, "ready_after_ms")
         }
     }
     if map.has(b, "_pending_fixture_servers") == 0 {
@@ -624,7 +624,7 @@ builder test(): int {
     jobs_str = ""
     if _builder != null {
         if map.has(_builder, "jobs") == 1 {
-            jobs_str, _ = map.get(_builder, "jobs")
+            jobs_str, _ = map.get_string(_builder, "jobs")
         }
     }
     parallel = 1

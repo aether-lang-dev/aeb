@@ -157,8 +157,8 @@ builder test(): int {
     phar = ""
     url = ""
     if _builder != null {
-        if map.has(_builder, "phpunit_phar") == 1 { phar, _ = map.get(_builder, "phpunit_phar") }
-        if map.has(_builder, "phpunit_phar_url") == 1 { url, _ = map.get(_builder, "phpunit_phar_url") }
+        if map.has(_builder, "phpunit_phar") == 1 { phar, _ = map.get_string(_builder, "phpunit_phar") }
+        if map.has(_builder, "phpunit_phar_url") == 1 { url, _ = map.get_string(_builder, "phpunit_phar_url") }
     }
     if string.length(phar) == 0 {
         if string.length(url) > 0 { phar = "phpunit.phar" }
@@ -182,7 +182,7 @@ builder test(): int {
 
     cfg = ""
     if _builder != null {
-        if map.has(_builder, "phpunit_config") == 1 { cfg, _ = map.get(_builder, "phpunit_config") }
+        if map.has(_builder, "phpunit_config") == 1 { cfg, _ = map.get_string(_builder, "phpunit_config") }
     }
 
     println("${mod_dir}: running tests (php)")

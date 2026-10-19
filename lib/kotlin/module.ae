@@ -208,7 +208,7 @@ _cache_key_for_kotlinc(ctx: ptr, builder_map: ptr, argfile_path: string, kotlinc
     kc_bin = "kotlinc"
     if builder_map != null {
         if map.has(builder_map, "_kotlinc_bin") == 1 {
-            kb, _ = map.get(builder_map, "_kotlinc_bin")
+            kb, _ = map.get_string(builder_map, "_kotlinc_bin")
             if string.length(kb) > 0 { kc_bin = kb }
         }
     }
@@ -255,7 +255,7 @@ _cache_key_for_kotlinc(ctx: ptr, builder_map: ptr, argfile_path: string, kotlinc
 
     if builder_map != null {
         if map.has(builder_map, "compiler_plugin") == 1 {
-            plugins, _ = map.get(builder_map, "compiler_plugin")
+            plugins, _ = map.get_string(builder_map, "compiler_plugin")
             // comma-separated list of plugin jar paths; hash each present file
             rest = plugins
             while string.length(rest) > 0 {

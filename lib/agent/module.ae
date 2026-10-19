@@ -355,7 +355,7 @@ _decision(scope_map: ptr, purpose: string, active: int) {
     if _scope_accepts(scope_map, purpose) == 0 { return "reject" }
     mj = ""
     if map.has(scope_map, "max_jobs") == 1 {
-        mj, _ = map.get(scope_map, "max_jobs")
+        mj, _ = map.get_string(scope_map, "max_jobs")
     }
     if _has_free_slot(active, mj) == 0 { return "busy" }
     return "accept"
@@ -1057,19 +1057,19 @@ builder dispatch(): int {
     want_platform = ""
     if _builder != null {
         if map.has(_builder, "endpoint") == 1 {
-            ep, _ = map.get(_builder, "endpoint")
+            ep, _ = map.get_string(_builder, "endpoint")
         }
         if map.has(_builder, "target") == 1 {
-            tgt, _ = map.get(_builder, "target")
+            tgt, _ = map.get_string(_builder, "target")
         }
         if map.has(_builder, "purpose") == 1 {
-            purp, _ = map.get(_builder, "purpose")
+            purp, _ = map.get_string(_builder, "purpose")
         }
         if map.has(_builder, "token") == 1 {
-            tok, _ = map.get(_builder, "token")
+            tok, _ = map.get_string(_builder, "token")
         }
         if map.has(_builder, "on_platform") == 1 {
-            want_platform, _ = map.get(_builder, "on_platform")
+            want_platform, _ = map.get_string(_builder, "on_platform")
         }
     }
     if string.length(tgt) == 0 {
@@ -1114,8 +1114,8 @@ builder dispatch(): int {
     ghash = ""
     patch_b64 = ""
     if _builder != null {
-        if map.has(_builder, "ref") == 1 { gref, _ = map.get(_builder, "ref") }
-        if map.has(_builder, "hash") == 1 { ghash, _ = map.get(_builder, "hash") }
+        if map.has(_builder, "ref") == 1 { gref, _ = map.get_string(_builder, "ref") }
+        if map.has(_builder, "hash") == 1 { ghash, _ = map.get_string(_builder, "hash") }
         if map.has(_builder, "patch_file") == 1 {
             pf, _ = map.get(_builder, "patch_file")
             pf_abs = pf

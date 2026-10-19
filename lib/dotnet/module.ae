@@ -225,7 +225,7 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
     proj_sdk = "Microsoft.NET.Sdk"
     if opts != null {
         if map.has(opts, "sdk") == 1 {
-            proj_sdk, _ = map.get(opts, "sdk")
+            proj_sdk, _ = map.get_string(opts, "sdk")
         }
     }
 
@@ -858,7 +858,7 @@ builder build_project(): int {
     config = "Release"
     if _builder != null {
         if map.has(_builder, "configuration") == 1 {
-            config, _ = map.get(_builder, "configuration")
+            config, _ = map.get_string(_builder, "configuration")
         }
     }
 
@@ -947,7 +947,7 @@ builder build_project_existing(): int {
     csproj_rel = ""
     if _builder != null {
         if map.has(_builder, "csproj_path") == 1 {
-            csproj_rel, _ = map.get(_builder, "csproj_path")
+            csproj_rel, _ = map.get_string(_builder, "csproj_path")
         }
     }
     csproj = _resolve_csproj_path(source_dir, csproj_rel)
@@ -976,7 +976,7 @@ builder build_project_existing(): int {
     config = "Release"
     if _builder != null {
         if map.has(_builder, "configuration") == 1 {
-            config, _ = map.get(_builder, "configuration")
+            config, _ = map.get_string(_builder, "configuration")
         }
     }
 
@@ -1044,7 +1044,7 @@ builder test(): int {
     config = "Release"
     if _builder != null {
         if map.has(_builder, "configuration") == 1 {
-            config, _ = map.get(_builder, "configuration")
+            config, _ = map.get_string(_builder, "configuration")
         }
     }
 
@@ -1178,7 +1178,7 @@ builder pack(): int {
     config = "Release"
     if _builder != null {
         if map.has(_builder, "configuration") == 1 {
-            config, _ = map.get(_builder, "configuration")
+            config, _ = map.get_string(_builder, "configuration")
         }
     }
 

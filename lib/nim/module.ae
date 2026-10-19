@@ -107,9 +107,9 @@ nimble_content(opts: ptr) {
     author = ""
     desc = ""
     if opts != null {
-        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
-        if map.has(opts, "manifest_author") == 1 { author, _ = map.get(opts, "manifest_author") }
-        if map.has(opts, "manifest_description") == 1 { desc, _ = map.get(opts, "manifest_description") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get_string(opts, "manifest_version") }
+        if map.has(opts, "manifest_author") == 1 { author, _ = map.get_string(opts, "manifest_author") }
+        if map.has(opts, "manifest_description") == 1 { desc, _ = map.get_string(opts, "manifest_description") }
     }
     out = "version = \"${ver}\"\n"
     out = string.concat(out, "author = \"${author}\"\n")
@@ -364,12 +364,12 @@ builder consumer_example(): int {
 
     run_dir = "consumer"
     if _builder != null {
-        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get(_builder, "run_in") }
+        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get_string(_builder, "run_in") }
     }
     run_abs = path.join(stageroot, run_dir)
     run_command = "cargo run --offline --"
     if _builder != null {
-        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get(_builder, "run_cmd") }
+        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get_string(_builder, "run_cmd") }
     }
     // optional build step before the per-arg runs.
     if _builder != null {
@@ -428,7 +428,7 @@ builder generate_manifest(): int {
 
     pkg_name = "app"
     if _builder != null {
-        if map.has(_builder, "manifest_name") == 1 { pkg_name, _ = map.get(_builder, "manifest_name") }
+        if map.has(_builder, "manifest_name") == 1 { pkg_name, _ = map.get_string(_builder, "manifest_name") }
     }
     content = nimble_content(_builder)
     manifest_path = path.join(source_dir, string.concat(pkg_name, ".nimble"))

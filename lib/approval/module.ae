@@ -535,12 +535,12 @@ builder jira(): int {
     fields = list.new()
 
     if _builder != null {
-        if map.has(_builder, "base_url") == 1 { base, _ = map.get(_builder, "base_url") }
-        if map.has(_builder, "issue") == 1 { issue_key, _ = map.get(_builder, "issue") }
-        if map.has(_builder, "token_env") == 1 { token, _ = map.get(_builder, "token_env") }
-        if map.has(_builder, "require_status") == 1 { req_status, _ = map.get(_builder, "require_status") }
-        if map.has(_builder, "evidence") == 1 { evidence_path, _ = map.get(_builder, "evidence") }
-        if map.has(_builder, "timeout") == 1 { timeout_s, _ = map.get(_builder, "timeout") }
+        if map.has(_builder, "base_url") == 1 { base, _ = map.get_string(_builder, "base_url") }
+        if map.has(_builder, "issue") == 1 { issue_key, _ = map.get_string(_builder, "issue") }
+        if map.has(_builder, "token_env") == 1 { token, _ = map.get_string(_builder, "token_env") }
+        if map.has(_builder, "require_status") == 1 { req_status, _ = map.get_string(_builder, "require_status") }
+        if map.has(_builder, "evidence") == 1 { evidence_path, _ = map.get_string(_builder, "evidence") }
+        if map.has(_builder, "timeout") == 1 { timeout_s, _ = map.get_string(_builder, "timeout") }
         if map.has(_builder, "require_labels") == 1 { labels, _ = map.get(_builder, "require_labels") }
         if map.has(_builder, "require_fields") == 1 { fields, _ = map.get(_builder, "require_fields") }
     }

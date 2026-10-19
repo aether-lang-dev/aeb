@@ -741,7 +741,7 @@ main() {
         f, _ = list.get(files, j)
         ds = string.concat("", "")
         if map.has(file_deps, f) == 1 {
-            ds, _ = map.get(file_deps, f)
+            ds, _ = map.get_string(file_deps, f)
         }
         mrest = string.concat(ds, "")
         mword = string.concat("", "")
@@ -1130,7 +1130,7 @@ main() {
             chead = chead + 1
             cdeps = string.concat("", "")
             if map.has(file_deps, cf) == 1 {
-                cdeps, _ = map.get(file_deps, cf)
+                cdeps, _ = map.get_string(file_deps, cf)
             }
             crest = cdeps
             while string.length(crest) > 0 {
@@ -1212,7 +1212,7 @@ main() {
             f, _ = list.get(files, nf)
             ds = string.concat("", "")
             if map.has(file_deps, f) == 1 {
-                ds, _ = map.get(file_deps, f)
+                ds, _ = map.get_string(file_deps, f)
             }
             row = string.concat(f, " ")
             row = string.concat(row, ds)
@@ -1316,7 +1316,7 @@ main() {
                 while oi < ovn {
                     orl, _ = list.get(ov_reals, oi)
                     if string.equals(trimmed, orl) == 1 {
-                        osb, _ = list.get(ov_subs, oi)
+                        osb, _ = list.get_string(ov_subs, oi)
                         outline = osb
                         oi = ovn
                     } else {
@@ -1370,7 +1370,7 @@ main() {
                 while ci < ovn {
                     cr, _ = list.get(ov_reals, ci)
                     if string.equals(enode, cr) == 1 {
-                        cs, _ = list.get(ov_subs, ci)
+                        cs, _ = list.get_string(ov_subs, ci)
                         sub_for = cs
                         is_real = 1
                         ci = ovn
@@ -1444,7 +1444,7 @@ main() {
                     wn, _ = list.get(work, wh)
                     wh = wh + 1
                     if map.has(node_deps, wn) == 1 {
-                        wd, _ = map.get(node_deps, wn)
+                        wd, _ = map.get_string(node_deps, wn)
                         wdr = wd
                         while string.length(wdr) > 0 {
                             wdsp = string.index_of(wdr, " ")

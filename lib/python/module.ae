@@ -290,7 +290,7 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
     pkg_name = "package"
     if opts != null {
         if map.has(opts, "package_name") == 1 {
-            pkg_name, _ = map.get(opts, "package_name")
+            pkg_name, _ = map.get_string(opts, "package_name")
         }
     }
     toml = string.concat(toml, "name = \"${pkg_name}\"\n")
@@ -298,7 +298,7 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
     pkg_ver = "0.1.0"
     if opts != null {
         if map.has(opts, "version") == 1 {
-            pkg_ver, _ = map.get(opts, "version")
+            pkg_ver, _ = map.get_string(opts, "version")
         }
     }
     toml = string.concat(toml, "version = \"${pkg_ver}\"\n")
@@ -332,7 +332,7 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
     pkg_where = "."
     if opts != null {
         if map.has(opts, "packages_where") == 1 {
-            pkg_where, _ = map.get(opts, "packages_where")
+            pkg_where, _ = map.get_string(opts, "packages_where")
         }
     }
     toml = string.concat(toml, "where = [\"${pkg_where}\"]\n")
@@ -340,7 +340,7 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
     pkg_include = "${pkg_name}*"
     if opts != null {
         if map.has(opts, "packages_include") == 1 {
-            pkg_include, _ = map.get(opts, "packages_include")
+            pkg_include, _ = map.get_string(opts, "packages_include")
         }
     }
     toml = string.concat(toml, "include = [\"${pkg_include}\"]\n")
@@ -883,7 +883,7 @@ builder package_existing(): int {
     pyproject_rel = "pyproject.toml"
     if _builder != null {
         if map.has(_builder, "pyproject_path") == 1 {
-            pyproject_rel, _ = map.get(_builder, "pyproject_path")
+            pyproject_rel, _ = map.get_string(_builder, "pyproject_path")
         }
     }
     pyproject_abs = pyproject_rel
@@ -977,7 +977,7 @@ builder codegen(): int {
     cwd = source_dir
     if _builder != null {
         if map.has(_builder, "codegen_cwd") == 1 {
-            rel, _ = map.get(_builder, "codegen_cwd")
+            rel, _ = map.get_string(_builder, "codegen_cwd")
             if string.length(rel) > 0 {
                 if bldr._is_abs_path(rel) == 1 {
                     cwd = rel
@@ -995,7 +995,7 @@ builder codegen(): int {
     py = "python3"
     if _builder != null {
         if map.has(_builder, "codegen_python") == 1 {
-            py, _ = map.get(_builder, "codegen_python")
+            py, _ = map.get_string(_builder, "codegen_python")
         } else {
             venv_py = path.join(root, ".aeb/venv/bin/python")
             if file.exists(venv_py) == 1 {
@@ -1012,11 +1012,11 @@ builder codegen(): int {
     if _builder != null {
         if map.has(_builder, "codegen_driver") == 1 {
             driver_form = "module"
-            driver_name, _ = map.get(_builder, "codegen_driver")
+            driver_name, _ = map.get_string(_builder, "codegen_driver")
         } else {
             if map.has(_builder, "codegen_script") == 1 {
                 driver_form = "script"
-                driver_name, _ = map.get(_builder, "codegen_script")
+                driver_name, _ = map.get_string(_builder, "codegen_script")
             }
         }
     }
@@ -1290,8 +1290,8 @@ builder consumer_example(): int {
     script = ""
     asset = ""
     if _builder != null {
-        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get(_builder, "consumer_script") }
-        if map.has(_builder, "asset_glob") == 1 { asset, _ = map.get(_builder, "asset_glob") }
+        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get_string(_builder, "consumer_script") }
+        if map.has(_builder, "asset_glob") == 1 { asset, _ = map.get_string(_builder, "asset_glob") }
     }
     if string.length(script) == 0 {
         bldr.fail(ctx, "python.consumer_example: consumer_script(\"...\") is required")

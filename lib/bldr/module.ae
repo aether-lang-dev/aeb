@@ -1999,7 +1999,7 @@ _reset_dir(d: string) {
 // the dep-parsing paths — no per-line `sed`/`echo` fork, and no interpolating
 // captured text back into a shell (embedded quotes/newlines no longer corrupt
 // it). Each stored line is an owned copy (string.copy).
-_append_lines(dst: @keep ptr, raw: string) {
+_append_lines(dst: ptr, raw: string) {
     lines = string.lines(string.trim(raw))
     string.seq_each(lines, |ln: string| {
         t = string.trim(ln)
@@ -2669,7 +2669,7 @@ builder install_launcher(name: string): int {
     mod = ""
     want_path = 0
     if _builder != null {
-        if map.has(_builder, "il_from_dist") == 1 { mod, _ = map.get(_builder, "il_from_dist") }
+        if map.has(_builder, "il_from_dist") == 1 { mod, _ = map.get_string(_builder, "il_from_dist") }
         if map.has(_builder, "il_with_path") == 1 { want_path = 1 }
     }
     if string.length(mod) == 0 {
@@ -4417,7 +4417,7 @@ render_telemetry(records: ptr, total_ms: int) {
         // on synthetic/legacy records — "" then, which renders as before.
         status = ""
         if map.has(rec, "status") == 1 {
-            status, _ = map.get(rec, "status")
+            status, _ = map.get_string(rec, "status")
         }
         // Per-node row — suppressed at the `counts` tier. The per-test N/M
         // PASS/FAIL trailer is dropped at `targets` (has_test_result forced 0,
@@ -4446,7 +4446,7 @@ render_telemetry(records: ptr, total_ms: int) {
         if show_fail_names == 1 {
         if failed > 0 {
             if map.has(rec, "test_failed_names") == 1 {
-                tfn, _ = map.get(rec, "test_failed_names")
+                tfn, _ = map.get_string(rec, "test_failed_names")
                 if string.length(tfn) > 0 {
                     rest = tfn
                     while string.length(rest) > 0 {
@@ -4542,7 +4542,7 @@ _record_json(rec: ptr) {
     status = _telemetry_status(rec)
     rc = "0"
     if map.has(rec, "rc") == 1 {
-        rc, _ = map.get(rec, "rc")
+        rc, _ = map.get_string(rec, "rc")
     }
     out = "{"
     out = string.concat(out, "\"label\":")
@@ -4572,7 +4572,7 @@ _record_json(rec: ptr) {
             tp, _ = map.get(rec, "test_passed")
             tf, _ = map.get(rec, "test_failed")
             tsk = "0"
-            if map.has(rec, "test_skipped") == 1 { tsk, _ = map.get(rec, "test_skipped") }
+            if map.has(rec, "test_skipped") == 1 { tsk, _ = map.get_string(rec, "test_skipped") }
             total_i, _ = string.to_int(tp)
             failed_i, _ = string.to_int(tf)
             total_i = total_i + failed_i
@@ -4615,7 +4615,7 @@ _telemetry_status(rec: ptr) {
     cache, _ = map.get(rec, "cache")
     if string.equals(cache, "hit") == 1 { return "cache-hit" }
     rc = "0"
-    if map.has(rec, "rc") == 1 { rc, _ = map.get(rec, "rc") }
+    if map.has(rec, "rc") == 1 { rc, _ = map.get_string(rec, "rc") }
     if string.equals(rc, "0") == 0 { return "fail" }
     if map.has(rec, "test_failed") == 1 {
         tf, _ = map.get(rec, "test_failed")
@@ -4689,8 +4689,8 @@ render_tests_json(records: ptr) {
             has_results = "false"
             verdict = "UNKNOWN"
             if map.has(rec, "test_passed") == 1 {
-                passed, _ = map.get(rec, "test_passed")
-                failed, _ = map.get(rec, "test_failed")
+                passed, _ = map.get_string(rec, "test_passed")
+                failed, _ = map.get_string(rec, "test_failed")
                 has_results = "true"
                 failed_i, _ = string.to_int(failed)
                 verdict = "PASS"
@@ -4711,7 +4711,7 @@ render_tests_json(records: ptr) {
             out = string.concat(out, ",\"failed\":")
             out = string.concat(out, failed)
             skipped_s = "0"
-            if map.has(rec, "test_skipped") == 1 { skipped_s, _ = map.get(rec, "test_skipped") }
+            if map.has(rec, "test_skipped") == 1 { skipped_s, _ = map.get_string(rec, "test_skipped") }
             out = string.concat(out, ",\"skipped\":")
             out = string.concat(out, skipped_s)
             out = string.concat(out, ",\"verdict\":")

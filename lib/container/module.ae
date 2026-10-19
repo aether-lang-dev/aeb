@@ -190,7 +190,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
     base_img = "debian:bookworm-slim"
     if opts != null {
         if map.has(opts, "base") == 1 {
-            base_img, _ = map.get(opts, "base")
+            base_img, _ = map.get_string(opts, "base")
         }
     }
     df = string.concat("FROM ", base_img)
@@ -200,7 +200,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
     wd = "/app"
     if opts != null {
         if map.has(opts, "workdir") == 1 {
-            wd, _ = map.get(opts, "workdir")
+            wd, _ = map.get_string(opts, "workdir")
         }
     }
     df = string.concat(df, "WORKDIR ")
@@ -292,7 +292,7 @@ _next_field(s: string, from: int, sep: string) -> (string, int) {
 // lines inline" path; chosen by image() when opts has "recipe" set.
 dockerfile_full_content(opts: ptr) -> string {
     base_img = "debian:trixie-slim"
-    if map.has(opts, "base") == 1 { base_img, _ = map.get(opts, "base") }
+    if map.has(opts, "base") == 1 { base_img, _ = map.get_string(opts, "base") }
     df = string.concat("FROM ", base_img)
     df = string.concat(df, "\n")
 
@@ -387,7 +387,7 @@ image_build_cmd(image_tag: string, context_dir: string, dockerfile_path: string,
     eng = "podman"
     if opts != null {
         if map.has(opts, "engine") == 1 {
-            eng, _ = map.get(opts, "engine")
+            eng, _ = map.get_string(opts, "engine")
         }
     }
     cmd = string.concat(eng, " build")
@@ -414,7 +414,7 @@ lxc_create_cmd(name: string, opts: ptr) {
     tmpl = "download"
     if opts != null {
         if map.has(opts, "template") == 1 {
-            tmpl, _ = map.get(opts, "template")
+            tmpl, _ = map.get_string(opts, "template")
         }
     }
     cmd = string.concat("lxc-create -n ", name)
@@ -440,13 +440,13 @@ container_run_cmd(img: string, opts: ptr) {
     eng = "podman"
     if opts != null {
         if map.has(opts, "engine") == 1 {
-            eng, _ = map.get(opts, "engine")
+            eng, _ = map.get_string(opts, "engine")
         }
     }
     cmd_str = ""
     if opts != null {
         if map.has(opts, "command") == 1 {
-            cmd_str, _ = map.get(opts, "command")
+            cmd_str, _ = map.get_string(opts, "command")
         }
     }
     out = string.concat(eng, " run --rm ")
@@ -504,7 +504,7 @@ builder image(): int {
     df_path = ""
     if _builder != null {
         if map.has(_builder, "dockerfile") == 1 {
-            df_path, _ = map.get(_builder, "dockerfile")
+            df_path, _ = map.get_string(_builder, "dockerfile")
         }
     }
     if string.length(df_path) == 0 {
@@ -651,7 +651,7 @@ builder run() {
     }
     img = ""
     if map.has(_builder, "image_ref") == 1 {
-        img, _ = map.get(_builder, "image_ref")
+        img, _ = map.get_string(_builder, "image_ref")
     }
     if string.length(img) == 0 {
         println("${mod_dir}: container.run requires image_ref(\"<image>\")")

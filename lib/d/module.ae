@@ -276,10 +276,10 @@ builder consumer_example(): int {
     }
 
     run_dir = "consumer"
-    if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get(_builder, "run_in") }
+    if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get_string(_builder, "run_in") }
     run_abs = path.join(stageroot, run_dir)
     run_command = "dmd -run consumer.d"
-    if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get(_builder, "run_cmd") }
+    if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get_string(_builder, "run_cmd") }
 
     // optional build step before the per-arg runs.
     if map.has(_builder, "pre_cmd") == 1 {

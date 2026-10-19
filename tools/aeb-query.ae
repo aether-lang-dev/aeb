@@ -266,7 +266,7 @@ _find_path(from: string, to: string, adj: ptr) {
         if string.equals(cur2, from) == 1 {
             done = 1
         } else {
-            cur2, _ = map.get(parent, cur2)
+            cur2, _ = map.get_string(parent, cur2)
         }
     }
     ri = list.size(rev) - 1

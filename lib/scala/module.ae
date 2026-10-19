@@ -134,7 +134,7 @@ _compiler_classpath(ctx: ptr) {
 
     ver = "3.8.2"
     if map.has(ctx, "scala_version") == 1 {
-        ver, _ = map.get(ctx, "scala_version")
+        ver, _ = map.get_string(ctx, "scala_version")
     }
 
     aeb_home = os.getenv("AEB_HOME")
@@ -170,7 +170,7 @@ _library_classpath(ctx: ptr) {
 
     ver = "3.8.2"
     if map.has(ctx, "scala_version") == 1 {
-        ver, _ = map.get(ctx, "scala_version")
+        ver, _ = map.get_string(ctx, "scala_version")
     }
 
     aeb_home = os.getenv("AEB_HOME")
@@ -628,7 +628,7 @@ builder assembly(): int {
 
     jar_name = ""
     if map.has(_builder, "scala_output_jar") == 1 {
-        jar_name, _ = map.get(_builder, "scala_output_jar")
+        jar_name, _ = map.get_string(_builder, "scala_output_jar")
     }
     if string.length(jar_name) == 0 {
         // Default: derive from source_dir's basename.

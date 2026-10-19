@@ -100,8 +100,8 @@ go_mod_content(opts: ptr) {
     module_path = "example.com/app"
     go_ver = "1.21"
     if opts != null {
-        if map.has(opts, "manifest_name") == 1 { module_path, _ = map.get(opts, "manifest_name") }
-        if map.has(opts, "manifest_go_version") == 1 { go_ver, _ = map.get(opts, "manifest_go_version") }
+        if map.has(opts, "manifest_name") == 1 { module_path, _ = map.get_string(opts, "manifest_name") }
+        if map.has(opts, "manifest_go_version") == 1 { go_ver, _ = map.get_string(opts, "manifest_go_version") }
     }
     out = "module ${module_path}\n\ngo ${go_ver}\n"
 
@@ -143,7 +143,7 @@ go_build_cmd(source_dir: string, out_path: string, opts: ptr) {
     env_prefix = ""
     if opts != null {
         if map.has(opts, "env") == 1 {
-            env_prefix, _ = map.get(opts, "env")
+            env_prefix, _ = map.get_string(opts, "env")
             env_prefix = string.concat(env_prefix, " ")
         }
     }
@@ -258,7 +258,7 @@ go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
     pkg_pat = "."
     if opts != null {
         if map.has(opts, "pkg_pattern") == 1 {
-            pkg_pat, _ = map.get(opts, "pkg_pattern")
+            pkg_pat, _ = map.get_string(opts, "pkg_pattern")
         }
     }
     cmd = string.concat(cmd, " ${pkg_pat}")
@@ -369,7 +369,7 @@ builder check(): int {
     pkg_pat = "./..."
     if _builder != null {
         if map.has(_builder, "pkg_pattern") == 1 {
-            pkg_pat, _ = map.get(_builder, "pkg_pattern")
+            pkg_pat, _ = map.get_string(_builder, "pkg_pattern")
         }
     }
 
@@ -400,7 +400,7 @@ builder go_build(): int {
     out_name = ""
     if _builder != null {
         if map.has(_builder, "output") == 1 {
-            out_name, _ = map.get(_builder, "output")
+            out_name, _ = map.get_string(_builder, "output")
         }
     }
     if string.length(out_name) == 0 {
@@ -661,12 +661,12 @@ builder consumer_example(): int {
 
     run_dir = "consumer"
     if _builder != null {
-        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get(_builder, "run_in") }
+        if map.has(_builder, "run_in") == 1 { run_dir, _ = map.get_string(_builder, "run_in") }
     }
     run_abs = path.join(stageroot, run_dir)
     run_command = "cargo run --offline --"
     if _builder != null {
-        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get(_builder, "run_cmd") }
+        if map.has(_builder, "run_cmd") == 1 { run_command, _ = map.get_string(_builder, "run_cmd") }
     }
     // optional build step before the per-arg runs.
     if _builder != null {

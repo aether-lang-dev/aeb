@@ -426,4 +426,16 @@
 # ae-add-binary-package (macOS-only, as since 0.766). ae-x64 (Ubuntu 22.04
 # x86_64, gcc 11, 0.824.0 built with -Werror) and aether-linux (Ubuntu 22.04
 # arm64, the same): tests/run.sh 153/153 and all 15 CI itests green.
-0.824.0
+#
+# Raised to 0.830.0 (2026-10-19), and for a reason this time: aeb's tree now
+# needs 0.830's two additions (aether#2981). The typed accessors
+# `map.get_string`, `list.get_string` and `string.from_ptr` do not exist in
+# 0.824, so the 255 reads that took a `ptr` out of a map or list into a
+# `string` (W1005 on 0.830, an error in a later release) call them, and
+# `bldr._append_lines` drops its `@keep`: E0902 narrowed to a kept parameter
+# that a returning or stored struct or closure holds, so a ptr only passed on
+# or read needs none (the nine in lib/sandbox stay, `_add` returns its
+# parameter). Verified against 0.830.0 from its release tarball. macOS arm64:
+# every lib module and tool checks with no W1005 and no E090x; tests/run.sh
+# results are in the commit message.
+0.830.0

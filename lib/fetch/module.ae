@@ -530,7 +530,7 @@ builder archive(): int {
 
     fmt = ""
     if map.has(_builder, "fetch_format") == 1 {
-        fmt, _ = map.get(_builder, "fetch_format")
+        fmt, _ = map.get_string(_builder, "fetch_format")
     }
 
     // Cache the downloaded archive under target/<mod>/_fetch/ so
@@ -666,11 +666,11 @@ builder git(): int {
 
     ref_str = ""
     if map.has(_builder, "fetch_ref") == 1 {
-        ref_str, _ = map.get(_builder, "fetch_ref")
+        ref_str, _ = map.get_string(_builder, "fetch_ref")
     }
     commit_str = ""
     if map.has(_builder, "fetch_commit") == 1 {
-        commit_str, _ = map.get(_builder, "fetch_commit")
+        commit_str, _ = map.get_string(_builder, "fetch_commit")
     }
     depth_n = 0
     if map.has(_builder, "fetch_depth") == 1 {

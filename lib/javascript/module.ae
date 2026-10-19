@@ -86,8 +86,8 @@ package_json_content(opts: ptr) {
     name = "app"
     ver = "0.1.0"
     if opts != null {
-        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
-        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get_string(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get_string(opts, "manifest_version") }
     }
     json = "{\n  \"name\": \"${name}\",\n  \"version\": \"${ver}\",\n  \"private\": true"
 
@@ -181,7 +181,7 @@ builder test(): int {
     if _builder != null {
         if map.has(_builder, "npm_install_on") == 1 {
             iflags = ""
-            if map.has(_builder, "npm_install_flags") == 1 { iflags, _ = map.get(_builder, "npm_install_flags") }
+            if map.has(_builder, "npm_install_flags") == 1 { iflags, _ = map.get_string(_builder, "npm_install_flags") }
             println("${mod_dir}: installing deps (npm install)")
             in_rc = bldr._sh(string.concat(env_prefix, npm_install_cmd(source_dir, iflags)))
             if in_rc != 0 {
@@ -197,7 +197,7 @@ builder test(): int {
     if _builder != null {
         if map.has(_builder, "jest_on") == 1 {
             jflags = ""
-            if map.has(_builder, "jest_flags") == 1 { jflags, _ = map.get(_builder, "jest_flags") }
+            if map.has(_builder, "jest_flags") == 1 { jflags, _ = map.get_string(_builder, "jest_flags") }
             test_command = npx_jest_cmd(source_dir, jflags)
         }
     }
@@ -234,7 +234,7 @@ builder pack(): int {
     if _builder != null {
         if map.has(_builder, "npm_install_on") == 1 {
             iflags = ""
-            if map.has(_builder, "npm_install_flags") == 1 { iflags, _ = map.get(_builder, "npm_install_flags") }
+            if map.has(_builder, "npm_install_flags") == 1 { iflags, _ = map.get_string(_builder, "npm_install_flags") }
             println("${mod_dir}: installing deps (npm install)")
             in_rc = bldr._sh(string.concat(env_prefix, npm_install_cmd(source_dir, iflags)))
             if in_rc != 0 {
@@ -310,8 +310,8 @@ builder consumer_example(): int {
     script = ""
     asset = ""
     if _builder != null {
-        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get(_builder, "consumer_script") }
-        if map.has(_builder, "asset_glob") == 1 { asset, _ = map.get(_builder, "asset_glob") }
+        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get_string(_builder, "consumer_script") }
+        if map.has(_builder, "asset_glob") == 1 { asset, _ = map.get_string(_builder, "asset_glob") }
     }
     if string.length(script) == 0 {
         bldr.fail(ctx, "javascript.consumer_example: consumer_script(\"...\") is required")

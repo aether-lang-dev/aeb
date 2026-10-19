@@ -167,10 +167,10 @@ builder binary_under_test(name: string): int {
     env_var_v = ""
     if _builder != null {
         if map.has(_builder, "path") == 1 {
-            bin_path_v, _ = map.get(_builder, "path")
+            bin_path_v, _ = map.get_string(_builder, "path")
         }
         if map.has(_builder, "env_var") == 1 {
-            env_var_v, _ = map.get(_builder, "env_var")
+            env_var_v, _ = map.get_string(_builder, "env_var")
         }
     }
     if map.has(b, "_pending_binaries_under_test") == 0 {
@@ -198,10 +198,10 @@ builder fixture_seed(name: string): int {
     seed_bin_v = ""
     if _builder != null {
         if map.has(_builder, "path") == 1 {
-            path_v, _ = map.get(_builder, "path")
+            path_v, _ = map.get_string(_builder, "path")
         }
         if map.has(_builder, "seed_bin") == 1 {
-            seed_bin_v, _ = map.get(_builder, "seed_bin")
+            seed_bin_v, _ = map.get_string(_builder, "seed_bin")
         }
     }
     if map.has(b, "_pending_fixture_seeds") == 0 {
@@ -229,16 +229,16 @@ builder fixture_server(name: string): int {
     ready_v = "0"
     if _builder != null {
         if map.has(_builder, "bin") == 1 {
-            bin_v, _ = map.get(_builder, "bin")
+            bin_v, _ = map.get_string(_builder, "bin")
         }
         if map.has(_builder, "args") == 1 {
-            args_v, _ = map.get(_builder, "args")
+            args_v, _ = map.get_string(_builder, "args")
         }
         if map.has(_builder, "port") == 1 {
-            port_v, _ = map.get(_builder, "port")
+            port_v, _ = map.get_string(_builder, "port")
         }
         if map.has(_builder, "ready_after_ms") == 1 {
-            ready_v, _ = map.get(_builder, "ready_after_ms")
+            ready_v, _ = map.get_string(_builder, "ready_after_ms")
         }
     }
     if map.has(b, "_pending_fixture_servers") == 0 {
@@ -716,7 +716,7 @@ _resolve_import_ae(modname: string, roots: ptr) {
     c1 = ""
     c2 = ""
     while ri < nr {
-        rdir, _ = list.get(roots, ri)
+        rdir, _ = list.get_string(roots, ri)
         c1 = path.join(rdir, string.concat(rel, "/module.ae"))
         if file.exists(c1) == 1 { return c1 }
         c2 = path.join(rdir, string.concat(rel, ".ae"))
@@ -757,7 +757,7 @@ _resolve_import_ae_all(modname: string, roots: ptr) {
     c1 = ""
     c2 = ""
     while ri < nr {
-        rdir, _ = list.get(roots, ri)
+        rdir, _ = list.get_string(roots, ri)
         c1 = path.join(rdir, string.concat(rel, "/module.ae"))
         if file.exists(c1) == 1 { _a1 = list.add(out, c1) }
         c2 = path.join(rdir, string.concat(rel, ".ae"))
@@ -861,7 +861,7 @@ _transitive_import_aes_ex(entry: string, roots: ptr, all_matches: int) {
     resolved = ""
     nl = 0
     while head < qs {
-        f, _ = list.get(queue, head)
+        f, _ = list.get_string(queue, head)
         head = head + 1
         content, rerr = io.read_file(f)
         if string.equals(rerr, "") == 1 {
@@ -889,7 +889,7 @@ _transitive_import_aes_ex(entry: string, roots: ptr, all_matches: int) {
                         ncand = list.size(cands)
                         ic = 0
                         while ic < ncand {
-                            resolved, _ = list.get(cands, ic)
+                            resolved, _ = list.get_string(cands, ic)
                             ic = ic + 1
                             ckey = _canonical_path(resolved)
                             if map.has(seen, ckey) == 0 {
@@ -1075,7 +1075,7 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
     imph = ""
     impe = ""
     while iidx < nimp {
-        impf, _ = list.get(imps, iidx)
+        impf, _ = list.get_string(imps, iidx)
         imph, impe = cache.hash_file(impf)
         if string.length(impe) > 0 {
             return "", impe
@@ -1251,7 +1251,7 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
     // cache entry — the output bytes differ.
     su = ""
     if builder_map != null {
-        if map.has(builder_map, "strip_unused") == 1 { su, _ = map.get(builder_map, "strip_unused") }
+        if map.has(builder_map, "strip_unused") == 1 { su, _ = map.get_string(builder_map, "strip_unused") }
     }
     list.add(parts, string.concat("strip-unused:", su))
 
@@ -1843,7 +1843,7 @@ aether_link_cmd(opts: ptr) {
     dup_flag, _    = map.get(opts, "dup_flag")
     coverage = ""
     if map.has(opts, "coverage") == 1 {
-        coverage, _ = map.get(opts, "coverage")
+        coverage, _ = map.get_string(opts, "coverage")
     }
     // Optimization level: -O2 normally, -O0 -g for coverage builds
     // so .gcda → .ae.gcov line attribution stays accurate.
@@ -1871,7 +1871,7 @@ aether_link_cmd(opts: ptr) {
     opt_flags = "-O2"
     cc_is_gcc = ""
     if map.has(opts, "cc_is_gcc") == 1 {
-        cc_is_gcc, _ = map.get(opts, "cc_is_gcc")
+        cc_is_gcc, _ = map.get_string(opts, "cc_is_gcc")
     }
     if string.equals(cc_is_gcc, "1") == 1 {
         opt_flags = "-O2 -fno-ipa-bit-cp"
@@ -1884,7 +1884,7 @@ aether_link_cmd(opts: ptr) {
     // setter). See asks/dead-strip-unreferenced-c-with-gc-sections.md.
     strip_unused = ""
     if map.has(opts, "strip_unused") == 1 {
-        strip_unused, _ = map.get(opts, "strip_unused")
+        strip_unused, _ = map.get_string(opts, "strip_unused")
     }
     gc_flag = ""
     if string.equals(strip_unused, "1") == 1 {
@@ -1910,22 +1910,22 @@ aether_link_cmd(opts: ptr) {
     // (asks/windows-pkg-config-substitution-runs-in-cmd.md)
     sysdeps = ""
     if map.has(opts, "sysdeps") == 1 {
-        sysdeps, _ = map.get(opts, "sysdeps")
+        sysdeps, _ = map.get_string(opts, "sysdeps")
     }
     // Module-declared @link libs (leading-space run, or "") and the dev-layout
     // contrib -L (or ""), both resolved by the caller from the generated C's
     // `// aether-link:` header. Placed BEFORE user_flags so a consumer's
     // explicit link_flag() keeps override authority. Empty in the common case.
     aether_link = ""
-    if map.has(opts, "aether_link") == 1 { aether_link, _ = map.get(opts, "aether_link") }
+    if map.has(opts, "aether_link") == 1 { aether_link, _ = map.get_string(opts, "aether_link") }
     contrib_L = ""
-    if map.has(opts, "contrib_L") == 1 { contrib_L, _ = map.get(opts, "contrib_L") }
+    if map.has(opts, "contrib_L") == 1 { contrib_L, _ = map.get_string(opts, "contrib_L") }
     // Module-shipped C from `@source` (aether #2125), read from the TUs'
     // `// aether-source:` headers by the caller: leading-space-prefixed, quoted,
     // or "". Placed right after extras_str — same role (a .c compiled into this
     // link), just discovered from the header rather than named by extra_source().
     source_str = ""
-    if map.has(opts, "source_str") == 1 { source_str, _ = map.get(opts, "source_str") }
+    if map.has(opts, "source_str") == 1 { source_str, _ = map.get_string(opts, "source_str") }
     return "${_link_cc()} ${opt_flags} -pipe -w${cov_flag}${inc_flags} ${c_path}${extras_str}${source_str} -L${lib_dir}${contrib_L} -laether ${extra_link} ${rpath_link}${aether_link}${user_flags}${gc_flag} -o ${bin_path} -pthread -lm${sysdeps} ${dup_flag}"
 }
 
@@ -2255,7 +2255,7 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
     // under-declares; the node already named the closure's caps.
     node_caps = ""
     if map.has(builder_map, "csrc_caps") == 1 {
-        node_caps, _ = map.get(builder_map, "csrc_caps")
+        node_caps, _ = map.get_string(builder_map, "csrc_caps")
     }
 
     // Append previously-unknown sibling modules to the regen list.
@@ -2315,7 +2315,7 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
     // --emit=lib gate (which follows the whole import closure).
     node_caps = ""
     if map.has(builder_map, "csrc_caps") == 1 {
-        node_caps, _ = map.get(builder_map, "csrc_caps")
+        node_caps, _ = map.get_string(builder_map, "csrc_caps")
     }
 
     i = 0
@@ -2497,7 +2497,7 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
     definer = ""
     sl = list.new()
     while i < n {
-        sym, _ = list.get(syms, i)
+        sym, _ = list.get_string(syms, i)
         definer = _find_extern_definer(root, sym)
         if string.length(definer) > 0 {
             if map.has(by_module, definer) == 0 {
@@ -2530,7 +2530,7 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
     j = 0
     sj = ""
     while mi < nm {
-        mod_ae, _ = list.get(order, mi)
+        mod_ae, _ = list.get_string(order, mi)
         sl, _ = map.get(by_module, mod_ae)
         ns = list.size(sl)
         rel = _relpath_for_hint(source_dir, mod_ae)
@@ -2538,7 +2538,7 @@ _emit_extern_hints(ctx: ptr, source_dir: string, stderr_text: string) {
         sym_list = ""
         j = 0
         while j < ns {
-            sj, _ = list.get(sl, j)
+            sj, _ = list.get_string(sl, j)
             if j > 0 { sym_list = string.concat(sym_list, ", ") }
             sym_list = string.concat(sym_list, sj)
             j = j + 1
@@ -2846,7 +2846,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // builder set it). Folded into the link cache key below.
     strip_unused = ""
     if builder_map != null {
-        if map.has(builder_map, "strip_unused") == 1 { strip_unused, _ = map.get(builder_map, "strip_unused") }
+        if map.has(builder_map, "strip_unused") == 1 { strip_unused, _ = map.get_string(builder_map, "strip_unused") }
     }
     _eo10b = map.put(opts, "strip_unused", strip_unused)
     // Whether the link's `gcc` is real GNU gcc (memoized probe). Gates the
@@ -3079,7 +3079,7 @@ builder tinygo_lib(): int {
     go_name = "main.go"
     if _builder != null {
         if map.has(_builder, "go_source") == 1 {
-            go_name, _ = map.get(_builder, "go_source")
+            go_name, _ = map.get_string(_builder, "go_source")
         }
     }
     go_path = path.join(source_dir, go_name)
@@ -3087,7 +3087,7 @@ builder tinygo_lib(): int {
     out_name = "libtinygo.so"
     if _builder != null {
         if map.has(_builder, "output") == 1 {
-            out_name, _ = map.get(_builder, "output")
+            out_name, _ = map.get_string(_builder, "output")
         }
     }
     so_path = path.join(lib_dir, out_name)
@@ -3153,7 +3153,7 @@ builder program(): int {
     src_name = _default_source_name(ctx)
     if _builder != null {
         if map.has(_builder, "source") == 1 {
-            src_name, _ = map.get(_builder, "source")
+            src_name, _ = map.get_string(_builder, "source")
         }
     }
     src_path = path.join(source_dir, src_name)
@@ -3161,7 +3161,7 @@ builder program(): int {
     out_name = "program"
     if _builder != null {
         if map.has(_builder, "output") == 1 {
-            out_name, _ = map.get(_builder, "output")
+            out_name, _ = map.get_string(_builder, "output")
         }
     }
     bin_path = path.join(bin_dir, string.concat(out_name, _program_out_suffix(_builder)))
@@ -3239,7 +3239,7 @@ builder csrc(): int {
     src_name = _default_source_name(ctx)
     if _builder != null {
         if map.has(_builder, "source") == 1 {
-            src_name, _ = map.get(_builder, "source")
+            src_name, _ = map.get_string(_builder, "source")
         }
     }
     src_path = path.join(source_dir, src_name)
@@ -3247,7 +3247,7 @@ builder csrc(): int {
     out_name = csrc_default_output(src_name)
     if _builder != null {
         if map.has(_builder, "output") == 1 {
-            out_name, _ = map.get(_builder, "output")
+            out_name, _ = map.get_string(_builder, "output")
         }
     }
     out_base = path.join(target_dir, out_name)
@@ -3255,7 +3255,7 @@ builder csrc(): int {
     cap_csv = ""
     if _builder != null {
         if map.has(_builder, "csrc_caps") == 1 {
-            cap_csv, _ = map.get(_builder, "csrc_caps")
+            cap_csv, _ = map.get_string(_builder, "csrc_caps")
         }
     }
 
@@ -3315,20 +3315,20 @@ builder shared_lib(): int {
 
     src_name = _default_source_name(ctx)
     if _builder != null {
-        if map.has(_builder, "source") == 1 { src_name, _ = map.get(_builder, "source") }
+        if map.has(_builder, "source") == 1 { src_name, _ = map.get_string(_builder, "source") }
     }
     src_path = path.join(source_dir, src_name)
 
     // Default output: lib<sourcebase>.so. output("...") overrides.
     out_name = string.concat("lib", string.concat(csrc_default_output(src_name), ".so"))
     if _builder != null {
-        if map.has(_builder, "output") == 1 { out_name, _ = map.get(_builder, "output") }
+        if map.has(_builder, "output") == 1 { out_name, _ = map.get_string(_builder, "output") }
     }
     so_path = path.join(lib_dir, out_name)
 
     cap_csv = ""
     if _builder != null {
-        if map.has(_builder, "csrc_caps") == 1 { cap_csv, _ = map.get(_builder, "csrc_caps") }
+        if map.has(_builder, "csrc_caps") == 1 { cap_csv, _ = map.get_string(_builder, "csrc_caps") }
     }
 
     // COMPILE phase — skipped under --execute-only (the .so was built in the
@@ -3462,7 +3462,7 @@ _binpkg_ext(builder_map: ptr) {
 _binpkg_tag(bmap: ptr) {
     t = ""
     if bmap != null {
-        if map.has(bmap, "binpkg_tag") == 1 { t, _ = map.get(bmap, "binpkg_tag") }
+        if map.has(bmap, "binpkg_tag") == 1 { t, _ = map.get_string(bmap, "binpkg_tag") }
     }
     if string.length(t) == 0 { t = os.getenv("AEB_RELEASE_TAG") }
     if string.length(t) == 0 { t = "v0.0.0" }
@@ -3523,7 +3523,7 @@ builder emit_binary_package(): int {
     // manifest in the first e2e run.
     stem_val = ""
     if _builder != null {
-        if map.has(_builder, "binpkg_stem") == 1 { stem_val, _ = map.get(_builder, "binpkg_stem") }
+        if map.has(_builder, "binpkg_stem") == 1 { stem_val, _ = map.get_string(_builder, "binpkg_stem") }
     }
     if string.length(stem_val) == 0 {
         bldr.fail(ctx, "aether.emit_binary_package: stem(\"<module>\") is required (the name `ae add` installs + the consumer imports)")
@@ -3539,11 +3539,11 @@ builder emit_binary_package(): int {
     // this. The ASSET name below is where the target triple + its ext appear.
     src_name = _default_source_name(ctx)
     if _builder != null {
-        if map.has(_builder, "source") == 1 { src_name, _ = map.get(_builder, "source") }
+        if map.has(_builder, "source") == 1 { src_name, _ = map.get_string(_builder, "source") }
     }
     out_name = string.concat("lib", string.concat(csrc_default_output(src_name), ".so"))
     if _builder != null {
-        if map.has(_builder, "output") == 1 { out_name, _ = map.get(_builder, "output") }
+        if map.has(_builder, "output") == 1 { out_name, _ = map.get_string(_builder, "output") }
     }
     lib_dir = path.join(target_dir, "lib")
 
@@ -3638,7 +3638,7 @@ builder program_test(): int {
     src_name = _default_source_name(ctx)
     if _builder != null {
         if map.has(_builder, "source") == 1 {
-            src_name, _ = map.get(_builder, "source")
+            src_name, _ = map.get_string(_builder, "source")
         }
     }
     src_path = path.join(source_dir, src_name)
@@ -3746,7 +3746,7 @@ builder driver_test(): int {
     src_name = _default_source_name(ctx)
     if _builder != null {
         if map.has(_builder, "source") == 1 {
-            src_name, _ = map.get(_builder, "source")
+            src_name, _ = map.get_string(_builder, "source")
         }
     }
     src_path = path.join(source_dir, src_name)
@@ -3758,7 +3758,7 @@ builder driver_test(): int {
     out_name = "driver_test"
     if _builder != null {
         if map.has(_builder, "output") == 1 {
-            out_name, _ = map.get(_builder, "output")
+            out_name, _ = map.get_string(_builder, "output")
         }
     }
     bin_path = path.join(bin_dir, string.concat(out_name, bldr._exe_suffix()))

@@ -59,7 +59,7 @@ builder test(): int {
     timeout_secs = "60"
     if _builder != null {
         if map.has(_builder, "timeout") == 1 {
-            timeout_secs, _ = map.get(_builder, "timeout")
+            timeout_secs, _ = map.get_string(_builder, "timeout")
         }
     }
 

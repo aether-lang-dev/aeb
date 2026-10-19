@@ -235,8 +235,8 @@ gemspec_content(opts: ptr) {
     name = "app"
     ver = "0.1.0"
     if opts != null {
-        if map.has(opts, "manifest_name") == 1 { name, _ = map.get(opts, "manifest_name") }
-        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get(opts, "manifest_version") }
+        if map.has(opts, "manifest_name") == 1 { name, _ = map.get_string(opts, "manifest_name") }
+        if map.has(opts, "manifest_version") == 1 { ver, _ = map.get_string(opts, "manifest_version") }
     }
     out = "Gem::Specification.new do |s|\n"
     out = string.concat(out, "  s.name = \"${name}\"\n")
@@ -630,7 +630,7 @@ builder bundle(): int {
         if map.has(_builder, "ruby_do_rubocop") == 1 {
             println("${mod_dir}: linting (rubocop)")
             cfg = ""
-            if map.has(_builder, "ruby_rubocop_config") == 1 { cfg, _ = map.get(_builder, "ruby_rubocop_config") }
+            if map.has(_builder, "ruby_rubocop_config") == 1 { cfg, _ = map.get_string(_builder, "ruby_rubocop_config") }
             if bldr._sh(rubocop_cmd(bundle_bin, source_dir, cfg)) != 0 {
                 println("${mod_dir}: lint FAILED")
                 bldr.fail(ctx, "lint FAILED")
@@ -784,7 +784,7 @@ builder consumer_example(): int {
 
     script = ""
     if _builder != null {
-        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get(_builder, "consumer_script") }
+        if map.has(_builder, "consumer_script") == 1 { script, _ = map.get_string(_builder, "consumer_script") }
     }
     if string.length(script) == 0 {
         bldr.fail(ctx, "ruby.consumer_example: consumer_script(\"...\") is required")
@@ -846,7 +846,7 @@ builder generate_manifest(): int {
 
     gem_name = "app"
     if _builder != null {
-        if map.has(_builder, "manifest_name") == 1 { gem_name, _ = map.get(_builder, "manifest_name") }
+        if map.has(_builder, "manifest_name") == 1 { gem_name, _ = map.get_string(_builder, "manifest_name") }
     }
     content = gemspec_content(_builder)
     manifest_path = path.join(source_dir, string.concat(gem_name, ".gemspec"))

@@ -109,9 +109,9 @@ builder sunit(): int {
     tonel = "src"
     suite_v = ""
     if _builder != null {
-        if map.has(_builder, "pharo_baseline") == 1 { baseline_v, _ = map.get(_builder, "pharo_baseline") }
-        if map.has(_builder, "pharo_tonel_dir") == 1 { tonel, _ = map.get(_builder, "pharo_tonel_dir") }
-        if map.has(_builder, "pharo_suite") == 1 { suite_v, _ = map.get(_builder, "pharo_suite") }
+        if map.has(_builder, "pharo_baseline") == 1 { baseline_v, _ = map.get_string(_builder, "pharo_baseline") }
+        if map.has(_builder, "pharo_tonel_dir") == 1 { tonel, _ = map.get_string(_builder, "pharo_tonel_dir") }
+        if map.has(_builder, "pharo_suite") == 1 { suite_v, _ = map.get_string(_builder, "pharo_suite") }
     }
     if string.length(baseline_v) == 0 {
         bldr.fail(ctx, "pharo.sunit: baseline(\"...\") is required")

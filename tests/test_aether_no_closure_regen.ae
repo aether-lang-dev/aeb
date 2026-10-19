@@ -55,7 +55,7 @@ _regen_contains(bm: ptr, needle: string) {
     i = 0
     e = ""
     while i < n {
-        e, _ = list.get(regens, i)
+        e, _ = list.get_string(regens, i)
         if string.index_of(e, needle) >= 0 {
             return 1
         }
