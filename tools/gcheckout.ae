@@ -1,14 +1,24 @@
-// gcheckout — Aether sparse-checkout helper, owned by aeb.
+// gcheckout — sparse working-copy helper, owned by aeb.
 //
-// `aeb gcheckout` walks the .ae-file DAG starting from a target and
-// adds each visited module directory to git's sparse-checkout, so a
-// monorepo consumer can fetch only the modules they actually need.
+// `aeb gcheckout` walks the .ae-file DAG starting from a target and narrows the
+// working copy to just that target's module dirs plus their transitive deps, so
+// a monorepo consumer materialises only what they actually need. It drives
+// whichever VCS the checkout is:
 //
-// Modernised port of the standalone gcheckout.ae: uses the same
-// dep-extraction logic as aeb's own scan-mode (any line of the form
-// `dep(b, "...")` is followed). All third-party dep types (.jar.ae,
-// .crate.ae, .npm.ae, .nupkg.ae, .whl.ae) come along automatically
-// because they're plain dep file references in the file-based DAG.
+//   - git  → `git sparse-checkout add <dir>` per visited dir  (list-to-KEEP)
+//   - Lore → a `.lore/view` filter + `lore sync --view`       (list-to-DROP)
+//
+// One walker, two emits, chosen by the marker present at cwd: a `.lore/`
+// directory selects Lore, otherwise git (the historical default). Both reach
+// the same destination — the smallest working copy that still builds the
+// target — the article `../tbd/content/expanding-contracting-monorepos`
+// describes; they differ only in the native mechanism each VCS exposes.
+//
+// Modernised port of the standalone gcheckout.ae: uses the same dep-extraction
+// logic as aeb's own scan-mode (any line of the form `dep(b, "...")` is
+// followed). All third-party dep types (.jar.ae, .crate.ae, .npm.ae, .nupkg.ae,
+// .whl.ae) come along automatically because they're plain dep file references
+// in the file-based DAG.
 //
 // Usage:
 //   aeb gcheckout --init
@@ -18,9 +28,38 @@
 // "module" here is either a directory path (resolved to .build.ae /
 // .tests.ae / .dist.ae the same way as `aeb` proper) or an explicit
 // .ae file path.
+//
+// ---------------------------------------------------------------------------
+// Lore view-filter polarity (the one trap) — verified live on lore
+// 0.10.2-nightly, NOT from docs:
+//
+//   A `.lore/view` is a client-side, glob-based filter in git-*IGNORE*
+//   semantics: default is include-everything; a bare line EXCLUDES a path; a
+//   `!`-prefixed line re-includes one. This is the INVERSE polarity of git
+//   *sparse-checkout*, which lists what to KEEP. So "keep only the walked set"
+//   is spelled exclude-all then re-include each kept subtree:
+//
+//       *                 <- bare `*` excludes everything (NOT `/**`, which
+//                            did not fire as exclude-all in testing)
+//       !<dir>            <- for each visited dir: re-include the dir entry
+//       !<dir>/**            AND its subtree (both lines needed — the first
+//                            keeps the dir on the path, the second its files)
+//
+//   A clone/sync under this view materialises exactly the visited set (seen:
+//   1/1 files for a single-module view). The parent of a kept dir needs no
+//   explicit `!` line — `!<dir>` re-includes along the path.
+//
+// DELIBERATELY NOT used: Lore's own dependency-aware sync (`lore sync
+// --root-file <f> --dependency-recursive`). That walks LORE's dependency graph,
+// not aeb's `.ae` `dep()` edges, which Lore cannot see. aeb's `dep()` DAG stays
+// the single source of truth (the file-as-truth principle); Lore is only the
+// sparse-materialisation target, the same role git plays. See
+// asks/aeb-gcheckout-lore-backend.md.
+// ---------------------------------------------------------------------------
 
 import std.string
 import std.file
+import std.fs
 import std.os
 import std.list
 import std.map
@@ -28,11 +67,81 @@ import std.map
 extern println(s: string)
 extern exit(code: int)
 
+// --- backend detection -----------------------------------------------------
+
+// Which VCS is this working copy? A `.lore/` dir means Lore; otherwise git
+// (the historical default, and the fallback when neither is obvious — a bare
+// `git` call just no-ops/errs quietly if it is genuinely neither).
+// fs.exists is path-agnostic (dir or file), which is what we want: Lore's
+// marker is a directory, git's can be a dir OR a worktree/submodule file.
+detect_backend() {
+    if fs.exists(".lore") == 1 {
+        return "lore"
+    }
+    return "git"
+}
+
+// --- git backend ------------------------------------------------------------
+
 sparse_add(path: string) {
     cmd = string.concat("git sparse-checkout add ", path)
     cmd = string.concat(cmd, " 2>/dev/null")
     os.system(cmd)
 }
+
+// --- Lore backend -----------------------------------------------------------
+
+// Pure string-builder: assemble a `.lore/view` body that keeps ONLY `dirs`
+// (an ordered list of repo-relative dir paths, no leading slash). I/O-free so
+// tests/test_gcheckout_cmd.ae can assert the exact bytes. See the polarity note
+// in the file header for why it is exclude-all + re-include-each.
+lore_view_body(dirs: ptr) {
+    // Exclude everything first. Bare `*` (unanchored) — observed to fire as
+    // exclude-all where anchored `/**` did not.
+    out = "*\n"
+    n = list.size(dirs)
+    i = 0
+    while i < n {
+        d, _ = list.get(dirs, i)
+        if string.length(d) > 0 {
+            // Re-include the dir entry AND its subtree (both lines required).
+            out = string.concat(out, string.concat("!", string.concat(d, "\n")))
+            out = string.concat(out, string.concat("!", string.concat(d, "/**\n")))
+        }
+        i = i + 1
+    }
+    return out
+}
+
+// Write `.lore/view` with the keep-only body and record it on the instance via
+// `lore sync --view <file>`. The view is client-side, per-instance, and never
+// travels with a clone.
+//
+// IMPORTANT behavioural constraint, verified on lore 0.10.2-nightly: a view
+// governs what is MATERIALISED — it narrows on clone, on a revision-moving
+// sync, and on branch switch. It does NOT retroactively evict files already on
+// disk when only the view changed and the revision did not move (such a sync
+// computes a `1 -> 1` delta and touches nothing), and Lore refuses to combine
+// `--view` with the one sweep it does have (`sync --reset --view` errors:
+// "Unable to change the view of a sync that resets the working tree"). So this
+// records the narrowed view and it takes effect on the next materialisation;
+// out-of-view files sitting in an already-materialised tree stay until then.
+// We say so rather than silently leave them and look like the narrow failed.
+lore_apply(dirs: ptr) {
+    body = lore_view_body(dirs)
+    // `.lore/` exists (that is how we chose this backend), so the view sits
+    // beside it at the conventional path.
+    _w = file.write(".lore/view", body)
+    println("  wrote .lore/view (keep-only), recording it via lore sync ...")
+    os.system("lore sync --view .lore/view")
+    println("  note: the view governs future materialisations (clone / branch")
+    println("  switch / revision-moving sync). Any out-of-view files already on")
+    println("  disk are swept on the next such materialisation, not retroactively")
+    println("  — Lore 0.10.2-nightly has no in-place view-only eviction. A fresh")
+    println("  `lore clone --view .lore/view` gives the exact narrowed tree now.")
+}
+
+// --- shared helpers ---------------------------------------------------------
 
 // dirname: last '/'-bounded prefix, or "." if no slash.
 dirname_pure(path: string) {
@@ -65,12 +174,16 @@ resolve_target(target: string) {
     return ""
 }
 
-// Walk the dep DAG from `start`, adding each visited file's parent dir
-// to sparse-checkout. Uses the extract-deps tool for parsing so the
-// dep grammar stays in one place.
+// Walk the dep DAG from `start`, COLLECTING each visited file's parent dir into
+// an ordered, de-duplicated list (first-seen order). Does no VCS I/O itself —
+// the caller emits to the chosen backend once the full set is known. (The Lore
+// emit is exclude-all + re-include-each and cannot be appended incrementally
+// the way `git sparse-checkout add` can, so collect-then-emit serves both.)
+// Uses the extract-deps tool for parsing so the dep grammar stays in one place.
 walk(start: string, extract_deps_bin: string) {
     visited = map.new()
     visited_dirs = map.new()
+    dirs = list.new()
     queue = list.new()
     list.add(queue, start)
     map.put(visited, start, "1")
@@ -82,12 +195,12 @@ walk(start: string, extract_deps_bin: string) {
         f, _ = list.get(queue, head)
         head = head + 1
 
-        // Add this file's directory to sparse-checkout (once).
+        // Record this file's directory once, in first-seen order.
         dir = dirname_pure(f)
         if map.has(visited_dirs, dir) == 0 {
             map.put(visited_dirs, dir, "1")
+            list.add(dirs, dir)
             println(string.concat("  module: ", dir))
-            sparse_add(dir)
         }
 
         // Read this file's deps and enqueue any unseen ones that exist on disk.
@@ -116,7 +229,7 @@ walk(start: string, extract_deps_bin: string) {
             }
         }
     }
-    return 0
+    return dirs
 }
 
 main() {
@@ -130,9 +243,24 @@ main() {
     }
     extract_deps_bin = string.concat(aebhome, "/tools/extract-deps")
 
+    backend = detect_backend()
     arg1 = aether_args_get(1)
 
     if arg1 == "--reset" {
+        if backend == "lore" {
+            println("Clearing the Lore view (future materialisations get everything) ...")
+            // An empty view = default = include-everything. Record it, then
+            // drop the file so the instance holds no narrowing view.
+            _w = file.write(".lore/view", "")
+            os.system("lore sync --view .lore/view")
+            os.system("rm -f .lore/view")
+            println("  view cleared. As with `add`, this changes what FUTURE")
+            println("  materialisations bring down; it does not re-expand the")
+            println("  current tree in place. `lore clone` (no --view) now")
+            println("  gives the full tree.")
+            println("Done.")
+            return 0
+        }
         println("Resetting sparse checkout...")
         os.system("git read-tree --reset -u HEAD")
         os.system("rm -f .git/info/sparse-checkout")
@@ -142,6 +270,14 @@ main() {
     }
 
     if arg1 == "--init" {
+        if backend == "lore" {
+            // Lore has no separate "init sparse mode" step — the view filter IS
+            // the mechanism, applied on every materialisation. Nothing to arm;
+            // `add` writes the view. Say so rather than no-op silently.
+            println("Lore working copy: no init needed — `aeb gcheckout add <module-or-file>`")
+            println("writes .lore/view and syncs. (`--reset` materialises everything.)")
+            return 0
+        }
         println("Initializing sparse checkout...")
         os.system("git sparse-checkout init --cone")
         // Always include the aeb SDK symlinks and shared shell helpers
@@ -167,10 +303,35 @@ main() {
         }
 
         println(string.concat("Sparse checkout: ", string.concat(target, " + deps")))
-        // Always include shared scaffolding, regardless of target.
-        sparse_add("shared-build-scripts")
-        sparse_add("lib")
-        walk(resolved, extract_deps_bin)
+        dirs = walk(resolved, extract_deps_bin)
+
+        // Always include shared scaffolding, regardless of target, so a
+        // consumer can still run `aeb` in the narrowed copy. The git backend
+        // adds these to the keep-set; the Lore backend prepends them to the
+        // view so they are re-included too.
+        if backend == "lore" {
+            keep = list.new()
+            list.add(keep, "shared-build-scripts")
+            list.add(keep, "lib")
+            nd = list.size(dirs)
+            j = 0
+            while j < nd {
+                dv, _ = list.get(dirs, j)
+                list.add(keep, dv)
+                j = j + 1
+            }
+            lore_apply(keep)
+        } else {
+            sparse_add("shared-build-scripts")
+            sparse_add("lib")
+            k = 0
+            kn = list.size(dirs)
+            while k < kn {
+                dv, _ = list.get(dirs, k)
+                sparse_add(dv)
+                k = k + 1
+            }
+        }
         println("Done.")
         return 0
     }
