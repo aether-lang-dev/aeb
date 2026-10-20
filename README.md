@@ -48,7 +48,7 @@ the two in step.)
 | Watch mode | ✓ `aeb --watch` (inotify / fswatch → narrowed rebuild). |
 | Sandboxing / isolation | ✓ `aeb --sandbox` (deny-by-default, no tcp; Linux, aether ≥ 0.230). |
 | Supply-chain build veto | ✓ `aeb --vet` (AST deny-rules + allowlist, bring-your-own SAST, agent-side rules). |
-| Sparse checkout for monorepos | ✓ `aeb gcheckout` (DAG walk → `git sparse-checkout`). |
+| Sparse checkout for monorepos | ✓ `aeb gcheckout` (DAG walk → `git sparse-checkout`, or a `.lore/` view filter). |
 | Configuration DSL ceiling | ✓ Closure-with-setters, Aether-native, no eval'd config. |
 | Migration story | ✓ Per-module `.build.ae`, coexists with existing tooling; proven against real repos. |
 | Structured node-failure capture | ✓ `target/_aeb/_failures.jsonl` — one JSON record per failed node. |
@@ -345,11 +345,17 @@ The walk goes through the same `extract-deps` tool the rest of `aeb` uses,
 so any `.jar.ae` / `.crate.ae` / `.npm.ae` / `.nupkg.ae` / `.whl.ae`
 third-party dep file is followed automatically.
 
-> **Note** — the implementation currently shells out to `git
-> sparse-checkout` and is therefore Git-only. Mercurial support would need
-> a small VCS abstraction layer (`narrowhg` extension on the hg side, or
-> a different command per VCS). The dep-walking logic itself is
-> VCS-agnostic and would be reused unchanged.
+> **Note** — the DAG walk is VCS-agnostic; the backend is auto-detected
+> and only the *emit* differs. A `.lore/` marker selects the **Lore**
+> backend (Epic Games' Rust VCS): the visited set becomes a `.lore/view`
+> filter and `lore sync --view` narrows the tree. Otherwise the **git**
+> backend runs `git sparse-checkout add` per dir, as before. (Lore caveat:
+> `lore sync --view` narrows on *materialization* — fresh clone, a sync
+> that moves the revision, or a branch switch — not retroactively on a
+> static revision, so an already-materialized tree contracts on the next
+> such event, not in place.) Mercurial would be a third backend of the
+> same shape (`narrowhg` on the hg side); the dep-walking logic is reused
+> unchanged across all of them.
 
 ### Typical output
 
