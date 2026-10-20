@@ -259,4 +259,11 @@
 #
 # 0.830.0 (2026-10-19): the floor moves to 0.830.0 for map.get_string,
 # list.get_string and string.from_ptr (see AETHER_PIN); FETCH equals PIN.
-0.830.0
+#
+# 0.835.0 (2026-10-20): the floor moves to 0.835.0 (aether #3009 makes the
+# W1005 ptr-into-string case a hard E0202; see AETHER_PIN); FETCH equals PIN.
+# NB when fetching this prebuilt, extract with NO --strip-components — the
+# tarball ships bin/ lib/ share/ at top level and `ae`'s root discovery needs
+# that shape intact (a flattened extraction leaves std unfindable and `ae`
+# falls back to a /usr/local toolchain). The trampoline already does this.
+0.835.0

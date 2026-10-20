@@ -438,4 +438,13 @@
 # parameter). Verified against 0.830.0 from its release tarball. macOS arm64:
 # every lib module and tool checks with no W1005 and no E090x; tests/run.sh
 # results are in the commit message.
-0.830.0
+#
+# Raised 0.830.0 -> 0.835.0 (2026-10-20). 0.835 turns the old W1005
+# (implicit ptr-into-string) into a hard error E0202 (aether #3009), and
+# lib/bldr had W1005 sites, so aeb must be built with an Aether that is
+# consistent with its own source — the floor moves up with the release that
+# makes that grammar mandatory rather than staying a sparse historical mark.
+# Verified green on 0.835.0 (M6 Mac: tests/run.sh passes bar the two
+# podman-only container tests; this box once its /usr/local 0.819 toolchain
+# shadow was removed — see AGENTS.md § Known upstream issues).
+0.835.0

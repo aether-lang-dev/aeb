@@ -812,6 +812,39 @@ are green *before* the push, not after.
 
 ## Known upstream Aether issues affecting aeb
 
+- **A stale `/usr/local` aether toolchain is where `ae`'s root discovery
+  FALLS BACK to — then std resolves against its OLD libaether.** `ae`
+  picks ONE toolchain root (ae.c, ~L1890-2060) and takes aetherc +
+  libaether.a + std all from it, in order: (1) `$AETHER_HOME` / its
+  `current/`, if complete; (2) the `ae` binary's own `../`, if
+  `../lib/aether` or `../share/aether` exists beside it; (3)
+  `./build/aetherc` in cwd; (4) `/usr/local/bin/aetherc`, then
+  `/usr/bin/aetherc`. It does NOT prefer `/usr/local` over its own — it
+  only reaches step 4 when 1-3 miss. A past `sudo make install` of aether
+  leaves a root-owned `/usr/local` toolchain that step 4 then adopts; if
+  it is older than your code needs, you get `error[E0303]: 'get_string'
+  is not exported from module 'map'` (etc.) no matter what `ae --version`
+  says. Seen 2026-10-20 (Debian 12): aeb v0.328 — which uses
+  `map.get_string`/`list.get_string` (0.830 std) — built its whole tree
+  against a `/usr/local` 0.819 because AETHER_HOME was unset and the `ae`
+  on PATH sat in a dir with no `../lib/aether` beside it (so steps 1-2
+  missed). Confirm with **`ae -v build x.ae 2>&1 | grep toolchain`** — it
+  prints `[toolchain] root:` / `compiler:` / `lib:`; if root is
+  `/usr/local` that's the bug. The `toolchain version mismatch` warning
+  ALSO names the file, but its `ae / aetherc : <ver>` line prints the ae
+  binary's own version (AE_VERSION), not aetherc's, so it can mislead —
+  trust the `-v` root line. Fixes, any one: make step 1 win
+  (`ae version use <good>`, or point AETHER_HOME at a complete root); make
+  step 2 win (run the toolchain's own `bin/ae`, with `bin/ lib/ share/`
+  intact beside it — so never flatten a prebuilt tarball with
+  `--strip-components`); or remove the stale `/usr/local` aether (sudo,
+  it's root-owned). Std-resolution companion to the cache-key
+  "toolchain-module split" idiom above; system-prefix companion to the
+  `sudo-make-install-root-owns-tree` memory. NB the published linux
+  prebuilt is NOT at fault — run straight from its own `bin/`, step 2
+  wins and std resolves from the tree beside the binary (confirmed
+  cross-box); it only looked "baked-wrong" when its layout was corrupted
+  or a `/usr/local` toolchain was adopted instead.
 - **macOS link step fails with duplicate symbols.** Compiler emits
   imported module functions into every TU without `static`. GNU ld
   hides this via `-Wl,--allow-multiple-definition` (currently
