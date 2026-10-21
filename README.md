@@ -1646,6 +1646,13 @@ aether.driver_test() {                    // Custom env-var name override.
 > (`bash.test() { bash.script("…") }`), which works but reads
 > noisily.
 
+For `ae add` binary-package releases, `aether.emit_binary_package()` preserves
+Linux libc identities in both library and checksum names: compiler targets
+`x86_64-linux-musl` and `aarch64-linux-musl` produce release triples
+`linux-x86_64-musl` and `linux-arm64-musl`. Glibc keeps the existing
+`linux-x86_64` / `linux-arm64` names, so both variants can coexist in one
+release. Use Aether 0.838.0 or newer to consume these with libc-aware `ae add`.
+
 ## Maven / BOM support
 
 A `.bom.ae` file at the repo root declares Maven BOMs and extra repos:

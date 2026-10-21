@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Linux musl binary-package assets retain their libc suffix.**
+  `aether.emit_binary_package()` with `target("x86_64-linux-musl")` or
+  `target("aarch64-linux-musl")` now emits `linux-x86_64-musl` /
+  `linux-arm64-musl` library and checksum names. Glibc names remain unchanged,
+  so publishing both variants cannot overwrite one with incompatible bytes.
+  This matches Aether's `ae add` consumer fix in 0.838.0 (#17).
+
 ## v0.326 (2026-10-10)
 
 ### Added

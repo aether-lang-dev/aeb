@@ -3410,8 +3410,9 @@ _shlib_ext() {
 // x86_64 never amd64; os-first). A target() the publisher passes is the ae build
 // spelling (shared_lib's cross setter requires it), so the asset name must be
 // translated or an installing host would look for the wrong asset. Recognises
-// the linux/macos/windows/freebsd cross set (incl. -musl, folded to plain
-// linux); an unrecognised triple is returned unchanged (best effort). Pure.
+// the linux/macos/windows/freebsd cross set. Linux musl keeps its -musl suffix
+// so its binary and checksum cannot overwrite the glibc package (aeb#17,
+// Aether#3073). An unrecognised triple is returned unchanged. Pure.
 _ae_build_triple_to_asset(t: string) {
     os_ = ""
     if string.index_of(t, "windows") >= 0 { os_ = "windows" }
@@ -3426,7 +3427,11 @@ _ae_build_triple_to_asset(t: string) {
     if string.length(arch) == 0 { if string.index_of(t, "x86_64") >= 0 { arch = "x86_64" } }
     if string.length(arch) == 0 { if string.index_of(t, "amd64") >= 0 { arch = "x86_64" } }
     if string.length(arch) == 0 { return t }     // unrecognised arch — pass through
-    return string.concat(os_, string.concat("-", arch))
+    asset_triple = string.concat(os_, string.concat("-", arch))
+    if string.equals(os_, "linux") == 1 && string.ends_with(t, "-musl") == 1 {
+        return string.concat(asset_triple, "-musl")
+    }
+    return asset_triple
 }
 
 // _binpkg_triple(builder_map) — the ae-add <os>-<arch> triple the emitted asset
