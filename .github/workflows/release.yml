@@ -303,6 +303,10 @@ jobs:
 
           test -x "$INST/bin/aeb" \
             || { echo "make install produced no $INST/bin/aeb"; exit 1; }
+          for pin in AETHER_PIN AETHER_FETCH; do
+            cmp "$HOME_DIR/$pin" "$INST/share/aeb/$pin" \
+              || { echo "make install lost or changed $pin"; exit 1; }
+          done
 
           # Run the installed aeb on a fresh project, from somewhere else
           # entirely — an installed aeb that only works next to its source

@@ -145,7 +145,7 @@ cargo_toml_content(opts: ptr) {
     // name
     if opts != null {
         if map.has(opts, "crate_name") == 1 {
-            name, _ = map.get(opts, "crate_name")
+            name, _ = map.get_string(opts, "crate_name")
             toml = string.concat(toml, "name = \"${name}\"\n")
         }
     }
@@ -177,11 +177,11 @@ cargo_toml_content(opts: ptr) {
     if has_lib == 1 {
         toml = string.concat(toml, "\n[lib]\n")
         if map.has(opts, "lib_path") == 1 {
-            lp, _ = map.get(opts, "lib_path")
+            lp, _ = map.get_string(opts, "lib_path")
             toml = string.concat(toml, "path = \"${lp}\"\n")
         }
         if map.has(opts, "crate_type") == 1 {
-            ct, _ = map.get(opts, "crate_type")
+            ct, _ = map.get_string(opts, "crate_type")
             toml = string.concat(toml, "crate-type = [\"${ct}\"]\n")
         }
     }
@@ -355,7 +355,7 @@ cargo_workspace_toml_content(opts: ptr) {
                 toml = string.concat(toml, "members = [\n")
                 i = 0
                 while i < count {
-                    m, _ = list.get(members, i)
+                    m, _ = list.get_string(members, i)
                     toml = string.concat(toml, "    \"${m}\",\n")
                     i = i + 1
                 }
@@ -391,39 +391,39 @@ cargo_workspace_toml_content(opts: ptr) {
     if has_pkg == 1 {
         toml = string.concat(toml, "\n[workspace.package]\n")
         if map.has(opts, "version") == 1 {
-            wv, _ = map.get(opts, "version")
+            wv, _ = map.get_string(opts, "version")
             toml = string.concat(toml, "version = \"${wv}\"\n")
         }
         if map.has(opts, "edition") == 1 {
-            ed, _ = map.get(opts, "edition")
+            ed, _ = map.get_string(opts, "edition")
             toml = string.concat(toml, "edition = \"${ed}\"\n")
         }
         if map.has(opts, "license_file") == 1 {
-            lf, _ = map.get(opts, "license_file")
+            lf, _ = map.get_string(opts, "license_file")
             toml = string.concat(toml, "license-file = \"${lf}\"\n")
         }
         if map.has(opts, "license") == 1 {
-            lic, _ = map.get(opts, "license")
+            lic, _ = map.get_string(opts, "license")
             toml = string.concat(toml, "license = \"${lic}\"\n")
         }
         if map.has(opts, "description") == 1 {
-            desc, _ = map.get(opts, "description")
+            desc, _ = map.get_string(opts, "description")
             toml = string.concat(toml, "description = \"${desc}\"\n")
         }
         if map.has(opts, "homepage") == 1 {
-            hp, _ = map.get(opts, "homepage")
+            hp, _ = map.get_string(opts, "homepage")
             toml = string.concat(toml, "homepage = \"${hp}\"\n")
         }
         if map.has(opts, "repository") == 1 {
-            repo, _ = map.get(opts, "repository")
+            repo, _ = map.get_string(opts, "repository")
             toml = string.concat(toml, "repository = \"${repo}\"\n")
         }
         if map.has(opts, "readme") == 1 {
-            rm, _ = map.get(opts, "readme")
+            rm, _ = map.get_string(opts, "readme")
             toml = string.concat(toml, "readme = \"${rm}\"\n")
         }
         if map.has(opts, "rust_version") == 1 {
-            rv, _ = map.get(opts, "rust_version")
+            rv, _ = map.get_string(opts, "rust_version")
             toml = string.concat(toml, "rust-version = \"${rv}\"\n")
         }
         if map.has(opts, "keywords") == 1 {
@@ -562,7 +562,7 @@ cargo_crate_toml_content(opts: ptr) {
     // name
     if opts != null {
         if map.has(opts, "crate_name") == 1 {
-            name, _ = map.get(opts, "crate_name")
+            name, _ = map.get_string(opts, "crate_name")
             toml = string.concat(toml, "name = \"${name}\"\n")
         }
     }
@@ -577,7 +577,7 @@ cargo_crate_toml_content(opts: ptr) {
     // version — inherit from workspace if not explicitly set
     if opts != null {
         if map.has(opts, "version") == 1 {
-            ver, _ = map.get(opts, "version")
+            ver, _ = map.get_string(opts, "version")
             toml = string.concat(toml, "version = \"${ver}\"\n")
         }
     }
@@ -609,11 +609,11 @@ cargo_crate_toml_content(opts: ptr) {
     if has_lib == 1 {
         toml = string.concat(toml, "\n[lib]\n")
         if map.has(opts, "lib_path") == 1 {
-            lp, _ = map.get(opts, "lib_path")
+            lp, _ = map.get_string(opts, "lib_path")
             toml = string.concat(toml, "path = \"${lp}\"\n")
         }
         if map.has(opts, "crate_type") == 1 {
-            ct, _ = map.get(opts, "crate_type")
+            ct, _ = map.get_string(opts, "crate_type")
             toml = string.concat(toml, "crate-type = [\"${ct}\"]\n")
         }
     }
@@ -636,7 +636,7 @@ cargo_crate_toml_content(opts: ptr) {
             count = list.size(refs)
             i = 0
             while i < count {
-                name, _ = list.get(refs, i)
+                name, _ = list.get_string(refs, i)
                 toml = string.concat(toml, "${name}.workspace = true\n")
                 i = i + 1
             }
@@ -696,7 +696,7 @@ cargo_crate_toml_content(opts: ptr) {
             dcount = list.size(dev_refs)
             di = 0
             while di < dcount {
-                dname, _ = list.get(dev_refs, di)
+                dname, _ = list.get_string(dev_refs, di)
                 toml = string.concat(toml, "${dname}.workspace = true\n")
                 di = di + 1
             }
@@ -1278,15 +1278,15 @@ cargo_test_cmd(source_dir: string, target_dir: string, opts: ptr) {
     cmd = "cd '${source_dir}' && cargo test"
     if opts != null {
         if map.has(opts, "features") == 1 {
-            val, _ = map.get(opts, "features")
+            val, _ = map.get_string(opts, "features")
             cmd = string.concat(cmd, " --features ${val}")
         }
         if map.has(opts, "jobs") == 1 {
-            val, _ = map.get(opts, "jobs")
+            val, _ = map.get_string(opts, "jobs")
             cmd = string.concat(cmd, " --jobs ${val}")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -1345,7 +1345,7 @@ cargo_build_cmd(source_dir: string, target_dir: string, opts: ptr) {
     has_profile = 0
     if opts != null {
         if map.has(opts, "profile") == 1 {
-            val, _ = map.get(opts, "profile")
+            val, _ = map.get_string(opts, "profile")
             cmd = string.concat(cmd, " --profile ${val}")
             has_profile = 1
         }
@@ -1356,15 +1356,15 @@ cargo_build_cmd(source_dir: string, target_dir: string, opts: ptr) {
 
     if opts != null {
         if map.has(opts, "features") == 1 {
-            val, _ = map.get(opts, "features")
+            val, _ = map.get_string(opts, "features")
             cmd = string.concat(cmd, " --features ${val}")
         }
         if map.has(opts, "jobs") == 1 {
-            val, _ = map.get(opts, "jobs")
+            val, _ = map.get_string(opts, "jobs")
             cmd = string.concat(cmd, " --jobs ${val}")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -1524,7 +1524,7 @@ builder check(): int {
     cmd = "cd '${root}' && cargo check -p ${crate}"
     if _builder != null {
         if map.has(_builder, "features") == 1 {
-            val, _ = map.get(_builder, "features")
+            val, _ = map.get_string(_builder, "features")
             cmd = string.concat(cmd, " --features ${val}")
         }
     }
@@ -1565,7 +1565,7 @@ builder test(): int {
     cmd = "cd '${root}' && cargo test -p ${crate}"
     if _builder != null {
         if map.has(_builder, "features") == 1 {
-            val, _ = map.get(_builder, "features")
+            val, _ = map.get_string(_builder, "features")
             cmd = string.concat(cmd, " --features ${val}")
         }
     }
@@ -1610,11 +1610,11 @@ builder build_crate(): int {
     cmd = "cd '${root}' && cargo build -p ${crate} --release"
     if _builder != null {
         if map.has(_builder, "features") == 1 {
-            val, _ = map.get(_builder, "features")
+            val, _ = map.get_string(_builder, "features")
             cmd = string.concat(cmd, " --features ${val}")
         }
         if map.has(_builder, "jobs") == 1 {
-            val, _ = map.get(_builder, "jobs")
+            val, _ = map.get_string(_builder, "jobs")
             cmd = string.concat(cmd, " --jobs ${val}")
         }
     }
@@ -1763,7 +1763,7 @@ builder consumer_example(): int {
             n = list.size(l)
             i = 0
             while i < n {
-                af, _ = list.get(l, i)
+                af, _ = list.get_string(l, i)
                 if bldr._sh("ls '${stageroot}/${af}' >/dev/null 2>&1") != 0 {
                     println("${mod_dir}: staged package missing ${af}")
                     bldr.fail(ctx, "bundled asset missing after staging")
@@ -1786,7 +1786,7 @@ builder consumer_example(): int {
     // optional build step before the per-arg runs.
     if _builder != null {
         if map.has(_builder, "pre_cmd") == 1 {
-            pc, _ = map.get(_builder, "pre_cmd")
+            pc, _ = map.get_string(_builder, "pre_cmd")
             if string.length(pc) > 0 {
                 if bldr._sh("cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${pc}") != 0 {
                     println("${mod_dir}: consumer pre-build failed")
@@ -1807,7 +1807,7 @@ builder consumer_example(): int {
         na = list.size(args)
         ai = 0
         while ai < na {
-            a, _ = list.get(args, ai)
+            a, _ = list.get_string(args, ai)
             println("${mod_dir}: consumer run (${a})")
             if bldr._sh(consumer_run_arg_cmd(run_abs, run_command, a)) != 0 {
                 println("${mod_dir}: consumer run (${a}) failed")

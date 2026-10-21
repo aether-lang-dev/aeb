@@ -248,26 +248,26 @@ javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) 
 
     if opts != null {
         if map.has(opts, "release") == 1 {
-            val, _ = map.get(opts, "release")
+            val, _ = map.get_string(opts, "release")
             cmd = string.concat(cmd, " --release ${val}")
         } else {
             if map.has(opts, "source") == 1 {
-                val, _ = map.get(opts, "source")
+                val, _ = map.get_string(opts, "source")
                 cmd = string.concat(cmd, " -source ${val}")
             }
             if map.has(opts, "target") == 1 {
-                val, _ = map.get(opts, "target")
+                val, _ = map.get_string(opts, "target")
                 cmd = string.concat(cmd, " -target ${val}")
             }
         }
 
         if map.has(opts, "encoding") == 1 {
-            val, _ = map.get(opts, "encoding")
+            val, _ = map.get_string(opts, "encoding")
             cmd = string.concat(cmd, " -encoding ${val}")
         }
 
         if map.has(opts, "debug") == 1 {
-            val, _ = map.get(opts, "debug")
+            val, _ = map.get_string(opts, "debug")
             if val == "none" {
                 cmd = string.concat(cmd, " -g:none")
             } else {
@@ -280,7 +280,7 @@ javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) 
         }
 
         if map.has(opts, "lint") == 1 {
-            val, _ = map.get(opts, "lint")
+            val, _ = map.get_string(opts, "lint")
             cmd = string.concat(cmd, " -Xlint:${val}")
         }
 
@@ -309,27 +309,27 @@ javac_cmd(classes_dir: string, classpath: string, file_list: string, opts: ptr) 
         }
 
         if map.has(opts, "module_path") == 1 {
-            val, _ = map.get(opts, "module_path")
+            val, _ = map.get_string(opts, "module_path")
             cmd = string.concat(cmd, " --module-path ${val}")
         }
 
         if map.has(opts, "processor") == 1 {
-            val, _ = map.get(opts, "processor")
+            val, _ = map.get_string(opts, "processor")
             cmd = string.concat(cmd, " -processor ${val}")
         }
 
         if map.has(opts, "processor_path") == 1 {
-            val, _ = map.get(opts, "processor_path")
+            val, _ = map.get_string(opts, "processor_path")
             cmd = string.concat(cmd, " -processorpath ${val}")
         }
 
         if map.has(opts, "generated_sources") == 1 {
-            val, _ = map.get(opts, "generated_sources")
+            val, _ = map.get_string(opts, "generated_sources")
             cmd = string.concat(cmd, " -s ${val}")
         }
 
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -379,11 +379,11 @@ junit_cmd(classpath: string, class_names: string, ld_path: string, opts: ptr) {
 
     if opts != null {
         if map.has(opts, "jvm_args") == 1 {
-            val, _ = map.get(opts, "jvm_args")
+            val, _ = map.get_string(opts, "jvm_args")
             cmd = string.concat(cmd, " ${val}")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -1290,7 +1290,7 @@ builder package_jar(): int {
         release_flag = ""
         if _builder != null {
             if map.has(_builder, "release") == 1 {
-                rv, _ = map.get(_builder, "release")
+                rv, _ = map.get_string(_builder, "release")
                 release_flag = " --release ${rv}"
             }
         }
@@ -1328,7 +1328,7 @@ builder package_jar(): int {
     mc_flag = ""
     if _builder != null {
         if map.has(_builder, "thin_main_class") == 1 {
-            mc, _ = map.get(_builder, "thin_main_class")
+            mc, _ = map.get_string(_builder, "thin_main_class")
             if string.length(mc) > 0 { mc_flag = " --main-class ${mc}" }
         }
     }
@@ -1690,11 +1690,11 @@ junit5_cmd(classpath: string, test_classes_dir: string, ld_path: string, opts: p
 
     if opts != null {
         if map.has(opts, "jvm_args") == 1 {
-            val, _ = map.get(opts, "jvm_args")
+            val, _ = map.get_string(opts, "jvm_args")
             cmd = string.concat(cmd, " ${val}")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -1851,7 +1851,7 @@ builder java_main(main_cls: string): int {
     run_cmd = "${ld_prefix}'${run_java_bin}' -ea${lib_path_arg}"
     if _builder != null {
         if map.has(_builder, "jvm_args") == 1 {
-            val, _ = map.get(_builder, "jvm_args")
+            val, _ = map.get_string(_builder, "jvm_args")
             run_cmd = string.concat(run_cmd, " ${val}")
         }
     }
@@ -2127,10 +2127,10 @@ builder thin_jar(out_name: string): int {
             n = list.size(names)
             i = 0
             while i < n {
-                want, _ = list.get(names, i)
+                want, _ = list.get_string(names, i)
                 if vjars != null {
                     if i < list.size(vjars) {
-                        srcp, _ = list.get(vjars, i)
+                        srcp, _ = list.get_string(vjars, i)
                         if string.length(srcp) > 0 {
                             bldr._sh("cp -f '${srcp}' '${bin_dir}/${want}'")
                         }
@@ -2278,7 +2278,7 @@ builder consumer_example(): int {
         na = list.size(args)
         ai = 0
         while ai < na {
-            a, _ = list.get(args, ai)
+            a, _ = list.get_string(args, ai)
             println("${mod_dir}: consumer run (${a})")
             if bldr._sh("${base} ${a}") != 0 {
                 println("${mod_dir}: consumer run (${a}) failed")

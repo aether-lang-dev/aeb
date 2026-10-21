@@ -454,7 +454,7 @@ main() {
     if node_container == 1 {
         ii = 0
         while ii < nn {
-            nd, _ = list.get(nodes, ii)
+            nd, _ = list.get_string(nodes, ii)
             ii = ii + 1
             img = _node_image(nd, extract_deps_bin)
             map.put(node_image, string.copy(nd), string.copy(img))

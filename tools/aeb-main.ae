@@ -666,7 +666,7 @@ main() {
         } else {
             pq_i = 0
             while pq_i < pq_n {
-                pq_t, _ = list.get(prereq_tokens, pq_i)
+                pq_t, _ = list.get_string(prereq_tokens, pq_i)
                 println(pq_t)
                 pq_i = pq_i + 1
             }
@@ -775,7 +775,7 @@ main() {
         println("aeb: unresolved dep(...) edge — the named build file does not exist:")
         mi = 0
         while mi < mn {
-            mline, _ = list.get(missing_list, mi)
+            mline, _ = list.get_string(missing_list, mi)
             println(mline)
             mi = mi + 1
         }

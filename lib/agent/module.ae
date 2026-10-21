@@ -1117,7 +1117,7 @@ builder dispatch(): int {
         if map.has(_builder, "ref") == 1 { gref, _ = map.get_string(_builder, "ref") }
         if map.has(_builder, "hash") == 1 { ghash, _ = map.get_string(_builder, "hash") }
         if map.has(_builder, "patch_file") == 1 {
-            pf, _ = map.get(_builder, "patch_file")
+            pf, _ = map.get_string(_builder, "patch_file")
             pf_abs = pf
             if string.length(pf) > 0 {
                 first = string.substring(pf, 0, 1)

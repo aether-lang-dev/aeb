@@ -683,7 +683,7 @@ builder uberjar(): int {
         bldr.fail(ctx, "clojure.uberjar: missing main_ns(\"...\")")
         return 1
     }
-    ns, _ = map.get(_builder, "main_ns")
+    ns, _ = map.get_string(_builder, "main_ns")
 
     jar_name = ""
     if map.has(_builder, "clojure_output_jar") == 1 {

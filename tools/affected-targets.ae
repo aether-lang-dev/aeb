@@ -324,7 +324,7 @@ main() {
     on = list.size(out)
     oi = 0
     while oi < on {
-        t, _ = list.get(out, oi)
+        t, _ = list.get_string(out, oi)
         println(t)
         oi = oi + 1
     }

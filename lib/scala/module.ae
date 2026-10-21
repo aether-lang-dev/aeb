@@ -539,7 +539,7 @@ builder scalac_test(): int {
     // JUnit-style run, unchanged.
     if _builder != null {
         if map.has(_builder, "main_class") == 1 {
-            main_cls, _ = map.get(_builder, "main_class")
+            main_cls, _ = map.get_string(_builder, "main_class")
             rjava = "java"
             if string.length(run_java) > 0 { rjava = run_java }
             run_cp = bldr._cp_append(test_classes, library_cp)

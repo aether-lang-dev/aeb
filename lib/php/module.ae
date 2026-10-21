@@ -88,7 +88,7 @@ php_ini_part(ini_list: ptr) {
         n = list.size(ini_list)
         i = 0
         while i < n {
-            kv, _ = list.get(ini_list, i)
+            kv, _ = list.get_string(ini_list, i)
             out = string.concat(out, " -d ${kv}")
             i = i + 1
         }

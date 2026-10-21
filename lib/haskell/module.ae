@@ -80,7 +80,7 @@ _hs_lib_flags(bmap: ptr) {
             n = list.size(l)
             i = 0
             while i < n {
-                d, _ = list.get(l, i)
+                d, _ = list.get_string(l, i)
                 out = string.concat(out, " --extra-lib-dirs='${d}' --ghc-options=-optl-Wl,-rpath,'${d}'")
                 i = i + 1
             }
@@ -93,7 +93,7 @@ _hs_lib_flags(bmap: ptr) {
 _hs_target_suffix(bmap: ptr) {
     if bmap != null {
         if map.has(bmap, "hs_target") == 1 {
-            t, _ = map.get(bmap, "hs_target")
+            t, _ = map.get_string(bmap, "hs_target")
             if string.length(t) > 0 { return " ${t}" }
         }
     }

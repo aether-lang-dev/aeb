@@ -143,8 +143,8 @@ builder file(): int {
         return 1
     }
 
-    src_rel, _ = map.get(_builder, "copy_from")
-    dst_rel, _ = map.get(_builder, "copy_to")
+    src_rel, _ = map.get_string(_builder, "copy_from")
+    dst_rel, _ = map.get_string(_builder, "copy_to")
     src_abs = _resolve_path(source_dir, src_rel)
     dst_abs = _resolve_path(source_dir, dst_rel)
 
@@ -190,8 +190,8 @@ builder tree(): int {
         return 1
     }
 
-    src_rel, _ = map.get(_builder, "copy_from")
-    dst_rel, _ = map.get(_builder, "copy_to")
+    src_rel, _ = map.get_string(_builder, "copy_from")
+    dst_rel, _ = map.get_string(_builder, "copy_to")
     src_abs = _resolve_path(source_dir, src_rel)
     dst_abs = _resolve_path(source_dir, dst_rel)
 

@@ -232,6 +232,11 @@ java/components/vowelbase/.build.ae
 aeb is written in Aether, so it needs the [Aether toolchain](https://github.com/aether-lang-dev/aether)
 (`ae`) first.
 
+Release builds and bootstrap downloads use Aether **0.838.0** (`AETHER_FETCH`).
+The minimum supported version remains **0.835.0** (`AETHER_PIN`); a newer
+installed toolchain is accepted, and an explicit `AETHER=/path/to/ae` selects
+the toolchain to use.
+
 **Don't have Aether's `ae` yet?** One line installs it (Aether's own installer,
 into `~/.local`; `PREFIX=` to override, `AETHER_REF=vX.Y.Z` to pin). Aether
 compiles to C, so the only prerequisites are a C compiler and GNU make — no

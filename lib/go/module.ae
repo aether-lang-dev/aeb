@@ -107,7 +107,7 @@ go_mod_content(opts: ptr) {
 
     if opts != null {
         if map.has(opts, "manifest_version") == 1 {
-            mv, _ = map.get(opts, "manifest_version")
+            mv, _ = map.get_string(opts, "manifest_version")
             if string.length(mv) > 0 { out = string.concat(out, "\n// version ${mv}\n") }
         }
     }
@@ -152,22 +152,22 @@ go_build_cmd(source_dir: string, out_path: string, opts: ptr) {
 
     if opts != null {
         if map.has(opts, "mode") == 1 {
-            val, _ = map.get(opts, "mode")
+            val, _ = map.get_string(opts, "mode")
             cmd = string.concat(cmd, " -buildmode=${val}")
         }
         if map.has(opts, "tags") == 1 {
-            val, _ = map.get(opts, "tags")
+            val, _ = map.get_string(opts, "tags")
             cmd = string.concat(cmd, " -tags ${val}")
         }
         if map.has(opts, "ldflags") == 1 {
-            val, _ = map.get(opts, "ldflags")
+            val, _ = map.get_string(opts, "ldflags")
             cmd = string.concat(cmd, " -ldflags \"${val}\"")
         }
         if map.has(opts, "race") == 1 {
             cmd = string.concat(cmd, " -race")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -223,7 +223,7 @@ go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
     }
     if opts != null {
         if map.has(opts, "env") == 1 {
-            val, _ = map.get(opts, "env")
+            val, _ = map.get_string(opts, "env")
             env_prefix = string.concat(env_prefix, val)
             env_prefix = string.concat(env_prefix, " ")
         }
@@ -239,15 +239,15 @@ go_test_cmd(source_dir: string, ld_path: string, opts: ptr) {
             cmd = string.concat(cmd, " -race")
         }
         if map.has(opts, "run") == 1 {
-            val, _ = map.get(opts, "run")
+            val, _ = map.get_string(opts, "run")
             cmd = string.concat(cmd, " -run ${val}")
         }
         if map.has(opts, "timeout") == 1 {
-            val, _ = map.get(opts, "timeout")
+            val, _ = map.get_string(opts, "timeout")
             cmd = string.concat(cmd, " -timeout ${val}")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     } else {
@@ -648,7 +648,7 @@ builder consumer_example(): int {
             n = list.size(l)
             i = 0
             while i < n {
-                af, _ = list.get(l, i)
+                af, _ = list.get_string(l, i)
                 if bldr._sh("ls '${stageroot}/${af}' >/dev/null 2>&1") != 0 {
                     println("${mod_dir}: staged package missing ${af}")
                     bldr.fail(ctx, "bundled asset missing after staging")
@@ -671,7 +671,7 @@ builder consumer_example(): int {
     // optional build step before the per-arg runs.
     if _builder != null {
         if map.has(_builder, "pre_cmd") == 1 {
-            pc, _ = map.get(_builder, "pre_cmd")
+            pc, _ = map.get_string(_builder, "pre_cmd")
             if string.length(pc) > 0 {
                 if bldr._sh("cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${pc}") != 0 {
                     println("${mod_dir}: consumer pre-build failed")
@@ -692,7 +692,7 @@ builder consumer_example(): int {
         na = list.size(args)
         ai = 0
         while ai < na {
-            a, _ = list.get(args, ai)
+            a, _ = list.get_string(args, ai)
             println("${mod_dir}: consumer run (${a})")
             if bldr._sh("${base} ${a}") != 0 {
                 println("${mod_dir}: consumer run (${a}) failed")

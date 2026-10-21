@@ -176,7 +176,7 @@ builder test(): int {
             pn = list.size(pl)
             pi = 0
             while pi < pn {
-                pd, _ = list.get(pl, pi)
+                pd, _ = list.get_string(pl, pi)
                 pa_flags = string.concat(pa_flags, " -pa '${pd}'")
                 pi = pi + 1
             }
@@ -250,13 +250,13 @@ lfe_rebar_config_content(opts: ptr) {
         n = list.size(nd)
         i = 0
         while i < n {
-            app, _ = list.get(nd, i)
+            app, _ = list.get_string(nd, i)
             i = i + 1
             out = string.concat(out, "%%   native application: ${app}\n")
         }
         if opts != null {
             if map.has(opts, "manifest_engine_from") == 1 {
-                ef, _ = map.get(opts, "manifest_engine_from")
+                ef, _ = map.get_string(opts, "manifest_engine_from")
                 if string.length(ef) > 0 { out = string.concat(out, "%%   ERL_LIBS=${ef}\n") }
             }
         }

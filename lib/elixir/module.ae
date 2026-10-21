@@ -126,7 +126,7 @@ mix_exs_content(opts: ptr) {
                 has_native = 1
                 i = 0
                 while i < nn {
-                    app, _ = list.get(nd, i)
+                    app, _ = list.get_string(nd, i)
                     i = i + 1
                     sep = ", "
                     if i == nn { sep = "" }
@@ -170,7 +170,7 @@ mix_exs_content(opts: ptr) {
     if has_native == 1 {
         if opts != null {
             if map.has(opts, "manifest_engine_from") == 1 {
-                ef, _ = map.get(opts, "manifest_engine_from")
+                ef, _ = map.get_string(opts, "manifest_engine_from")
                 if string.length(ef) > 0 { out = string.concat(out, "\n# Native deps resolved via ERL_LIBS=${ef}\n") }
             }
         }

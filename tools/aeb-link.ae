@@ -969,7 +969,7 @@ main() {
     c_files = list.new()
     i = 0
     while i < n {
-        file_path, _ = list.get(files, i)
+        file_path, _ = list.get_string(files, i)
         fname     = encode_name(file_path)
         label     = file_to_label(file_path)
         type      = infer_type(file_path)

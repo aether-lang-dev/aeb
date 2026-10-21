@@ -1832,15 +1832,15 @@ aetherc_emit_lib_cmd(aetherc: string, ae_path: string, c_path: string, caps: str
 //                 the Aether 0.115 changelog note on `ae build
 //                 --coverage`).
 aether_link_cmd(opts: ptr) {
-    c_path, _      = map.get(opts, "c_path")
-    bin_path, _    = map.get(opts, "bin_path")
-    lib_dir, _     = map.get(opts, "lib_dir")
-    inc_flags, _   = map.get(opts, "inc_flags")
-    extras_str, _  = map.get(opts, "extras_str")
-    extra_link, _  = map.get(opts, "extra_link")
-    rpath_link, _  = map.get(opts, "rpath_link")
-    user_flags, _  = map.get(opts, "user_flags")
-    dup_flag, _    = map.get(opts, "dup_flag")
+    c_path, _      = map.get_string(opts, "c_path")
+    bin_path, _    = map.get_string(opts, "bin_path")
+    lib_dir, _     = map.get_string(opts, "lib_dir")
+    inc_flags, _   = map.get_string(opts, "inc_flags")
+    extras_str, _  = map.get_string(opts, "extras_str")
+    extra_link, _  = map.get_string(opts, "extra_link")
+    rpath_link, _  = map.get_string(opts, "rpath_link")
+    user_flags, _  = map.get_string(opts, "user_flags")
+    dup_flag, _    = map.get_string(opts, "dup_flag")
     coverage = ""
     if map.has(opts, "coverage") == 1 {
         coverage, _ = map.get_string(opts, "coverage")
@@ -2320,8 +2320,8 @@ _run_regen_pass(builder_map: ptr, source_dir: string, target_dir: string, aether
 
     i = 0
     while i < n {
-        rel, _ = list.get(regens, i)
-        explicit_caps, _ = list.get(regen_caps, i)
+        rel, _ = list.get_string(regens, i)
+        explicit_caps, _ = list.get_string(regen_caps, i)
         // Pass absolute paths through verbatim — `path.join` is naive
         // and would double-up the prefix (`source_dir//abs/...`). The
         // transitive-import expansion seeds absolute paths into the
@@ -3843,9 +3843,9 @@ builder driver_test(): int {
         while i < bn {
             rec, _ = list.get(buts, i)
             f = bldr._split_tabs(rec, 3)
-            name, _ = list.get(f, 0)
-            decl_path, _ = list.get(f, 1)
-            env_var_override, _ = list.get(f, 2)
+            name, _ = list.get_string(f, 0)
+            decl_path, _ = list.get_string(f, 1)
+            env_var_override, _ = list.get_string(f, 2)
             // Resolve relative to workspace root.
             resolved = decl_path
             if string.length(decl_path) > 0 {

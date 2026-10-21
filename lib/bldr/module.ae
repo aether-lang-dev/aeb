@@ -180,7 +180,7 @@ fail(_ctx: ptr, reason: string) {
     if map.has(ctx, "_session") == 0 { return 0 }
     s, _ = map.get(ctx, "_session")
     if s == null { return 0 }
-    label, _ = map.get(ctx, "module_dir")
+    label, _ = map.get_string(ctx, "module_dir")
     println("${label}: FAILED — ${reason}")
     _mark_failed(s, label, reason)
     return 0
@@ -1153,7 +1153,7 @@ _aether_sources_link_str(c_paths: ptr, base_dir: string) {
     ns = list.size(sources)
     j = 0
     while j < ns {
-        s, _ = list.get(sources, j)
+        s, _ = list.get_string(sources, j)
         j = j + 1
         out = string.concat(out, string.concat(" \"", string.concat(s, "\"")))
     }
@@ -1185,11 +1185,9 @@ _aether_sources_link_str_objc_apart(c_paths: ptr, base_dir: string, obj_dir: str
     ns = list.size(sources)
     j = 0
     while j < ns {
-        s, _ = list.get(sources, j)
+        s, _ = list.get_string(sources, j)
         j = j + 1
-        // `s` is list.get's ptr, so the linked path is chosen by flag rather
-        // than by re-binding one local from that ptr to the object's string
-        // (aether 0.801 types a local by its first assignment: E0200).
+        // Keep the source path separate from its optional compiled object.
         use_obj = 0
         obj = ""
         if string.ends_with(s, ".m") == 1 {
@@ -3427,7 +3425,7 @@ _java_ge(want: string) {
     n = list.size(cands)
     i = 0
     while i < n {
-        c, _ = list.get(cands, i)
+        c, _ = list.get_string(cands, i)
         i = i + 1
         if file.exists(c) == 1 {
             // java.specification.version: "22" on 9+, "1.8" on Java 8, "1.6" on 6.
@@ -3692,9 +3690,9 @@ _synth_fixture_pre(seeds: ptr, servers: ptr) {
         while i < ns {
             rec, _ = list.get(seeds, i)
             f = _split_tabs(rec, 3)
-            name, _ = list.get(f, 0)
-            fpath, _ = list.get(f, 1)
-            seed_bin, _ = list.get(f, 2)
+            name, _ = list.get_string(f, 0)
+            fpath, _ = list.get_string(f, 1)
+            seed_bin, _ = list.get_string(f, 2)
             up = _upper_ascii_word(name)
             // Export the fixture path before any seeding runs so
             // a custom seed_bin can read $<NAME>_PATH if it cares.
@@ -3716,11 +3714,11 @@ _synth_fixture_pre(seeds: ptr, servers: ptr) {
         while j < nv {
             rec, _ = list.get(servers, j)
             f = _split_tabs(rec, 5)
-            name, _ = list.get(f, 0)
-            bin, _ = list.get(f, 1)
-            args, _ = list.get(f, 2)
-            port_s, _ = list.get(f, 3)
-            ready_s, _ = list.get(f, 4)
+            name, _ = list.get_string(f, 0)
+            bin, _ = list.get_string(f, 1)
+            args, _ = list.get_string(f, 2)
+            port_s, _ = list.get_string(f, 3)
+            ready_s, _ = list.get_string(f, 4)
             up = _upper_ascii_word(name)
             // Per-fixture log file in /tmp so scripts can `cat` it
             // for diagnostics; kept short-named (the fixture name
@@ -3811,7 +3809,7 @@ _synth_fixture_post(seeds: ptr, servers: ptr) {
         while j >= 0 {
             rec, _ = list.get(servers, j)
             f = _split_tabs(rec, 5)
-            name, _ = list.get(f, 0)
+            name, _ = list.get_string(f, 0)
             up = _upper_ascii_word(name)
             pid_ref = string.concat(dol, "{")
             pid_ref = string.concat(pid_ref, up)
@@ -3850,7 +3848,7 @@ _synth_fixture_post(seeds: ptr, servers: ptr) {
         while i < ns {
             rec, _ = list.get(seeds, i)
             f = _split_tabs(rec, 3)
-            fpath, _ = list.get(f, 1)
+            fpath, _ = list.get_string(f, 1)
             list.add(out, "rm -rf \"${fpath}\" 2>/dev/null || true")
             i = i + 1
         }

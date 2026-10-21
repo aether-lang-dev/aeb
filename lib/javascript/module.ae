@@ -349,7 +349,7 @@ builder consumer_example(): int {
         na = list.size(args)
         ai = 0
         while ai < na {
-            a, _ = list.get(args, ai)
+            a, _ = list.get_string(args, ai)
             println("${mod_dir}: consumer run (${a})")
             if bldr._sh("${base} ${a}") != 0 {
                 println("${mod_dir}: consumer run (${a}) failed")

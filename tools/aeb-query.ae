@@ -355,7 +355,7 @@ main() {
         pn = list.size(p)
         i = 0
         while i < pn {
-            item, _ = list.get(p, i)
+            item, _ = list.get_string(p, i)
             println(item)
             i = i + 1
         }

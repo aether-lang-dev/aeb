@@ -87,11 +87,11 @@ tsc_cmd(tsc_bin: string, tsconfig_path: string, opts: ptr) {
             cmd = string.concat(cmd, " --skipLibCheck")
         }
         if map.has(opts, "out_dir") == 1 {
-            val, _ = map.get(opts, "out_dir")
+            val, _ = map.get_string(opts, "out_dir")
             cmd = string.concat(cmd, " --outDir '${val}'")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -106,19 +106,19 @@ tsc_files_cmd(source_dir: string, opts: ptr) {
             cmd = string.concat(cmd, " --strict")
         }
         if map.has(opts, "target") == 1 {
-            val, _ = map.get(opts, "target")
+            val, _ = map.get_string(opts, "target")
             cmd = string.concat(cmd, " --target ${val}")
         }
         if map.has(opts, "module_kind") == 1 {
-            val, _ = map.get(opts, "module_kind")
+            val, _ = map.get_string(opts, "module_kind")
             cmd = string.concat(cmd, " --module ${val}")
         }
         if map.has(opts, "out_dir") == 1 {
-            val, _ = map.get(opts, "out_dir")
+            val, _ = map.get_string(opts, "out_dir")
             cmd = string.concat(cmd, " --outDir ${val}")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -133,19 +133,19 @@ mocha_cmd(node_path: string, ld_path: string, dyld_var: string, mocha_bin: strin
     mocha_opts = ""
     if opts != null {
         if map.has(opts, "timeout") == 1 {
-            val, _ = map.get(opts, "timeout")
+            val, _ = map.get_string(opts, "timeout")
             mocha_opts = string.concat(mocha_opts, " --timeout ${val}")
         }
         if map.has(opts, "reporter") == 1 {
-            val, _ = map.get(opts, "reporter")
+            val, _ = map.get_string(opts, "reporter")
             mocha_opts = string.concat(mocha_opts, " --reporter ${val}")
         }
         if map.has(opts, "grep") == 1 {
-            val, _ = map.get(opts, "grep")
+            val, _ = map.get_string(opts, "grep")
             mocha_opts = string.concat(mocha_opts, " --grep '${val}'")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             mocha_opts = string.concat(mocha_opts, " ${val}")
         }
     }

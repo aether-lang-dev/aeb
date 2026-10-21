@@ -67,7 +67,7 @@ _lua54_pkg() {
     n = list.size(for_names)
     i = 0
     while i < n {
-        nm, _ = list.get(for_names, i)
+        nm, _ = list.get_string(for_names, i)
         i = i + 1
         rc = bldr._sh("pkg-config --exists ${nm}")
         if rc == 0 { return nm }
@@ -418,7 +418,7 @@ builder consumer_example(): int {
             n = list.size(l)
             i = 0
             while i < n {
-                af, _ = list.get(l, i)
+                af, _ = list.get_string(l, i)
                 if bldr._sh("ls '${stageroot}/${af}' >/dev/null 2>&1") != 0 {
                     println("${mod_dir}: staged package missing ${af}")
                     bldr.fail(ctx, "bundled asset missing after staging")
@@ -441,7 +441,7 @@ builder consumer_example(): int {
     // optional build step before the per-arg runs.
     if _builder != null {
         if map.has(_builder, "pre_cmd") == 1 {
-            pc, _ = map.get(_builder, "pre_cmd")
+            pc, _ = map.get_string(_builder, "pre_cmd")
             if string.length(pc) > 0 {
                 if bldr._sh("cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${pc}") != 0 {
                     println("${mod_dir}: consumer pre-build failed")
@@ -462,7 +462,7 @@ builder consumer_example(): int {
         na = list.size(args)
         ai = 0
         while ai < na {
-            a, _ = list.get(args, ai)
+            a, _ = list.get_string(args, ai)
             println("${mod_dir}: consumer run (${a})")
             one = "cd '${run_abs}' && env -u SELENIUM_CORE_LIB ${run_command} ${a}"
             if bldr._sh(one) != 0 {

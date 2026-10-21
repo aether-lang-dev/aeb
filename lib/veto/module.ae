@@ -181,7 +181,7 @@ emit_policy(p: ptr) {
     n = list.size(rs)
     i = 0
     while i < n {
-        r, _ = list.get(rs, i)
+        r, _ = list.get_string(rs, i)
         println(r)
         i = i + 1
     }
@@ -221,7 +221,7 @@ _lib_flags(lib_roots: ptr) {
     out = ""
     i = 0
     while i < n {
-        r, _ = list.get(lib_roots, i)
+        r, _ = list.get_string(lib_roots, i)
         out = string.concat(out, string.concat(" --lib '", string.concat(r, "'")))
         i = i + 1
     }

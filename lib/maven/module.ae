@@ -64,7 +64,7 @@ mvn_resolve_cmd(resolver_jar: string, bom_files: ptr, boms: ptr, repos: ptr, dep
         n = list.size(bom_files)
         i = 0
         while i < n {
-            f, _ = list.get(bom_files, i)
+            f, _ = list.get_string(bom_files, i)
             cmd = string.concat(cmd, " --bom-file ${f}")
             i = i + 1
         }
@@ -74,7 +74,7 @@ mvn_resolve_cmd(resolver_jar: string, bom_files: ptr, boms: ptr, repos: ptr, dep
         n = list.size(boms)
         i = 0
         while i < n {
-            b, _ = list.get(boms, i)
+            b, _ = list.get_string(boms, i)
             cmd = string.concat(cmd, " --bom ${b}")
             i = i + 1
         }
@@ -84,7 +84,7 @@ mvn_resolve_cmd(resolver_jar: string, bom_files: ptr, boms: ptr, repos: ptr, dep
         n = list.size(repos)
         i = 0
         while i < n {
-            r, _ = list.get(repos, i)
+            r, _ = list.get_string(repos, i)
             cmd = string.concat(cmd, " --repo ${r}")
             i = i + 1
         }
@@ -94,7 +94,7 @@ mvn_resolve_cmd(resolver_jar: string, bom_files: ptr, boms: ptr, repos: ptr, dep
         n = list.size(deps)
         i = 0
         while i < n {
-            d, _ = list.get(deps, i)
+            d, _ = list.get_string(deps, i)
             cmd = string.concat(cmd, " ${d}")
             i = i + 1
         }

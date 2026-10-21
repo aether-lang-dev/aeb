@@ -456,7 +456,7 @@ builder run(): int {
 
     i = 0
     while i < n {
-        s, _ = list.get(scripts, i)
+        s, _ = list.get_string(scripts, i)
         full = _resolve_script_path(source_dir, s)
         println("${mod_dir}: running ${s}")
         rc = bldr._sh("bash ${full}")
@@ -743,7 +743,7 @@ builder test(): int {
     } else {
         i = 0
         while i < n {
-            s, _ = list.get(scripts, i)
+            s, _ = list.get_string(scripts, i)
             full = _resolve_script_path(source_dir, s)
             cmd = bash_chain_cmd(pre_cmds, full, post_cmds)
             rc = bldr._sh(cmd)
@@ -788,7 +788,7 @@ builder test(): int {
                     env_prefix = "AEB_TEST_PASSED=${passed} AEB_TEST_FAILED=${failed} AEB_TEST_TOTAL=${n} AEB_MODULE_DIR='${mod_dir}'"
                     fci = 0
                     while fci < fc_n {
-                        fcmd, _ = list.get(fail_cmds, fci)
+                        fcmd, _ = list.get_string(fail_cmds, fci)
                         full_cmd = string.concat(env_prefix, " bash -c '")
                         full_cmd = string.concat(full_cmd, fcmd)
                         full_cmd = string.concat(full_cmd, "'")

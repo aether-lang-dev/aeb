@@ -194,7 +194,7 @@ run(_ctx: ptr, prog: string, args: string) {
 _cc_of(opts: ptr) {
     if opts != null {
         if map.has(opts, "c_cc") == 1 {
-            v, _ = map.get(opts, "c_cc")
+            v, _ = map.get_string(opts, "c_cc")
             return v
         }
     }
@@ -204,7 +204,7 @@ _cc_of(opts: ptr) {
 _opt_str(opts: ptr, key: string) {
     if opts != null {
         if map.has(opts, key) == 1 {
-            v, _ = map.get(opts, key)
+            v, _ = map.get_string(opts, key)
             return v
         }
     }
@@ -472,7 +472,7 @@ builder compile(): int {
     objects = ""
     i = 0
     while i < n {
-        src, _ = list.get(srcs, i)
+        src, _ = list.get_string(srcs, i)
         i = i + 1
         // object name: src path basename with .o
         base = path.basename(src)
@@ -553,7 +553,7 @@ builder aether_objects(): int {
     objects = ""
     i = 0
     while i < n {
-        ae_rel, _ = list.get(ae_srcs, i)
+        ae_rel, _ = list.get_string(ae_srcs, i)
         i = i + 1
         ae_full = path.join(source_dir, ae_rel)
         stem = _gen_stem(ae_rel)
@@ -602,7 +602,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
     i = 0
     sn = list.size(srcs)
     while i < sn {
-        src, _ = list.get(srcs, i)
+        src, _ = list.get_string(srcs, i)
         i = i + 1
         obj = path.join(obj_dir, string.concat(_strip_ext(path.basename(src)), ".o"))
         cc1 = "cd ${source_dir} && ${compiler} ${cflags}${inc_flags} -c -o ${obj} ${src}"
@@ -635,7 +635,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
         tool_gens = list.new()
         k = 0
         while k < aen {
-            ae_rel, _ = list.get(ae_srcs, k)
+            ae_rel, _ = list.get_string(ae_srcs, k)
             k = k + 1
             ae_full = path.join(source_dir, ae_rel)
             stem = _gen_stem(ae_rel)
@@ -901,7 +901,7 @@ builder program(): int {
     own_objs = ""
     i = 0
     while i < n {
-        src, _ = list.get(srcs, i)
+        src, _ = list.get_string(srcs, i)
         i = i + 1
         base = path.basename(src)
         obj = path.join(obj_dir, string.concat(_strip_ext(base), ".o"))
@@ -939,7 +939,7 @@ builder program(): int {
         gens = list.new()
         k = 0
         while k < ae_n {
-            ae_rel, _ = list.get(ae_srcs, k)
+            ae_rel, _ = list.get_string(ae_srcs, k)
             k = k + 1
             ae_full = path.join(source_dir, ae_rel)
             stem = _gen_stem(ae_rel)
@@ -1294,7 +1294,7 @@ _c_compile_shipped(gen_cs: ptr, source_dir: string, obj_dir: string,
     if n > 0 { bldr._mkdirs(obj_dir) }
     i = 0
     while i < n {
-        s, _ = list.get(srcs, i)
+        s, _ = list.get_string(srcs, i)
         i = i + 1
         if rc == 0 {
             // Path-unique object name, so two modules' foo.c never collide.

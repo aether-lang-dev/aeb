@@ -221,7 +221,7 @@ gleam_toml_content(opts: ptr) {
 
     if opts != null {
         if map.has(opts, "manifest_target") == 1 {
-            tgt, _ = map.get(opts, "manifest_target")
+            tgt, _ = map.get_string(opts, "manifest_target")
             if string.length(tgt) > 0 { toml = string.concat(toml, "target = \"${tgt}\"\n") }
         }
     }
@@ -262,13 +262,13 @@ gleam_toml_content(opts: ptr) {
         n = list.size(nd)
         i = 0
         while i < n {
-            app, _ = list.get(nd, i)
+            app, _ = list.get_string(nd, i)
             i = i + 1
             toml = string.concat(toml, "${app} = { application = \"${app}\" }\n")
         }
         if opts != null {
             if map.has(opts, "manifest_engine_from") == 1 {
-                ef, _ = map.get(opts, "manifest_engine_from")
+                ef, _ = map.get_string(opts, "manifest_engine_from")
                 if string.length(ef) > 0 { toml = string.concat(toml, "erl_libs = \"${ef}\"\n") }
             }
         }

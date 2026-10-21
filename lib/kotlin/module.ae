@@ -88,15 +88,15 @@ kotlinc_cmd(kotlinc_bin: string, classes_dir: string, classpath: string, file_li
 
     if opts != null {
         if map.has(opts, "jvm_target") == 1 {
-            val, _ = map.get(opts, "jvm_target")
+            val, _ = map.get_string(opts, "jvm_target")
             cmd = string.concat(cmd, " -jvm-target ${val}")
         }
         if map.has(opts, "api_version") == 1 {
-            val, _ = map.get(opts, "api_version")
+            val, _ = map.get_string(opts, "api_version")
             cmd = string.concat(cmd, " -api-version ${val}")
         }
         if map.has(opts, "language_version") == 1 {
-            val, _ = map.get(opts, "language_version")
+            val, _ = map.get_string(opts, "language_version")
             cmd = string.concat(cmd, " -language-version ${val}")
         }
         if map.has(opts, "werror") == 1 {
@@ -109,11 +109,11 @@ kotlinc_cmd(kotlinc_bin: string, classes_dir: string, classpath: string, file_li
             cmd = string.concat(cmd, " -verbose")
         }
         if map.has(opts, "compiler_plugin") == 1 {
-            val, _ = map.get(opts, "compiler_plugin")
+            val, _ = map.get_string(opts, "compiler_plugin")
             cmd = string.concat(cmd, " -Xplugin=${val}")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
@@ -640,11 +640,11 @@ builder kotlin_test(test_class: string): int {
     run_cmd = "'${run_java_bin}' -ea"
     if _builder != null {
         if map.has(_builder, "jvm_args") == 1 {
-            val, _ = map.get(_builder, "jvm_args")
+            val, _ = map.get_string(_builder, "jvm_args")
             run_cmd = string.concat(run_cmd, " ${val}")
         }
         if map.has(_builder, "extra") == 1 {
-            val, _ = map.get(_builder, "extra")
+            val, _ = map.get_string(_builder, "extra")
             run_cmd = string.concat(run_cmd, " ${val}")
         }
     }

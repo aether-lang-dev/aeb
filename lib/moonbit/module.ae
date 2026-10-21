@@ -442,7 +442,7 @@ builder build(): int {
     // fixed path independent of moon's backend/profile layout.
     if _builder != null {
         if map.has(_builder, "build_artifact") == 1 {
-            art_rel, _ = map.get(_builder, "build_artifact")
+            art_rel, _ = map.get_string(_builder, "build_artifact")
             if string.length(art_rel) > 0 {
                 art_abs = art_rel
                 if bldr._is_abs_path(art_rel) == 0 {

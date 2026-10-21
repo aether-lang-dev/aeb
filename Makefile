@@ -117,6 +117,7 @@ install: $(INSTALL_TOOLS)
 	fi
 	rm -rf $(SHAREDIR)/lib $(SHAREDIR)/tools $(SHAREDIR)/veto $(SHAREDIR)/sandbox
 	cp -f aeb $(SHAREDIR)/aeb
+	cp -f AETHER_PIN AETHER_FETCH $(SHAREDIR)/
 	chmod +x $(SHAREDIR)/aeb
 	cp -R lib $(SHAREDIR)/lib
 	cp -R tools $(SHAREDIR)/tools

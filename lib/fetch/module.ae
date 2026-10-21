@@ -445,9 +445,9 @@ builder file(): int {
         return 1
     }
 
-    url_str, _   = map.get(_builder, "fetch_url")
-    sha_str, _   = map.get(_builder, "fetch_sha256")
-    out_rel, _   = map.get(_builder, "fetch_output_to")
+    url_str, _   = map.get_string(_builder, "fetch_url")
+    sha_str, _   = map.get_string(_builder, "fetch_sha256")
+    out_rel, _   = map.get_string(_builder, "fetch_output_to")
     out_abs = _resolve_path(source_dir, out_rel)
     parent_dir = path.dirname(out_abs)
     bldr._mkdirs(parent_dir)
@@ -517,9 +517,9 @@ builder archive(): int {
         return 1
     }
 
-    url_str, _   = map.get(_builder, "fetch_url")
+    url_str, _   = map.get_string(_builder, "fetch_url")
     sha_str, _   = map.get(_builder, "fetch_sha256")
-    ex_rel, _    = map.get(_builder, "fetch_extract_to")
+    ex_rel, _    = map.get_string(_builder, "fetch_extract_to")
     ex_abs = _resolve_path(source_dir, ex_rel)
 
     strip = 0
@@ -660,8 +660,8 @@ builder git(): int {
         return 1
     }
 
-    repo_url, _ = map.get(_builder, "fetch_repo")
-    into_rel, _ = map.get(_builder, "fetch_into")
+    repo_url, _ = map.get_string(_builder, "fetch_repo")
+    into_rel, _ = map.get_string(_builder, "fetch_into")
     into_abs = _resolve_path(source_dir, into_rel)
 
     ref_str = ""

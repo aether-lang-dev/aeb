@@ -266,4 +266,8 @@
 # tarball ships bin/ lib/ share/ at top level and `ae`'s root discovery needs
 # that shape intact (a flattened extraction leaves std unfindable and `ae`
 # falls back to a /usr/local toolchain). The trampoline already does this.
-0.835.0
+# 0.838.0 (2026-10-21): SDKs and tools now read strings with typed container
+# getters before interpolation/printing; the agent uses std.json's exported
+# constructors and encoder. Fetch and release builds use this verified release.
+# AETHER_PIN stays at the compatible 0.835.0 floor: no newer primitive is needed.
+0.838.0

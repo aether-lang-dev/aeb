@@ -214,13 +214,13 @@ rebar_config_content(opts: ptr) {
         n = list.size(nd)
         i = 0
         while i < n {
-            app, _ = list.get(nd, i)
+            app, _ = list.get_string(nd, i)
             i = i + 1
             out = string.concat(out, "%%   native application: ${app}\n")
         }
         if opts != null {
             if map.has(opts, "manifest_engine_from") == 1 {
-                ef, _ = map.get(opts, "manifest_engine_from")
+                ef, _ = map.get_string(opts, "manifest_engine_from")
                 if string.length(ef) > 0 { out = string.concat(out, "%%   ERL_LIBS=${ef}\n") }
             }
         }
@@ -415,7 +415,7 @@ builder eunit(): int {
     // suite (neither rebar3 nor escript).
     if _builder != null {
         if map.has(_builder, "erl_run_main") == 1 {
-            rmod, _ = map.get(_builder, "erl_run_main")
+            rmod, _ = map.get_string(_builder, "erl_run_main")
             if string.length(rmod) > 0 {
                 source_dir = bldr._get(ctx, "source_dir")
                 target_dir = bldr._get(ctx, "target_dir")
@@ -449,7 +449,7 @@ builder eunit(): int {
                     pn = list.size(pl)
                     pi = 0
                     while pi < pn {
-                        pd, _ = list.get(pl, pi)
+                        pd, _ = list.get_string(pl, pi)
                         pa_flags = string.concat(pa_flags, " -pa '${pd}'")
                         pi = pi + 1
                     }
@@ -477,7 +477,7 @@ builder eunit(): int {
     // escript("…") path → run the escript directly with env + telemetry.
     if _builder != null {
         if map.has(_builder, "escript_path") == 1 {
-            sp, _ = map.get(_builder, "escript_path")
+            sp, _ = map.get_string(_builder, "escript_path")
             if string.length(sp) > 0 {
                 source_dir = bldr._get(ctx, "source_dir")
                 target_dir = bldr._get(ctx, "target_dir")

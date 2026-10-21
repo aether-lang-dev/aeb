@@ -33,7 +33,7 @@ ngc_cmd(ngc_bin: string, tsconfig_path: string, opts: ptr) {
             cmd = string.concat(cmd, " --skipLibCheck")
         }
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }

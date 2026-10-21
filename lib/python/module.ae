@@ -305,7 +305,7 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
 
     if opts != null {
         if map.has(opts, "requires_python") == 1 {
-            rp, _ = map.get(opts, "requires_python")
+            rp, _ = map.get_string(opts, "requires_python")
             toml = string.concat(toml, "requires-python = \"${rp}\"\n")
         }
     }
@@ -321,7 +321,7 @@ pyproject_toml_content(opts: ptr, dep_specs: ptr) {
         n = list.size(dep_specs)
         i = 0
         while i < n {
-            spec, _ = list.get(dep_specs, i)
+            spec, _ = list.get_string(dep_specs, i)
             toml = string.concat(toml, "    \"${spec}\",\n")
             i = i + 1
         }
@@ -465,7 +465,7 @@ builder install(): int {
     // Install from requirements file
     if _builder != null {
         if map.has(_builder, "requirements_file") == 1 {
-            req, _ = map.get(_builder, "requirements_file")
+            req, _ = map.get_string(_builder, "requirements_file")
             req_path = path.join(root, req)
             if file.exists(req_path) == 1 {
                 rc_req = bldr._sh(pip_install_requirements_cmd(pip_bin, req_path))
@@ -485,7 +485,7 @@ builder install(): int {
             count = list.size(pkgs)
             i = 0
             while i < count {
-                pkg, _ = list.get(pkgs, i)
+                pkg, _ = list.get_string(pkgs, i)
                 rc_pkg = bldr._sh(pip_install_cmd(pip_bin, pkg))
                 if rc_pkg != 0 {
                     println("${mod_dir}: install FAILED — pip could not install '${pkg}'")
@@ -532,7 +532,7 @@ builder install(): int {
             nw = list.size(wheels)
             wi = 0
             while wi < nw {
-                wline, _ = list.get(wheels, wi)
+                wline, _ = list.get_string(wheels, wi)
                 // wline is a path relative to project root
                 whl_path = path.join(root, wline)
                 rc_w = bldr._sh(pip_install_cmd(pip_bin, whl_path))
@@ -1331,7 +1331,7 @@ builder consumer_example(): int {
         na = list.size(args)
         ai = 0
         while ai < na {
-            a, _ = list.get(args, ai)
+            a, _ = list.get_string(args, ai)
             println("${mod_dir}: consumer run (${a})")
             rc = bldr._sh("${base} ${a}")
             if rc != 0 {

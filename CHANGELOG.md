@@ -4,6 +4,12 @@
 
 ### Fixed
 
+- **Build aeb with Aether 0.838.0.** SDKs and tools use typed string getters
+  before interpolation and printing, and the agent uses the exported JSON
+  constructors and encoder. `AETHER_FETCH` now selects 0.838.0 for bootstrap
+  downloads and release builds; the compatible minimum remains 0.835.0.
+  `make install` preserves both toolchain version files in the installed tree.
+
 - **Linux musl binary-package assets retain their libc suffix.**
   `aether.emit_binary_package()` with `target("x86_64-linux-musl")` or
   `target("aarch64-linux-musl")` now emits `linux-x86_64-musl` /

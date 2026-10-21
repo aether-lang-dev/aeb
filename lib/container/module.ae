@@ -210,7 +210,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
     // Explicit copies
     if opts != null {
         if map.has(opts, "copies") == 1 {
-            copies, _ = map.get(opts, "copies")
+            copies, _ = map.get_string(opts, "copies")
             cl_raw, _e1 = bldr._sh_capture("echo '${copies}' | while IFS=: read -r s d; do echo \"COPY $s $d\"; done")
             copy_lines = string.trim(cl_raw)
             df = string.concat(df, copy_lines)
@@ -238,7 +238,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
     // Env vars
     if opts != null {
         if map.has(opts, "env_vars") == 1 {
-            env_raw, _ = map.get(opts, "env_vars")
+            env_raw, _ = map.get_string(opts, "env_vars")
             el_raw, _e2 = bldr._sh_capture("echo '${env_raw}' | while IFS='=' read -r k v; do echo \"ENV $k=$v\"; done")
             env_lines = string.trim(el_raw)
             df = string.concat(df, env_lines)
@@ -249,7 +249,7 @@ dockerfile_content(artifact_path: string, opts: ptr) {
     // Ports
     if opts != null {
         if map.has(opts, "ports") == 1 {
-            ports, _ = map.get(opts, "ports")
+            ports, _ = map.get_string(opts, "ports")
             pl_raw, _e3 = bldr._sh_capture("echo '${ports}' | tr ' ' '\n' | while read -r p; do echo \"EXPOSE $p\"; done")
             port_lines = string.trim(pl_raw)
             df = string.concat(df, port_lines)
@@ -465,8 +465,8 @@ builder image(): int {
     if ctx == 0 { return 0 }
     root, _ = map.get(ctx, "root")
     target_dir, _ = map.get(ctx, "target_dir")
-    mod_dir, _ = map.get(ctx, "module_dir")
-    mod_name, _ = map.get(ctx, "module")
+    mod_dir, _ = map.get_string(ctx, "module_dir")
+    mod_name, _ = map.get_string(ctx, "module")
 
     println("${mod_dir}: building container image")
 
@@ -474,7 +474,7 @@ builder image(): int {
     img_tag = mod_name
     if _builder != null {
         if map.has(_builder, "tag") == 1 {
-            _t, _ = map.get(_builder, "tag")
+            _t, _ = map.get_string(_builder, "tag")
             img_tag = _t
         }
     }
@@ -586,13 +586,13 @@ builder image(): int {
 builder lxc(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
-    mod_dir, _ = map.get(ctx, "module_dir")
-    mod_name, _ = map.get(ctx, "module")
+    mod_dir, _ = map.get_string(ctx, "module_dir")
+    mod_name, _ = map.get_string(ctx, "module")
 
     name = mod_name
     if _builder != null {
         if map.has(_builder, "lxc_name") == 1 {
-            name, _ = map.get(_builder, "lxc_name")
+            name, _ = map.get_string(_builder, "lxc_name")
         }
     }
 
@@ -638,8 +638,8 @@ builder lxc(): int {
 builder run() {
     ctx = builder_context()
     if ctx == 0 { return string.concat("", "") }
-    mod_dir, _ = map.get(ctx, "module_dir")
-    target_dir, _ = map.get(ctx, "target_dir")
+    mod_dir, _ = map.get_string(ctx, "module_dir")
+    target_dir, _ = map.get_string(ctx, "target_dir")
 
     // When a builder-with-block is used as an expression
     // (out = container.run(b) { ... }), the closure-DSL invokes the

@@ -1357,20 +1357,20 @@ _tail_capture(path: string, n: int) {
 // build wrote none). We parse it and graft its "artifacts" array onto our
 // reply; a parse failure / absent file degrades to an empty array.
 _dispatch_reply_rich(guid: string, status: string, result: string, artifacts_body: string, log: string, kept_alive: int) {
-    reply_obj = json.create_object()
-    _s1 = json.object_set(reply_obj, "guid", json.create_string(guid))
-    _s2 = json.object_set(reply_obj, "status", json.create_string(status))
-    _s3 = json.object_set(reply_obj, "result", json.create_string(result))
-    _s4 = json.object_set(reply_obj, "log", json.create_string(log))
+    reply_obj = json.obj()
+    _s1 = json.set(reply_obj, "guid", json.str(guid))
+    _s2 = json.set(reply_obj, "status", json.str(status))
+    _s3 = json.set(reply_obj, "result", json.str(result))
+    _s4 = json.set(reply_obj, "log", json.str(log))
     // kept_alive: true = this dispatch opted out of reaping, so a process it
     // spawned may still be running on the host. Surfaced so the leak is
     // ACCOUNTABLE (the ask's requirement) — the caller sees it must tear the
     // process down (a follow-up command:"pkill …" / "kill …" dispatch). Absent
     // / false on a normal reaped dispatch.
-    if kept_alive == 1 { _sk = json.object_set(reply_obj, "kept_alive", json.create_string("true")) }
+    if kept_alive == 1 { _sk = json.set(reply_obj, "kept_alive", json.str("true")) }
 
     // Lift the artifacts array out of aeb's wrapper object, if present.
-    arts = json.create_array()
+    arts = json.arr()
     if string.length(artifacts_body) > 0 {
         parsed, perr = json.parse(artifacts_body)
         if string.length(perr) == 0 {
@@ -1387,9 +1387,9 @@ _dispatch_reply_rich(guid: string, status: string, result: string, artifacts_bod
                     if el != null {
                         // Deep-copy the element by round-tripping its text,
                         // so freeing `parsed` doesn't invalidate our array.
-                        el_txt, _se = json.stringify(el)
+                        el_txt, _se = json.encode(el)
                         el_copy, _pe = json.parse(el_txt)
-                        if el_copy != null { _aa = json.array_add(arts, el_copy) }
+                        if el_copy != null { _aa = json.push(arts, el_copy) }
                     }
                     k = k + 1
                 }
@@ -1397,9 +1397,9 @@ _dispatch_reply_rich(guid: string, status: string, result: string, artifacts_bod
             json.free(parsed)
         }
     }
-    _s5 = json.object_set(reply_obj, "artifacts", arts)
+    _s5 = json.set(reply_obj, "artifacts", arts)
 
-    body, _serr = json.stringify(reply_obj)
+    body, _serr = json.encode(reply_obj)
     json.free(reply_obj)
     return body
 }

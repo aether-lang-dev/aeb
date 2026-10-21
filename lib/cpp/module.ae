@@ -204,7 +204,7 @@ _expand_sources(source_dir: string, pats: ptr) {
     n = list.size(pats)
     i = 0
     while i < n {
-        p, _ = list.get(pats, i)
+        p, _ = list.get_string(pats, i)
         if string.length(p) > 0 {
             raw, _e = bldr._sh_capture("cd '${source_dir}' && ls -1 ${p} 2>/dev/null")
             lines = string.split(string.trim(raw), "\n")

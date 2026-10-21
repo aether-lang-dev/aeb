@@ -244,7 +244,7 @@ gemspec_content(opts: ptr) {
 
     if opts != null {
         if map.has(opts, "manifest_summary") == 1 {
-            sm, _ = map.get(opts, "manifest_summary")
+            sm, _ = map.get_string(opts, "manifest_summary")
             if string.length(sm) > 0 { out = string.concat(out, "  s.summary = \"${sm}\"\n") }
         }
     }
@@ -813,7 +813,7 @@ builder consumer_example(): int {
         na = list.size(args)
         ai = 0
         while ai < na {
-            a, _ = list.get(args, ai)
+            a, _ = list.get_string(args, ai)
             println("${mod_dir}: consumer run (${a})")
             if bldr._sh("${base} ${a}") != 0 {
                 println("${mod_dir}: consumer run (${a}) failed")

@@ -105,7 +105,7 @@ jvm_flag(_ctx: ptr, flag: string) {
 _java_opts(builder_map: ptr) {
     if builder_map != null {
         if map.has(builder_map, "groovy_target_bytecode") == 1 {
-            v, _ = map.get(builder_map, "groovy_target_bytecode")
+            v, _ = map.get_string(builder_map, "groovy_target_bytecode")
             return "JAVA_OPTS=\"-Dgroovy.target.bytecode=${v}\" "
         }
     }
@@ -573,7 +573,7 @@ builder groovyc_test(): int {
     // FileSystemCompiler through the verified jar.
     if _builder != null {
         if map.has(_builder, "run_script") == 1 {
-            script_rel, _ = map.get(_builder, "run_script")
+            script_rel, _ = map.get_string(_builder, "run_script")
             gh_s = _groovy_home()
             gcp_s = _nl_to_colon(_groovy_jars_nl(gh_s))
             launcher = _groovy_bin(gh_s)
@@ -720,7 +720,7 @@ builder groovyc_test(): int {
     // exitcode (no per-test granularity from a bare main).
     if _builder != null {
         if map.has(_builder, "main_class") == 1 {
-            main_cls, _ = map.get(_builder, "main_class")
+            main_cls, _ = map.get_string(_builder, "main_class")
             run_java = "java"
             if string.length(capable_java) > 0 { run_java = capable_java }
             // Stage resources onto the run classpath. A Groovy extension module

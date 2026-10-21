@@ -171,7 +171,7 @@ dotnet_build_cmd(csproj: string, config: string) {
 _roll_forward_prefix(bmap: ptr) {
     if bmap == null { return "" }
     if map.has(bmap, "roll_forward") == 0 { return "" }
-    v, _ = map.get(bmap, "roll_forward")
+    v, _ = map.get_string(bmap, "roll_forward")
     if string.length(v) == 0 { return "" }
     return "export DOTNET_ROLL_FORWARD=${v} && "
 }
@@ -233,19 +233,19 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
 
     if opts != null {
         if map.has(opts, "target_framework") == 1 {
-            tfm, _ = map.get(opts, "target_framework")
+            tfm, _ = map.get_string(opts, "target_framework")
             xml = string.concat(xml, "    <TargetFramework>${tfm}</TargetFramework>\n")
         }
         if map.has(opts, "root_namespace") == 1 {
-            ns, _ = map.get(opts, "root_namespace")
+            ns, _ = map.get_string(opts, "root_namespace")
             xml = string.concat(xml, "    <RootNamespace>${ns}</RootNamespace>\n")
         }
         if map.has(opts, "assembly_name") == 1 {
-            an, _ = map.get(opts, "assembly_name")
+            an, _ = map.get_string(opts, "assembly_name")
             xml = string.concat(xml, "    <AssemblyName>${an}</AssemblyName>\n")
         }
         if map.has(opts, "output_type") == 1 {
-            ot, _ = map.get(opts, "output_type")
+            ot, _ = map.get_string(opts, "output_type")
             xml = string.concat(xml, "    <OutputType>${ot}</OutputType>\n")
         }
         if map.has(opts, "nullable") == 1 {
@@ -269,19 +269,19 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
                 }
             }
             if map.has(opts, "package_id") == 1 {
-                pid, _ = map.get(opts, "package_id")
+                pid, _ = map.get_string(opts, "package_id")
                 xml = string.concat(xml, "    <PackageId>${pid}</PackageId>\n")
             }
             if map.has(opts, "package_version") == 1 {
-                pv, _ = map.get(opts, "package_version")
+                pv, _ = map.get_string(opts, "package_version")
                 xml = string.concat(xml, "    <Version>${pv}</Version>\n")
             }
             if map.has(opts, "package_description") == 1 {
-                pd, _ = map.get(opts, "package_description")
+                pd, _ = map.get_string(opts, "package_description")
                 xml = string.concat(xml, "    <Description>${pd}</Description>\n")
             }
             if map.has(opts, "package_readme") == 1 {
-                prd, _ = map.get(opts, "package_readme")
+                prd, _ = map.get_string(opts, "package_readme")
                 xml = string.concat(xml, "    <PackageReadmeFile>${prd}</PackageReadmeFile>\n")
             }
         }
@@ -298,7 +298,7 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
         n = list.size(pkgrefs)
         i = 0
         while i < n {
-            entry, _ = list.get(pkgrefs, i)
+            entry, _ = list.get_string(pkgrefs, i)
             if string.contains(entry, "~") == 1 {
                 idx = string.index_of(entry, "~")
                 pkg_name = string.substring(entry, 0, idx)
@@ -325,7 +325,7 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
         n = list.size(vendored_refs)
         i = 0
         while i < n {
-            entry, _ = list.get(vendored_refs, i)
+            entry, _ = list.get_string(vendored_refs, i)
             idx = string.index_of(entry, "~")
             r_name = string.substring(entry, 0, idx)
             r_path = string.substring(entry, idx + 1, string.length(entry))
@@ -344,7 +344,7 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
         n = list.size(project_refs)
         i = 0
         while i < n {
-            ref, _ = list.get(project_refs, i)
+            ref, _ = list.get_string(project_refs, i)
             xml = string.concat(xml, "    <ProjectReference Include=\"${ref}\" />\n")
             i = i + 1
         }
@@ -404,7 +404,7 @@ csproj_content(opts: ptr, pkgrefs: ptr, vendored_refs: ptr, project_refs: ptr) {
     if opts != null {
         if map.has(opts, "is_test_project") == 0 {
             if map.has(opts, "package_readme") == 1 {
-                prf, _ = map.get(opts, "package_readme")
+                prf, _ = map.get_string(opts, "package_readme")
                 xml = string.concat(xml, "\n  <ItemGroup>\n")
                 // Empty PackagePath = package root (msbuild's portable
                 // spelling; equivalent to the Windows-ism PackagePath="\").

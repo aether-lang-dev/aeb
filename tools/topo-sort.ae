@@ -153,7 +153,7 @@ main() {
     ocount = list.size(order)
     k = 0
     while k < ocount {
-        _o, _ = list.get(order, k)
+        _o, _ = list.get_string(order, k)
         println(_o)
         k = k + 1
     }

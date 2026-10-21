@@ -27,7 +27,7 @@ jest_cmd(jest_bin: string, jest_config: string, timeout_secs: string, opts: ptr)
     cmd = "timeout ${timeout_secs} ${jest_bin} --config '${jest_config}' --passWithNoTests"
     if opts != null {
         if map.has(opts, "extra") == 1 {
-            val, _ = map.get(opts, "extra")
+            val, _ = map.get_string(opts, "extra")
             cmd = string.concat(cmd, " ${val}")
         }
     }
