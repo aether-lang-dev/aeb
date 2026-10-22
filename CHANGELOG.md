@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## v0.331 (2026-10-22)
+
+### Fixed
+
+- **Compile Java packages and the build driver with Aether 0.839.0.**
+  `aether.driver_test` uses distinct names for generated export strings and
+  fixture list values, and the scheduler reads node names with typed string
+  getters. This fixes E0200 branch-local type conflicts blocking Selaenium
+  v0.12.0's release. The minimum and fetched Aether versions are unchanged.
+
+## v0.330 (2026-10-21)
+
 ### Fixed
 
 - **Build aeb with Aether 0.838.0.** SDKs and tools use typed string getters

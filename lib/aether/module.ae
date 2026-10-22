@@ -3868,11 +3868,11 @@ builder driver_test(): int {
             }
             // Render `export <EV>="<resolved>"` — a single shell
             // statement that fits into the pre slot.
-            line = string.concat("export ", ev)
-            line = string.concat(line, "=\"")
-            line = string.concat(line, resolved)
-            line = string.concat(line, "\"")
-            list.add(but_exports, line)
+            export_line = string.concat("export ", ev)
+            export_line = string.concat(export_line, "=\"")
+            export_line = string.concat(export_line, resolved)
+            export_line = string.concat(export_line, "\"")
+            list.add(but_exports, export_line)
             i = i + 1
         }
     }
@@ -3896,8 +3896,8 @@ builder driver_test(): int {
     bn = list.size(but_exports)
     i = 0
     while i < bn {
-        line, _ = list.get(but_exports, i)
-        list.add(pre_cmds, line)
+        binary_export, _ = list.get(but_exports, i)
+        list.add(pre_cmds, binary_export)
         i = i + 1
     }
     if bldr._has_fixtures(_builder) == 1 {
@@ -3906,15 +3906,15 @@ builder driver_test(): int {
         fn = list.size(fpre)
         i = 0
         while i < fn {
-            line, _ = list.get(fpre, i)
-            list.add(pre_cmds, line)
+            fixture_pre_line, _ = list.get(fpre, i)
+            list.add(pre_cmds, fixture_pre_line)
             i = i + 1
         }
         fpn = list.size(fpost)
         i = 0
         while i < fpn {
-            line, _ = list.get(fpost, i)
-            list.add(post_cmds, line)
+            fixture_post_line, _ = list.get(fpost, i)
+            list.add(post_cmds, fixture_post_line)
             i = i + 1
         }
     }
