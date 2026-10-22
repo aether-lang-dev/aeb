@@ -270,4 +270,7 @@
 # getters before interpolation/printing; the agent uses std.json's exported
 # constructors and encoder. Fetch and release builds use this verified release.
 # AETHER_PIN stays at the compatible 0.835.0 floor: no newer primitive is needed.
-0.838.0
+# 0.839.0 (2026-10-22): verified compiler compatibility after separating
+# driver_test branch-local types and using typed scheduler node reads.
+# All 27 tools cold-compile and the full suite passes (153/153).
+0.839.0

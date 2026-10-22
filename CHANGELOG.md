@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.332 (2026-10-22)
+
+### Changed
+
+- **Use Aether 0.839.0 for bootstrap and release builds.** Both the minimum
+  version (`AETHER_PIN`) and downloaded toolchain (`AETHER_FETCH`) now select
+  the release verified against the complete 153-test suite and all 27 tools.
+
 ## v0.331 (2026-10-22)
 
 ### Fixed
