@@ -343,10 +343,10 @@ main() {
     // asks/node-nonzero-return-not-propagated-to-exit-code.md).
     sed_script = "s/^main() {/"
     sed_script = string.concat(sed_script, func_name)
-    sed_script = string.concat(sed_script, "(s: ptr): int {/\n")
+    sed_script = string.concat(sed_script, "(s: @keep ptr): int {/\n")
     sed_script = string.concat(sed_script, "s/^aeb([A-Za-z_][A-Za-z0-9_]*) {/")
     sed_script = string.concat(sed_script, func_name)
-    sed_script = string.concat(sed_script, "(s: ptr): int {/\n")
+    sed_script = string.concat(sed_script, "(s: @keep ptr): int {/\n")
     // Legacy b-form (still transformed while nodes migrate): rewrite the user's
     // `b = bldr.start()` to `b = bldr.begin(s, "label")` + the visited guard.
     sed_script = string.concat(sed_script, "s|b = bldr\\.start()|b = bldr.begin(s, \"")
@@ -435,7 +435,7 @@ main() {
     // that was already right.
     body2, rerr = io.read_file(out)
     if rerr == "" {
-        fixed = _append_node_return(body2, string.concat(func_name, "(s: ptr): int {"))
+        fixed = _append_node_return(body2, string.concat(func_name, "(s: @keep ptr): int {"))
         if fixed != "" {
             werr3 = io.write_file(out, fixed)
             if werr3 != "" {

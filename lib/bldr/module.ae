@@ -65,7 +65,7 @@ _label_dir(label: string) {
 
 // Begin a module build. Returns module context, or 0 if already done.
 // module_dir can be "test:path" / "install:path" / … for typed modules.
-begin(s: ptr, module_dir: string) {
+begin(s: @keep ptr, module_dir: string) {
     visited, _ = map.get(s, "visited")
     if map.has(visited, module_dir) == 1 {
         _null, _ = map.get(s, "_null_")
@@ -311,7 +311,7 @@ start() {
 // _session back-ref + label-typed target dir + visited-dedup. Standalone
 // (direct `aeb <file>`, no session) → start()'s env-based ctx (no _session; the
 // status API correctly no-ops). Both return the graph ctx the block threads.
-build(s: ptr, label: string) {
+build(s: @keep ptr, label: string) {
     if s == 0 {
         // Standalone: no session handle → env-var ctx (target/build/<dir>).
         return start()
