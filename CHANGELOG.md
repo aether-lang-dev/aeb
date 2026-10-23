@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## v0.334 (2026-10-23)
+
+### Fixed
+
+- **Rename a node's own helper functions only where they appear in code.**
+  aeb appends `_` to each top-level helper a node defines so two nodes can
+  share a helper name. It also rewrote the name inside string literals (a
+  `pin(i)` helper turned `"version pin(s)"` into `"version pin_(s)"`), in
+  comments, and in other modules' calls (a node-local `trim` turned
+  `string.trim(` into `string.trim_(`, which doesn't compile). The rename now
+  follows Aether's lexer: strings and comments are left alone, code inside a
+  string's `${…}` is still renamed, and `x.name` belongs to `x`. Covered by
+  `itests/node-helper-rename-scope.sh`.
+
 ## v0.333 (2026-10-23)
 
 ### Changed
