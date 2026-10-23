@@ -1551,6 +1551,37 @@ _pkg_config_libs(mod: string) {
     return string.trim(out)
 }
 
+// _published_libs_filter(raw) — PURE: the text `ae cflags --libs` printed, as
+// the " -L<dir> -l<lib> ..." run aeb appends after `-pthread -lm`, or "" when
+// there is nothing usable. Keeps every external -l<name> and every -L<dir> (on
+// macOS Homebrew's openssl, nghttp2 and pcre2 are keg-only, so `-lnghttp2`
+// without its -L fails), drops what the link line already carries
+// (-laether, -lpthread, -lm; a repeated -laether can disturb static link order
+// on MinGW) and any other token. Tested in tests/test_aether_link_flags.ae.
+_published_libs_filter(raw: string) {
+    out = ""
+    rest = string.trim(raw)
+    while string.length(rest) > 0 {
+        sp = string.index_of(rest, " ")
+        tok = rest
+        if sp >= 0 {
+            tok = string.substring(rest, 0, sp)
+            rest = string.trim(string.substring(rest, sp + 1, string.length(rest)))
+        } else {
+            rest = ""
+        }
+        keep = 0
+        if string.starts_with(tok, "-l") == 1 { keep = 1 }
+        if string.starts_with(tok, "-L") == 1 { keep = 1 }
+        if string.equals(tok, "-laether") == 1 { keep = 0 }
+        if string.equals(tok, "-lpthread") == 1 { keep = 0 }
+        if string.equals(tok, "-lm") == 1 { keep = 0 }
+        if string.length(tok) <= 2 { keep = 0 }
+        if keep == 1 { out = string.concat(out, string.concat(" ", tok)) }
+    }
+    return out
+}
+
 // _resolve_sysdeps() — the literal `-l…` run for libaether's external deps,
 // resolved in aeb rather than emitted as shell substitution.
 //
@@ -1587,11 +1618,26 @@ _resolve_sysdeps() {
             }
         }
     }
+    // AUTHORITATIVE first: `ae cflags --libs` is the exact probe-derived set
+    // libaether.a needs on THIS box, the same one tools/aeb-link's orchestrator
+    // link and `ae build` use. A hand-kept pkg-config list lagged it: it had no
+    // nghttp2, while `_link_token_is_toolchain_managed` drops `-lnghttp2` from a
+    // module's `// aether-link:` header on the grounds that sysdeps supplies it,
+    // so a program_test that pulls std.http (aether_h2.o) linked with no
+    // nghttp2 at all and died on macOS (keg-only, off the default -L) and on
+    // Linux alike. (selaenium asks/aeb-program-test-link-drops-nghttp2-on-macos.md)
+    raw_libs, _libs_err = bldr._sh_capture("${_ae_bin()} cflags --libs 2>/dev/null")
+    published = _published_libs_filter(raw_libs)
+    if string.length(published) > 0 { return published }
+    // An ae with no `cflags --libs`: the pkg-config probe, now with nghttp2 (a
+    // missing .pc contributes nothing, so a toolchain built without it is
+    // unaffected).
     out = ""
     mods = list.new()
     list.add(mods, "zlib")
     list.add(mods, "openssl")
     list.add(mods, "libpcre2-8")
+    list.add(mods, "libnghttp2")
     n = list.size(mods)
     i = 0
     while i < n {

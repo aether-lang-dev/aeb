@@ -1,0 +1,50 @@
+// Tests for the libaether system-dependency flags aeb's manual link appends
+// (lib/aether/module.ae):
+//   _published_libs_filter(raw) — PURE filter of `ae cflags --libs`
+//   _resolve_sysdeps()          — asks $AETHER, so a stub ae stands in
+//
+// The regression: `-lnghttp2` in a module's `// aether-link:` header is dropped
+// by bldr as toolchain-managed, on the grounds that sysdeps supplies it, but
+// sysdeps asked pkg-config for zlib/openssl/pcre2 only. A program_test that
+// pulled std.http linked without nghttp2 (selaenium's aether/.tests.ae on
+// macOS and Linux).
+import std.spec
+import std.string
+import std.os
+
+import aether(_published_libs_filter, _resolve_sysdeps)
+import bldr(_sh, _sh_capture, _aether_link_line_libs)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "_published_libs_filter") {
+        spec.it("keeps external -l and every -L, drops what the link line has") callback {
+            spec.assert_str_eq(
+                _published_libs_filter("-fwrapv -I/x/include -L/x/build -laether -pthread -lm -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lz -L/opt/homebrew/opt/libnghttp2/lib -lnghttp2 -lpcre2-8 -lpthread"),
+                " -L/x/build -L/opt/homebrew/opt/openssl@3/lib -lssl -lcrypto -lz -L/opt/homebrew/opt/libnghttp2/lib -lnghttp2 -lpcre2-8",
+                "nghttp2 and its keg -L survive; -laether/-pthread/-lm/-lpthread and -I/-f flags go")
+            spec.assert_str_eq(_published_libs_filter(""), "", "empty in, empty out")
+            spec.assert_str_eq(_published_libs_filter("-laether -pthread -lm"), "", "nothing external -> empty")
+        }
+    }
+
+    spec.describe(fw, "_resolve_sysdeps") {
+        spec.it("takes the set from `ae cflags --libs`, nghttp2 included") callback {
+            dir_raw, _e = _sh_capture("mktemp -d")
+            dir = string.trim(dir_raw)
+            _sh("printf '#!/bin/sh\\necho \"-L/x/build -laether -pthread -lm -L/k/lib -lssl -lcrypto -lz -lnghttp2 -lpcre2-8\"\\n' > '${dir}/ae' && chmod +x '${dir}/ae'")
+            old = os.getenv("AETHER")
+            _s1 = os.setenv("AETHER", string.concat(dir, "/ae"))
+            got = _resolve_sysdeps()
+            _s2 = os.setenv("AETHER", old)
+            spec.assert_str_eq(got, " -L/x/build -L/k/lib -lssl -lcrypto -lz -lnghttp2 -lpcre2-8", "stub ae's libs")
+            spec.assert_true(string.contains(got, "-lnghttp2"), "-lnghttp2 reaches the link line")
+            // The header token bldr drops is supplied by sysdeps, not lost.
+            spec.assert_false(string.contains(_aether_link_line_libs("-lnghttp2"), "nghttp2"), "bldr drops it from the header")
+            _sh("rm -rf '${dir}'")
+        }
+    }
+
+    return spec.run_summary(fw)
+}
