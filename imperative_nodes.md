@@ -189,8 +189,13 @@ function — natural, and encouraged. But it's another sign the node is a *progr
 **The bug it exposed (now fixed):** transform-ae renamed only the entrypoint, so
 these same-named helpers emitted duplicate extern C symbols (`ae_engine`) that
 collided at the whole-tree link. Fixed (`55f80a6`) by auto-appending `_` to every
-node-local top-level helper → file-local (static) linkage (#279). So this pattern
-is now SAFE — nodes can freely define same-named helpers.
+node-local top-level helper → file-local (static) linkage (#279). That rename was
+a word-boundary sed over the whole file, so it ALSO rewrote the helper's name in
+string literals and comments and in other modules' members (a node-local `trim`
+broke `string.trim(`), which the selenium version.py port hit as
+`"version pin_(s)"`. Fixed in `3a9a14a`: the rename now follows Aether's lexer and
+touches code only (`itests/node-helper-rename-scope.sh`). So this pattern is now
+SAFE — nodes can freely define same-named helpers.
 **Declarative note:** the *content* of these helpers (shell probes for a
 container engine, a chromedriver path) is more imperative escape-hatch (#2). A
 node that needs `_engine()` at all is orchestrating containers by hand.

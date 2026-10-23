@@ -1651,6 +1651,20 @@ aether.driver_test() {                    // Custom env-var name override.
 > (`bash.test() { bash.script("…") }`), which works but reads
 > noisily.
 
+> **Sharing code between build scripts.** A build script can't `import` a
+> module just because it sits in the same directory: aeb compiles a copy of
+> the script under `target/`, and imports resolve from the repo root, not
+> from the script's own folder. Name the module by its path from the repo
+> root instead. For `release/pins.ae` (or `release/pins/module.ae`), write
+> `import release.pins` and call `pins.match_all(…)`, namespaced by the last
+> segment. This works from any directory you run `aeb` in. The repo root is
+> the nearest directory above with an `.aeb` marker, or failing that a VCS
+> marker (`.git`, `.hg`, `.svn`, …).
+>
+> Functions a script defines for itself (a top-level `pin(i)` beside
+> `aeb(cap)`) are private to that script, so two scripts can each define a
+> helper with the same name.
+
 For `ae add` binary-package releases, `aether.emit_binary_package()` preserves
 Linux libc identities in both library and checksum names: compiler targets
 `x86_64-linux-musl` and `aarch64-linux-musl` produce release triples
