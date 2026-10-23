@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+## v0.335 (2026-10-23)
+
+### Fixed
+
+- **The sequential scheduler (`AEB_JOBS=1`, or no `make` on PATH) now runs a
+  node's deps before the node.** It walked the edge list in its stored order,
+  which starts from the requested target, so a node could run before the deps
+  it builds on. A correct build could fail, or use the previous build's
+  outputs.
+- **Skip a node whose dep failed, under every scheduler.** `make -jN` already
+  did this. The sequential loop and `AEB_SCHED=native` ran the node anyway, on
+  missing or stale inputs. The skipped node's log now names the dep that
+  failed. The exit code was already non-zero in every case.
+- **Clear each node's result marker and log at the start of a run.** A node
+  skipped this run could otherwise be reported with the previous run's
+  result, or have the previous run's log printed in the failure report.
+
+Covered by `itests/failed-dep-skips-dependents.sh` under all three
+schedulers.
+
 ## v0.334 (2026-10-23)
 
 ### Fixed
