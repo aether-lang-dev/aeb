@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.333 (2026-10-23)
+
 ### Changed
 
 - **Use Aether 0.840.0 for bootstrap and release builds.** Both the minimum
@@ -12,6 +14,8 @@
 
 ### Fixed
 
+- Keep the build session handle in node entrypoints and builder contexts,
+  satisfying Aether 0.840.0's retaining container ownership checks.
 - Close the build blocks in the target-set smoke test's guard fixtures so
   the checks exercise the intended guards.
 
