@@ -18,6 +18,7 @@ import std.io
 import std.os
 import std.fs
 import std.list
+import std.strbuilder
 
 // --- Pure-Aether transitive-import resolver (replaces resolve-imports.sh) ---
 //
@@ -116,6 +117,171 @@ _static_helper_names(src: string): ptr {
         list.add(names, name)
     }
     return names
+}
+
+_is_ident_start_code(c: int) {
+    if c == 95 { return 1 }                  // _
+    if c >= 97 { if c <= 122 { return 1 } }  // a-z
+    if c >= 65 { if c <= 90 { return 1 } }   // A-Z
+    return 0
+}
+
+_is_ident_code(c: int) {
+    if _is_ident_start_code(c) == 1 { return 1 }
+    if c >= 48 { if c <= 57 { return 1 } }   // 0-9
+    return 0
+}
+
+// _rename_helpers(text, names) — append `_` to every CODE reference to a
+// node-local helper (its def and its calls), giving it static linkage (#279).
+// Was a word-boundary sed over the whole file, which also rewrote the name
+// inside string literals (" version pin(s), found " became "pin_(s)") and in
+// comments, and turned another module's `string.trim(` into `string.trim_(`
+// when the node had its own `trim`. So this scans like aetherc's lexer
+// (compiler/parser/lexer.c read_string / skip_comment) and renames only
+// identifiers that are code:
+//   - `//` and `/* */` comments are copied verbatim;
+//   - a string literal is copied verbatim, `\x` escapes included, EXCEPT the
+//     code inside its `${…}` interpolations, which is renamed like any code
+//     (so "${pin(1)}" still calls the renamed helper). Inside `${…}` a `"` or
+//     `\"` opens a nested string, closed by `"` or `\"`, copied verbatim, and
+//     `{`/`}` nest — the same rules the lexer applies;
+//   - an identifier right after `.` is another module's member, not ours.
+_rename_helpers(text: string, names: ptr) -> string {
+    n = string.length(text)
+    sb = strbuilder.new(n + 64)
+    i = 0
+    while i < n {
+        c = string.char_at(text, i)
+        d = -1
+        if i + 1 < n { d = string.char_at(text, i + 1) }
+        if c == 47 && d == 47 {
+            // `//` comment: up to (not including) the newline
+            j = i
+            while j < n && string.char_at(text, j) != 10 { j = j + 1 }
+            strbuilder.append(sb, string.substring(text, i, j))
+            i = j
+        } else if c == 47 && d == 42 {
+            // `/* */` comment
+            j = i + 2
+            while j < n && (string.char_at(text, j) != 42 || j + 1 >= n || string.char_at(text, j + 1) != 47) { j = j + 1 }
+            j = j + 2
+            if j > n { j = n }
+            strbuilder.append(sb, string.substring(text, i, j))
+            i = j
+        } else if c == 34 {
+            i = _rename_in_string(text, i, sb, names)
+        } else if _is_ident_start_code(c) == 1 {
+            i = _rename_ident(text, i, sb, names)
+        } else if c >= 48 && c <= 57 {
+            // a number: copy its whole alnum run so `0x_ab` is never an ident
+            j = i
+            while j < n && _is_ident_code(string.char_at(text, j)) == 1 { j = j + 1 }
+            strbuilder.append(sb, string.substring(text, i, j))
+            i = j
+        } else {
+            strbuilder.append_byte(sb, c)
+            i = i + 1
+        }
+    }
+    return strbuilder.finish(sb)
+}
+
+// Copy the identifier starting at i, renamed when it is one of `names` and not
+// a member access (`x.name`). Returns the index after it.
+_rename_ident(text: string, i: int, sb: ptr, names: ptr) -> int {
+    n = string.length(text)
+    j = i
+    while j < n && _is_ident_code(string.char_at(text, j)) == 1 { j = j + 1 }
+    word = string.substring(text, i, j)
+    strbuilder.append(sb, word)
+    after_dot = 0
+    if i > 0 { if string.char_at(text, i - 1) == 46 { after_dot = 1 } }
+    if after_dot == 0 {
+        k = 0
+        nn = list.size(names)
+        while k < nn {
+            hname, _ = list.get(names, k)
+            if string.equals(word, hname) == 1 {
+                strbuilder.append(sb, "_")
+                k = nn
+            }
+            k = k + 1
+        }
+    }
+    return j
+}
+
+// Copy the string literal whose opening `"` is at i, renaming helper calls only
+// inside its `${…}` code. Returns the index after the closing `"`.
+_rename_in_string(text: string, i: int, sb: ptr, names: ptr) -> int {
+    n = string.length(text)
+    strbuilder.append_byte(sb, 34)
+    j = i + 1
+    depth = 0
+    while j < n {
+        c = string.char_at(text, j)
+        d = -1
+        if j + 1 < n { d = string.char_at(text, j + 1) }
+        if depth == 0 && c == 34 {
+            strbuilder.append_byte(sb, 34)
+            return j + 1
+        }
+        if c == 36 && d == 123 {
+            // `${` opens interpolation code
+            strbuilder.append_byte(sb, 36)
+            strbuilder.append_byte(sb, 123)
+            depth = depth + 1
+            j = j + 2
+        } else if depth > 0 && (c == 34 || (c == 92 && d == 34)) {
+            // nested string inside `${…}`, opened by `"` or `\"`: verbatim
+            k = j + 1
+            if c == 92 { k = j + 2 }
+            closed = 0
+            while k < n && closed == 0 {
+                e = string.char_at(text, k)
+                f = -1
+                if k + 1 < n { f = string.char_at(text, k + 1) }
+                if e == 34 {
+                    k = k + 1
+                    closed = 1
+                } else if e == 92 && f == 34 {
+                    k = k + 2
+                    closed = 1
+                } else if e == 92 && k + 1 < n {
+                    k = k + 2
+                } else {
+                    k = k + 1
+                }
+            }
+            if k > n { k = n }
+            strbuilder.append(sb, string.substring(text, j, k))
+            j = k
+        } else if depth > 0 && c == 123 {
+            strbuilder.append_byte(sb, c)
+            depth = depth + 1
+            j = j + 1
+        } else if depth > 0 && c == 125 {
+            strbuilder.append_byte(sb, c)
+            depth = depth - 1
+            j = j + 1
+        } else if depth > 0 && _is_ident_start_code(c) == 1 {
+            j = _rename_ident(text, j, sb, names)
+        } else if depth > 0 && c >= 48 && c <= 57 {
+            k = j
+            while k < n && _is_ident_code(string.char_at(text, k)) == 1 { k = k + 1 }
+            strbuilder.append(sb, string.substring(text, j, k))
+            j = k
+        } else if c == 92 && j + 1 < n {
+            // escape outside interpolation: backslash + escaped char verbatim
+            strbuilder.append(sb, string.substring(text, j, j + 2))
+            j = j + 2
+        } else {
+            strbuilder.append_byte(sb, c)
+            j = j + 1
+        }
+    }
+    return j
 }
 
 // _imports_retired_build(path) — 1 if the node imports the retired `build`
@@ -368,26 +534,6 @@ main() {
     // dep(b, "…"). Without this the runtime dep-dir contract breaks for Shape A.
     sed_script = string.concat(sed_script, "s|dep(\"\\([^\"]*\\)/\\.[^\"/]*\\.ae\")|dep(\"\\1\")|g\n")
 
-    // Make node-local top-level helpers file-local: append `_` to each helper
-    // NAME (def + every call site) so it gains static linkage (#279) and cannot
-    // collide with a same-named helper in another node at the whole-tree link.
-    // Word-boundary-anchored so `_engine` renames but `_engineX` / a substring
-    // does not: match the name when NOT preceded by an identifier char and NOT
-    // followed by one (before the appended `_`).
-    helpers = _static_helper_names(src)
-    hn = list.size(helpers)
-    hi = 0
-    while hi < hn {
-        hname, _ = list.get(helpers, hi)
-        hi = hi + 1
-        // s/\bNAME\b/NAME_/g  — but sed \b + our name; guard both sides.
-        sed_script = string.concat(sed_script, "s/\\b")
-        sed_script = string.concat(sed_script, hname)
-        sed_script = string.concat(sed_script, "\\b/")
-        sed_script = string.concat(sed_script, hname)
-        sed_script = string.concat(sed_script, "_/g\n")
-    }
-
     sed_file = string.concat(out, ".sed")
     werr = io.write_file(sed_file, sed_script)
     if werr != "" {
@@ -399,6 +545,25 @@ main() {
     // single quotes (and any space in a path) survive intact.
     _sh_tr("sed -f '${sed_file}' '${src}' > '${out}'")
     _sh_tr("rm -f '${sed_file}'")
+
+    // Make node-local top-level helpers file-local: append `_` to each helper
+    // (def + every code reference) so it gains static linkage (#279) and cannot
+    // collide with a same-named helper in another node at the whole-tree link.
+    // Lexer-aware, so string literals, comments and other modules' members
+    // (`string.trim`) are left alone — see _rename_helpers.
+    helpers = _static_helper_names(src)
+    if list.size(helpers) > 0 {
+        sedded, rderr = io.read_file(out)
+        if rderr != "" {
+            println(string.concat("transform-ae: ", rderr))
+            exit(1)
+        }
+        rnerr = io.write_file(out, _rename_helpers(sedded, helpers))
+        if rnerr != "" {
+            println(string.concat("transform-ae: ", rnerr))
+            exit(1)
+        }
+    }
 
     // Step 2: resolve transitive imports — PURE Aether (was resolve-imports.sh,
     // a fork-heavy bash script that hung under MSYS2's fork() emulation on
