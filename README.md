@@ -766,6 +766,10 @@ all-in-one path, not slower. If `make` isn't on PATH it falls back to a
 sequential per-node loop — same artifacts, no warning, just serial. So
 `make` is a dependency for *concurrency*, not for building at all.
 
+Every scheduler handles a failure the same way: a node whose dep failed is
+**skipped**, not run (its log says which dep failed), nodes that don't
+depend on the failure keep building, and aeb exits non-zero.
+
 > **Windows:** the emitted recipes are POSIX shell, so the `make` on
 > `PATH` must be the **MSYS/MinGW** GNU make (aeb runs it via MSYS `sh`,
 > never `cmd.exe`). Without it you get the serial path, which is a

@@ -70,11 +70,8 @@ _dep_list(deps_str: string) {
 }
 
 // _deps_satisfied(node_deps, done) -> 1 when every dep has a "done" entry.
-// A dep that FAILED still counts as done: this mirrors `make -k`, which
-// keeps building independent nodes past a failure. A dependent of a failed
-// node still runs — and fails itself on the missing artifact — exactly as
-// it does under make today. Changing that is a behaviour change, not a
-// scheduler detail, so it is deliberately NOT made here.
+// A dep that FAILED still counts as done, so the scheduler moves on; whether
+// the dependent then RUNS is _failed_dep's call, below.
 _deps_satisfied(node_deps: ptr, done: ptr) {
     m = list.size(node_deps)
     j = 0
@@ -84,6 +81,83 @@ _deps_satisfied(node_deps: ptr, done: ptr) {
         j = j + 1
     }
     return 1
+}
+
+// _failed_dep(node_deps, known, rc_dir) -> the first dep that failed or was
+// skipped, or "" when every dep passed. A node with such a dep is skipped, not
+// run: that is what `make -k` does (a recipe exits with the node's rc, so make
+// never remakes a target whose prerequisite failed), and the sequential loop
+// and native scheduler must agree with it. Running the dependent anyway builds
+// on a missing or stale artifact, and can do real work (package, publish) from
+// broken inputs. A missing .rc marker means the dep was itself skipped — the
+// markers are cleared at the start of every run, so it can't be a stale pass.
+// Deps outside this run's node set (`known`) are not judged here.
+_failed_dep(node_deps: ptr, known: ptr, rc_dir: string) -> string {
+    m = list.size(node_deps)
+    j = 0
+    while j < m {
+        d, _ = list.get_string(node_deps, j)
+        if map.has(known, d) == 1 {
+            rcm = path.join(rc_dir, string.concat(_san(d), ".rc"))
+            if file.exists(rcm) == 0 { return d }
+            rtxt, _re = io.read_file(rcm)
+            if string.equals(string.trim(rtxt), "0") == 0 { return d }
+        }
+        j = j + 1
+    }
+    return ""
+}
+
+// _topo_order(nodes, deps_of, known) -> nodes reordered so every node comes
+// after its deps. The edges file is NOT in build order (it is BFS from the
+// requested target, so the target comes FIRST); make and the native scheduler
+// order by deps themselves, but the sequential loop walks a list, so it needs
+// one. Repeated passes, each placing every node whose known deps are placed —
+// O(n²) over a DAG that is small. A pass that places nothing means a cycle
+// (aeb-main rejects those before the driver runs); the rest go in edges order.
+_topo_order(nodes: ptr, deps_of: ptr, known: ptr) {
+    out = list.new()
+    placed = map.new()
+    n = list.size(nodes)
+    progress = 1
+    while list.size(out) < n {
+        if progress == 0 {
+            k = 0
+            while k < n {
+                kn, _ = list.get_string(nodes, k)
+                if map.has(placed, kn) == 0 {
+                    _pk = map.put(placed, string.copy(kn), "1")
+                    _ak = list.add(out, string.copy(kn))
+                }
+                k = k + 1
+            }
+        } else {
+            progress = 0
+            i = 0
+            while i < n {
+                node, _ = list.get_string(nodes, i)
+                if map.has(placed, node) == 0 {
+                    nd = _dep_list(_deps_of_str(deps_of, node))
+                    ok = 1
+                    j = 0
+                    while j < list.size(nd) {
+                        d, _ = list.get_string(nd, j)
+                        if map.has(known, d) == 1 {
+                            if map.has(placed, d) == 0 { ok = 0 }
+                        }
+                        j = j + 1
+                    }
+                    if ok == 1 {
+                        _p = map.put(placed, string.copy(node), "1")
+                        _a = list.add(out, string.copy(node))
+                        progress = 1
+                    }
+                }
+                i = i + 1
+            }
+        }
+    }
+    return out
 }
 
 // _node_run_cmd(...) -> the shell command that runs ONE node, without any
@@ -430,6 +504,21 @@ main() {
     }
     nn = list.size(nodes)
 
+    // Clear last run's per-node markers and log. A node skipped this run (its
+    // dep failed) writes no .rc, and must not inherit a stale one that reads
+    // as a pass — nor a stale log that the failure report would print. `known`
+    // is this run's node set, for _failed_dep.
+    known = map.new()
+    ci = 0
+    while ci < nn {
+        cn, _ = list.get_string(nodes, ci)
+        ci = ci + 1
+        _kn = map.put(known, string.copy(cn), "1")
+        _dr = fs.delete(path.join(rc_dir, string.concat(_san(cn), ".rc")))
+        _dm = fs.delete(path.join(rc_dir, string.concat(_san(cn), ".ms")))
+        _dl = fs.delete(path.join(logs_dir, _log_name(file_to_label(cn))))
+    }
+
     // --- Per-node container routing (ladder Rung 4) ---
     // AEB_NODE_CONTAINER=1 runs each node-subprocess inside the toolchain image
     // its OWN prereq maps to (rust node → aeb-tc:rust-1.75, jdk node →
@@ -549,7 +638,22 @@ main() {
                     node, _ = list.get_string(nodes, i)
                     if map.has(started, node) == 0 {
                         ndeps = _dep_list(_deps_of_str(deps_of, node))
-                        if _deps_satisfied(ndeps, done) == 1 {
+                        ready = _deps_satisfied(ndeps, done)
+                        if ready == 1 {
+                            // A failed or skipped dep skips this node too
+                            // (no .rc marker), like make; see _failed_dep.
+                            bad = _failed_dep(ndeps, known, rc_dir)
+                            if string.length(bad) > 0 {
+                                slog = path.join(logs_dir, _log_name(file_to_label(node)))
+                                _wsk = io.write_file(slog, "skipped: dependency ${bad} failed\n")
+                                _sd0 = map.put(done, string.copy(node), "1")
+                                _ss0 = map.put(started, string.copy(node), "1")
+                                completed = completed + 1
+                                progressed = 1
+                                ready = 0
+                            }
+                        }
+                        if ready == 1 {
                             label = file_to_label(node)
                             log = path.join(logs_dir, _log_name(label))
                             inner = _node_run_cmd(out_bin, root, node, label,
@@ -720,9 +824,10 @@ main() {
         _mrc = bldr._sh(run)
     } else {
         // --- Sequential fallback (no make / AEB_JOBS=1) ---
+        seq_nodes = _topo_order(nodes, deps_of, known)
         i = 0
         while i < nn {
-            node, _ = list.get_string(nodes, i)
+            node, _ = list.get_string(seq_nodes, i)
             i = i + 1
             label = file_to_label(node)
             log = path.join(logs_dir, _log_name(label))
@@ -731,21 +836,27 @@ main() {
             // $$ to the shell's PID, so run it through bash where the
             // intent ($?) still works by stripping one '$'. Simpler: run
             // the node directly and write the rc ourselves.
-            seq_inner = _node_run_cmd(out_bin, root, node, label,
-                node_container, node_image, engine, selabel)
-            cmd = string.concat(seq_inner, " > '")
-            cmd = string.concat(cmd, log)
-            cmd = string.concat(cmd, "' 2>&1")
-            // Time the node + write a per-node duration marker (ms), so the
-            // record-build pass below can report per-node wall (the orchestrator
-            // times in-process; the driver reconstructs from markers — this is
-            // the timing equivalent of the .rc marker). See msmark read below.
-            _n_start = clock_ns()
-            rc1 = bldr._sh(cmd)
-            _n_end = clock_ns()
-            _we = io.write_file(rcmark, string.from_int(rc1))
-            msmark = path.join(rc_dir, string.concat(_san(node), ".ms"))
-            _wm = io.write_file(msmark, string.from_int((_n_end - _n_start) / 1000000))
+            // Topo order: every dep has already run or been skipped.
+            bad = _failed_dep(_dep_list(_deps_of_str(deps_of, node)), known, rc_dir)
+            if string.length(bad) > 0 {
+                _wsk = io.write_file(log, "skipped: dependency ${bad} failed\n")
+            } else {
+                seq_inner = _node_run_cmd(out_bin, root, node, label,
+                    node_container, node_image, engine, selabel)
+                cmd = string.concat(seq_inner, " > '")
+                cmd = string.concat(cmd, log)
+                cmd = string.concat(cmd, "' 2>&1")
+                // Time the node + write a per-node duration marker (ms), so the
+                // record-build pass below can report per-node wall (the orchestrator
+                // times in-process; the driver reconstructs from markers — this is
+                // the timing equivalent of the .rc marker). See msmark read below.
+                _n_start = clock_ns()
+                rc1 = bldr._sh(cmd)
+                _n_end = clock_ns()
+                _we = io.write_file(rcmark, string.from_int(rc1))
+                msmark = path.join(rc_dir, string.concat(_san(node), ".ms"))
+                _wm = io.write_file(msmark, string.from_int((_n_end - _n_start) / 1000000))
+            }
         }
     }
 

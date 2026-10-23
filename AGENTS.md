@@ -279,6 +279,16 @@ Runtime flow (one `aeb` invocation):
    Within a node, module functions are `static` per TU and the
    visited map dedups multi-imported modules.
 
+   **All three schedulers must agree on failure** (make, sequential,
+   `AEB_SCHED=native`): a node whose dep failed is skipped (no `.rc`
+   marker, a "skipped: dependency X failed" log), independent nodes keep
+   going, the run exits 1. `_edges.txt` is in BFS order from the
+   requested target, NOT build order, so any loop that walks it must
+   topo-sort first (`_topo_order`). The sequential loop once didn't and
+   ran dependents before their deps. Markers and logs are cleared per
+   run so a skipped node can't inherit a stale pass.
+   `itests/failed-dep-skips-dependents.sh` pins all of this.
+
    **Two status vocabularies, both live.** The driver writes records with
    `status` = `"pass"` / `"fail"` / `"skipped"` (the words it also emits in
    the telemetry JSON), while the in-process orchestrator writes
