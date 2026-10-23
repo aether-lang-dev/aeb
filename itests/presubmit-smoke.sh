@@ -92,7 +92,7 @@ chmod +x "$WORK/alpha/check.sh"
 cat > "$WORK/alpha/.build.ae" <<'EOF'
 import bldr
 import bash
-import bash (script)
+import bash(script)
 
 main() {
     bldr.build() {
@@ -116,7 +116,7 @@ EOF
 cat > "$WORK/beta/.tests.ae" <<'EOF'
 import bldr
 import bash
-import bash (script)
+import bash(script)
 
 main() {
     bldr.build() {
@@ -250,20 +250,21 @@ printf 'target/\nout*.txt\n' > "$GUARD/.gitignore"
 
 cat > "$GUARD/.presubmit.ae" <<'EOF'
 import bldr
-import meta (desc)
+import meta(desc)
 import std.os
 import std.string
 
 main() {
     bldr.build() {
-    ctx = builder_context()
-    meta.desc(ctx, "Must be green before push")
+        ctx = builder_context()
+        meta.desc(ctx, "Must be green before push")
 
-    dep("alpha/.build.ae")
+        dep("alpha/.build.ae")
 
-    dirty, err = os.exec("git status --porcelain")
-    if string.length(dirty) > 0 {
-        bldr.fail(ctx, "working tree not clean:\n${dirty}")
+        dirty, err = os.exec("git status --porcelain")
+        if string.length(dirty) > 0 {
+            bldr.fail(ctx, "working tree not clean:\n${dirty}")
+        }
     }
 }
 EOF
@@ -320,11 +321,12 @@ import std.os
 
 main() {
     bldr.build() {
-    ctx = builder_context()
-    dep("alpha/.build.ae")
+        ctx = builder_context()
+        dep("alpha/.build.ae")
 
-    if os.system("command -v $1 >/dev/null 2>&1") != 0 {
-        bldr.fail(ctx, "presubmit needs $1 on PATH")
+        if os.system("command -v $1 >/dev/null 2>&1") != 0 {
+            bldr.fail(ctx, "presubmit needs $1 on PATH")
+        }
     }
 }
 EOF
@@ -364,12 +366,13 @@ import std.string
 
 main() {
     bldr.build() {
-    ctx = builder_context()
-    dep("alpha/.build.ae")
+        ctx = builder_context()
+        dep("alpha/.build.ae")
 
-    _, probe_err = os.exec("command -v definitely-not-a-real-tool-xyz")
-    if string.length(probe_err) > 0 {
-        bldr.fail(ctx, "presubmit needs definitely-not-a-real-tool-xyz on PATH")
+        _, probe_err = os.exec("command -v definitely-not-a-real-tool-xyz")
+        if string.length(probe_err) > 0 {
+            bldr.fail(ctx, "presubmit needs definitely-not-a-real-tool-xyz on PATH")
+        }
     }
 }
 EOF

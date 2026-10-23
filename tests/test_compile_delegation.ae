@@ -3,7 +3,7 @@
 // _ae_build_cmd_delegated (wrap `ae build …` in a podman run against the
 // toolchain image). Pure string assembly — no I/O, no container needed.
 import std.spec
-import aether (_rewrite_under_root, _ae_build_cmd_delegated)
+import aether(_rewrite_under_root, _ae_build_cmd_delegated)
 
 main() {
     fw = spec.init()
@@ -38,7 +38,7 @@ main() {
         spec.it("default workdir") callback {
             spec.assert_str_eq(
                 _ae_build_cmd_delegated("build /work/g/g.ae -o /work/target/build/g/bin/program",
-                                        "/home/u/repo", "aeb-toolchain:slim", ""),
+                    "/home/u/repo", "aeb-toolchain:slim", ""),
                 "podman run --rm -v /home/u/repo:/work:Z -w /work --entrypoint ae aeb-toolchain:slim build /work/g/g.ae -o /work/target/build/g/bin/program",
                 "delegated podman command (default workdir)")
         }
@@ -46,7 +46,7 @@ main() {
         spec.it("module workdir") callback {
             spec.assert_str_eq(
                 _ae_build_cmd_delegated("build /work/g/g.ae -o /work/target/build/g/bin/program",
-                                        "/home/u/repo", "aeb-toolchain:slim", "/work/g"),
+                    "/home/u/repo", "aeb-toolchain:slim", "/work/g"),
                 "podman run --rm -v /home/u/repo:/work:Z -w /work/g --entrypoint ae aeb-toolchain:slim build /work/g/g.ae -o /work/target/build/g/bin/program",
                 "delegated podman command (module workdir)")
         }

@@ -12,7 +12,7 @@
 // aeb-native sequencing — the binary builds first (topo order), and a .dist
 // failure reddens this install via the normal DAG.
 import bldr
-import bldr (dep, install_launcher, from_dist, with_path)
+import bldr(dep, install_launcher, from_dist, with_path)
 
 aeb(cap) {
     bldr.build() {

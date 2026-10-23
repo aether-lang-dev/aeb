@@ -11,7 +11,7 @@
 // --lib tools` so the import resolves — multi-entry --lib, aether
 // 0.150.)
 import std.spec
-import aeblabel (extract_tag, file_to_label, infer_type)
+import aeblabel(extract_tag, file_to_label, infer_type)
 
 main() {
     fw = spec.init()

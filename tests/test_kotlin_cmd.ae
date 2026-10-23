@@ -7,8 +7,8 @@
 // purpose.
 import std.spec
 import std.map
-import kotlin (kotlinc_cmd, jvm_args, jvm_target, api_version,
-               language_version, compiler_plugin)
+import kotlin(kotlinc_cmd, jvm_args, jvm_target, api_version,
+    language_version, compiler_plugin)
 
 main() {
     fw = spec.init()

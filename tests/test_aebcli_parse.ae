@@ -12,7 +12,7 @@ import std.spec
 import std.string
 import std.list
 
-import aebcli (parse_argv, directive_kind, directive_field, env_append_value, stamp_field)
+import aebcli(parse_argv, directive_kind, directive_field, env_append_value, stamp_field)
 
 // Build an argv list from up to 5 tokens ("" = omitted).
 _argv(a: string, b: string, c: string, d: string, e: string) {

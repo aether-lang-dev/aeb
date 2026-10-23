@@ -9,7 +9,7 @@
 // aeb tools/remote-agent/.install.ae (agent + lease + keygen together).
 import bldr
 import aether
-import aether (source, output)
+import aether(source, output)
 main() {
     bldr.build() {
         aether.program() {

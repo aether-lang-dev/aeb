@@ -7,7 +7,7 @@
 // it to /bin/sh. Asserting the assembled command is the exact expected string
 // catches any recurrence of that class (a pointer render would not string-eq).
 import std.spec
-import lua (_lua_conf_cmd)
+import lua(_lua_conf_cmd)
 
 main() {
     fw = spec.init()

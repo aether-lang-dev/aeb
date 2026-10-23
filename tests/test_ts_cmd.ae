@@ -2,7 +2,7 @@
 import std.spec
 import std.map
 
-import ts (tsc_cmd, tsc_files_cmd, mocha_cmd)
+import ts(tsc_cmd, tsc_files_cmd, mocha_cmd)
 
 main() {
     fw = spec.init()

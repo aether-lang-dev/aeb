@@ -4,11 +4,11 @@
 import std.spec
 import std.string
 
-import aether (aetherc_emit_lib_cmd, aether_link_cmd, _test_bin_stem)
+import aether(aetherc_emit_lib_cmd, aether_link_cmd, _test_bin_stem)
 
 _link_opts(c_path: string, bin_path: string, lib_dir: string, inc_flags: string,
-           extras_str: string, extra_link: string, rpath_link: string,
-           user_flags: string, dup_flag: string) {
+    extras_str: string, extra_link: string, rpath_link: string,
+    user_flags: string, dup_flag: string) {
     o = map_new()
     map_put(o, "c_path", c_path)
     map_put(o, "bin_path", bin_path)
@@ -71,8 +71,8 @@ main() {
         spec.it("absolute paths") callback {
             spec.assert_str_eq(
                 aetherc_emit_lib_cmd("/home/u/.local/bin/aetherc",
-                                     "/repo/ae/svnserver/auth.ae",
-                                     "/repo/ae/svnserver/auth_generated.c", "net", ""),
+                    "/repo/ae/svnserver/auth.ae",
+                    "/repo/ae/svnserver/auth_generated.c", "net", ""),
                 "/home/u/.local/bin/aetherc --emit=lib --with=net /repo/ae/svnserver/auth.ae /repo/ae/svnserver/auth_generated.c",
                 "absolute")
         }
@@ -81,7 +81,7 @@ main() {
         spec.it("caps + lib dirs") callback {
             spec.assert_str_eq(
                 aetherc_emit_lib_cmd("aetherc", "webdriver.ae", "webdriver_generated.c",
-                                     "net,os,fs", " --lib ../selenium_core --lib ../selenium_core/drivermgr"),
+                    "net,os,fs", " --lib ../selenium_core --lib ../selenium_core/drivermgr"),
                 "aetherc --emit=lib --with=net,os,fs --lib ../selenium_core --lib ../selenium_core/drivermgr webdriver.ae webdriver_generated.c",
                 "caps+lib")
         }

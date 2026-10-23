@@ -11,13 +11,13 @@ import std.string
 import std.list
 import std.map
 
-import dotnet (dotnet_build_cmd, dotnet_test_cmd, dotnet_pack_cmd, csproj_path,
-               _resolve_csproj_path, csproj_content,
-               content_files, content_files_mode, native_runtime,
-               package_id, package_version, package_description,
-               package_readme, packable, test_project,
-               _glob_lead_dir, _last_index_of,
-               roll_forward, _roll_forward_prefix)
+import dotnet(dotnet_build_cmd, dotnet_test_cmd, dotnet_pack_cmd, csproj_path,
+    _resolve_csproj_path, csproj_content,
+    content_files, content_files_mode, native_runtime,
+    package_id, package_version, package_description,
+    package_readme, packable, test_project,
+    _glob_lead_dir, _last_index_of,
+    roll_forward, _roll_forward_prefix)
 
 main() {
     fw = spec.init()

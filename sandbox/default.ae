@@ -14,8 +14,8 @@
 // NB: $AEB_HOME and the build root are not known at authoring time, so this
 // file grants the conventional locations directly. If your aeb install or
 // build tree lives elsewhere, add the matching grant_fs_read/grant_exec.
-import sandbox (new, grant_fs_read, grant_fs_write, grant_exec, grant_env,
-                grant_fork, emit)
+import sandbox(new, grant_fs_read, grant_fs_write, grant_exec, grant_env,
+    grant_fork, emit)
 
 main() {
     s = sandbox.new()

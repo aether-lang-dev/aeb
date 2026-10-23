@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- **Use Aether 0.840.0 for bootstrap and release builds.** Both the minimum
+  version (`AETHER_PIN`) and downloaded toolchain (`AETHER_FETCH`) now select
+  0.840.0, including compatibility with std's retaining container stores.
+- Format maintained SDK, tool, test and example sources with `ae fmt` from
+  Aether 0.840.0.
+
+### Fixed
+
+- Close the build blocks in the target-set smoke test's guard fixtures so
+  the checks exercise the intended guards.
+
 ## v0.332 (2026-10-22)
 
 ### Changed

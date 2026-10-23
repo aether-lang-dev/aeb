@@ -233,12 +233,12 @@ _get_or(ctx: ptr, key: string, fallback: string) {
     return v
 }
 
-get_desc(ctx: ptr)      { return _get_or(ctx, "_meta_desc", "") }
-get_homepage(ctx: ptr)  { return _get_or(ctx, "_meta_homepage", "") }
-get_license(ctx: ptr)   { return _get_or(ctx, "_meta_license", "") }
-get_version(ctx: ptr)   { return _get_or(ctx, "_meta_version", "") }
-get_url(ctx: ptr)       { return _get_or(ctx, "_meta_url", "") }
-get_sha256(ctx: ptr)    { return _get_or(ctx, "_meta_sha256", "") }
+get_desc(ctx: ptr) { return _get_or(ctx, "_meta_desc", "") }
+get_homepage(ctx: ptr) { return _get_or(ctx, "_meta_homepage", "") }
+get_license(ctx: ptr) { return _get_or(ctx, "_meta_license", "") }
+get_version(ctx: ptr) { return _get_or(ctx, "_meta_version", "") }
+get_url(ctx: ptr) { return _get_or(ctx, "_meta_url", "") }
+get_sha256(ctx: ptr) { return _get_or(ctx, "_meta_sha256", "") }
 
 // get_maintainers(ctx) — list of maintainer strings, or empty list.
 // Caller iterates with list.size / list.get.

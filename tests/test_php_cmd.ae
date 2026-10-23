@@ -1,7 +1,7 @@
 // Tests for lib/php's pure command-string builders.
 import std.spec
-import php (phpunit_cmd, phar_runner, config_part, phar_fetch_cmd,
-            ini, php_ini_part)
+import php(phpunit_cmd, phar_runner, config_part, phar_fetch_cmd,
+    ini, php_ini_part)
 import std.list
 import std.map
 

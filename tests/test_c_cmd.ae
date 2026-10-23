@@ -4,7 +4,7 @@
 // integration test, not here.
 import std.spec
 import std.string
-import c (_include_flags, _strip_ext, _cc_of, _opt_str)
+import c(_include_flags, _strip_ext, _cc_of, _opt_str)
 
 main() {
     fw = spec.init()

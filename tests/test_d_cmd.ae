@@ -1,7 +1,7 @@
 // Tests for lib/d's pure command-string builders + flag/bin accessors.
 import std.spec
 import std.map
-import d (run_test_cmd, _d_flags_of, _d_bin_of)
+import d(run_test_cmd, _d_flags_of, _d_bin_of)
 
 main() {
     fw = spec.init()

@@ -18,7 +18,7 @@ import std.os
 import std.string
 import std.io
 
-import agent (_lease_mint, _lease_purpose_valid, _looks_like_token, _secret_strength_ok, _secret_key_material)
+import agent(_lease_mint, _lease_purpose_valid, _looks_like_token, _secret_strength_ok, _secret_key_material)
 
 extern println(s: string)
 extern exit(code: int)

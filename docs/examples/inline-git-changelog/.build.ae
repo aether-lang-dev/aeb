@@ -21,21 +21,19 @@ import std.path
 
 main() {
     bldr.build() {
-    
         // --- Idiomatic SDK builders would go here, e.g. ---
         //   java.javac() { release("21") }
         // Between them, this is plain inline Aether:
-    
         // 1. Shell out to git, capture stdout.
         log_raw, err = os.exec("git log --oneline -10")
         if string.length(err) > 0 {
             println("inline-changelog: git failed: ${err}")
             return 1
         }
-    
+
         // 2. Reformat via an adjacent function (called like any Aether fn).
         formatted = format_recent(string.trim(log_raw))
-    
+
         // 3. Write into the target dir for a later archive step to pull in.
         tdir = target_dir()
         bldr.mkdirs(tdir)
@@ -55,7 +53,7 @@ main() {
 // work; no I/O, so it's trivially testable in isolation.
 format_recent(raw: string) {
     title = "Recent changes (last 10 commits)\n"
-    rule  = "================================\n\n"
+    rule = "================================\n\n"
     out = string.concat(title, rule)
 
     n = 0

@@ -3,7 +3,7 @@
 // the pure setter surface — the config the block fills, read back.
 import std.spec
 import std.map
-import bldr (from_dist, with_path)
+import bldr(from_dist, with_path)
 
 main() {
     fw = spec.init()

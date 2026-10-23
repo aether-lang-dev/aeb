@@ -23,9 +23,9 @@ import std.string
 import std.os
 import std.io
 import bldr
-import bldr (from_dist, with_path)
+import bldr(from_dist, with_path)
 import fetch
-import fetch (repo, into, depth)
+import fetch(repo, into, depth)
 
 main() {
     fw = spec.init()

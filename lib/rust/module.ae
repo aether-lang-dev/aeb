@@ -322,17 +322,17 @@ workspace_version(_ctx: ptr, v: string) {
 }
 
 // Additional [workspace.package] fields
-workspace_license_file(_ctx: ptr, v: string)  { _e = map.put(_ctx, "license_file", v) }
-workspace_license(_ctx: ptr, v: string)  { _e = map.put(_ctx, "license", v) }
-workspace_description(_ctx: ptr, v: string)  { _e = map.put(_ctx, "description", v) }
-workspace_homepage(_ctx: ptr, v: string)  { _e = map.put(_ctx, "homepage", v) }
-workspace_repository(_ctx: ptr, v: string)  { _e = map.put(_ctx, "repository", v) }
-workspace_readme(_ctx: ptr, v: string)  { _e = map.put(_ctx, "readme", v) }
-workspace_rust_version(_ctx: ptr, v: string)  { _e = map.put(_ctx, "rust_version", v) }
-workspace_keywords(_ctx: ptr, csv: string)  { _e = map.put(_ctx, "keywords", csv) }
-workspace_categories(_ctx: ptr, csv: string)  { _e = map.put(_ctx, "categories", csv) }
+workspace_license_file(_ctx: ptr, v: string) { _e = map.put(_ctx, "license_file", v) }
+workspace_license(_ctx: ptr, v: string) { _e = map.put(_ctx, "license", v) }
+workspace_description(_ctx: ptr, v: string) { _e = map.put(_ctx, "description", v) }
+workspace_homepage(_ctx: ptr, v: string) { _e = map.put(_ctx, "homepage", v) }
+workspace_repository(_ctx: ptr, v: string) { _e = map.put(_ctx, "repository", v) }
+workspace_readme(_ctx: ptr, v: string) { _e = map.put(_ctx, "readme", v) }
+workspace_rust_version(_ctx: ptr, v: string) { _e = map.put(_ctx, "rust_version", v) }
+workspace_keywords(_ctx: ptr, csv: string) { _e = map.put(_ctx, "keywords", csv) }
+workspace_categories(_ctx: ptr, csv: string) { _e = map.put(_ctx, "categories", csv) }
 // Workspace exclude globs: workspace_exclude("crates/data,experiments/*")
-workspace_exclude(_ctx: ptr, csv: string)  { _e = map.put(_ctx, "exclude", csv) }
+workspace_exclude(_ctx: ptr, csv: string) { _e = map.put(_ctx, "exclude", csv) }
 // Pure function: opts map → workspace Cargo.toml string
 cargo_workspace_toml_content(opts: ptr) {
     toml = "[workspace]\n"

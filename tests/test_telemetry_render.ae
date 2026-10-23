@@ -9,7 +9,7 @@ import std.os
 import std.list
 import std.map
 
-import bldr (_format_telemetry_line, render_telemetry, render_telemetry_json, render_tests_json)
+import bldr(_format_telemetry_line, render_telemetry, render_telemetry_json, render_tests_json)
 
 _record(lbl: string, type_word: string, wall_ms: int, cache: string) {
     r = map.new()
@@ -100,9 +100,9 @@ main() {
         //     column shows the dir with any "<type>:" prefix stripped (_label_display).
         spec.it("3-record session") callback {
             records = list.new()
-            list.add(records, _record("ae/svnserver",      "build", 1210, "miss"))
-            list.add(records, _record("seed:ae/svnserver", "seed",  10,   "hit"))
-            list.add(records, _record("ae/wc",             "test",  3030, "n/a"))
+            list.add(records, _record("ae/svnserver", "build", 1210, "miss"))
+            list.add(records, _record("seed:ae/svnserver", "seed", 10, "hit"))
+            list.add(records, _record("ae/wc", "test", 3030, "n/a"))
             expected_block = "[telemetry]\n  build:   ae/svnserver                     1.21s [miss]\n  seed:    ae/svnserver                     0.01s [hit]\n  test:    ae/wc                            3.03s [n/a]\ntotal: 4.25s wall"
             spec.assert_str_eq(render_telemetry(records, 4250), expected_block, "render: 3-record session")
         }
@@ -181,7 +181,7 @@ main() {
             map.put(detail_rec, "test_passed", "28")
             map.put(detail_rec, "test_failed", "2")
             map.put(detail_rec, "test_failed_names",
-                    "blame against demo\texpected 'alice' got 'bob'\nlog shows three commits\texit 1")
+                "blame against demo\texpected 'alice' got 'bob'\nlog shows three commits\texit 1")
             list.add(detailed, detail_rec)
             expected_detail = "[telemetry]\n  test:    ae/wc                            5.40s [n/a] 28/30 FAIL\n          - blame against demo\texpected 'alice' got 'bob'\n          - log shows three commits\texit 1\ntotal: 5.40s wall"
             spec.assert_str_eq(render_telemetry(detailed, 5400), expected_detail,
@@ -438,7 +438,7 @@ main() {
             map.put(r, "status", "failed")
             map.put(r, "test_failed_names", "case one")
             list.add(recs, r)
-            os.setenv("AEB_REPORT", "")   // unset => full
+            os.setenv("AEB_REPORT", "") // unset => full
             out = render_telemetry(recs, 3400)
             spec.assert_contains(out, "28/30 FAIL", "full: count trailer")
             spec.assert_contains(out, "- case one", "full: fail-name detail")

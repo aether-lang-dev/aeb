@@ -348,8 +348,8 @@ main() {
         exit(1)
     }
     aether_bin = aether_args_get(1)
-    aebhome    = aether_args_get(2)
-    root       = aether_args_get(3)
+    aebhome = aether_args_get(2)
+    root = aether_args_get(3)
 
     // argv[4] is either a target path (compile this and its deps), a
     // query subcommand (`query`, `owners`, `path`, `why`), or
@@ -393,22 +393,22 @@ main() {
                         if string.equals(a4, "why") == 1 {
                             flag = "--why"
                         } else {
-                        if string.equals(a4, "why-rebuilt") == 1 {
-                            flag = "--why-rebuilt"
-                        } else {
-                            // Plain build mode: argv[4..] are ALL targets.
-                            target = strip_trailing_slash(a4)
-                            _t0 = list.add(targets, target)
-                            ti = 5
-                            tc = aether_args_count()
-                            while ti <= tc {
-                                at = aether_args_get(ti)
-                                if string.length(at) > 0 {
-                                    _tn = list.add(targets, strip_trailing_slash(at))
+                            if string.equals(a4, "why-rebuilt") == 1 {
+                                flag = "--why-rebuilt"
+                            } else {
+                                // Plain build mode: argv[4..] are ALL targets.
+                                target = strip_trailing_slash(a4)
+                                _t0 = list.add(targets, target)
+                                ti = 5
+                                tc = aether_args_count()
+                                while ti <= tc {
+                                    at = aether_args_get(ti)
+                                    if string.length(at) > 0 {
+                                        _tn = list.add(targets, strip_trailing_slash(at))
+                                    }
+                                    ti = ti + 1
                                 }
-                                ti = ti + 1
                             }
-                        }
                         }
                     }
                 }
@@ -651,14 +651,14 @@ main() {
     //                NOT build-failed=1). The "what's missing?" check. Pure
     //                probing through the build chokepoint — cross-platform.
     if string.equals(flag, "--prereqs") == 1 {
-        target = string.concat(target, "")  // keep target-mode (already pulled)
+        target = string.concat(target, "") // keep target-mode (already pulled)
     }
     if string.equals(flag, "--prereqs") == 1 {
         prereq_tokens = _collect_prereqs(extract_deps_bin, files)
         // Reject known misnames (node not nodejs, jdk not java/openjdk, …) so a
         // token never reaches a resolver ambiguously. Loud, fail-closed.
         nm = provision.check_token_names(prereq_tokens)
-        if string.length(nm) > 0 { println(nm)  exit(3) }
+        if string.length(nm) > 0 { println(nm) exit(3) }
         pq_n = list.size(prereq_tokens)
         if pq_n == 0 {
             // No output on an empty set — greppable / scriptable (like
@@ -676,7 +676,7 @@ main() {
     if string.equals(flag, "--preflight") == 1 {
         prereq_tokens = _collect_prereqs(extract_deps_bin, files)
         nm = provision.check_token_names(prereq_tokens)
-        if string.length(nm) > 0 { println(nm)  exit(3) }
+        if string.length(nm) > 0 { println(nm) exit(3) }
         pf_rc = provision.preflight(prereq_tokens)
         exit(pf_rc)
     }
@@ -915,10 +915,10 @@ main() {
     // the --since block; for --print-affected we filter `aff_out`
     // (a string) inline since that path returns early.
     pattern = os.getenv("AEB_SCAN")
-    is_since   = string.equals(flag, "--since")
-    is_aff     = string.equals(flag, "--affected")
-    is_print   = string.equals(flag, "--print-affected")
-    is_cpf     = string.equals(flag, "--changed-paths-from")
+    is_since = string.equals(flag, "--since")
+    is_aff = string.equals(flag, "--affected")
+    is_print = string.equals(flag, "--print-affected")
+    is_cpf = string.equals(flag, "--changed-paths-from")
     if is_since == 1 {
         if string.length(flag_arg) == 0 {
             println("aeb: --since requires a git ref (e.g. `aeb --since main`)")
@@ -1031,7 +1031,7 @@ main() {
             return 0
         }
         new_files = list.new()
-        new_seen  = map.new()
+        new_seen = map.new()
         rest_a = aff_out
         while string.length(rest_a) > 0 {
             nl_a = string.index_of(rest_a, "\n")
@@ -1053,7 +1053,7 @@ main() {
         // scanned set, and the topo-sort below will only walk the
         // entries it sees in `files`.
         files = new_files
-        seen  = new_seen
+        seen = new_seen
         narrowed = 1
         // Edges-file rewrite happens once below, after both --since
         // and --scan have had a chance to narrow.
@@ -1081,7 +1081,7 @@ main() {
     // applies it inline, this block applies it for build mode.)
     if string.length(pattern) > 0 {
         pat_files = list.new()
-        pat_seen  = map.new()
+        pat_seen = map.new()
         pn = list.size(files)
         pi = 0
         while pi < pn {
@@ -1108,7 +1108,7 @@ main() {
             return 0
         }
         files = pat_files
-        seen  = pat_seen
+        seen = pat_seen
         narrowed = 1
 
         // Dep-close the narrowed set. The glob filters the BUILD SET by
@@ -1281,8 +1281,8 @@ main() {
         while string.length(orest) > 0 {
             onl = string.index_of(orest, "\n")
             oline = ""
-            if onl < 0 { oline = orest  orest = "" }
-            else { oline = string.substring(orest, 0, onl)  orest = string.substring(orest, onl + 1, string.length(orest)) }
+            if onl < 0 { oline = orest orest = "" }
+            else { oline = string.substring(orest, 0, onl) orest = string.substring(orest, onl + 1, string.length(orest)) }
             oline = string.trim(oline)
             if string.length(oline) > 0 {
                 otab = string.index_of(oline, "\t")
@@ -1307,8 +1307,8 @@ main() {
         while string.length(srest) > 0 {
             snl = string.index_of(srest, "\n")
             sline = ""
-            if snl < 0 { sline = srest  srest = "" }
-            else { sline = string.substring(srest, 0, snl)  srest = string.substring(srest, snl + 1, string.length(srest)) }
+            if snl < 0 { sline = srest srest = "" }
+            else { sline = string.substring(srest, 0, snl) srest = string.substring(srest, snl + 1, string.length(srest)) }
             outline = sline
             trimmed = string.trim(sline)
             if string.length(trimmed) > 0 {
@@ -1346,13 +1346,13 @@ main() {
         if string.length(edges_now) > 0 {
             // node -> its (relabelled, leaf-dropped) dep string
             node_deps = map.new()
-            node_order = list.new()   // rows in file order
+            node_order = list.new() // rows in file order
             erest = edges_now
             while string.length(erest) > 0 {
                 enl = string.index_of(erest, "\n")
                 erow = ""
-                if enl < 0 { erow = erest  erest = "" }
-                else { erow = string.substring(erest, 0, enl)  erest = string.substring(erest, enl + 1, string.length(erest)) }
+                if enl < 0 { erow = erest erest = "" }
+                else { erow = string.substring(erest, 0, enl) erest = string.substring(erest, enl + 1, string.length(erest)) }
                 erow = string.trim(erow)
                 if string.length(erow) == 0 { continue }
                 // split node (first token) from deps (rest)
@@ -1380,15 +1380,15 @@ main() {
                 out_deps = ""
                 if is_real == 1 {
                     out_node = sub_for
-                    out_deps = ""   // leaf: drop the real's deps
+                    out_deps = "" // leaf: drop the real's deps
                 } else {
                     // relabel <real> -> <substitute> among this node's deps
                     drest = edeps
                     while string.length(drest) > 0 {
                         dsp = string.index_of(drest, " ")
                         dtok = ""
-                        if dsp < 0 { dtok = drest  drest = "" }
-                        else { dtok = string.substring(drest, 0, dsp)  drest = string.substring(drest, dsp + 1, string.length(drest)) }
+                        if dsp < 0 { dtok = drest drest = "" }
+                        else { dtok = string.substring(drest, 0, dsp) drest = string.substring(drest, dsp + 1, string.length(drest)) }
                         if string.length(dtok) > 0 {
                             dout = dtok
                             di = 0
@@ -1417,14 +1417,14 @@ main() {
             keep = map.new()
             work = list.new()
             if string.length(target) > 0 {
-                _kt0 = map.put(keep, target, "1")  _wt0 = list.add(work, string.concat(target, ""))
+                _kt0 = map.put(keep, target, "1") _wt0 = list.add(work, string.concat(target, ""))
             }
             tqn = list.size(targets)
             tqi = 0
             while tqi < tqn {
                 tqt, _ = list.get(targets, tqi)
                 tqi = tqi + 1
-                if map.has(keep, tqt) == 0 { _ktm = map.put(keep, tqt, "1")  _wtm = list.add(work, string.concat(tqt, "")) }
+                if map.has(keep, tqt) == 0 { _ktm = map.put(keep, tqt, "1") _wtm = list.add(work, string.concat(tqt, "")) }
             }
             // If no positional target (scan mode), everything is a root — keep all.
             no_target = 0
@@ -1449,8 +1449,8 @@ main() {
                         while string.length(wdr) > 0 {
                             wdsp = string.index_of(wdr, " ")
                             wdt = ""
-                            if wdsp < 0 { wdt = wdr  wdr = "" }
-                            else { wdt = string.substring(wdr, 0, wdsp)  wdr = string.substring(wdr, wdsp + 1, string.length(wdr)) }
+                            if wdsp < 0 { wdt = wdr wdr = "" }
+                            else { wdt = string.substring(wdr, 0, wdsp) wdr = string.substring(wdr, wdsp + 1, string.length(wdr)) }
                             if string.length(wdt) > 0 {
                                 if map.has(keep, wdt) == 0 {
                                     _kw = map.put(keep, wdt, "1")
@@ -1482,8 +1482,8 @@ main() {
             while string.length(frest) > 0 {
                 fnl = string.index_of(frest, "\n")
                 fline = ""
-                if fnl < 0 { fline = frest  frest = "" }
-                else { fline = string.substring(frest, 0, fnl)  frest = string.substring(frest, fnl + 1, string.length(frest)) }
+                if fnl < 0 { fline = frest frest = "" }
+                else { fline = string.substring(frest, 0, fnl) frest = string.substring(frest, fnl + 1, string.length(frest)) }
                 ft = string.trim(fline)
                 if string.length(ft) > 0 {
                     if map.has(keep, ft) == 1 {

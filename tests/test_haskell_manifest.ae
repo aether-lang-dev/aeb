@@ -3,7 +3,7 @@ import std.spec
 import std.list
 import std.map
 
-import haskell (cabal_content)
+import haskell(cabal_content)
 
 main() {
     fw = spec.init()

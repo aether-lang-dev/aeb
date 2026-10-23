@@ -6,7 +6,7 @@
 // per-it granularity), rc: 0, status "pass".
 import bldr
 import aether
-import aether (source, output)
+import aether(source, output)
 
 aeb(cap) {
     bldr.build() {

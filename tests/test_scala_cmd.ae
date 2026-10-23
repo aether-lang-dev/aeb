@@ -2,10 +2,10 @@
 import std.spec
 import std.map
 
-import scala (scalac_cmd, munit_cmd, _test_root_of, source_layout,
-              assembly_unzip_jar_cmd, assembly_copy_classes_cmd,
-              assembly_jar_cmd, _ends_with_jar,
-              main_class, output_jar)
+import scala(scalac_cmd, munit_cmd, _test_root_of, source_layout,
+    assembly_unzip_jar_cmd, assembly_copy_classes_cmd,
+    assembly_jar_cmd, _ends_with_jar,
+    main_class, output_jar)
 
 main() {
     fw = spec.init()
@@ -14,9 +14,9 @@ main() {
         spec.it("scalac_cmd basic") callback {
             spec.assert_str_eq(
                 scalac_cmd("/c/scala3-compiler.jar:/c/dotty-deps.jar",
-                           "/out/classes",
-                           "/out/classes:/lib/scala3-library.jar",
-                           "/out/sources.txt"),
+                    "/out/classes",
+                    "/out/classes:/lib/scala3-library.jar",
+                    "/out/sources.txt"),
                 "java -cp '/c/scala3-compiler.jar:/c/dotty-deps.jar' dotty.tools.dotc.Main -d '/out/classes' -cp '/out/classes:/lib/scala3-library.jar' @'/out/sources.txt'",
                 "scalac_cmd basic")
         }
@@ -24,9 +24,9 @@ main() {
         spec.it("scalac_cmd test classes") callback {
             spec.assert_str_eq(
                 scalac_cmd("/c/compiler.jar",
-                           "/out/test-classes",
-                           "/out/test-classes:/lib/lib.jar:/maven/junit.jar",
-                           "/out/test_sources.txt"),
+                    "/out/test-classes",
+                    "/out/test-classes:/lib/lib.jar:/maven/junit.jar",
+                    "/out/test_sources.txt"),
                 "java -cp '/c/compiler.jar' dotty.tools.dotc.Main -d '/out/test-classes' -cp '/out/test-classes:/lib/lib.jar:/maven/junit.jar' @'/out/test_sources.txt'",
                 "scalac_cmd test classes")
         }
@@ -34,7 +34,7 @@ main() {
         spec.it("munit_cmd basic") callback {
             spec.assert_str_eq(
                 munit_cmd("/out/test-classes:/lib/scala3.jar:/maven/junit.jar",
-                          "com.example.FooTest com.example.BarTest"),
+                    "com.example.FooTest com.example.BarTest"),
                 "java -cp '/out/test-classes:/lib/scala3.jar:/maven/junit.jar' org.junit.runner.JUnitCore com.example.FooTest com.example.BarTest",
                 "munit_cmd basic")
         }

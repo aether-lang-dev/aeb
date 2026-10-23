@@ -2,7 +2,7 @@
 // java.jar_pinned / java.mvn_repo that maps a "g:a:v" coordinate to its jar
 // location under any repo root (~/.m2/repository or a remote base URL).
 import std.spec
-import java (_pinned_relpath, _dots_to_slashes)
+import java(_pinned_relpath, _dots_to_slashes)
 
 main() {
     fw = spec.init()

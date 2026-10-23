@@ -1,7 +1,7 @@
 // Tests for lib/zig's pure command-string builders + test-summary parser.
 import std.spec
-import zig (build_cmd, test_cmd, run_cmd, _optimize_flag,
-           _parse_zig_test_counts)
+import zig(build_cmd, test_cmd, run_cmd, _optimize_flag,
+    _parse_zig_test_counts)
 
 main() {
     fw = spec.init()

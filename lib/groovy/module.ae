@@ -488,8 +488,8 @@ _resolve_capable_groovy(builder_map: ptr, dep_classpath: string, target_dir: str
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
         jar = ""
-        if nl < 0 { jar = rest  rest = "" }
-        else { jar = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { jar = rest rest = "" }
+        else { jar = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         jar = string.trim(jar)
         if string.length(jar) > 0 {
             // Enforce the declared groovy version floor: skip a jar below it (the

@@ -1,5 +1,5 @@
 import std.spec
-import aeblabel (encode_name)
+import aeblabel(encode_name)
 
 // Tests for encode_name — converts file paths to C-safe function names
 // Mirrors the bash: / → _    _ → __   - → _H_   . → _D_

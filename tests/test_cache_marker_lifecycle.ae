@@ -32,7 +32,7 @@ import std.path
 import std.dir
 
 import std.spec
-import bldr (_record_cache, _read_cache_outcome, _format_telemetry_line)
+import bldr(_record_cache, _read_cache_outcome, _format_telemetry_line)
 
 // A minimal ctx: _record_cache only reads "target_dir" off it.
 _ctx_for(td: string) {
@@ -85,9 +85,9 @@ main() {
                 "key-error is not miss")
 
             line_ke = _format_telemetry_line("apps/sketchpad", "build", 30,
-                                             "key-error", 0, 0, 0, "passed")
+                "key-error", 0, 0, 0, "passed")
             line_miss = _format_telemetry_line("apps/sketchpad", "build", 30,
-                                               "miss", 0, 0, 0, "passed")
+                "miss", 0, 0, 0, "passed")
             spec.assert_false(string.equals(line_ke, line_miss),
                 "rendered rows differ: key-error vs miss")
             spec.assert_str_eq(line_ke,

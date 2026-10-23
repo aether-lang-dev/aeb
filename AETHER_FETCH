@@ -273,4 +273,6 @@
 # 0.839.0 (2026-10-22): verified compiler compatibility after separating
 # driver_test branch-local types and using typed scheduler node reads.
 # All 27 tools cold-compile and the full suite passes (153/153).
-0.839.0
+# 0.840.0 (2026-10-23): bootstrap and release builds use the same release
+# as the floor; the session @keep compatibility fix is already in the tree.
+0.840.0

@@ -9,7 +9,7 @@
 import std.spec
 import std.string
 
-import aether (binary_package_toml_content, _ae_build_triple_to_asset)
+import aether(binary_package_toml_content, _ae_build_triple_to_asset)
 
 main() {
     fw = spec.init()

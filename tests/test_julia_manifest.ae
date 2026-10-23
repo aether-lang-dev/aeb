@@ -3,7 +3,7 @@ import std.spec
 import std.list
 import std.map
 
-import julia (project_toml_content)
+import julia(project_toml_content)
 
 main() {
     fw = spec.init()

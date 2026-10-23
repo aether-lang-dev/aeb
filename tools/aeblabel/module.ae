@@ -50,7 +50,7 @@ infer_type(file: string) {
     if string.index_of(base, ".") == 0 {
         if string.ends_with(base, ".ae") == 1 {
             // the whole stem IS the type — verbatim, no '-' split.
-            stem = string.substring(base, 1, string.length(base) - 3)  // drop leading '.' + trailing '.ae'
+            stem = string.substring(base, 1, string.length(base) - 3) // drop leading '.' + trailing '.ae'
             if string.length(stem) > 0 { return stem }
         }
     }

@@ -20,9 +20,9 @@
 // grammar test of record is this file.
 
 import std.spec
-import python (python_codegen_cmd, codegen_driver, codegen_script,
-               codegen_input, codegen_input_dir, codegen_arg,
-               codegen_output, codegen_cwd, codegen_python)
+import python(python_codegen_cmd, codegen_driver, codegen_script,
+    codegen_input, codegen_input_dir, codegen_arg,
+    codegen_output, codegen_cwd, codegen_python)
 import std.list
 import std.map
 

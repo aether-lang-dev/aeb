@@ -3,7 +3,7 @@ import std.spec
 import std.list
 import std.map
 
-import lfe (lfe_rebar_config_content)
+import lfe(lfe_rebar_config_content)
 
 main() {
     fw = spec.init()

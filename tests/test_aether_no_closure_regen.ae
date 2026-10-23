@@ -26,10 +26,10 @@
 // test_aether_transitive_regen, so the two stay in lockstep.
 
 import std.spec
-import aether (_expand_transitive_regens)
-import aether (_has_manual_overrides)
-import aether (no_closure_regen)
-import bldr (_sh, _sh_capture)
+import aether(_expand_transitive_regens)
+import aether(_has_manual_overrides)
+import aether(no_closure_regen)
+import bldr(_sh, _sh_capture)
 import std.string
 import std.os
 import std.list

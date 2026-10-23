@@ -1,6 +1,6 @@
 // Tests for cargo_build_cmd() / cargo_test_cmd() and the binary_name / extra setters.
 import std.spec
-import rust (cargo_build_cmd, cargo_test_cmd, binary_name, extra)
+import rust(cargo_build_cmd, cargo_test_cmd, binary_name, extra)
 
 main() {
     fw = spec.init()

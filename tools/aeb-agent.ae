@@ -30,12 +30,12 @@ import std.map
 import std.list
 import std.fs
 
-import agent (_scope_accepts, dispatch_reply_json, ping_json, ping_json_ex, _json_field,
-              _parse_tokens, _bearer_strip, _veto_run_rules,
-              _image_match, _lease_verify, _lease_verify_any, _lease_field,
-              _mode_offered, _branch_allowed, _autoclone_allowed, _secrets_have_token,
-              _secrets_weak_line, _secrets_no_marker_line)
-import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
+import agent(_scope_accepts, dispatch_reply_json, ping_json, ping_json_ex, _json_field,
+    _parse_tokens, _bearer_strip, _veto_run_rules,
+    _image_match, _lease_verify, _lease_verify_any, _lease_field,
+    _mode_offered, _branch_allowed, _autoclone_allowed, _secrets_have_token,
+    _secrets_weak_line, _secrets_no_marker_line)
+import veto(emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.io
 import std.file
 import std.json
@@ -119,16 +119,16 @@ _slot_capacity() {
 // mkdir_p), so the first thread to create slot-<i> owns it.
 _slot_claim() {
     root = _slot_root()
-    _mk = fs.mkdir_p(root)   // ensure the parent exists (idempotent)
+    _mk = fs.mkdir_p(root) // ensure the parent exists (idempotent)
     cap = _slot_capacity()
     i = 0
     while i < cap {
         slot = path.join(root, string.concat("slot-", string.from_int(i)))
         err = fs.create_dir(slot)
-        if string.length(err) == 0 { return slot }   // we won this slot
+        if string.length(err) == 0 { return slot } // we won this slot
         i = i + 1
     }
-    return ""   // all slots taken
+    return "" // all slots taken
 }
 
 // _slot_release(slot) — free a claimed slot (best-effort). "" = nothing to do.
@@ -208,7 +208,6 @@ _slot_clear_all() {
     return 0
 }
 
-
 // _presented_token(req) — pull the bearer from X-AEB-Token (preferred) or
 // Authorization, stripping a "Bearer " prefix. "" if neither present.
 _presented_token(req: ptr) {
@@ -234,9 +233,9 @@ _presented_token(req: ptr) {
 // Returns 1 (allowed) / 0 (refused).
 _ip_allowed(req: ptr) {
     allow = os.getenv("AEB_AGENT_ALLOW_FROM")
-    if string.length(allow) == 0 { return 1 }   // no list → no IP restriction
+    if string.length(allow) == 0 { return 1 } // no list → no IP restriction
     peer = http.request_remote_addr(req)
-    if string.length(peer) == 0 { return 0 }     // list set but no addr → fail-closed
+    if string.length(peer) == 0 { return 0 } // list set but no addr → fail-closed
     // exact match against any comma-separated entry (trimmed).
     rest = allow
     while string.length(rest) > 0 {
@@ -1018,7 +1017,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     offered = os.getenv("AEB_AGENT_PROVISION_MODES")
     if string.length(offered) == 0 { offered = "patch" }
     req_mode = _json_field(body, "mode")
-    if string.length(req_mode) == 0 { req_mode = _first_csv(offered) }   // default = first offered
+    if string.length(req_mode) == 0 { req_mode = _first_csv(offered) } // default = first offered
     dispatch_branch = _json_field(body, "branch")
     dispatch_repo = _json_field(body, "repo")
     if _mode_offered(offered, req_mode) == 0 {
@@ -1222,7 +1221,7 @@ handle_dispatch(req: ptr, res: ptr, ud: ptr) {
     run_on = os.getenv("AEB_AGENT_RUN_ON")
     rc = 0
     if string.equals(run_on, "podman") == 1 {
-        ctr_image = eff_image   // local per-dispatch image (thread-safe)
+        ctr_image = eff_image // local per-dispatch image (thread-safe)
         engine = os.getenv("AEB_CONTAINER_ENGINE")
         if string.length(engine) == 0 { engine = "podman" }
         selabel = os.getenv("AEB_CONTAINER_SELABEL")

@@ -14,7 +14,7 @@ import std.fs
 import std.list
 import std.path
 
-import bldr (_sh_capture, _aether_source_line_file, _aether_source_files_in, _aether_sources_link_str)
+import bldr(_sh_capture, _aether_source_line_file, _aether_source_files_in, _aether_sources_link_str)
 
 _mktempdir() {
     raw, _err = _sh_capture("mktemp -d")

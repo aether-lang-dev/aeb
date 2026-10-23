@@ -1,7 +1,7 @@
 // Tests for lib/cpp's pure command-string builders.
 
 import std.spec
-import cpp (cxx_compile_cmd, cxx_compile_cmd_objs, _std_flag, _join_flagged, _join_raw)
+import cpp(cxx_compile_cmd, cxx_compile_cmd_objs, _std_flag, _join_flagged, _join_raw)
 import std.list
 
 main() {

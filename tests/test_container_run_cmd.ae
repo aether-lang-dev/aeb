@@ -1,6 +1,6 @@
 // Tests for container_run_cmd() — one-shot `<engine> run` command builder
 import std.spec
-import container (container_run_cmd)
+import container(container_run_cmd)
 
 main() {
     fw = spec.init()

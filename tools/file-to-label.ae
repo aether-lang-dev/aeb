@@ -16,7 +16,7 @@
 // Prints one label per input on its own line.
 
 import std.os
-import aeblabel (file_to_label)
+import aeblabel(file_to_label)
 
 extern println(s: string)
 extern exit(code: int)

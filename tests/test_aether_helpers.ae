@@ -2,7 +2,7 @@
 //   _paired_generated_c   — .ae path → _generated.c sibling
 //   _detect_caps_from_content — `import std.X` → --with cap mapping
 import std.spec
-import aether (_paired_generated_c, _detect_caps_from_content, _union_caps, _regen_action)
+import aether(_paired_generated_c, _detect_caps_from_content, _union_caps, _regen_action)
 
 main() {
     fw = spec.init()

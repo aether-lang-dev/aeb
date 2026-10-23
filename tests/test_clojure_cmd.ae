@@ -1,10 +1,10 @@
 // Tests for clojure.clj_aot_compile_cmd, clojure.clj_load_check_cmd,
 // clojure.clj_test_cmd and the uberjar / munging helpers.
 import std.spec
-import clojure (clj_aot_compile_cmd, clj_load_check_cmd, clj_test_cmd,
-                uber_unzip_jar_cmd, uber_copy_tree_cmd, uber_jar_cmd,
-                _ns_to_main_class, _ends_with_jar,
-                main_ns, output_jar)
+import clojure(clj_aot_compile_cmd, clj_load_check_cmd, clj_test_cmd,
+    uber_unzip_jar_cmd, uber_copy_tree_cmd, uber_jar_cmd,
+    _ns_to_main_class, _ends_with_jar,
+    main_ns, output_jar)
 
 main() {
     fw = spec.init()
@@ -13,8 +13,8 @@ main() {
         spec.it("clj_aot_compile_cmd basic") callback {
             spec.assert_str_eq(
                 clj_aot_compile_cmd("/out/classes",
-                                    "/src/main:/out/classes:/maven/clojure.jar",
-                                    "myapp.core"),
+                    "/src/main:/out/classes:/maven/clojure.jar",
+                    "myapp.core"),
                 "java -Dclojure.compile.path='/out/classes' -cp '/src/main:/out/classes:/maven/clojure.jar' clojure.main -e \"(compile 'myapp.core)\"",
                 "clj_aot_compile_cmd basic")
         }
@@ -27,16 +27,16 @@ main() {
         spec.it("clj_test_cmd no timeout") callback {
             spec.assert_str_eq(
                 clj_test_cmd("/src/main:/src/test:/maven/junit.jar",
-                             "'myapp.core-test 'myapp.util-test ",
-                             ""),
+                    "'myapp.core-test 'myapp.util-test ",
+                    ""),
                 "java -cp '/src/main:/src/test:/maven/junit.jar' clojure.main -e \"(require 'myapp.core-test 'myapp.util-test ) (let [r (clojure.test/run-tests 'myapp.core-test 'myapp.util-test )] (System/exit (+ (:fail r) (:error r))))\"",
                 "clj_test_cmd no timeout")
         }
         spec.it("clj_test_cmd with timeout") callback {
             spec.assert_str_eq(
                 clj_test_cmd("/cp",
-                             "'foo-test ",
-                             "60"),
+                    "'foo-test ",
+                    "60"),
                 "timeout 60 java -cp '/cp' clojure.main -e \"(require 'foo-test ) (let [r (clojure.test/run-tests 'foo-test )] (System/exit (+ (:fail r) (:error r))))\"",
                 "clj_test_cmd with timeout")
         }

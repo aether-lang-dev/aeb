@@ -8,8 +8,8 @@
 
 import std.spec
 import bldr
-import bldr (session, begin, fail, record_status, session_handle,
-              status_of, any_failed, failures, reason_of)
+import bldr(session, begin, fail, record_status, session_handle,
+    status_of, any_failed, failures, reason_of)
 import std.string
 import std.list
 

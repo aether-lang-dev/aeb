@@ -26,7 +26,7 @@ import std.fs
 import std.io
 import std.path
 
-import bldr (_sh, _sh_capture)
+import bldr(_sh, _sh_capture)
 
 _mktempdir() {
     // Native form on Windows (see test_extract_deps_scan._mktempdir).
@@ -77,11 +77,11 @@ main() {
             // One helper call per node, not a copy of the bookkeeping.
             src = io_read(out)
             spec.assert_eq(_count(src, "_aeb_record(s, _root, _records, "), 500,
-                           "every node records through the shared helper")
+                "every node records through the shared helper")
             spec.assert_eq(_count(src, "_aeb_record(s: ptr"), 1,
-                           "the record helper is emitted exactly once")
+                "the record helper is emitted exactly once")
             spec.assert_eq(_count(src, "_aeb_selected(sel: string"), 1,
-                           "the selector helper is emitted exactly once")
+                "the selector helper is emitted exactly once")
 
             // The real gate: aetherc's lexer runs before the type-checker, so
             // an over-budget file fails here with "exceeds maximum token

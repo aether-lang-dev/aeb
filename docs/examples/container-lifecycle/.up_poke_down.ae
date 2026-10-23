@@ -38,9 +38,9 @@ main() {
         name = "aeb-cldemo"
         port = "18080"
         url = "http://localhost:${port}/"
-    
+
         // --- UP: start detached, then poll until it actually serves ---
-        _rm0 = os.system("${eng} rm -f ${name} >/dev/null 2>&1")   // idempotent
+        _rm0 = os.system("${eng} rm -f ${name} >/dev/null 2>&1") // idempotent
         rc = os.system("${eng} run -d --name ${name} -p ${port}:80 caddy:2-alpine >/dev/null")
         if rc != 0 {
             println("up: failed to start ${name}")
@@ -59,7 +59,7 @@ main() {
             }
         }
         println("up: ${name} serving at ${url}")
-    
+
         // --- POKE: hit the endpoint, capture status into an artifact ---
         status = "no-response"
         if ready == 1 {
@@ -76,12 +76,12 @@ main() {
         } else {
             println("poke: SKIPPED — ${name} never became ready on :${port}")
         }
-    
+
         // --- DOWN: unconditional teardown (never leak the container) ---
         _stop = os.system("${eng} stop ${name} >/dev/null 2>&1")
         _rm = os.system("${eng} rm -f ${name} >/dev/null 2>&1")
         println("down: stopped + removed ${name}")
-    
+
         // Fail the build iff the poke didn't pass — but only AFTER the
         // container is already torn down above.
         if string.equals(status, "200") == 0 {

@@ -10,8 +10,8 @@ import std.spec
 import std.string
 import std.list
 
-import bldr (_upper_ascii_word, _split_tabs, _synth_fixture_pre,
-              _synth_fixture_post)
+import bldr(_upper_ascii_word, _split_tabs, _synth_fixture_pre,
+    _synth_fixture_post)
 
 // Pack a fixture_seed record the way the setter does.
 _pack_seed(name: string, repo: string, seed_bin: string) {
@@ -145,7 +145,7 @@ main() {
         spec.it("server yields 4 lines") callback {
             servers = list.new()
             list.add(servers, _pack_server("primary", "/usr/bin/server",
-                                           "demo /tmp/r1 9540", 9540, 1500))
+                    "demo /tmp/r1 9540", 9540, 1500))
             pre3 = _synth_fixture_pre(null, servers)
             // 4 lines: BIN export, PORT export, spawn+PID-capture combined,
             // sleep. The spawn and PID-capture share one shell statement
@@ -178,10 +178,10 @@ main() {
         // declaration order across seeds + servers
         spec.it("declaration order: seeds then servers") callback {
             seeds_two = list.new()
-            list.add(seeds_two, _pack_seed("primary",   "/tmp/p", ""))
+            list.add(seeds_two, _pack_seed("primary", "/tmp/p", ""))
             list.add(seeds_two, _pack_seed("secondary", "/tmp/s", ""))
             servers_two = list.new()
-            list.add(servers_two, _pack_server("primary",   "/b/p", "", 9540, 1000))
+            list.add(servers_two, _pack_server("primary", "/b/p", "", 9540, 1000))
             list.add(servers_two, _pack_server("secondary", "/b/s", "", 9541, 1000))
             pre_combo = _synth_fixture_pre(seeds_two, servers_two)
             // 3 lines per seed × 2 = 6, plus 4 lines per server × 2 = 8, total 14
@@ -230,7 +230,7 @@ main() {
         spec.it("multi-server reverse-order teardown") callback {
             dol = "$"
             s_two = list.new()
-            list.add(s_two, _pack_server("source",      "/b/s1", "", 9430, 1000))
+            list.add(s_two, _pack_server("source", "/b/s1", "", 9430, 1000))
             list.add(s_two, _pack_server("destination", "/b/s2", "", 9431, 1000))
             post2 = _synth_fixture_post(null, s_two)
             spec.assert_eq(list.size(post2), 8, "post: 2 servers × 4 = 8 lines")

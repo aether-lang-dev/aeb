@@ -5,7 +5,7 @@
 // std.ipc. Format reference: aeocha-aeb-ipc-reporting.md upstream ask.
 
 import std.spec
-import bldr (_parse_aeocha_report)
+import bldr(_parse_aeocha_report)
 
 main() {
     fw = spec.init()

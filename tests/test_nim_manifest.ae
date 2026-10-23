@@ -4,7 +4,7 @@ import std.spec
 import std.list
 import std.map
 
-import nim (nimble_content)
+import nim(nimble_content)
 
 main() {
     fw = spec.init()

@@ -16,11 +16,11 @@
 //      a fresh map.
 
 import std.spec
-import fetch (fetch_curl_cmd, sha256_verify_cmd, tar_extract_cmd,
-              zip_extract_cmd, _infer_archive_flags, _is_zip_url,
-              _ends_with_p, _format_to_flags, _format_is_zip,
-              url, sha256, output_to, extract_to, strip_components,
-              format, _fetch_verified)
+import fetch(fetch_curl_cmd, sha256_verify_cmd, tar_extract_cmd,
+    zip_extract_cmd, _infer_archive_flags, _is_zip_url,
+    _ends_with_p, _format_to_flags, _format_is_zip,
+    url, sha256, output_to, extract_to, strip_components,
+    format, _fetch_verified)
 import std.string
 import std.map
 import std.os

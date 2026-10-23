@@ -4,7 +4,7 @@
 import std.spec
 import std.map
 import std.list
-import java (main_class, class_path)
+import java(main_class, class_path)
 
 main() {
     fw = spec.init()

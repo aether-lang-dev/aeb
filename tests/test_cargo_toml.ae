@@ -1,7 +1,7 @@
 // Tests for cargo_toml_content() — Cargo.toml generation from DSL
 import std.spec
 import std.map
-import rust (cargo_toml_content)
+import rust(cargo_toml_content)
 
 // Helper to add a crate dep (name=version) to opts
 _add_dep(opts: ptr, name: string, ver: string) {

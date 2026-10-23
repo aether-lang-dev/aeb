@@ -13,13 +13,13 @@
 //      `ruby_version` on a fresh map, read back the keys.
 
 import std.spec
-import ruby (bundle_install_cmd, rspec_cmd, rubocop_cmd, gem_build_cmd,
-             minitest_cmd, mri_cmd, rake_cmd,
-             gem_dep, rspec_arg, rubocop_config, gemfile,
-             bundle_path, minitest_file, test_file, mri_flag, task, build,
-             rbenv, ruby_version,
-             _ruby_env_manager, _ruby_env_version, _rbenv_version_prefix, _prefer_shim,
-             _reject_node_call, install, rspec, minitest, rubocop)
+import ruby(bundle_install_cmd, rspec_cmd, rubocop_cmd, gem_build_cmd,
+    minitest_cmd, mri_cmd, rake_cmd,
+    gem_dep, rspec_arg, rubocop_config, gemfile,
+    bundle_path, minitest_file, test_file, mri_flag, task, build,
+    rbenv, ruby_version,
+    _ruby_env_manager, _ruby_env_version, _rbenv_version_prefix, _prefer_shim,
+    _reject_node_call, install, rspec, minitest, rubocop)
 import std.list
 import std.map
 

@@ -4,7 +4,7 @@ import std.string
 import std.list
 import std.map
 
-import dotnet (csproj_content)
+import dotnet(csproj_content)
 
 main() {
     fw = spec.init()

@@ -44,7 +44,7 @@ import std.dir
 // lib/ruby's _reject_node_call.)
 _reject_node_call(_ctx: ptr, verb: string) {
     if _ctx == null { return 0 }
-    if map.has(_ctx, "target_dir") == 0 { return 0 }   // fresh block map → correct use
+    if map.has(_ctx, "target_dir") == 0 { return 0 } // fresh block map → correct use
     println("python.${verb}(...) is a block setter of python.install(), not a builder.")
     println("  Put it inside the install block:")
     println("      python.install() { ${verb}(...) }")
@@ -801,12 +801,12 @@ builder package(): int {
         pdm = bldr._strip_lang(pdp)
         raw_p = bldr._read_dep_artifact(ctx, pdm, "python_pypi_deps_including_transitive")
         if string.length(raw_p) > 0 {
-            string.seq_each(string.lines(string.trim(raw_p)), |ln: string| {
-                plline = string.trim(ln)
-                if string.length(plline) > 0 {
-                    _e_b = list.add(dep_specs, _pip_spec(plline))
-                }
-            })
+            string.seq_each(string.lines(string.trim(raw_p)), | ln: string | {
+                    plline = string.trim(ln)
+                    if string.length(plline) > 0 {
+                        _e_b = list.add(dep_specs, _pip_spec(plline))
+                    }
+                })
         }
         pdi = pdi + 1
     }

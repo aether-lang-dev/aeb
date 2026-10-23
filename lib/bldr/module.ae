@@ -1126,7 +1126,7 @@ _is_abs_path_bldr(p: string) {
         if string.equals(c1, ":/") == 1 { return 1 }
         if string.equals(c1, ":\\") == 1 { return 1 }
     }
-    if string.index_of(p, "\\\\") == 0 { return 1 }   // UNC \\server\share
+    if string.index_of(p, "\\\\") == 0 { return 1 } // UNC \\server\share
     return 0
 }
 
@@ -1509,10 +1509,10 @@ _cmd_caret_escape(s: string) {
         rest = string.substring(rest, 1, string.length(rest))
         if string.equals(ch, ">") == 1 { out = string.concat(out, "^>") }
         else { if string.equals(ch, "<") == 1 { out = string.concat(out, "^<") }
-        else { if string.equals(ch, "&") == 1 { out = string.concat(out, "^&") }
-        else { if string.equals(ch, "|") == 1 { out = string.concat(out, "^|") }
-        else { if string.equals(ch, "^") == 1 { out = string.concat(out, "^^") }
-        else { out = string.concat(out, ch) } } } } }
+            else { if string.equals(ch, "&") == 1 { out = string.concat(out, "^&") }
+                else { if string.equals(ch, "|") == 1 { out = string.concat(out, "^|") }
+                    else { if string.equals(ch, "^") == 1 { out = string.concat(out, "^^") }
+                        else { out = string.concat(out, ch) } } } } }
     }
     return out
 }
@@ -1613,7 +1613,7 @@ _sh_script_path(cmd: string) {
         }
     }
     name = string.concat("_aeb_sh_", string.concat(string.from_int(os.getpid()),
-           string.concat("_", string.concat(string.from_int(_sh_hash(cmd)), ".sh"))))
+            string.concat("_", string.concat(string.from_int(_sh_hash(cmd)), ".sh"))))
     return string.concat(tmp, string.concat("/", name))
 }
 
@@ -1990,7 +1990,6 @@ _reset_dir(d: string) {
     _m = fs.mkdir_p(d)
 }
 
-
 // _append_lines(dst, raw) — split raw on newlines and append each trimmed,
 // non-empty line (order preserved) to list `dst`. Native replacement for the
 // `while … echo '${raw}' | sed -n '${i}p' … list.add` loop that recurs across
@@ -1999,12 +1998,12 @@ _reset_dir(d: string) {
 // it). Each stored line is an owned copy (string.copy).
 _append_lines(dst: ptr, raw: string) {
     lines = string.lines(string.trim(raw))
-    string.seq_each(lines, |ln: string| {
-        t = string.trim(ln)
-        if string.length(t) > 0 {
-            _e = list.add(dst, string.copy(t))
-        }
-    })
+    string.seq_each(lines, | ln: string | {
+            t = string.trim(ln)
+            if string.length(t) > 0 {
+                _e = list.add(dst, string.copy(t))
+            }
+        })
 }
 
 // _first_line(s) — the first line of s, native (replaces `… | head -1`). "" → "".
@@ -2156,7 +2155,7 @@ _glob_sorted_desc(patterns_nl: string, exclude_nl: string, by_basename: int) -> 
     pats_n = string.array_size(pats)
     exc = string.split(exclude_nl, "\n")
     exc_n = string.array_size(exc)
-    sa = strarr.new()   // the full paths; push_copy → array owns its copies
+    sa = strarr.new() // the full paths; push_copy → array owns its copies
     pi = 0
     while pi < pats_n {
         p = string.trim(string.array_get(pats, pi))
@@ -2410,9 +2409,9 @@ _dep_target_dir(root: string, dep_module: string) {
     if slash >= 0 { base = string.substring(dep_module, slash + 1, string.length(dep_module)) }
     if string.index_of(base, ".") == 0 {
         if string.ends_with(base, ".ae") == 1 {
-            stem = string.substring(base, 1, string.length(base) - 3)  // ".<type>.ae" → "<type>"
+            stem = string.substring(base, 1, string.length(base) - 3) // ".<type>.ae" → "<type>"
             if string.length(stem) > 0 {
-                buildtype = stem   // literal — no spelling normalization
+                buildtype = stem // literal — no spelling normalization
             }
             if slash >= 0 { dir = string.substring(dep_module, 0, slash) } else { dir = "." }
         }
@@ -2497,7 +2496,7 @@ _read_dep_artifact(ctx: ptr, dep_module: string, artifact: string) {
     if dm_slash < 0 {
         if string.index_of(dm_base, ".") == 0 {
             if string.ends_with(dm_base, ".ae") == 1 {
-                stem = string.substring(dm_base, 1, string.length(dm_base) - 3)  // ".<type>.ae" → "<type>"
+                stem = string.substring(dm_base, 1, string.length(dm_base) - 3) // ".<type>.ae" → "<type>"
                 if string.length(stem) > 0 {
                     md = _get(ctx, "module_dir")
                     // module_dir is "<buildtype>:<dir>" (e.g. "dist:tools/resolver")
@@ -2786,7 +2785,7 @@ _ensure_resolver_jar(aeb_home: string) {
     if file.exists(stamp) == 0 { return "" }
     tag_raw, _terr = _sh_capture("awk '$1==\"version\"{print $2}' '${stamp}' 2>/dev/null")
     tag = string.trim(tag_raw)
-    if string.length(tag) == 0 { return "" }   // dev/source install — no released asset
+    if string.length(tag) == 0 { return "" } // dev/source install — no released asset
     url = "https://github.com/aether-lang-dev/aeb/releases/download/${tag}/aeb-resolve.jar"
     println("resolving: fetching aeb-resolve.jar (${tag}) — first JVM build on this install")
     // Download to a temp file, sha-verify if a sidecar exists, then atomically
@@ -3153,10 +3152,10 @@ _dir_nonempty(d: string) {
     // Native recursive walk (kind 1 = regular file) — no `find … | head -1`
     // fork and no MSYS `find` dependency on Windows. Any file sets the flag.
     found = 0
-    _n, _werr = fs.walk(d, |p: string, kind: int, depth: int| {
-        if kind == 1 { found = 1 }
-        return 0
-    })
+    _n, _werr = fs.walk(d, | p: string, kind: int, depth: int | {
+            if kind == 1 { found = 1 }
+            return 0
+        })
     return found
 }
 
@@ -3414,8 +3413,8 @@ _java_ge(want: string) {
     line = ""
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
-        if nl < 0 { line = rest  rest = "" }
-        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { line = rest rest = "" }
+        else { line = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         line = string.trim(line)
         if string.length(line) > 0 { list.add(cands, line) }
     }
@@ -3923,7 +3922,7 @@ _exec_chain_body(pre_cmds: ptr, exec_cmd: string, post_cmds: ptr) {
     post_n = 0
     if post_cmds != null { post_n = list.size(post_cmds) }
 
-    dol_q  = string.concat("$", "?")
+    dol_q = string.concat("$", "?")
     dol_rc = string.concat("$", "rc")
 
     body = ""
@@ -4122,14 +4121,14 @@ _parse_aeocha_report(text: string) {
                 key = string.substring(line, 0, eq)
                 value_str = string.substring(line, eq + 1, string.length(line))
                 value, _verr = string.to_int(string.trim(value_str))
-                if string.equals(key, "passed") == 1   { passed = value }
-                if string.equals(key, "failed") == 1   { failed = value }
-                if string.equals(key, "errored") == 1  { errored = value }
+                if string.equals(key, "passed") == 1 { passed = value }
+                if string.equals(key, "failed") == 1 { failed = value }
+                if string.equals(key, "errored") == 1 { errored = value }
                 // skipped= is a std.spec 0.545 header line (skip verbs, #1610);
                 // a skipped it() is in neither passed nor failed. Older reports
                 // omit it → stays 0, backward-compatible.
-                if string.equals(key, "skipped") == 1  { skipped = value }
-                if string.equals(key, "version") == 1  { saw_version = 1 }
+                if string.equals(key, "skipped") == 1 { skipped = value }
+                if string.equals(key, "version") == 1 { saw_version = 1 }
             }
         }
     }
@@ -4306,12 +4305,12 @@ _format_telemetry_line(label: string, type_word: string, wall_ms: int, cache: st
     }
     // Wall: render ms as "N.NNs" with 2 decimals via integer math.
     secs = wall_ms / 1000
-    rem  = wall_ms - (secs * 1000)
+    rem = wall_ms - (secs * 1000)
     // Two-decimal: round to 10ms granularity.
-    cs   = (rem + 5) / 10
+    cs = (rem + 5) / 10
     if cs >= 100 {
         secs = secs + 1
-        cs   = 0
+        cs = 0
     }
     cs_str = string.from_int(cs)
     if cs < 10 { cs_str = string.concat("0", cs_str) }
@@ -4441,41 +4440,41 @@ render_telemetry(records: ptr, total_ms: int) {
         // only when rows are shown (a counts/targets tier has no FAIL line to
         // hang them under).
         if show_rows == 1 {
-        if show_fail_names == 1 {
-        if failed > 0 {
-            if map.has(rec, "test_failed_names") == 1 {
-                tfn, _ = map.get_string(rec, "test_failed_names")
-                if string.length(tfn) > 0 {
-                    rest = tfn
-                    while string.length(rest) > 0 {
-                        nl = string.index_of(rest, "\n")
-                        entry = ""
-                        if nl < 0 {
-                            entry = rest
-                            rest = ""
-                        } else {
-                            entry = string.substring(rest, 0, nl)
-                            rest = string.substring(rest, nl + 1, string.length(rest))
-                        }
-                        if string.length(entry) > 0 {
-                            out = string.concat(out, "          - ")
-                            out = string.concat(out, entry)
-                            out = string.concat(out, "\n")
+            if show_fail_names == 1 {
+                if failed > 0 {
+                    if map.has(rec, "test_failed_names") == 1 {
+                        tfn, _ = map.get_string(rec, "test_failed_names")
+                        if string.length(tfn) > 0 {
+                            rest = tfn
+                            while string.length(rest) > 0 {
+                                nl = string.index_of(rest, "\n")
+                                entry = ""
+                                if nl < 0 {
+                                    entry = rest
+                                    rest = ""
+                                } else {
+                                    entry = string.substring(rest, 0, nl)
+                                    rest = string.substring(rest, nl + 1, string.length(rest))
+                                }
+                                if string.length(entry) > 0 {
+                                    out = string.concat(out, "          - ")
+                                    out = string.concat(out, entry)
+                                    out = string.concat(out, "\n")
+                                }
+                            }
                         }
                     }
                 }
             }
         }
-        }
-        }
         i = i + 1
     }
     secs = total_ms / 1000
-    rem  = total_ms - (secs * 1000)
-    cs   = (rem + 5) / 10
+    rem = total_ms - (secs * 1000)
+    cs = (rem + 5) / 10
     if cs >= 100 {
         secs = secs + 1
-        cs   = 0
+        cs = 0
     }
     cs_str = string.from_int(cs)
     if cs < 10 { cs_str = string.concat("0", cs_str) }
@@ -4879,46 +4878,46 @@ _walk_collect(root: string, ext: string, name_excludes: string, path_excludes: s
     // Reduced to a 20-line repro and filed upstream:
     // ../aether/asks/heap-string-captured-by-closure-freed-at-callback-boundary.md
     sb = strbuilder.new(4096)
-    _n, _werr = fs.walk(root, |p: string, kind: int, depth: int| {
-        // Directory: prune the whole subtree if its path hits an exclude segment.
-        // Append "/" so a dir node ".../node_modules" matches a "/node_modules/"
-        // segment (dir paths carry no trailing slash).
-        if kind == 2 {
-            pslash = string.concat(p, "/")
-            d = 0
-            while d < pe_n {
-                sd = string.array_get(pe, d)
-                if string.length(sd) > 0 {
-                    if string.index_of(pslash, sd) >= 0 { return 1 }
+    _n, _werr = fs.walk(root, | p: string, kind: int, depth: int | {
+            // Directory: prune the whole subtree if its path hits an exclude segment.
+            // Append "/" so a dir node ".../node_modules" matches a "/node_modules/"
+            // segment (dir paths carry no trailing slash).
+            if kind == 2 {
+                pslash = string.concat(p, "/")
+                d = 0
+                while d < pe_n {
+                    sd = string.array_get(pe, d)
+                    if string.length(sd) > 0 {
+                        if string.index_of(pslash, sd) >= 0 { return 1 }
+                    }
+                    d = d + 1
                 }
-                d = d + 1
+                return 0
             }
+            if kind != 1 { return 0 }
+            if string.length(ext) > 0 {
+                if string.ends_with(p, ext) == 0 { return 0 }
+            }
+            j = 0
+            while j < ne_n {
+                s = string.array_get(ne, j)
+                if string.length(s) > 0 {
+                    if string.ends_with(p, s) == 1 { return 0 }
+                }
+                j = j + 1
+            }
+            k = 0
+            while k < pe_n {
+                s2 = string.array_get(pe, k)
+                if string.length(s2) > 0 {
+                    if string.index_of(p, s2) >= 0 { return 0 }
+                }
+                k = k + 1
+            }
+            if strbuilder.length(sb) > 0 { strbuilder.append(sb, "\n") }
+            strbuilder.append(sb, p)
             return 0
-        }
-        if kind != 1 { return 0 }
-        if string.length(ext) > 0 {
-            if string.ends_with(p, ext) == 0 { return 0 }
-        }
-        j = 0
-        while j < ne_n {
-            s = string.array_get(ne, j)
-            if string.length(s) > 0 {
-                if string.ends_with(p, s) == 1 { return 0 }
-            }
-            j = j + 1
-        }
-        k = 0
-        while k < pe_n {
-            s2 = string.array_get(pe, k)
-            if string.length(s2) > 0 {
-                if string.index_of(p, s2) >= 0 { return 0 }
-            }
-            k = k + 1
-        }
-        if strbuilder.length(sb) > 0 { strbuilder.append(sb, "\n") }
-        strbuilder.append(sb, p)
-        return 0
-    })
+        })
     string.array_free(ne)
     string.array_free(pe)
     return strbuilder.finish(sb)
@@ -4933,19 +4932,19 @@ _walk_collect(root: string, ext: string, name_excludes: string, path_excludes: s
 _dedup_dirnames(nl: string) -> string {
     out = ""
     lines = string.lines(string.trim(nl))
-    string.seq_each(lines, |ln: string| {
-        t = string.trim(ln)
-        if string.length(t) > 0 {
-            d = path.dirname(t)
-            // membership check against ":<out>:" so a substring can't false-hit
-            probe = string.concat(string.concat(":", out), ":")
-            needle = string.concat(string.concat(":", d), ":")
-            if string.index_of(probe, needle) < 0 {
-                if string.length(out) > 0 { out = string.concat(out, ":") }
-                out = string.concat(out, d)
+    string.seq_each(lines, | ln: string | {
+            t = string.trim(ln)
+            if string.length(t) > 0 {
+                d = path.dirname(t)
+                // membership check against ":<out>:" so a substring can't false-hit
+                probe = string.concat(string.concat(":", out), ":")
+                needle = string.concat(string.concat(":", d), ":")
+                if string.index_of(probe, needle) < 0 {
+                    if string.length(out) > 0 { out = string.concat(out, ":") }
+                    out = string.concat(out, d)
+                }
             }
-        }
-    })
+        })
     return out
 }
 
@@ -5245,9 +5244,9 @@ _toolchain_not_found_msg(lang: string, want: string, found_newline: string) {
     }
     if string.length(flat) == 0 { flat = found_disp }
     return string.concat(string.concat(string.concat(string.concat(
-        "toolchain not found: need ", lang), " "), want),
+                    "toolchain not found: need ", lang), " "), want),
         string.concat(string.concat("; installed: ", flat),
-                      " (aeb selects among installed runtimes — install the requested version, e.g. via sdkman/apt/setup-java)"))
+            " (aeb selects among installed runtimes — install the requested version, e.g. via sdkman/apt/setup-java)"))
 }
 
 // --- Generated-lock self-validation ---------------------------------
@@ -5271,15 +5270,15 @@ _toolchain_not_found_msg(lang: string, want: string, found_newline: string) {
 // Order of checks (most-actionable first): missing source, stale hash,
 // runtime mismatch.
 lock_validate(gen_from_path: string, embedded_hash: string, current_hash: string,
-              runtime_tag: string, locked_for_tag: string) {
+    runtime_tag: string, locked_for_tag: string) {
     if string.length(current_hash) == 0 {
         return string.concat(string.concat(
-            "lockfile references ", gen_from_path),
+                "lockfile references ", gen_from_path),
             " which is missing or unreadable — re-run the lock generator")
     }
     if string.equals(embedded_hash, current_hash) == 0 {
         return string.concat(string.concat(
-            "lockfile is stale vs ", gen_from_path),
+                "lockfile is stale vs ", gen_from_path),
             " (it changed since the lock was generated) — re-run the lock generator")
     }
     // Runtime gate only when the SDK supplies a current runtime tag AND
@@ -5288,8 +5287,8 @@ lock_validate(gen_from_path: string, embedded_hash: string, current_hash: string
         if string.length(locked_for_tag) > 0 {
             if string.equals(runtime_tag, locked_for_tag) == 0 {
                 return string.concat(string.concat(string.concat(string.concat(
-                    "lockfile was generated for ", locked_for_tag),
-                    " but this build selects "), runtime_tag),
+                                "lockfile was generated for ", locked_for_tag),
+                            " but this build selects "), runtime_tag),
                     " — re-run the lock generator for the selected runtime")
             }
         }

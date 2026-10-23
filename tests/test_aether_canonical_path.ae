@@ -7,7 +7,7 @@
 // (asks/transitive-regen-caps-shadowed-by-duplicate.md).
 
 import std.spec
-import aether (_canonical_path)
+import aether(_canonical_path)
 
 main() {
     fw = spec.init()

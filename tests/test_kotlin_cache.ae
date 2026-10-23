@@ -17,7 +17,7 @@ import std.map
 import std.path
 
 import bldr
-import kotlin (_cache_key_for_kotlinc)
+import kotlin(_cache_key_for_kotlinc)
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary

@@ -4,8 +4,8 @@
 // Covers: install_cmd, check_cmd, test_cmd, build_cmd, _target_flag,
 // and _parse_moon_test_counts. All pure (I/O-free).
 import std.spec
-import moonbit (install_cmd, check_cmd, test_cmd, build_cmd,
-                _target_flag, _parse_moon_test_counts)
+import moonbit(install_cmd, check_cmd, test_cmd, build_cmd,
+    _target_flag, _parse_moon_test_counts)
 
 main() {
     fw = spec.init()

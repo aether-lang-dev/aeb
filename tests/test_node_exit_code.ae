@@ -36,7 +36,7 @@ main() {
 
     spec.describe(fw, "node non-zero return reddens the build (e2e)") {
         spec.it_when(have_aeb, "return-code propagation over installed aeb",
-                     "aeb not on PATH") callback {
+            "aeb not on PATH") callback {
             tmp, _ = os.exec("mktemp -d")
             dir = string.trim(tmp)
 

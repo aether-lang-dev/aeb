@@ -30,8 +30,8 @@ _sort_lines(buf: string) {
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
         ln = ""
-        if nl < 0 { ln = rest  rest = "" }
-        else { ln = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { ln = rest rest = "" }
+        else { ln = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         if string.length(ln) > 0 { _a = list.add(lines, ln) }
     }
     n = list.size(lines)

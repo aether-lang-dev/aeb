@@ -108,7 +108,7 @@ _run(fw: ptr) {
 
     // --- 6. get of unknown hash returns "miss" ---
     miss_err = cache.get("0000000000000000000000000000000000000000000000000000000000000000",
-                        path.join(tmp_root, "ghost.bin"))
+        path.join(tmp_root, "ghost.bin"))
     spec.assert_str_eq(miss_err, "miss", "get miss")
 
     // --- 7. put_string / get_string round-trip ---

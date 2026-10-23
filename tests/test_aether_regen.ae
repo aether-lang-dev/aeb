@@ -13,7 +13,7 @@
 // its mtime can be bumped without touching the installed binary.
 
 import std.spec
-import aether (_run_regen_pass, _regen_target_c)
+import aether(_run_regen_pass, _regen_target_c)
 import std.string
 import std.os
 import std.file

@@ -3,7 +3,7 @@
 // PASS:/FAIL: lines via println as a side effect; tests only assert
 // the return value (the count).
 import std.spec
-import bash (_parse_xargs_output)
+import bash(_parse_xargs_output)
 
 main() {
     fw = spec.init()

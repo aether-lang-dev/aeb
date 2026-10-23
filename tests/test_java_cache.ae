@@ -16,7 +16,7 @@ import std.path
 import std.dir
 
 import bldr
-import java (_cache_key_for_javac, _jdk_version)
+import java(_cache_key_for_javac, _jdk_version)
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary

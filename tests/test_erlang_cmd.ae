@@ -2,7 +2,7 @@
 // for the run_main / NIF-engine surface (run_main, test_source, pa,
 // engine_lib, link_engine).
 import std.spec
-import erlang (escript_cmd, run_main, test_source, pa, engine_lib, link_engine)
+import erlang(escript_cmd, run_main, test_source, pa, engine_lib, link_engine)
 import std.list
 import std.map
 

@@ -4,7 +4,7 @@ import std.spec
 import std.list
 import std.map
 
-import javascript (package_json_content)
+import javascript(package_json_content)
 
 main() {
     fw = spec.init()

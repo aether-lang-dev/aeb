@@ -24,7 +24,7 @@
 // Exit: 0 = all targets cleared (build may proceed); non-zero = refused.
 // See docs/design/build-veto-and-sandbox.md.
 import bldr
-import veto (emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
+import veto(emit_ast_cmd, _lib_flags, decide, default_rules, rules_from_lines)
 import std.string
 import std.os
 import std.file
@@ -42,8 +42,8 @@ main() {
         exit(2)
     }
     aether_bin = aether_args_get(1)
-    aeb_home   = aether_args_get(2)
-    root       = aether_args_get(3)
+    aeb_home = aether_args_get(2)
+    root = aether_args_get(3)
 
     // Trusted --lib root for origin scoping: aeb's own installed SDK tree.
     // Nodes from it are exempt. (No .aeb/lib — aeb has one SDK source now.)

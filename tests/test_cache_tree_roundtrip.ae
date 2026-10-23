@@ -23,7 +23,7 @@ import std.dir
 
 import std.spec
 import bldr
-import bldr (_sh, _sh_capture)
+import bldr(_sh, _sh_capture)
 import cache
 
 _eq0(v: int) { if v == 0 { return 1 } return 0 }

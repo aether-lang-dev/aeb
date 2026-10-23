@@ -2,7 +2,7 @@
 import std.spec
 import std.map
 import bldr
-import go (go_build_cmd, go_test_cmd, _cgo_ldflags_from_ldpath)
+import go(go_build_cmd, go_test_cmd, _cgo_ldflags_from_ldpath)
 
 main() {
     fw = spec.init()

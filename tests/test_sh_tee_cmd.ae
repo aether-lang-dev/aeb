@@ -16,7 +16,7 @@
 import std.spec
 import std.string
 import bldr
-import bldr (_sh_tee_cmd)
+import bldr(_sh_tee_cmd)
 
 main() {
     fw = spec.init()

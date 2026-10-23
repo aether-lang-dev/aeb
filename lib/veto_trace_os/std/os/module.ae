@@ -1,7 +1,7 @@
 // std.os - Shell & Process Execution
 // Import with: import std.os
 
-exports (
+exports(
     os_system, os_exec_raw, os_run, os_run_capture_raw, os_run_capture_status_raw,
     os_run_pipe_raw, os_wait_pid_raw, os_run_pipe_drain_and_wait_raw,
     os_getenv, os_which,
@@ -339,14 +339,14 @@ now_utc_iso8601() -> string {
 //   nanos:               0..999_999_999
 //   tz_offset_minutes:   -720..+840 from UTC (negative = west)
 struct LocalTime {
-    year:               int
-    month:              int
-    day:                int
-    hour:               int
-    minute:             int
-    second:             int
-    nanos:              int
-    tz_offset_minutes:  int
+    year: int
+    month: int
+    day: int
+    hour: int
+    minute: int
+    second: int
+    nanos: int
+    tz_offset_minutes: int
 }
 
 extern os_now_local_fill_raw(out: ptr)

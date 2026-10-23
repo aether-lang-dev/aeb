@@ -16,7 +16,7 @@ import std.map
 import std.path
 import std.dir
 
-import bldr (_sh, _sh_capture)
+import bldr(_sh, _sh_capture)
 
 // Native-form tmpdir via the _sh chokepoint. This test builds a tool into the
 // dir, writes an edges fixture with native io.write_file, and runs the tool —

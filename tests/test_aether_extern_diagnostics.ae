@@ -9,9 +9,9 @@
 // tree so aeb can suggest the missing regen_with line directly.
 
 import std.spec
-import aether (_extract_undefined_refs, _find_extern_definer, _emit_extern_hints)
+import aether(_extract_undefined_refs, _find_extern_definer, _emit_extern_hints)
 import bldr
-import bldr (_sh, _sh_capture)
+import bldr(_sh, _sh_capture)
 import std.string
 import std.os
 import std.list

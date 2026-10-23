@@ -6,7 +6,7 @@
 // "effectively untested" (TODO.md); this is the start of changing that.
 
 import std.spec
-import aebcli (is_flag, classify_target, synonym_dir, synonym_name, synonym_relpath, synonym_fqn, flag_known, flag_env, flag_takes_value, flag_implies)
+import aebcli(is_flag, classify_target, synonym_dir, synonym_name, synonym_relpath, synonym_fqn, flag_known, flag_env, flag_takes_value, flag_implies)
 import std.string
 
 main() {

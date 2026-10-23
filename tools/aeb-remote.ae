@@ -30,7 +30,7 @@ import std.string
 import std.io
 import std.http.client
 
-import agent (_lease_node, dispatch_request_json, dispatch_request_json_ex, _json_field, _gen_guid, prereq_to_image, dominant_prereq, _lease_field)
+import agent(_lease_node, dispatch_request_json, dispatch_request_json_ex, _json_field, _gen_guid, prereq_to_image, dominant_prereq, _lease_field)
 import std.json
 
 extern println(s: string)

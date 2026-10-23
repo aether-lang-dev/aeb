@@ -1,6 +1,6 @@
 // Tests for angular.ngc_cmd, angular.ng_build_cmd
 import std.spec
-import angular (ngc_cmd, ng_build_cmd)
+import angular(ngc_cmd, ng_build_cmd)
 
 main() {
     fw = spec.init()

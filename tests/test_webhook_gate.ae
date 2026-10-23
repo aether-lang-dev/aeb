@@ -4,7 +4,7 @@
 // no real environment probing.
 
 import std.spec
-import webhook (gate_passes)
+import webhook(gate_passes)
 
 main() {
     fw = spec.init()

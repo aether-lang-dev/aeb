@@ -14,7 +14,7 @@ import std.map
 import std.path
 
 import bldr
-import scala (_cache_key_for_scalac)
+import scala(_cache_key_for_scalac)
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary

@@ -19,7 +19,7 @@
 import std.spec
 import bldr
 import webhook
-import webhook (url)
+import webhook(url)
 import std.string
 import std.os
 import std.file

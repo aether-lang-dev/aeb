@@ -11,9 +11,9 @@
 //      each accumulates into the builder map.
 
 import std.spec
-import moonbit (moonbit_codegen_cmd, codegen_program, codegen_script,
-                codegen_input, codegen_input_dir, codegen_arg,
-                codegen_output, codegen_cwd)
+import moonbit(moonbit_codegen_cmd, codegen_program, codegen_script,
+    codegen_input, codegen_input_dir, codegen_arg,
+    codegen_output, codegen_cwd)
 import std.list
 import std.map
 

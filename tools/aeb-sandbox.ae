@@ -27,7 +27,7 @@
 //
 // Exit: the contained build's exit code (or non-zero on a setup refusal).
 // See docs/design/build-veto-and-sandbox.md and docs/design/capability-entrypoint.md.
-import sandbox (default_profile, parse, pair_count, _cat, _pat, is_grant_all)
+import sandbox(default_profile, parse, pair_count, _cat, _pat, is_grant_all)
 import std.string
 import std.os
 import std.file
@@ -45,9 +45,9 @@ main() {
         exit(2)
     }
     aether_bin = aether_args_get(1)
-    aeb_home   = aether_args_get(2)
-    root       = aether_args_get(3)
-    main_bin   = aether_args_get(4)
+    aeb_home = aether_args_get(2)
+    root = aether_args_get(3)
+    main_bin = aether_args_get(4)
 
     // --- platform check: spawn_sandboxed is Linux-only ---
     // Compile-time os.platform() (ae 0.202+) — no `uname` shell-out, and
@@ -66,7 +66,7 @@ main() {
     // --- resolve the operator grant profile ---
     grants = _resolve_grants(aether_bin, aeb_home, root)
     if grants == null {
-        exit(3)  // _resolve_grants printed the refusal
+        exit(3) // _resolve_grants printed the refusal
     }
     if is_grant_all(grants) == 1 {
         println("aeb --sandbox: WARNING — profile is grant-all; the build is effectively UNCONTAINED")

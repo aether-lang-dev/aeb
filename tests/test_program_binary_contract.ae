@@ -8,7 +8,7 @@
 // reads them back through the resolver.
 
 import std.spec
-import bldr (program_binary_of, _sh, _sh_capture)
+import bldr(program_binary_of, _sh, _sh_capture)
 import std.string
 import std.os
 import std.io

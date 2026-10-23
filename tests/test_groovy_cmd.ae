@@ -3,7 +3,7 @@
 import std.spec
 import std.io
 import std.map
-import groovy (groovyc_cmd, _java_opts, target_bytecode, run_script, _write_argfile)
+import groovy(groovyc_cmd, _java_opts, target_bytecode, run_script, _write_argfile)
 
 main() {
     fw = spec.init()

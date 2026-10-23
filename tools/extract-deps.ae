@@ -138,7 +138,7 @@ _xd_last_slash(s: string) {
 
 // Resolve a "git:" coordinate to its root-relative .ae path, cloning on demand.
 resolve_git_dep(coord: string) {
-    body = string.substring(coord, 4, string.length(coord))      // strip "git:"
+    body = string.substring(coord, 4, string.length(coord)) // strip "git:"
     sha = ""
     eq = string.index_of(body, "=")
     if eq >= 0 {

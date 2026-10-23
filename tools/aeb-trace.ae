@@ -38,15 +38,15 @@ main() {
         exit(2)
     }
     aeb_home = aether_args_get(1)
-    target   = aether_args_get(2)
+    target = aether_args_get(2)
     if file.exists(target) == 0 {
         println("aeb-trace: target not found: ${target}")
         exit(2)
     }
 
-    aeb = aeb_home   // the install tree: $AEB_HOME/lib, $AEB_HOME/tools, the doppelganger
+    aeb = aeb_home // the install tree: $AEB_HOME/lib, $AEB_HOME/tools, the doppelganger
     lib = path.join(aeb, "lib")
-    dop = path.join(lib, "veto_trace_os")           // the doppelganger lib root
+    dop = path.join(lib, "veto_trace_os") // the doppelganger lib root
     transform = path.join(aeb, "tools/transform-ae")
 
     // --- stage a temp working dir with the doppelganger std/ ---
@@ -119,7 +119,7 @@ _emit_json(trace: string) {
         while string.length(rest) > 0 {
             nl = string.index_of(rest, "\n")
             line = ""
-            if nl < 0 { line = rest  rest = "" }
+            if nl < 0 { line = rest rest = "" }
             else {
                 line = string.substring(rest, 0, nl)
                 rest = string.substring(rest, nl + 1, string.length(rest))
@@ -130,8 +130,8 @@ _emit_json(trace: string) {
                     cat = string.substring(line, 0, tab)
                     pay = string.substring(line, tab + 1, string.length(line))
                     if string.equals(cat, "system") == 1 { _a = list.add(sys, pay) }
-                    if string.equals(cat, "exec") == 1   { _a = list.add(exe, pay) }
-                    if string.equals(cat, "run") == 1    { _a = list.add(run, pay) }
+                    if string.equals(cat, "exec") == 1 { _a = list.add(exe, pay) }
+                    if string.equals(cat, "run") == 1 { _a = list.add(run, pay) }
                 }
             }
         }

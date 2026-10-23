@@ -8,7 +8,7 @@
 //   aeb tools/lease/.install.ae   (deps this, then installs to ~/.local)
 import bldr
 import aether
-import aether (source, output)
+import aether(source, output)
 main() {
     bldr.build() {
         aether.program() {

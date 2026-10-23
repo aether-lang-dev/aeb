@@ -3,7 +3,7 @@ import std.spec
 import std.list
 import std.map
 
-import swift (package_swift_content)
+import swift(package_swift_content)
 
 main() {
     fw = spec.init()

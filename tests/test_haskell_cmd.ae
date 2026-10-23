@@ -5,7 +5,7 @@
 //   _hs_target_suffix — target(): " <t>" or ""
 import std.spec
 import std.map
-import haskell (link_dir, target, _hs_lib_flags, _hs_target_suffix)
+import haskell(link_dir, target, _hs_lib_flags, _hs_target_suffix)
 
 main() {
     fw = spec.init()

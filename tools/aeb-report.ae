@@ -19,7 +19,7 @@
 // bottleneck): the sum of node wall-times along a root→leaf dependency path.
 // (aeb#12.)
 import bldr
-import aeblabel (file_to_label, infer_type)
+import aeblabel(file_to_label, infer_type)
 import std.string
 import std.io
 import std.os
@@ -55,8 +55,8 @@ _parse_edges(edges_text: string, nodes: ptr, deps_of: ptr) {
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
         line = ""
-        if nl < 0 { line = rest  rest = "" }
-        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { line = rest rest = "" }
+        else { line = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         line = string.trim(line)
         if string.length(line) > 0 {
             toks = list.new()
@@ -85,10 +85,10 @@ _split_ws(line: string, acc: ptr) {
     while i < n {
         ch = string.substring(line, i, i + 1)
         if string.equals(ch, " ") == 1 {
-            if string.length(cur) > 0 { _a = list.add(acc, cur)  cur = "" }
+            if string.length(cur) > 0 { _a = list.add(acc, cur) cur = "" }
         } else {
             if string.equals(ch, "\t") == 1 {
-                if string.length(cur) > 0 { _a = list.add(acc, cur)  cur = "" }
+                if string.length(cur) > 0 { _a = list.add(acc, cur) cur = "" }
             } else {
                 cur = string.concat(cur, ch)
             }
@@ -110,7 +110,7 @@ _node_ms(rc_dir: string, node: string) {
 
 _node_rc(rc_dir: string, node: string) {
     p = path.join(rc_dir, string.concat(_san(node), ".rc"))
-    if file.exists(p) == 0 { return "-" }   // uninvoked
+    if file.exists(p) == 0 { return "-" } // uninvoked
     raw, _e = fs.read(p)
     return string.trim(raw)
 }
@@ -149,7 +149,7 @@ _compute_cp(nodes: ptr, deps_of: ptr, ms: ptr, cp_ms: ptr, best_dep: ptr) {
                 node, _ = list.get(nodes, i)
                 i = i + 1
                 self_ms = 0
-                if map.has(ms, node) == 1 { mv, _ = map.get(ms, node)  self_ms, _ = string.to_int(mv) }
+                if map.has(ms, node) == 1 { mv, _ = map.get(ms, node) self_ms, _ = string.to_int(mv) }
                 best = 0
                 bdep = ""
                 if map.has(deps_of, node) == 1 {
@@ -160,13 +160,13 @@ _compute_cp(nodes: ptr, deps_of: ptr, ms: ptr, cp_ms: ptr, best_dep: ptr) {
                         d, _ = list.get_string(dl, j)
                         j = j + 1
                         dcp = 0
-                        if map.has(cp_ms, d) == 1 { dv, _ = map.get(cp_ms, d)  dcp, _ = string.to_int(dv) }
-                        if dcp > best { best = dcp  bdep = d }
+                        if map.has(cp_ms, d) == 1 { dv, _ = map.get(cp_ms, d) dcp, _ = string.to_int(dv) }
+                        if dcp > best { best = dcp bdep = d }
                     }
                 }
                 total = self_ms + best
                 prev = -1
-                if map.has(cp_ms, node) == 1 { pv, _ = map.get(cp_ms, node)  prev, _ = string.to_int(pv) }
+                if map.has(cp_ms, node) == 1 { pv, _ = map.get(cp_ms, node) prev, _ = string.to_int(pv) }
                 if total != prev {
                     _p1 = map.put(cp_ms, node, string.from_int(total))
                     _p2 = map.put(best_dep, node, bdep)
@@ -181,7 +181,7 @@ _compute_cp(nodes: ptr, deps_of: ptr, ms: ptr, cp_ms: ptr, best_dep: ptr) {
 _human_ms(ms: int) {
     if ms < 1000 { return string.concat(string.from_int(ms), "ms") }
     whole = ms / 1000
-    freac = (ms - whole * 1000) / 10   // 2 decimal places
+    freac = (ms - whole * 1000) / 10 // 2 decimal places
     fs2 = string.from_int(freac)
     if string.length(fs2) < 2 { fs2 = string.concat("0", fs2) }
     return string.concat(string.from_int(whole), string.concat(".", string.concat(fs2, "s")))
@@ -225,7 +225,7 @@ _render_text(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
         rc = _node_rc(rc_dir, node)
         st = _node_status_word(rc)
         m = 0
-        if map.has(ms, node) == 1 { mv, _ = map.get(ms, node)  m, _ = string.to_int(mv) }
+        if map.has(ms, node) == 1 { mv, _ = map.get(ms, node) m, _ = string.to_int(mv) }
         cache = _node_cache(root, node)
         strbuilder.append(sb, "  ")
         strbuilder.append(sb, _pad(label, 40))
@@ -250,8 +250,8 @@ _render_text(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
         node, _ = list.get_string(nodes, i)
         i = i + 1
         cv = 0
-        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv, _ = string.to_int(c) }
-        if cv > hmax { hmax = cv  heaviest = node }
+        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node) cv, _ = string.to_int(c) }
+        if cv > hmax { hmax = cv heaviest = node }
     }
     strbuilder.append(sb, "\n  critical path (longest wall chain): ")
     strbuilder.append(sb, _human_ms(hmax))
@@ -268,7 +268,7 @@ _render_text(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
             first = 0
             strbuilder.append(sb, file_to_label(cur))
             nxt = ""
-            if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur)  nxt = nn2 }
+            if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur) nxt = nn2 }
             cur = nxt
         }
     }
@@ -331,7 +331,7 @@ _render_mermaid(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     ms = map.new()
     nn = list.size(nodes)
     i = 0
-    while i < nn { node, _ = list.get(nodes, i)  i = i + 1  _pm = map.put(ms, node, string.from_int(_node_ms(rc_dir, node))) }
+    while i < nn { node, _ = list.get(nodes, i) i = i + 1 _pm = map.put(ms, node, string.from_int(_node_ms(rc_dir, node))) }
     cp_ms = map.new()
     best_dep = map.new()
     _compute_cp(nodes, deps_of, ms, cp_ms, best_dep)
@@ -341,10 +341,10 @@ _render_mermaid(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     hmax = -1
     i = 0
     while i < nn {
-        node, _ = list.get_string(nodes, i)  i = i + 1
+        node, _ = list.get_string(nodes, i) i = i + 1
         cv = 0
-        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv, _ = string.to_int(c) }
-        if cv > hmax { hmax = cv  heaviest = node }
+        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node) cv, _ = string.to_int(c) }
+        if cv > hmax { hmax = cv heaviest = node }
     }
     cur = heaviest
     guard = 0
@@ -354,7 +354,7 @@ _render_mermaid(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
             guard = guard + 1
             _oc = map.put(on_cp, cur, "1")
             nxt = ""
-            if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur)  nxt = nn2 }
+            if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur) nxt = nn2 }
             cur = nxt
         }
     }
@@ -364,7 +364,7 @@ _render_mermaid(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     // node declarations with timing labels
     i = 0
     while i < nn {
-        node, _ = list.get(nodes, i)  i = i + 1
+        node, _ = list.get(nodes, i) i = i + 1
         strbuilder.append(sb, "    ")
         strbuilder.append(sb, _gid(node))
         strbuilder.append(sb, "[\"")
@@ -383,13 +383,13 @@ _render_mermaid(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     // edges
     i = 0
     while i < nn {
-        node, _ = list.get(nodes, i)  i = i + 1
+        node, _ = list.get(nodes, i) i = i + 1
         if map.has(deps_of, node) == 1 {
             dl, _ = map.get(deps_of, node)
             dn = list.size(dl)
             j = 0
             while j < dn {
-                d, _ = list.get(dl, j)  j = j + 1
+                d, _ = list.get(dl, j) j = j + 1
                 strbuilder.append(sb, "    ")
                 strbuilder.append(sb, _gid(node))
                 strbuilder.append(sb, " --> ")
@@ -409,7 +409,7 @@ _render_dot(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     ms = map.new()
     nn = list.size(nodes)
     i = 0
-    while i < nn { node, _ = list.get(nodes, i)  i = i + 1  _pm = map.put(ms, node, string.from_int(_node_ms(rc_dir, node))) }
+    while i < nn { node, _ = list.get(nodes, i) i = i + 1 _pm = map.put(ms, node, string.from_int(_node_ms(rc_dir, node))) }
     cp_ms = map.new()
     best_dep = map.new()
     _compute_cp(nodes, deps_of, ms, cp_ms, best_dep)
@@ -418,23 +418,23 @@ _render_dot(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     hmax = -1
     i = 0
     while i < nn {
-        node, _ = list.get_string(nodes, i)  i = i + 1
+        node, _ = list.get_string(nodes, i) i = i + 1
         cv = 0
-        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node)  cv, _ = string.to_int(c) }
-        if cv > hmax { hmax = cv  heaviest = node }
+        if map.has(cp_ms, node) == 1 { c, _ = map.get(cp_ms, node) cv, _ = string.to_int(c) }
+        if cv > hmax { hmax = cv heaviest = node }
     }
     cur = heaviest
     guard = 0
     while string.length(cur) > 0 {
         if guard > nn + 1 { cur = "" }
-        else { guard = guard + 1  _oc = map.put(on_cp, cur, "1")
-               nxt = ""  if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur)  nxt = nn2 }  cur = nxt }
+        else { guard = guard + 1 _oc = map.put(on_cp, cur, "1")
+            nxt = "" if map.has(best_dep, cur) == 1 { nn2, _ = map.get_string(best_dep, cur) nxt = nn2 } cur = nxt }
     }
     sb = strbuilder.new(1024)
     strbuilder.append(sb, "digraph aeb_report {\n  rankdir=LR;\n  node [shape=box, style=filled];\n")
     i = 0
     while i < nn {
-        node, _ = list.get(nodes, i)  i = i + 1
+        node, _ = list.get(nodes, i) i = i + 1
         rc = _node_rc(rc_dir, node)
         st = _node_status_word(rc)
         ocp = 0
@@ -442,14 +442,14 @@ _render_dot(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
         fill = "#eeeeee"
         if ocp == 1 { fill = "#fff3c4" }
         else { if string.equals(st, "ok") == 1 { fill = "#c8e6c9" }
-               else { if string.equals(st, "fail") == 1 { fill = "#ffcdd2" } } }
+            else { if string.equals(st, "fail") == 1 { fill = "#ffcdd2" } } }
         strbuilder.append(sb, "  \"")
         strbuilder.append(sb, _gid(node))
         strbuilder.append(sb, "\" [label=\"")
         strbuilder.append(sb, file_to_label(node))
         strbuilder.append(sb, "\\n")
         m = 0
-        if map.has(ms, node) == 1 { mv, _ = map.get(ms, node)  m, _ = string.to_int(mv) }
+        if map.has(ms, node) == 1 { mv, _ = map.get(ms, node) m, _ = string.to_int(mv) }
         strbuilder.append(sb, _human_ms(m))
         strbuilder.append(sb, "\", fillcolor=\"")
         strbuilder.append(sb, fill)
@@ -457,13 +457,13 @@ _render_dot(root: string, rc_dir: string, nodes: ptr, deps_of: ptr) {
     }
     i = 0
     while i < nn {
-        node, _ = list.get(nodes, i)  i = i + 1
+        node, _ = list.get(nodes, i) i = i + 1
         if map.has(deps_of, node) == 1 {
             dl, _ = map.get(deps_of, node)
             dn = list.size(dl)
             j = 0
             while j < dn {
-                d, _ = list.get(dl, j)  j = j + 1
+                d, _ = list.get(dl, j) j = j + 1
                 strbuilder.append(sb, "  \"")
                 strbuilder.append(sb, _gid(node))
                 strbuilder.append(sb, "\" -> \"")

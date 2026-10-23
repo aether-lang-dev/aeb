@@ -210,11 +210,11 @@ _list_lines(items: ptr) {
 }
 
 approval_json_check_script(provider_v: string, subject_v: string, fetch_cmd: string,
-                           require_json_v: ptr, require_approvers_v: ptr,
-                           approvals_path_v: string, approver_id_path_v: string,
-                           approved_at_path_v: string, approval_status_path_v: string,
-                           approval_status_v: string, evidence_path: string,
-                           timeout_v: string) {
+    require_json_v: ptr, require_approvers_v: ptr,
+    approvals_path_v: string, approver_id_path_v: string,
+    approved_at_path_v: string, approval_status_path_v: string,
+    approval_status_v: string, evidence_path: string,
+    timeout_v: string) {
     req_json = _list_lines(require_json_v)
     req_approvers = _list_lines(require_approvers_v)
     out = "#!/usr/bin/env bash\n"
@@ -440,9 +440,9 @@ attestation_evidence_json(provider: string, subj: string, digest: string, verify
 }
 
 jira_check_script(base_url_v: string, issue_v: string, token_env_v: string,
-                  require_status_v: string, require_labels_v: ptr,
-                  require_fields_v: ptr, evidence_path: string,
-                  timeout_v: string) {
+    require_status_v: string, require_labels_v: ptr,
+    require_fields_v: ptr, evidence_path: string,
+    timeout_v: string) {
     labels = _list_lines(require_labels_v)
     fields = _list_lines(require_fields_v)
     out = "#!/usr/bin/env bash\n"
@@ -655,7 +655,7 @@ _write_and_run(ctx: ptr, provider: string, script: string, evidence_path: string
 }
 
 _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
-                       evidence_path: string, verify_prefix: string) {
+    evidence_path: string, verify_prefix: string) {
     target_dir = bldr._get(ctx, "target_dir")
     mod_dir = bldr._get(ctx, "module_dir")
     bldr._mkdirs(target_dir)
@@ -729,9 +729,9 @@ _run_attestation_check(ctx: ptr, bld: ptr, provider: string, subj: string,
 }
 
 _generic_builder(ctx: ptr, bld: ptr, provider: string, fetch_cmd: string,
-                 default_approvals_path: string, default_id_path: string,
-                 default_at_path: string, default_status_path: string,
-                 default_status: string) {
+    default_approvals_path: string, default_id_path: string,
+    default_at_path: string, default_status_path: string,
+    default_status: string) {
     target_dir = bldr._get(ctx, "target_dir")
     bldr._mkdirs(target_dir)
     subj = _env_or_literal(bld, "subject", "subject_env", _env_or_literal(bld, "issue", "issue_env", provider))
@@ -753,10 +753,10 @@ _generic_builder(ctx: ptr, bld: ptr, provider: string, fetch_cmd: string,
         }
     }
     script = approval_json_check_script(provider, subj, fetch_cmd,
-                                        req_json, req_approvers,
-                                        approvals_p, id_p, at_p,
-                                        status_p, status_v,
-                                        evidence_path, timeout_s)
+        req_json, req_approvers,
+        approvals_p, id_p, at_p,
+        status_p, status_v,
+        evidence_path, timeout_s)
     return _write_and_run(ctx, provider, script, evidence_path)
 }
 

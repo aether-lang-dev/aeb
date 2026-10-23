@@ -20,8 +20,8 @@ import std.path
 import std.dir
 
 import bldr
-import bldr (_sh, _sh_capture)
-import aether (_resolve_libaether_dir, _resolve_aether_include)
+import bldr(_sh, _sh_capture)
+import aether(_resolve_libaether_dir, _resolve_aether_include)
 
 // Allocate a fresh tmpdir per layout. Caller is responsible for
 // cleanup (rm -rf at end of the it-block).
@@ -138,8 +138,8 @@ main() {
         spec.it("Probe order: FHS wins over flat when both present") callback {
             // (lib/aether/libaether.a is checked before lib/libaether.a)
             both = _mktempdir()
-            _setup_flat(both)        // creates lib/libaether.a
-            _setup_fhs(both)         // also creates lib/aether/libaether.a
+            _setup_flat(both) // creates lib/libaether.a
+            _setup_fhs(both) // also creates lib/aether/libaether.a
             both_bin = string.concat(both, "/bin")
 
             spec.assert_str_eq(

@@ -8,7 +8,7 @@
 // No with_path(): aeb-lease is a plain tool (mints lease tokens), it doesn't
 // shell `aeb <target>` itself, so its wrapper needs no PATH export.
 import bldr
-import bldr (dep, install_launcher, from_dist)
+import bldr(dep, install_launcher, from_dist)
 
 aeb(cap) {
     bldr.build() {

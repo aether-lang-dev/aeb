@@ -12,7 +12,7 @@ import std.spec
 import std.map
 import std.list
 
-import aether (ae_csrc_flags, csrc_default_output, ae_lib_flags)
+import aether(ae_csrc_flags, csrc_default_output, ae_lib_flags)
 
 main() {
     fw = spec.init()

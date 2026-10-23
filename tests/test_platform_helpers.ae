@@ -10,7 +10,7 @@
 // is rejected but `== 1` typechecks (the same idiom every SDK uses on them).
 
 import std.spec
-import bldr (_host_os, _host_arch, _host_os_arch, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix, _is_abs_path)
+import bldr(_host_os, _host_arch, _host_os_arch, _is_linux, _is_windows, _is_macos, _is_freebsd, _path_sep, _cp_append, _exe_suffix, _default_cc, _has_windows_drive_prefix, _is_abs_path)
 import std.string
 
 main() {
@@ -32,13 +32,13 @@ main() {
         spec.it("exactly one _is_* predicate is true, agreeing with the token") callback {
             os = _host_os()
             n = 0
-            if _is_linux()   == 1 { n = n + 1 }
-            if _is_macos()   == 1 { n = n + 1 }
+            if _is_linux() == 1 { n = n + 1 }
+            if _is_macos() == 1 { n = n + 1 }
             if _is_windows() == 1 { n = n + 1 }
             if _is_freebsd() == 1 { n = n + 1 }
             spec.assert_true(_is_one(n), "exactly one _is_* predicate is true")
-            spec.assert_true(_agree(_is_linux(),   os, "linux"),   "_is_linux() agrees with token")
-            spec.assert_true(_agree(_is_macos(),   os, "macos"),   "_is_macos() agrees with token")
+            spec.assert_true(_agree(_is_linux(), os, "linux"), "_is_linux() agrees with token")
+            spec.assert_true(_agree(_is_macos(), os, "macos"), "_is_macos() agrees with token")
             spec.assert_true(_agree(_is_windows(), os, "windows"), "_is_windows() agrees with token")
             spec.assert_true(_agree(_is_freebsd(), os, "freebsd"), "_is_freebsd() agrees with token")
         }
@@ -86,15 +86,15 @@ main() {
     //     it's pure string analysis — runs the same on every platform) ---
     spec.describe(fw, "_has_windows_drive_prefix") {
         spec.it("the Prefix::Disk rule (pure string analysis)") callback {
-            spec.assert_true(_has_windows_drive_prefix("C:"),         "'C:' (bare cwd-relative drive)")
-            spec.assert_true(_has_windows_drive_prefix("C:\\src"),    "'C:\\src' (backslash)")
-            spec.assert_true(_has_windows_drive_prefix("d:/tmp"),     "'d:/tmp' (lower-case, fwd slash)")
+            spec.assert_true(_has_windows_drive_prefix("C:"), "'C:' (bare cwd-relative drive)")
+            spec.assert_true(_has_windows_drive_prefix("C:\\src"), "'C:\\src' (backslash)")
+            spec.assert_true(_has_windows_drive_prefix("d:/tmp"), "'d:/tmp' (lower-case, fwd slash)")
             spec.assert_false(_has_windows_drive_prefix("java/foo:bar"), "'java/foo:bar' (target synonym)")
-            spec.assert_false(_has_windows_drive_prefix(":name"),       "':name' (bare synonym, no path)")
-            spec.assert_false(_has_windows_drive_prefix("C:name"),      "'C:name' (letter+colon+non-sep)")
-            spec.assert_false(_has_windows_drive_prefix("/abs/posix"),  "'/abs/posix' (posix absolute)")
-            spec.assert_false(_has_windows_drive_prefix("12:34"),       "'12:34' (digit, not a letter)")
-            spec.assert_false(_has_windows_drive_prefix(""),            "'' (empty)")
+            spec.assert_false(_has_windows_drive_prefix(":name"), "':name' (bare synonym, no path)")
+            spec.assert_false(_has_windows_drive_prefix("C:name"), "'C:name' (letter+colon+non-sep)")
+            spec.assert_false(_has_windows_drive_prefix("/abs/posix"), "'/abs/posix' (posix absolute)")
+            spec.assert_false(_has_windows_drive_prefix("12:34"), "'12:34' (digit, not a letter)")
+            spec.assert_false(_has_windows_drive_prefix(""), "'' (empty)")
         }
     }
 
@@ -106,16 +106,16 @@ main() {
     //     it into '<dir>/C:/..'. This is the regression guard for that class. ---
     spec.describe(fw, "_is_abs_path") {
         spec.it("POSIX '/' and Windows drive/UNC both read as absolute") callback {
-            spec.assert_true(_is_abs_path("/abs/posix"),         "'/abs/posix' is absolute")
-            spec.assert_true(_is_abs_path("C:/Users/x"),         "'C:/Users/x' (drive, fwd slash)")
-            spec.assert_true(_is_abs_path("C:\\Users\\x"),       "'C:\\Users\\x' (drive, backslash)")
-            spec.assert_true(_is_abs_path("d:/tmp"),             "'d:/tmp' (lower-case drive)")
-            spec.assert_true(_is_abs_path("C:"),                 "'C:' (bare cwd-relative drive)")
-            spec.assert_true(_is_abs_path("\\\\host\\share"),    "'\\\\host\\share' (UNC)")
-            spec.assert_false(_is_abs_path("rel/path"),          "'rel/path' (bare relative)")
-            spec.assert_false(_is_abs_path("a.cp"),              "'a.cp' (bare filename)")
-            spec.assert_false(_is_abs_path("./rel"),             "'./rel' (dot-relative)")
-            spec.assert_false(_is_abs_path(""),                  "'' (empty)")
+            spec.assert_true(_is_abs_path("/abs/posix"), "'/abs/posix' is absolute")
+            spec.assert_true(_is_abs_path("C:/Users/x"), "'C:/Users/x' (drive, fwd slash)")
+            spec.assert_true(_is_abs_path("C:\\Users\\x"), "'C:\\Users\\x' (drive, backslash)")
+            spec.assert_true(_is_abs_path("d:/tmp"), "'d:/tmp' (lower-case drive)")
+            spec.assert_true(_is_abs_path("C:"), "'C:' (bare cwd-relative drive)")
+            spec.assert_true(_is_abs_path("\\\\host\\share"), "'\\\\host\\share' (UNC)")
+            spec.assert_false(_is_abs_path("rel/path"), "'rel/path' (bare relative)")
+            spec.assert_false(_is_abs_path("a.cp"), "'a.cp' (bare filename)")
+            spec.assert_false(_is_abs_path("./rel"), "'./rel' (dot-relative)")
+            spec.assert_false(_is_abs_path(""), "'' (empty)")
         }
     }
 

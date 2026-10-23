@@ -14,7 +14,7 @@ import std.dir
 // The consumer package.json generator is shared with lib/javascript (both root
 // at package.json); ts imports only the pure generator (no cycle — javascript
 // does not import ts).
-import javascript (package_json_content)
+import javascript(package_json_content)
 
 // --- TypeScript DSL setters ---
 
@@ -322,14 +322,14 @@ _merge_npm_registry_deps(ctx: ptr) {
         raw = bldr._read_dep_artifact(ctx, dm, "npm_registry_deps_including_transitive")
         if string.length(raw) > 0 {
             lines = string.lines(string.trim(raw))
-            string.seq_each(lines, |ln: string| {
-                line = string.trim(ln)
-                if string.length(line) > 0 {
-                    // Translate "name~version" to "name:version" for pnpm.resolve
-                    colonized = string.replace(line, "~", ":")
-                    _ea = list.add(npm_deps_list, colonized)
-                }
-            })
+            string.seq_each(lines, | ln: string | {
+                    line = string.trim(ln)
+                    if string.length(line) > 0 {
+                        // Translate "name~version" to "name:version" for pnpm.resolve
+                        colonized = string.replace(line, "~", ":")
+                        _ea = list.add(npm_deps_list, colonized)
+                    }
+                })
         }
         di = di + 1
     }

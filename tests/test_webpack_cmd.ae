@@ -1,6 +1,6 @@
 // Tests for webpack.webpack_cmd()
 import std.spec
-import webpack (webpack_cmd)
+import webpack(webpack_cmd)
 
 main() {
     fw = spec.init()

@@ -18,7 +18,7 @@
 import std.cryptography
 import std.encoding
 import std.string
-import agent (_secret_marker, _secret_key_material, _secret_strength_ok, _looks_like_token)
+import agent(_secret_marker, _secret_key_material, _secret_strength_ok, _looks_like_token)
 
 extern println(s: string)
 extern exit(code: int)

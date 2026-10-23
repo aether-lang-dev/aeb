@@ -6,8 +6,8 @@
 // All pure (I/O-free).
 
 import std.spec
-import gleam (deps_download_cmd, check_cmd, test_cmd, build_cmd,
-             _target_flag, _parse_gleeunit_counts)
+import gleam(deps_download_cmd, check_cmd, test_cmd, build_cmd,
+    _target_flag, _parse_gleeunit_counts)
 
 main() {
     fw = spec.init()

@@ -11,9 +11,9 @@
 //      codegen_cwd).
 
 import std.spec
-import gleam (gleam_codegen_cmd, codegen_program, codegen_script,
-             codegen_input, codegen_input_dir, codegen_arg,
-             codegen_output, codegen_cwd)
+import gleam(gleam_codegen_cmd, codegen_program, codegen_script,
+    codegen_input, codegen_input_dir, codegen_arg,
+    codegen_output, codegen_cwd)
 import std.list
 import std.map
 

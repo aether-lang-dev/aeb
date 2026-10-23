@@ -7,7 +7,7 @@
 // exercised end-to-end on the dev box; this is what keeps the other six
 // from silently rotting.
 import std.spec
-import meta (_vcs_version_cmd)
+import meta(_vcs_version_cmd)
 
 main() {
     fw = spec.init()

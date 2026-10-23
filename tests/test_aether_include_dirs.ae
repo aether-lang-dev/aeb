@@ -11,8 +11,8 @@ import std.string
 import std.list
 import std.map
 
-import aether (_encode_path_for_filename, _regen_target_c,
-               _inc_flags_from_dirs, _resolved_user_include_dirs)
+import aether(_encode_path_for_filename, _regen_target_c,
+    _inc_flags_from_dirs, _resolved_user_include_dirs)
 
 main() {
     fw = spec.init()

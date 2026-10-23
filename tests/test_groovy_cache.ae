@@ -17,7 +17,7 @@ import std.path
 import std.dir
 
 import bldr
-import groovy (_cache_key_for_groovyc)
+import groovy(_cache_key_for_groovyc)
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary

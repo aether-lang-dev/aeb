@@ -4,7 +4,7 @@
 import std.spec
 import std.map
 
-import python (pytest_cmd, ruff_lint_cmd, mypy_cmd, build_package_cmd, pip_install_cmd, pip_install_requirements_cmd, pyproject_path, _parse_pytest_counts)
+import python(pytest_cmd, ruff_lint_cmd, mypy_cmd, build_package_cmd, pip_install_cmd, pip_install_requirements_cmd, pyproject_path, _parse_pytest_counts)
 
 main() {
     fw = spec.init()

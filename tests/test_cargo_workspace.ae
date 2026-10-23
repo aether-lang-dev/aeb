@@ -1,9 +1,9 @@
 // Tests for cargo_workspace_toml_content() — workspace Cargo.toml generation
 import std.spec
 import std.map
-import rust (cargo_workspace_toml_content, cargo_crate_toml_content,
-             workspace_member, workspace_dep,
-             workspace_dep_features, workspace_edition, workspace_resolver)
+import rust(cargo_workspace_toml_content, cargo_crate_toml_content,
+    workspace_member, workspace_dep,
+    workspace_dep_features, workspace_edition, workspace_resolver)
 
 // Helper: add a workspace member
 _add_member(opts: ptr, path: string) {
@@ -159,9 +159,9 @@ main() {
             e12a = string_concat(e12a, "~")
             e12a = string_concat(e12a, "zlib-ng")
             e12a = string_concat(e12a, "~")
-            e12a = string_concat(e12a, "")       // no package alias
+            e12a = string_concat(e12a, "") // no package alias
             e12a = string_concat(e12a, "~")
-            e12a = string_concat(e12a, "true")   // default-features = false
+            e12a = string_concat(e12a, "true") // default-features = false
             list_add(full12, e12a)
             // duckdb with package alias AND no default features
             e12b = string_concat("duckdb", "~")
@@ -169,7 +169,7 @@ main() {
             e12b = string_concat(e12b, "~")
             e12b = string_concat(e12b, "serde_json")
             e12b = string_concat(e12b, "~")
-            e12b = string_concat(e12b, "duckdb")  // package name
+            e12b = string_concat(e12b, "duckdb") // package name
             e12b = string_concat(e12b, "~")
             e12b = string_concat(e12b, "true")
             list_add(full12, e12b)

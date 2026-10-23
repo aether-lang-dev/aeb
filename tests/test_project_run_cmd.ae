@@ -5,12 +5,12 @@
 // string that would be exec'd across the env / step / workdir permutations.
 
 import std.spec
-import bldr (_project_run_cmd, _run_project_cmd, _env_export_prefix, env, step, workdir)
+import bldr(_project_run_cmd, _run_project_cmd, _env_export_prefix, env, step, workdir)
 import std.list
 import std.map
 
-_l1(a: string) { l = list.new()  _x = list.add(l, a)  return l }
-_l2(a: string, b: string) { l = list.new()  _x = list.add(l, a)  _y = list.add(l, b)  return l }
+_l1(a: string) { l = list.new() _x = list.add(l, a) return l }
+_l2(a: string, b: string) { l = list.new() _x = list.add(l, a) _y = list.add(l, b) return l }
 
 main() {
     fw = spec.init()
@@ -142,26 +142,26 @@ main() {
     //     empty block, at module /m). A greppable spec of every SDK's default. ---
     spec.describe(fw, "per-language SDK default exec strings") {
         spec.it("every SDK default resolves to cd \"/m\" && <cmd>") callback {
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mix test"),                 "cd \"/m\" && mix test",                 "elixir.test")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mix compile"),              "cd \"/m\" && mix compile",              "elixir.compile")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "nimble test"),              "cd \"/m\" && nimble test",              "nim.test")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "nimble build"),             "cd \"/m\" && nimble build",             "nim.build")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "busted"),                   "cd \"/m\" && busted",                   "lua.test")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "phpunit"),                  "cd \"/m\" && phpunit",                  "php.test")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "cabal test"),               "cd \"/m\" && cabal test",               "haskell.test")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "cabal build"),              "cd \"/m\" && cabal build",              "haskell.build")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "npm test"),                 "cd \"/m\" && npm test",                 "javascript.test")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "npm install"),              "cd \"/m\" && npm install",              "javascript.build")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "./run-tests.sh"),           "cd \"/m\" && ./run-tests.sh",           "pharo.test")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "rebar3 compile"),           "cd \"/m\" && rebar3 compile",           "erlang.compile")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "rebar3 eunit"),             "cd \"/m\" && rebar3 eunit",             "erlang.eunit")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mvn -q test"),              "cd \"/m\" && mvn -q test",              "maven.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mix test"), "cd \"/m\" && mix test", "elixir.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mix compile"), "cd \"/m\" && mix compile", "elixir.compile")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "nimble test"), "cd \"/m\" && nimble test", "nim.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "nimble build"), "cd \"/m\" && nimble build", "nim.build")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "busted"), "cd \"/m\" && busted", "lua.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "phpunit"), "cd \"/m\" && phpunit", "php.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "cabal test"), "cd \"/m\" && cabal test", "haskell.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "cabal build"), "cd \"/m\" && cabal build", "haskell.build")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "npm test"), "cd \"/m\" && npm test", "javascript.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "npm install"), "cd \"/m\" && npm install", "javascript.build")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "./run-tests.sh"), "cd \"/m\" && ./run-tests.sh", "pharo.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "rebar3 compile"), "cd \"/m\" && rebar3 compile", "erlang.compile")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "rebar3 eunit"), "cd \"/m\" && rebar3 eunit", "erlang.eunit")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mvn -q test"), "cd \"/m\" && mvn -q test", "maven.test")
             spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "mvn -q -DskipTests install"), "cd \"/m\" && mvn -q -DskipTests install", "maven.install")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "python3 -m pytest -q"),     "cd \"/m\" && python3 -m pytest -q",     "python.test")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "dotnet test --nologo"),     "cd \"/m\" && dotnet test --nologo",     "dotnet.test_existing")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "dart test"),                "cd \"/m\" && dart test",                "dart.test_existing")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "gleam test"),               "cd \"/m\" && gleam test",               "gleam.test_existing")
-            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "zig build test"),           "cd \"/m\" && zig build test",           "zig.test_existing")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "python3 -m pytest -q"), "cd \"/m\" && python3 -m pytest -q", "python.test")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "dotnet test --nologo"), "cd \"/m\" && dotnet test --nologo", "dotnet.test_existing")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "dart test"), "cd \"/m\" && dart test", "dart.test_existing")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "gleam test"), "cd \"/m\" && gleam test", "gleam.test_existing")
+            spec.assert_str_eq(_run_project_cmd("/m", "/r", null, "zig build test"), "cd \"/m\" && zig build test", "zig.test_existing")
         }
     }
 

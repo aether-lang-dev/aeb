@@ -10,7 +10,7 @@
 // the verbatim grammar retires — the cases below pin that behaviour.
 import std.spec
 import std.list
-import aeblabel (counts_line)
+import aeblabel(counts_line)
 
 main() {
     fw = spec.init()

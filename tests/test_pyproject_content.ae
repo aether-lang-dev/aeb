@@ -3,7 +3,7 @@ import std.spec
 import std.list
 import std.map
 
-import python (pyproject_toml_content)
+import python(pyproject_toml_content)
 
 main() {
     fw = spec.init()

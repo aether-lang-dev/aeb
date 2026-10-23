@@ -18,9 +18,9 @@
 
 import std.spec
 import bldr
-import bldr (_sh, _sh_capture)
+import bldr(_sh, _sh_capture)
 import bash
-import bash (script)
+import bash(script)
 import std.string
 import std.os
 import std.file

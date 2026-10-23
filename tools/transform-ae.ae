@@ -89,8 +89,8 @@ _static_helper_names(src: string): ptr {
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
         line = ""
-        if nl < 0 { line = rest  rest = "" }
-        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { line = rest rest = "" }
+        else { line = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         // column-0 def: first char is a lowercase letter or underscore, and the
         // line contains `(` before any space (a def head, not a call/statement).
         ln = string.length(line)
@@ -130,8 +130,8 @@ _imports_retired_build(path: string) {
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
         line = ""
-        if nl < 0 { line = rest  rest = "" }
-        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { line = rest rest = "" }
+        else { line = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         id = _import_id(string.trim(line), 0)
         if string.equals(id, "build") == 1 { return 1 }
     }
@@ -145,8 +145,8 @@ _collect_imports(path: string, bare_only: int, acc: ptr) {
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
         line = ""
-        if nl < 0 { line = rest  rest = "" }
-        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { line = rest rest = "" }
+        else { line = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         id = _import_id(string.trim(line), bare_only)
         if string.length(id) > 0 { list.add(acc, id) }
     }
@@ -167,8 +167,8 @@ _seen_has(seen: ptr, v: string) {
 // joined block of `import X` lines for every transitively-reached module that
 // <src> does NOT already cover with a bare import. Pure; no shell.
 _resolve_imports(src: string, lib_dir: string) {
-    seen = list.new()       // every import id reached (BFS frontier + visited)
-    direct = list.new()     // src's BARE imports (the "already covered" set)
+    seen = list.new() // every import id reached (BFS frontier + visited)
+    direct = list.new() // src's BARE imports (the "already covered" set)
     _collect_imports(src, 0, seen)
     _collect_imports(src, 1, direct)
 
@@ -277,7 +277,7 @@ _script_path_tr(cmd: string) {
         }
     }
     name = string.concat("_aeb_tr_", string.concat(string.from_int(os.getpid()),
-           string.concat("_", string.concat(string.from_int(_hash_tr(cmd)), ".sh"))))
+            string.concat("_", string.concat(string.from_int(_hash_tr(cmd)), ".sh"))))
     return string.concat(tmp, string.concat("/", name))
 }
 _sh_tr(cmd: string) {

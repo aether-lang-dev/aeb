@@ -12,7 +12,7 @@
 // `other` is an unrelated module nothing imports.
 
 import std.spec
-import aether (_cache_key_for_aether_link)
+import aether(_cache_key_for_aether_link)
 import std.string
 import std.os
 import std.list

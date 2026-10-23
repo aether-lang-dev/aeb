@@ -613,7 +613,7 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
             if string.length(base) > 0 {
                 url = "${base}/${relpath}"
                 rc = bldr._sh("curl -fsSL '${url}' -o '${tmp}' 2>/dev/null")
-                if rc == 0 { got = 1  ri = nr }
+                if rc == 0 { got = 1 ri = nr }
             }
             ri = ri + 1
         }

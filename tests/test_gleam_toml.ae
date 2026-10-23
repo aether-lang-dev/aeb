@@ -5,7 +5,7 @@ import std.spec
 import std.list
 import std.map
 
-import gleam (gleam_toml_content)
+import gleam(gleam_toml_content)
 
 main() {
     fw = spec.init()

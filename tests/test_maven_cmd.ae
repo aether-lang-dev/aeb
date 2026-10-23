@@ -2,7 +2,7 @@
 import std.spec
 import std.list
 import std.map
-import maven (mvn_resolve_cmd, resolve)
+import maven(mvn_resolve_cmd, resolve)
 
 main() {
     fw = spec.init()

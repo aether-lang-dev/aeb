@@ -13,7 +13,7 @@
 // Usage: infer-type <file> [<file>...]   — prints the type per input, one/line.
 
 import std.os
-import aeblabel (infer_type)
+import aeblabel(infer_type)
 
 extern println(s: string)
 extern exit(code: int)

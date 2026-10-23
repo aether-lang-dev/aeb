@@ -533,7 +533,7 @@ _lease_tag() { return "ae1" }
 // `aeb-lease … > lease.secret` overwrites the key with a token). Both the minter
 // and the agent reject it loudly. Pure.
 _looks_like_token(s: string) {
-    pfx = string.concat(_lease_tag(), ".")   // "ae1."
+    pfx = string.concat(_lease_tag(), ".") // "ae1."
     t = string.trim(s)
     if string.length(t) < string.length(pfx) { return 0 }
     if string.equals(string.substring(t, 0, string.length(pfx)), pfx) == 1 { return 1 }
@@ -791,8 +791,8 @@ _lease_verify(secret: string, token: string, now_ms: long, req_purpose: string) 
 _lease_verify_any(secrets_text: string, token: string, now_ms: long, req_purpose: string) {
     // Pre-token-shape checks don't depend on the secret — do them once.
     if string.length(token) == 0 { return "lease: empty token" }
-    sig_fail = ""           // a bad-signature reason seen (fallback)
-    nonsig_fail = ""        // a signature-matched-but-other-failure reason (preferred)
+    sig_fail = "" // a bad-signature reason seen (fallback)
+    nonsig_fail = "" // a signature-matched-but-other-failure reason (preferred)
     any_secret = 0
     rest = secrets_text
     line = ""
@@ -806,7 +806,7 @@ _lease_verify_any(secrets_text: string, token: string, now_ms: long, req_purpose
             if string.equals(first, "#") == 0 {
                 any_secret = 1
                 r = _lease_verify(line, token, now_ms, req_purpose)
-                if string.length(r) == 0 { return "" }   // verified under this secret
+                if string.length(r) == 0 { return "" } // verified under this secret
                 // Classify the failure: signature mismatch is "wrong key";
                 // anything else means this key DID sign it but it's otherwise bad.
                 if string.index_of(r, "bad signature") >= 0 { sig_fail = r }
@@ -843,7 +843,7 @@ _lease_verify_any(secrets_text: string, token: string, now_ms: long, req_purpose
 // The common 6-field form. For the optional run_on=podman "image" and
 // run_on=vm "command" fields, use dispatch_request_json_ex (this delegates).
 dispatch_request_json(guid: string, target: string, purpose: string,
-                      ref: string, hash: string, patch_b64: string) {
+    ref: string, hash: string, patch_b64: string) {
     return dispatch_request_json_ex(guid, target, purpose, ref, hash, patch_b64, "", "")
 }
 
@@ -856,8 +856,8 @@ dispatch_request_json(guid: string, target: string, purpose: string,
 // Both are emitted only when non-empty, so the wire stays minimal and the
 // agent's _json_field("image"/"command") sees "" when absent.
 dispatch_request_json_ex(guid: string, target: string, purpose: string,
-                         ref: string, hash: string, patch_b64: string,
-                         image: string, command: string) {
+    ref: string, hash: string, patch_b64: string,
+    image: string, command: string) {
     out = "{"
     out = string.concat(out, "\"guid\":\"")
     out = string.concat(out, guid)
@@ -901,7 +901,7 @@ ping_json(platform: string, accept: string, busy: string, max_jobs: string, auth
 // confirm an agent's toolchain is new enough for a build's feature needs across
 // a mixed-version fleet.
 ping_json_ex(platform: string, accept: string, busy: string, max_jobs: string, auth: string,
-             aeb_version: string, aether_version: string) {
+    aeb_version: string, aether_version: string) {
     out = "{\"agent\":\"aeb-agent\""
     out = string.concat(out, ",\"platform\":\"")
     out = string.concat(out, platform)

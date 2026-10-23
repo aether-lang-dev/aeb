@@ -119,13 +119,13 @@ ruby_version(_ctx: ptr, version: string) { _e = map.put(_ctx, "ruby_env_version"
 // was called in builder position — abort with the migration hint.
 _reject_node_call(_ctx: ptr, verb: string) {
     if _ctx == null { return 0 }
-    if map.has(_ctx, "target_dir") == 0 { return 0 }   // fresh block map → correct use
+    if map.has(_ctx, "target_dir") == 0 { return 0 } // fresh block map → correct use
     println("ruby.${verb}() is a block setter, not a builder.")
     println("  The v0.303 tool-named grammar moved it inside ruby.bundle():")
     println("      ruby.bundle() { ${verb}() }")
     println("  (install/rspec/minitest/rubocop are setters of ruby.bundle; the")
     println("   node builders are bundle / mri / rake / gem / consumer_example.)")
-    os.exit(1)   // [[noreturn]] — every reachable path already returned above
+    os.exit(1) // [[noreturn]] — every reachable path already returned above
 }
 
 // install() — resolve + install the gem closure (`bundle install`) as part of
@@ -693,7 +693,7 @@ builder rake(): int {
     bldr._mkdirs(target_dir)
 
     tasks = _join_toks(_builder, "ruby_rake_tasks")
-    if string.length(tasks) == 0 { tasks = "" }   // bare `rake` (default task)
+    if string.length(tasks) == 0 { tasks = "" } // bare `rake` (default task)
     println("${mod_dir}: running rake ${tasks}")
     _a = _announce_ruby_env(mod_dir, _builder)
     bundle_bin = _resolve_bundle_bin(_builder)

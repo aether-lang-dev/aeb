@@ -50,24 +50,24 @@ _add(s: @keep ptr, cat: string, pat: string) {
 
 // --- grant verbs (Aether's sandbox vocabulary, verbatim) ----------------
 
-grant_fs_read(s: @keep ptr, path: string)   { return _add(s, "fs_read", path) }
-grant_fs_write(s: @keep ptr, path: string)  { return _add(s, "fs_write", path) }
-grant_exec(s: @keep ptr, cmd: string)       { return _add(s, "exec", cmd) }
-grant_tcp(s: @keep ptr, host: string)       { return _add(s, "tcp", host) }
-grant_tcp_listen(s: @keep ptr, host: string){ return _add(s, "tcp_listen", host) }
-grant_env(s: @keep ptr, var_name: string)   { return _add(s, "env", var_name) }
+grant_fs_read(s: @keep ptr, path: string) { return _add(s, "fs_read", path) }
+grant_fs_write(s: @keep ptr, path: string) { return _add(s, "fs_write", path) }
+grant_exec(s: @keep ptr, cmd: string) { return _add(s, "exec", cmd) }
+grant_tcp(s: @keep ptr, host: string) { return _add(s, "tcp", host) }
+grant_tcp_listen(s: @keep ptr, host: string) { return _add(s, "tcp_listen", host) }
+grant_env(s: @keep ptr, var_name: string) { return _add(s, "env", var_name) }
 // fork/vfork/clone are denied by default; a build orchestrator MUST be able
 // to spawn compilers, so the default profile grants this. Pattern is "*".
-grant_fork(s: @keep ptr)                    { return _add(s, "fork", "*") }
+grant_fork(s: @keep ptr) { return _add(s, "fork", "*") }
 // native: executable memory (JIT mmap/mprotect) + dlopen of escape-target
 // libraries. Most native builds don't need it; toolchains that JIT or
 // dlopen plugins do. Not in the default profile — grant per toolchain.
-grant_native(s: @keep ptr, what: string)    { return _add(s, "native", what) }
+grant_native(s: @keep ptr, what: string) { return _add(s, "native", what) }
 
 // grant_all(s) — the escape hatch (grant-all). A profile that calls this
 // is effectively unsandboxed; the veto/operator should flag it. Present so
 // "no --sandbox" / legacy can be expressed as a real grant set.
-grant_all(s: @keep ptr)                     { return _add(s, "*", "*") }
+grant_all(s: @keep ptr) { return _add(s, "*", "*") }
 
 // --- introspection ------------------------------------------------------
 

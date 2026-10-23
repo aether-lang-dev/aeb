@@ -1,7 +1,7 @@
 // Tests for cargo_crate_toml_content() — workspace member crate Cargo.toml generation
 import std.spec
 import std.map
-import rust (cargo_crate_toml_content)
+import rust(cargo_crate_toml_content)
 
 _add_dep(opts: ptr, name: string, ver: string) {
     if map_has(opts, "_crate_deps") == 0 {

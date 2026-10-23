@@ -253,7 +253,7 @@ _libaether_dir(opts: ptr) {
 // -I block the aetherc-generated C needs.
 _aether_incs(opts: ptr) {
     return bldr._aether_include_flags(bldr._resolve_aether_dir(),
-                                       _opt_str(opts, "c_aether_home"))
+        _opt_str(opts, "c_aether_home"))
 }
 
 // "AETHER_HOME=<root> " command prefix when a dev tree is in use, so
@@ -588,7 +588,7 @@ builder aether_objects(): int {
 // generated_header (and a candidate refactor target for program).
 // Returns 0 on success, non-zero on failure.
 _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
-                    opts: ptr, bin_path: string) {
+    opts: ptr, bin_path: string) {
     compiler = _cc_of(opts)
     cflags = _opt_str(opts, "c_cflags")
     inc_flags = _include_flags(opts)
@@ -662,7 +662,7 @@ _build_tool_binary(source_dir: string, target_dir: string, mod_dir: string,
         // the libraries they declared (@link), as `ae build` takes them.
         tinc = _c_tus_includes(tool_gens)
         shipped, es = _c_compile_shipped(tool_gens, source_dir, path.join(target_dir, "tool_shipped"),
-                                         compiler, "${cflags}${ainc}${tinc}", "${ainc}${tinc}")
+            compiler, "${cflags}${ainc}${tinc}", "${ainc}${tinc}")
         if es != 0 { return es }
         ae_objs = string.concat(ae_objs, shipped)
         dup = bldr._dup_symbol_link_flag()
@@ -967,7 +967,7 @@ builder program(): int {
         // the libraries they declared (@link), as `ae build` takes them.
         pinc = _c_tus_includes(gens)
         shipped, es = _c_compile_shipped(gens, source_dir, path.join(target_dir, "shipped"),
-                                         compiler, "${cflags}${ae_inc}${pinc}", "${ae_inc}${pinc}")
+            compiler, "${cflags}${ae_inc}${pinc}", "${ae_inc}${pinc}")
         if es != 0 {
             bldr.fail(ctx, "C compile of a module's @source failed")
             return es
@@ -1286,7 +1286,7 @@ _c_shipped_sources(gen_cs: ptr, source_dir: string) {
 // adds no ARC flag to @source files, and macae's are written for manual
 // retain/release (see bldr._aether_sources_link_str_objc_apart).
 _c_compile_shipped(gen_cs: ptr, source_dir: string, obj_dir: string,
-                   compiler: string, flags: string, objc_flags: string) -> (string, int) {
+    compiler: string, flags: string, objc_flags: string) -> (string, int) {
     objs = ""
     rc = 0
     srcs = _c_shipped_sources(gen_cs, source_dir)
@@ -1350,7 +1350,7 @@ _strip_ext(name: string) {
     last_dot = 0 - 1
     i = 0
     while i < n {
-        if string.char_at(name, i) == 46 {   // '.'
+        if string.char_at(name, i) == 46 { // '.'
             last_dot = i
         }
         i = i + 1

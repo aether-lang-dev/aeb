@@ -27,8 +27,8 @@
 // Reuses lib/build's marker readers + render so the summary is identical
 // to the all-in-one path.
 import bldr
-import aeblabel (file_to_label, infer_type)
-import agent (prereq_to_image)
+import aeblabel(file_to_label, infer_type)
+import agent(prereq_to_image)
 import std.string
 import std.os
 import std.io
@@ -59,7 +59,7 @@ _dep_list(deps_str: string) {
     while string.length(rest) > 0 {
         sp = string.index_of(rest, " ")
         dep = ""
-        if sp < 0 { dep = rest  rest = "" }
+        if sp < 0 { dep = rest rest = "" }
         else {
             dep = string.substring(rest, 0, sp)
             rest = string.trim(string.substring(rest, sp + 1, string.length(rest)))
@@ -92,7 +92,7 @@ _deps_satisfied(node_deps: ptr, done: ptr) {
 // `$$` doubling for make's own expansion, which is precisely the kind of
 // divergence the native path exists to remove.)
 _node_run_cmd(out_bin: string, root: string, node: string, label: string,
-              node_container: int, node_image: ptr, engine: string, selabel: string) {
+    node_container: int, node_image: ptr, engine: string, selabel: string) {
     inner = string.concat("'", out_bin)
     inner = string.concat(inner, "' '")
     inner = string.concat(inner, root)
@@ -410,13 +410,13 @@ main() {
         exit(1)
     }
     nodes = list.new()
-    deps_of = map.new()      // node file -> newline-joined dep files
+    deps_of = map.new() // node file -> newline-joined dep files
     rest = content
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
         line = ""
-        if nl < 0 { line = rest  rest = "" }
-        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { line = rest rest = "" }
+        else { line = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         line = string.trim(line)
         if string.length(line) > 0 {
             node = _first_word(line)
@@ -467,7 +467,7 @@ main() {
     // --- Choose parallel (make) or sequential ---
     jobs = os.getenv("AEB_JOBS")
     if string.length(jobs) == 0 {
-        jobs = "${os.cpu_count()}"   // native nproc (always >= 1)
+        jobs = "${os.cpu_count()}" // native nproc (always >= 1)
     }
     // AEB_SCHED=native opts into the in-process ready-queue scheduler
     // (os.spawn_proc/wait_any) instead of shelling out to `make -jN`.
@@ -526,17 +526,17 @@ main() {
         mj, _mje = string.to_int(jobs)
         if mj > 0 { max_jobs = mj }
 
-        done = map.new()          // node -> "1" once reaped
-        started = map.new()       // node -> "1" once spawned
-        tok_node = map.new()      // token (as string) -> node
-        live = list.new()         // in-flight tokens
-        tok_start = map.new()     // token (as string) -> start ns, as a LONG.
-                                  // string.from_int/to_int are 32-bit and
-                                  // silently mangle a ns timestamp (seen:
-                                  // 163919858627885 -> -1863191251, rendering
-                                  // a node as 163906.57s). from_long/to_long
-                                  // round-trip int64 exactly — use those for
-                                  // anything clock-sized.
+        done = map.new() // node -> "1" once reaped
+        started = map.new() // node -> "1" once spawned
+        tok_node = map.new() // token (as string) -> node
+        live = list.new() // in-flight tokens
+        tok_start = map.new() // token (as string) -> start ns, as a LONG.
+        // string.from_int/to_int are 32-bit and
+        // silently mangle a ns timestamp (seen:
+        // 163919858627885 -> -1863191251, rendering
+        // a node as 163906.57s). from_long/to_long
+        // round-trip int64 exactly — use those for
+        // anything clock-sized.
         completed = 0
 
         while completed < nn {
@@ -553,8 +553,8 @@ main() {
                             label = file_to_label(node)
                             log = path.join(logs_dir, _log_name(label))
                             inner = _node_run_cmd(out_bin, root, node, label,
-                                                  node_container, node_image,
-                                                  engine, selabel)
+                                node_container, node_image,
+                                engine, selabel)
                             cmd = string.concat(inner, " > '")
                             cmd = string.concat(cmd, log)
                             cmd = string.concat(cmd, "' 2>&1")
@@ -694,8 +694,8 @@ main() {
             while string.length(drest) > 0 {
                 dsp = string.index_of(drest, " ")
                 dep = ""
-                if dsp < 0 { dep = drest  drest = "" }
-                else { dep = string.substring(drest, 0, dsp)  drest = string.trim(string.substring(drest, dsp + 1, string.length(drest))) }
+                if dsp < 0 { dep = drest drest = "" }
+                else { dep = string.substring(drest, 0, dsp) drest = string.trim(string.substring(drest, dsp + 1, string.length(drest))) }
                 if string.length(dep) > 0 {
                     mk = string.concat(mk, " ")
                     mk = string.concat(mk, _san(dep))
@@ -732,7 +732,7 @@ main() {
             // intent ($?) still works by stripping one '$'. Simpler: run
             // the node directly and write the rc ourselves.
             seq_inner = _node_run_cmd(out_bin, root, node, label,
-                                      node_container, node_image, engine, selabel)
+                node_container, node_image, engine, selabel)
             cmd = string.concat(seq_inner, " > '")
             cmd = string.concat(cmd, log)
             cmd = string.concat(cmd, "' 2>&1")

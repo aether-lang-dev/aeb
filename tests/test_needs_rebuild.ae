@@ -9,7 +9,7 @@
 // nested case that the old top-level glob missed.
 
 import std.spec
-import bldr (_needs_rebuild, _sh)
+import bldr(_needs_rebuild, _sh)
 import std.string
 import std.os
 import std.path

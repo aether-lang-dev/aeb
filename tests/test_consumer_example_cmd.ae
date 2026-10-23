@@ -2,7 +2,7 @@
 // builders (no-args base + per-arg) and the declarative setters the other host
 // langs derive from (run_cmd/run_arg/stage/stage_dir/pre_cmd/assert_file).
 import std.spec
-import rust (consumer_run_cmd, consumer_run_arg_cmd, run_cmd, run_arg, stage, stage_dir, pre_cmd, assert_file)
+import rust(consumer_run_cmd, consumer_run_arg_cmd, run_cmd, run_arg, stage, stage_dir, pre_cmd, assert_file)
 import std.map
 import std.list
 

@@ -2,7 +2,7 @@
 // These are the PURE helpers (url/mode in as arguments) — no env, no I/O.
 import std.spec
 
-import cache (_remote_fs_root_of, _remote_effective_mode_of, _remote_read_enabled_of, _remote_write_enabled_of)
+import cache(_remote_fs_root_of, _remote_effective_mode_of, _remote_read_enabled_of, _remote_write_enabled_of)
 
 main() {
     fw = spec.init()

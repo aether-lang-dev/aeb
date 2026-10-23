@@ -5,7 +5,7 @@
 
 import std.spec
 import std.map
-import webhook (interpolate, _url_encode)
+import webhook(interpolate, _url_encode)
 
 main() {
     fw = spec.init()

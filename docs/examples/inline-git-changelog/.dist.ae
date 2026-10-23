@@ -8,7 +8,7 @@
 // SDK-produced one. See ../../inline-build-steps.md.
 
 import bldr
-import bldr (dep)
+import bldr(dep)
 import std.io
 import std.string
 import std.path
@@ -16,7 +16,7 @@ import std.path
 main() {
     bldr.build() {
         dep(".build.ae")
-    
+
         tdir = target_dir()
         src = path.join(tdir, "RECENT_CHANGES.txt")
         body, rerr = io.read_file(src)
@@ -24,7 +24,7 @@ main() {
             println("dist: cannot read ${src}: ${rerr}")
             return 1
         }
-    
+
         dist_dir = path.join(tdir, "dist")
         bldr.mkdirs(dist_dir)
         out = path.join(dist_dir, "RECENT_CHANGES.txt")

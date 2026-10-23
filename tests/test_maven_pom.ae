@@ -4,7 +4,7 @@
 import std.spec
 import std.string
 import std.list
-import maven (pom_xml, mvn_lifecycle_cmd, _pom_dependency, _pom_dependencies)
+import maven(pom_xml, mvn_lifecycle_cmd, _pom_dependency, _pom_dependencies)
 
 main() {
     fw = spec.init()

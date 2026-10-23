@@ -17,8 +17,8 @@ import std.dir
 import std.cryptography
 
 import std.spec
-import approval (jira_check_script, approval_json_check_script, canonicalize_attestation, attestation_evidence_json, _shell_quote)
-import bldr (_sh, _sh_capture)
+import approval(jira_check_script, approval_json_check_script, canonicalize_attestation, attestation_evidence_json, _shell_quote)
+import bldr(_sh, _sh_capture)
 
 // Native-form tmpdir via the _sh chokepoint. This test writes fake curl/bash
 // scripts (native fs.write_atomic), chmods and runs them under a real shell,
@@ -72,9 +72,9 @@ _run(fw: ptr) {
     list.add(fields, "customfield_123\tApproved")
 
     script = jira_check_script("https://jira.example.com", "REL-1234",
-                               "JIRA_TOKEN", "Approved",
-                               labels, fields,
-                               "target/release-approval.json", "30")
+        "JIRA_TOKEN", "Approved",
+        labels, fields,
+        "target/release-approval.json", "30")
 
     spec.assert_contains(script, "BASE_URL='https://jira.example.com'", "sets base url")
     spec.assert_contains(script, "ISSUE='REL-1234'", "sets issue")
@@ -104,9 +104,9 @@ _run(fw: ptr) {
     script_path = string.concat(root, "/check.sh")
     evidence_path = string.concat(root, "/evidence.json")
     run_script = jira_check_script("https://jira.example.com", "REL-1234",
-                                   "JIRA_TOKEN", "Approved",
-                                   labels, fields,
-                                   evidence_path, "30")
+        "JIRA_TOKEN", "Approved",
+        labels, fields,
+        evidence_path, "30")
     fs.write_atomic(script_path, string.bytes(run_script))
     _sh(string.concat("chmod +x ", script_path))
     // POSIX form for the PATH prepend — a native "C:/..bin" would split on its
@@ -134,10 +134,10 @@ _run(fw: ptr) {
     fs.write_atomic(generic_src, string.bytes(generic_json))
     fetch_cmd = string.concat("cat ", string.concat(generic_src, " > \"$tmp\""))
     generic_script = approval_json_check_script("command", "release-1", fetch_cmd,
-                                                req_json, req_approvers,
-                                                "approvals", "id", "approved_at",
-                                                "status", "approved",
-                                                generic_evidence, "30")
+        req_json, req_approvers,
+        "approvals", "id", "approved_at",
+        "status", "approved",
+        generic_evidence, "30")
     generic_script_path = string.concat(root, "/generic-check.sh")
     fs.write_atomic(generic_script_path, string.bytes(generic_script))
     _sh(string.concat("chmod +x ", generic_script_path))

@@ -1,6 +1,6 @@
 // Tests for nim_c_run_cmd() — the pure per-file `nim c -r` command builder.
 import std.spec
-import nim (nim_c_run_cmd)
+import nim(nim_c_run_cmd)
 
 main() {
     fw = spec.init()
@@ -14,7 +14,7 @@ main() {
         // `for t in …; do nim c -r --hints:off --threads:on … "$t"; done` loop.
         spec.it("full flag set") callback {
             spec.assert_str_eq(nim_c_run_cmd("tests/record_test.nim",
-                "--hints:off --threads:on --path:src --path:tests"),
+                    "--hints:off --threads:on --path:src --path:tests"),
                 "nim c -r --hints:off --threads:on --path:src --path:tests \"tests/record_test.nim\"", "full")
         }
         spec.it("one flag") callback {

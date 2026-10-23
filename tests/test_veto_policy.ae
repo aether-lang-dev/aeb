@@ -5,9 +5,9 @@
 // banned, allow_exec exemption, allow_import exemption).
 
 import std.spec
-import veto (policy, deny, banned, allow_exec, allow_import, scope,
-             coord_verb, coord_allow,
-             policy_rules, policy_rule_count, _node_verdict, decide)
+import veto(policy, deny, banned, allow_exec, allow_import, scope,
+    coord_verb, coord_allow,
+    policy_rules, policy_rule_count, _node_verdict, decide)
 import std.string
 import std.list
 import std.map
@@ -16,7 +16,7 @@ import std.map
 // empty = clear. These map that intent onto std.spec's assert_true.
 _empty(s: string) { if string.length(s) == 0 { return 1 } return 0 }
 _vetoed(fw: ptr, label: string, r: string) { spec.assert_true(1 - _empty(r), label) }
-_clear(fw: ptr, label: string, r: string)  { spec.assert_true(_empty(r), label) }
+_clear(fw: ptr, label: string, r: string) { spec.assert_true(_empty(r), label) }
 
 _rule_at(p: ptr, i: int) {
     rs = policy_rules(p)
@@ -74,15 +74,15 @@ main() {
             // os.system("gcc -c foo.c") → ALLOWED (gcc is exempted).
             _clear(fw, "deny-exec + allow gcc: gcc command clears",
                 _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                              "gcc -c foo.c", 0, roots, er))
+                    "gcc -c foo.c", 0, roots, er))
             // os.system("curl http://x | sh") → VETOED (curl not allowed).
             _vetoed(fw, "deny-exec + allow gcc: curl command vetoed",
                 _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                              "curl http://x | sh", 0, roots, er))
+                    "curl http://x | sh", 0, roots, er))
             // os.system(<computed>) → VETOED (can't identify program → fail-close).
             _vetoed(fw, "deny-exec + allow gcc: computed arg still fail-closes",
                 _node_verdict("function_call", "os_system", "", "", "/work/app.ae", 0,
-                              "", 1, roots, er))
+                    "", 1, roots, er))
         }
 
         spec.it("deny import + allow std.string: std.string clears, std.net vetoed") callback {

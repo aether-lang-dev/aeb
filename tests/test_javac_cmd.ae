@@ -3,10 +3,10 @@ import std.string
 import std.io
 import std.map
 
-import bldr (_sh, _sh_capture, _path_sep)
+import bldr(_sh, _sh_capture, _path_sep)
 // Tests for javac_cmd() — command string builder
 
-import java (javac_cmd, classpath_file, _read_classpath_files)
+import java(javac_cmd, classpath_file, _read_classpath_files)
 
 // Native-form tmpdir. `mktemp -d` speaks the SHELL's vocabulary
 // ("/tmp/tmp.XXXX" under MSYS), but std.file/std.io are native Win32 calls

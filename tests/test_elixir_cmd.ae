@@ -1,7 +1,7 @@
 // Tests for lib/elixir's pure command-string builders.
 import std.spec
 import std.list
-import elixir (mix_deps_get_cmd, mix_test_cmd, _flag_part)
+import elixir(mix_deps_get_cmd, mix_test_cmd, _flag_part)
 
 main() {
     fw = spec.init()

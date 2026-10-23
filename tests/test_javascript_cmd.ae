@@ -1,6 +1,6 @@
 // Tests for lib/javascript's pure command-string builders.
 import std.spec
-import javascript (npm_install_cmd, npx_jest_cmd, npm_test_cmd)
+import javascript(npm_install_cmd, npx_jest_cmd, npm_test_cmd)
 
 main() {
     fw = spec.init()

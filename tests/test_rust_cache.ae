@@ -13,7 +13,7 @@ import std.map
 import std.path
 
 import bldr
-import rust (_cache_key_for_cargo)
+import rust(_cache_key_for_cargo)
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary

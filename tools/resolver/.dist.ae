@@ -1,7 +1,7 @@
 import bldr
-import bldr (dep, dep_artifact)
+import bldr(dep, dep_artifact)
 import java
-import java (jar_name, from_classes, main_class)
+import java(jar_name, from_classes, main_class)
 main() {
     bldr.build() {
         dep("tools/resolver/.build.ae")

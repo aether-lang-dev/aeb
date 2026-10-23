@@ -59,13 +59,13 @@ _split_token(token: string) {
 // form; else "". The rejection set, not an exhaustive alias map: only the
 // confusions worth forbidding.
 _misname_canonical(tc: string) {
-    if string.equals(tc, "nodejs") == 1 { return "node" }     // node:20, not nodejs:20
-    if string.equals(tc, "openjdk") == 1 { return "jdk" }     // jdk:21
-    if string.equals(tc, "java") == 1 { return "jdk" }        // jdk:21 (build needs the JDK)
-    if string.equals(tc, "golang") == 1 { return "go" }       // go:1.22
-    if string.equals(tc, "python3") == 1 { return "python" }  // python:3.14
+    if string.equals(tc, "nodejs") == 1 { return "node" } // node:20, not nodejs:20
+    if string.equals(tc, "openjdk") == 1 { return "jdk" } // jdk:21
+    if string.equals(tc, "java") == 1 { return "jdk" } // jdk:21 (build needs the JDK)
+    if string.equals(tc, "golang") == 1 { return "go" } // go:1.22
+    if string.equals(tc, "python3") == 1 { return "python" } // python:3.14
     if string.equals(tc, "py") == 1 { return "python" }
-    if string.equals(tc, "rustc") == 1 { return "rust" }      // rust:1.79
+    if string.equals(tc, "rustc") == 1 { return "rust" } // rust:1.79
     if string.equals(tc, "dotnet-sdk") == 1 { return "dotnet" }
     if string.equals(tc, "g++") == 1 { return "gcc" }
     if string.equals(tc, "nodejs-lts") == 1 { return "node" }
@@ -87,9 +87,9 @@ check_token_names(tokens: ptr) {
         canon = _misname_canonical(tc)
         if string.length(canon) > 0 {
             return string.concat("prereq: '", string.concat(tok,
-                string.concat("' uses a non-canonical toolchain name '",
-                string.concat(tc, string.concat("' — use '", string.concat(canon,
-                "' (aeb publishes canonical prereq names; see docs/design/build-prerequisites-and-provisioning.md)"))))))
+                    string.concat("' uses a non-canonical toolchain name '",
+                        string.concat(tc, string.concat("' — use '", string.concat(canon,
+                                    "' (aeb publishes canonical prereq names; see docs/design/build-prerequisites-and-provisioning.md)"))))))
         }
     }
     return ""

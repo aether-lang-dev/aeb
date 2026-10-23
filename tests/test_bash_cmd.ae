@@ -4,7 +4,7 @@
 //                        xargs child invokes
 import std.spec
 import std.string
-import bash (bash_xargs_cmd, bash_runner_body)
+import bash(bash_xargs_cmd, bash_runner_body)
 
 main() {
     fw = spec.init()

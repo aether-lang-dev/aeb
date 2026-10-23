@@ -7,7 +7,7 @@
 // status "fail".
 import bldr
 import aether
-import aether (source, output)
+import aether(source, output)
 
 aeb(cap) {
     bldr.build() {

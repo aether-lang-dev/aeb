@@ -10,8 +10,8 @@
 import std.spec
 import std.string
 import std.map
-import bldr (_verify_toolchain, _java_ge)
-import groovy (_min_int, min_groovy, min_jdk)
+import bldr(_verify_toolchain, _java_ge)
+import groovy(_min_int, min_groovy, min_jdk)
 
 main() {
     fw = spec.init()

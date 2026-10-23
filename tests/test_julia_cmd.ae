@@ -2,7 +2,7 @@
 // julia-bin resolver, and the script/julia_bin setters.
 import std.spec
 import std.map
-import julia (julia_script_cmd, _julia_of, script, julia_bin)
+import julia(julia_script_cmd, _julia_of, script, julia_bin)
 
 main() {
     fw = spec.init()

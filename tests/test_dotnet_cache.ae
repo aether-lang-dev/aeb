@@ -16,7 +16,7 @@ import std.path
 import std.dir
 
 import bldr
-import dotnet (_cache_key_for_dotnet)
+import dotnet(_cache_key_for_dotnet)
 
 _mktempdir() {
     // Native form on Windows. `mktemp -d` answers in the SHELL's vocabulary

@@ -4,18 +4,18 @@
 // Design: docs/design/run-policy-class-and-cloud-leverage.md
 
 import std.spec
-import agent (_scope_glob_match, _scope_accepts, _has_free_slot,
-              _decision, dispatch_request_json, dispatch_request_json_ex, dispatch_reply_json,
-              _json_field, run_on, max_jobs, accept_scope,
-              _parse_tokens, _bearer_strip, ping_json, ping_json_ex,
-              _parse_pool, _pool_url_of, _pool_token_of,
-              _veto_rule_field, _veto_scan_cmd, _veto_default_rules, _veto_scan_root,
-              _image_match,
-              _lease_mint, _lease_verify, _lease_verify_any, _lease_field, _lease_sign,
-              _lease_purpose_valid, _looks_like_token, _secrets_have_token,
-              _secret_strength_ok, _secrets_weak_line,
-              _secret_marker, _secret_key_material, _secrets_no_marker_line,
-              _csv_contains, _mode_offered, _branch_allowed, _autoclone_allowed)
+import agent(_scope_glob_match, _scope_accepts, _has_free_slot,
+    _decision, dispatch_request_json, dispatch_request_json_ex, dispatch_reply_json,
+    _json_field, run_on, max_jobs, accept_scope,
+    _parse_tokens, _bearer_strip, ping_json, ping_json_ex,
+    _parse_pool, _pool_url_of, _pool_token_of,
+    _veto_rule_field, _veto_scan_cmd, _veto_default_rules, _veto_scan_root,
+    _image_match,
+    _lease_mint, _lease_verify, _lease_verify_any, _lease_field, _lease_sign,
+    _lease_purpose_valid, _looks_like_token, _secrets_have_token,
+    _secret_strength_ok, _secrets_weak_line,
+    _secret_marker, _secret_key_material, _secrets_no_marker_line,
+    _csv_contains, _mode_offered, _branch_allowed, _autoclone_allowed)
 import std.string
 import std.list
 import std.map
@@ -160,7 +160,7 @@ main() {
         }
         spec.it("ping_json_ex: toolchain versions for the originator") callback {
             pjv = ping_json_ex("macos", "preint/*", "false", "1", "required",
-                               "aeb 0.0.0-dev+abc123 (git v0.160)", "Aether Compiler v0.256.0")
+                "aeb 0.0.0-dev+abc123 (git v0.160)", "Aether Compiler v0.256.0")
             spec.assert_str_eq(_json_field(pjv, "aeb_version"), "aeb 0.0.0-dev+abc123 (git v0.160)", "ex aeb_version")
             spec.assert_str_eq(_json_field(pjv, "aether_version"), "Aether Compiler v0.256.0", "ex aether_version")
             spec.assert_str_eq(_json_field(pjv, "platform"), "macos", "ex still carries platform")
@@ -276,9 +276,9 @@ main() {
             // material (what the lessor mints with) — mirrors the real tools.
             secret = "aeb-secret-v1:shhh-lessor-secret-material-xyz-32+"
             mat = _secret_key_material(secret)
-            now = 1000000000000  // a fixed "now" in unix-ms
-            future = "1000000600000"  // now + 10 min
-            past   = "999999990000"   // now - ~10s
+            now = 1000000000000 // a fixed "now" in unix-ms
+            future = "1000000600000" // now + 10 min
+            past = "999999990000" // now - ~10s
 
             // A well-formed lease for preint/phammant/rust, not expired, verifies ("").
             good = _lease_mint(mat, "preint/phammant/rust", future)
@@ -312,10 +312,10 @@ main() {
             // DEFENSE-IN-DEPTH: a VALIDLY-SIGNED but NON-CANONICAL purpose (as a rogue/
             // patched minter could produce) is rejected at VERIFY, not just at mint. The
             // verifier re-applies the grammar at the trust boundary.
-            rogue_upper = _lease_mint(mat, "preint/Rust", future)   // uppercase R
+            rogue_upper = _lease_mint(mat, "preint/Rust", future) // uppercase R
             spec.assert_true(1 - _streq(_lease_verify(secret, rogue_upper, now, "preint/Rust"), ""),
                 "verify rejects signed non-canonical purpose (uppercase)")
-            rogue_space = _lease_mint(mat, "preint/my rust", future)  // space
+            rogue_space = _lease_mint(mat, "preint/my rust", future) // space
             spec.assert_true(1 - _streq(_lease_verify(secret, rogue_space, now, "preint/my rust"), ""),
                 "verify rejects signed non-canonical purpose (space)")
             // a canonical purpose with a trailing /* scope still verifies fine.
@@ -365,11 +365,11 @@ main() {
             // mint with key MATERIAL; the set lines are ENVELOPES (agent-side form).
             now = 1000000000000
             future = "1000000600000"
-            past   = "999999990000"
+            past = "999999990000"
             sA = "secret-alpha-material-long-enough"
             sB = "secret-bravo-material-long-enough"
-            tokA = _lease_mint(sA, "preint/*", future)   // signed by alpha
-            tokB = _lease_mint(sB, "preint/*", future)   // signed by bravo
+            tokA = _lease_mint(sA, "preint/*", future) // signed by alpha
+            tokB = _lease_mint(sB, "preint/*", future) // signed by bravo
             twoset = "aeb-secret-v1:secret-alpha-material-long-enough\naeb-secret-v1:secret-bravo-material-long-enough\n"
             // a token signed by EITHER listed secret verifies under the set
             spec.assert_str_eq(_lease_verify_any(twoset, tokA, now, "preint/x"), "", "verify_any accepts alpha-signed")

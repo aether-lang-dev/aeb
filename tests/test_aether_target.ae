@@ -12,8 +12,8 @@ import std.spec
 import std.string
 import std.map
 
-import aether (_node_target, _target_flag, _program_out_suffix, target)
-import bldr (_exe_suffix)
+import aether(_node_target, _target_flag, _program_out_suffix, target)
+import bldr(_exe_suffix)
 
 // A builder map carrying a declared target(), the way the closure DSL
 // populates it: target(b, triple) writes map key "target".

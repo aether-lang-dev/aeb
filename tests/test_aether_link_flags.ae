@@ -12,7 +12,7 @@ import std.fs
 import std.dir
 import std.path
 
-import bldr (_sh, _sh_capture, _aether_link_line_libs, _aether_link_libs, _contrib_lib_dir_flag)
+import bldr(_sh, _sh_capture, _aether_link_line_libs, _aether_link_libs, _contrib_lib_dir_flag)
 
 _mktempdir() {
     raw, _err = _sh_capture("mktemp -d")

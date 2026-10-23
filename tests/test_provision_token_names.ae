@@ -5,7 +5,7 @@
 // docs/design/build-prerequisites-and-provisioning.md.
 
 import std.spec
-import provision (_misname_canonical, check_token_names)
+import provision(_misname_canonical, check_token_names)
 import std.string
 import std.list
 
@@ -15,18 +15,18 @@ main() {
     // --- _misname_canonical: known misnames map to canonical ---
     spec.describe(fw, "_misname_canonical") {
         spec.it("known misnames map to canonical") callback {
-            spec.assert_str_eq(_misname_canonical("nodejs"),  "node",   "nodejs -> node")
-            spec.assert_str_eq(_misname_canonical("openjdk"), "jdk",    "openjdk -> jdk")
-            spec.assert_str_eq(_misname_canonical("java"),    "jdk",    "java -> jdk")
-            spec.assert_str_eq(_misname_canonical("golang"),  "go",     "golang -> go")
+            spec.assert_str_eq(_misname_canonical("nodejs"), "node", "nodejs -> node")
+            spec.assert_str_eq(_misname_canonical("openjdk"), "jdk", "openjdk -> jdk")
+            spec.assert_str_eq(_misname_canonical("java"), "jdk", "java -> jdk")
+            spec.assert_str_eq(_misname_canonical("golang"), "go", "golang -> go")
             spec.assert_str_eq(_misname_canonical("python3"), "python", "python3 -> python")
-            spec.assert_str_eq(_misname_canonical("rustc"),   "rust",   "rustc -> rust")
+            spec.assert_str_eq(_misname_canonical("rustc"), "rust", "rustc -> rust")
         }
         // --- canonical names are NOT misnames (return "") ---
         spec.it("canonical names are NOT misnames") callback {
-            spec.assert_str_eq(_misname_canonical("node"),   "", "node ok")
-            spec.assert_str_eq(_misname_canonical("jdk"),    "", "jdk ok")
-            spec.assert_str_eq(_misname_canonical("zig"),    "", "zig ok")
+            spec.assert_str_eq(_misname_canonical("node"), "", "node ok")
+            spec.assert_str_eq(_misname_canonical("jdk"), "", "jdk ok")
+            spec.assert_str_eq(_misname_canonical("zig"), "", "zig ok")
             spec.assert_str_eq(_misname_canonical("python"), "", "python ok")
         }
     }

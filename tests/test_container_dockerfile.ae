@@ -2,7 +2,7 @@
 // aeb DSL" generator (from/arg/run_step/workdir/expose/entrypoint), including
 // that ordered steps (WORKDIR between two RUNs) render in call order.
 import std.spec
-import container (from, arg, run_step, expose, entrypoint, workdir, dockerfile_full_content)
+import container(from, arg, run_step, expose, entrypoint, workdir, dockerfile_full_content)
 
 main() {
     fw = spec.init()
@@ -58,12 +58,12 @@ main() {
 apt-get update \
     && apt-get install -y git
 SH
-)
+            )
             run_step(b5, <<SH
 git clone foo \
     && make install
 SH
-)
+            )
             spec.assert_str_eq(dockerfile_full_content(b5),
                 "FROM debian:trixie-slim\nRUN apt-get update \\\n    && apt-get install -y git\nRUN git clone foo \\\n    && make install\n",
                 "multi-line heredoc RUNs preserve internal newlines")

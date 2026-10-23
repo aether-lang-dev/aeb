@@ -3,7 +3,7 @@ import std.spec
 import std.list
 import std.map
 
-import erlang (rebar_config_content)
+import erlang(rebar_config_content)
 
 main() {
     fw = spec.init()

@@ -7,8 +7,8 @@
 // tuple parsed from captured `dart test` output.
 
 import std.spec
-import dart (pub_get_cmd, analyze_cmd, analyze_args_part, test_cmd, test_args_part,
-            compile_cmd, _parse_dart_test_counts, _strip_dart_ext)
+import dart(pub_get_cmd, analyze_cmd, analyze_args_part, test_cmd, test_args_part,
+    compile_cmd, _parse_dart_test_counts, _strip_dart_ext)
 import std.string
 import std.list
 import std.map

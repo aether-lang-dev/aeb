@@ -1,7 +1,7 @@
 // Tests for lxc_create_cmd() — LXC container create command builder
 import std.spec
 import std.map
-import container (lxc_create_cmd)
+import container(lxc_create_cmd)
 
 main() {
     fw = spec.init()

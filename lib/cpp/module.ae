@@ -269,12 +269,12 @@ builder program(): int {
 
     println("${mod_dir}: compiling (${cxx_bin})")
     cmd = cxx_compile_cmd_objs(cxx_bin, source_dir, _std_flag(_std_of(_builder)),
-                          sources,
-                          _list_or_null(_builder, "cpp_includes"),
-                          _list_or_null(_builder, "cpp_cxxflags"),
-                          _list_or_null(_builder, "cpp_link_flags"),
-                          _collect_dep_objects(ctx),
-                          out_abs)
+        sources,
+        _list_or_null(_builder, "cpp_includes"),
+        _list_or_null(_builder, "cpp_cxxflags"),
+        _list_or_null(_builder, "cpp_link_flags"),
+        _collect_dep_objects(ctx),
+        out_abs)
     exit_code = bldr._sh(cmd)
     if exit_code != 0 {
         println("${mod_dir}: compile FAILED")
@@ -315,12 +315,12 @@ builder tests(): int {
 
     println("${mod_dir}: building tests (${cxx_bin})")
     cmd = cxx_compile_cmd_objs(cxx_bin, source_dir, _std_flag(_std_of(_builder)),
-                          sources,
-                          _list_or_null(_builder, "cpp_includes"),
-                          _list_or_null(_builder, "cpp_cxxflags"),
-                          _list_or_null(_builder, "cpp_link_flags"),
-                          _collect_dep_objects(ctx),
-                          test_bin)
+        sources,
+        _list_or_null(_builder, "cpp_includes"),
+        _list_or_null(_builder, "cpp_cxxflags"),
+        _list_or_null(_builder, "cpp_link_flags"),
+        _collect_dep_objects(ctx),
+        test_bin)
     bc = bldr._sh(cmd)
     if bc != 0 {
         println("${mod_dir}: test build FAILED")

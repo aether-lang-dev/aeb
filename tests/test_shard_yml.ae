@@ -3,7 +3,7 @@ import std.spec
 import std.list
 import std.map
 
-import crystal (shard_yml_content)
+import crystal(shard_yml_content)
 
 main() {
     fw = spec.init()

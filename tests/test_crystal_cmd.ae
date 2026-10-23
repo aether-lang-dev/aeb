@@ -2,7 +2,7 @@
 // the crystal-bin resolver, and the spec_path/crystal_bin setters.
 import std.spec
 import std.map
-import crystal (crystal_spec_cmd, _crystal_of, spec_path, crystal_bin)
+import crystal(crystal_spec_cmd, _crystal_of, spec_path, crystal_bin)
 
 main() {
     fw = spec.init()

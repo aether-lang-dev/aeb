@@ -347,10 +347,10 @@ bash_runner_body() {
     dol = "$"
     pos1_name = string.concat(dol, "{1%%|*}")
     pos1_full = string.concat(dol, "{1#*|}")
-    pos_full  = string.concat(dol, "full")
-    pos_q     = string.concat(dol, "?")
-    pos_name  = string.concat(dol, "name")
-    pos_rc    = string.concat(dol, "rc")
+    pos_full = string.concat(dol, "full")
+    pos_q = string.concat(dol, "?")
+    pos_name = string.concat(dol, "name")
+    pos_rc = string.concat(dol, "rc")
     rb = "#!/bin/bash\n"
     rb = string.concat(rb, "name=\"")
     rb = string.concat(rb, pos1_name)

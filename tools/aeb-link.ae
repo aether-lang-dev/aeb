@@ -36,7 +36,7 @@ import std.strbuilder
 
 // Label / tag derivation is shared via the aeblabel module (built
 // with `--lib tools`) — one canonical copy, no drift across tools.
-import aeblabel (infer_type, dirname_pure, extract_tag, file_to_label, counts_line, encode_name)
+import aeblabel(infer_type, dirname_pure, extract_tag, file_to_label, counts_line, encode_name)
 
 extern println(s: string)
 extern exit(code: int)
@@ -100,19 +100,19 @@ extern exit(code: int)
 // asymmetry is intentional: "where is the root" is a broader question
 // than "are the SDK symlinks usable".
 _has_aeb_marker(d: string) {
-    if fs.exists(string.concat(d, "/.aeb")) == 1 { return 1 }      // aeb project root
+    if fs.exists(string.concat(d, "/.aeb")) == 1 { return 1 } // aeb project root
     return 0
 }
 
 _has_vcs_marker(d: string) {
-    if fs.exists(string.concat(d, "/.avn")) == 1 { return 1 }      // avn working-copy root
-    if fs.exists(string.concat(d, "/.git")) == 1 { return 1 }      // git (dir or worktree/submodule file)
-    if fs.exists(string.concat(d, "/.hg")) == 1 { return 1 }       // Mercurial
-    if fs.exists(string.concat(d, "/.svn")) == 1 { return 1 }      // Subversion (≥1.7: root-only)
-    if fs.exists(string.concat(d, "/.bzr")) == 1 { return 1 }      // Bazaar
+    if fs.exists(string.concat(d, "/.avn")) == 1 { return 1 } // avn working-copy root
+    if fs.exists(string.concat(d, "/.git")) == 1 { return 1 } // git (dir or worktree/submodule file)
+    if fs.exists(string.concat(d, "/.hg")) == 1 { return 1 } // Mercurial
+    if fs.exists(string.concat(d, "/.svn")) == 1 { return 1 } // Subversion (≥1.7: root-only)
+    if fs.exists(string.concat(d, "/.bzr")) == 1 { return 1 } // Bazaar
     if fs.exists(string.concat(d, "/.fslckout")) == 1 { return 1 } // Fossil checkout marker
-    if fs.exists(string.concat(d, "/_FOSSIL_")) == 1 { return 1 }  // Fossil (older / Windows marker)
-    if fs.exists(string.concat(d, "/.pijul")) == 1 { return 1 }    // Pijul
+    if fs.exists(string.concat(d, "/_FOSSIL_")) == 1 { return 1 } // Fossil (older / Windows marker)
+    if fs.exists(string.concat(d, "/.pijul")) == 1 { return 1 } // Pijul
     return 0
 }
 
@@ -227,10 +227,10 @@ _cmd_caret_escape_link(s: string) {
         rest = string.substring(rest, 1, string.length(rest))
         if string.equals(ch, ">") == 1 { out = string.concat(out, "^>") }
         else { if string.equals(ch, "<") == 1 { out = string.concat(out, "^<") }
-        else { if string.equals(ch, "&") == 1 { out = string.concat(out, "^&") }
-        else { if string.equals(ch, "|") == 1 { out = string.concat(out, "^|") }
-        else { if string.equals(ch, "^") == 1 { out = string.concat(out, "^^") }
-        else { out = string.concat(out, ch) } } } } }
+            else { if string.equals(ch, "&") == 1 { out = string.concat(out, "^&") }
+                else { if string.equals(ch, "|") == 1 { out = string.concat(out, "^|") }
+                    else { if string.equals(ch, "^") == 1 { out = string.concat(out, "^^") }
+                        else { out = string.concat(out, ch) } } } } }
     }
     return out
 }
@@ -327,7 +327,7 @@ _sh_script_path_link(cmd: string) {
         }
     }
     name = string.concat("_aeb_link_", string.concat(string.from_int(os.getpid()),
-           string.concat("_", string.concat(string.from_int(_sh_hash_link(cmd)), ".sh"))))
+            string.concat("_", string.concat(string.from_int(_sh_hash_link(cmd)), ".sh"))))
     return string.concat(tmp, string.concat("/", name))
 }
 
@@ -542,8 +542,8 @@ _aether_source_files_link(c_path: string, base_dir: string, seen: string) {
 
 // Split-accessors for the _aether_source_files_link result map (AGENTS.md: prefer
 // a map + split accessors over chaining a multi-value return).
-_asres_files(r: ptr) { v, _ = map.get(r, "files")  return v }
-_asres_seen(r: ptr)  { v, _ = map.get(r, "seen")   return v }
+_asres_files(r: ptr) { v, _ = map.get(r, "files") return v }
+_asres_seen(r: ptr) { v, _ = map.get(r, "seen") return v }
 
 // 1 if `p` is an absolute path (leading '/', Windows drive, or UNC). Local twin.
 _is_abs_path_link(p: string) {
@@ -605,8 +605,8 @@ _aether_published_libs(aether_bin: string) {
         // Next whitespace-delimited token.
         sp = string.index_of(rest, " ")
         tok = ""
-        if sp < 0 { tok = rest  rest = "" }
-        else { tok = string.substring(rest, 0, sp)  rest = string.substring(rest, sp + 1, string.length(rest)) }
+        if sp < 0 { tok = rest rest = "" }
+        else { tok = string.substring(rest, 0, sp) rest = string.substring(rest, sp + 1, string.length(rest)) }
         tok = string.trim(tok)
         if string.length(tok) > 0 {
             // Keep external -l<name> and -L<dir>; drop -laether / -lpthread /
@@ -696,14 +696,14 @@ _resolve_libaether_dir(aether_dir: string) {
 // resolved archive. os_arch_raw is the 0.681 marker symbol; it appears in the
 // archive's symbol table (grep the file — no nm dependency, works on Windows).
 _assert_libaether_floor(libaether_dir: string) {
-    if string.length(libaether_dir) == 0 { return }   // resolution failed — caller already diagnoses
+    if string.length(libaether_dir) == 0 { return } // resolution failed — caller already diagnoses
     lib_a = string.concat(libaether_dir, "/libaether.a")
     if fs.exists(lib_a) == 0 { return }
     // grep -c counts matching lines; a symbol table entry for os_arch_raw shows
     // up as a plain string in the .a. -a treats the archive as text (it has NULs).
     out, _e = _sh_capture_link(string.concat("grep -a -c os_arch_raw '", string.concat(lib_a, "' 2>/dev/null")))
     n = string.trim(out)
-    if string.length(n) == 0 { return }   // grep unavailable — don't false-positive; the link still catches a real miss
+    if string.length(n) == 0 { return } // grep unavailable — don't false-positive; the link still catches a real miss
     // Aether `==` is not string value comparison — use string.equals (a bare
     // `n == "0"` is always false even when n is "0"; the local-shadows/`==`
     // string-compare footgun this codebase avoids everywhere with string.equals).
@@ -836,8 +836,8 @@ main() {
         exit(1)
     }
     edges_file = aether_args_get(1)
-    build_dir  = aether_args_get(2)
-    aeb_lib    = aether_args_get(3)
+    build_dir = aether_args_get(2)
+    aeb_lib = aether_args_get(3)
     // The toolchain dir arrives in whatever form `command -v ae` produced —
     // on Windows that is the MSYS "/c/.." form (measured: it stays POSIX even
     // when PATH holds the native form). aetherc/libaether paths built from a
@@ -847,8 +847,8 @@ main() {
     // never inherited. (asks/windows-two-path-form-bugs-aeb-link-and-tmp.md, Bug 1.)
     aether_dir = _to_native_path_link(aether_args_get(4))
     aether_bin = aether_args_get(5)
-    out_bin    = aether_args_get(6)
-    root       = aether_args_get(7)
+    out_bin = aether_args_get(6)
+    root = aether_args_get(7)
 
     // On Windows, MinGW gcc emits <out_bin>.exe; suffix once here so the `-o`
     // target, the per-node `out_bin <root> <label>` exec, and the aeb-driver
@@ -864,9 +864,9 @@ main() {
     }
 
     // .exe on Windows: aetherc and the helper tools only exist/run as <name>.exe.
-    esuf           = _exe_suffix_link()
-    aetherc        = string.concat(string.concat(aether_dir, "/aetherc"), esuf)
-    libaether_dir  = _resolve_libaether_dir(aether_dir)
+    esuf = _exe_suffix_link()
+    aetherc = string.concat(string.concat(aether_dir, "/aetherc"), esuf)
+    libaether_dir = _resolve_libaether_dir(aether_dir)
     // 0.681 FLOOR on the archive that will be linked (catches a stale libaether.a
     // beside a current `ae` — the servirtium-vcr case — before the orchestrator
     // link fails with a cryptic `undefined reference to os_arch_raw`).
@@ -882,7 +882,7 @@ main() {
     // tree) it returns "", and we add NOTHING: cwd is already an implicit
     // aetherc search root, so same-dir imports still work, and there is no
     // principled root to widen cross-dir resolution to.
-    repo_root   = _discover_repo_root(root)
+    repo_root = _discover_repo_root(root)
     compile_lib = string.concat(aeb_lib, "")
     if string.length(repo_root) > 0 {
         compile_lib = string.concat(aeb_lib, string.concat(_lib_sep_link(), repo_root))
@@ -917,17 +917,17 @@ main() {
     // Helper tool paths: suffixless base for `ae build -o` (ae auto-appends
     // .exe on Windows, so an explicit .exe there would double-suffix to
     // .exe.exe), and the .exe-suffixed name for file.exists + invocation.
-    transform_ae_base    = string.concat(aebhome, "/tools/transform-ae")
+    transform_ae_base = string.concat(aebhome, "/tools/transform-ae")
     gen_orchestrator_base = string.concat(aebhome, "/tools/gen-orchestrator")
-    transform_ae   = string.concat(transform_ae_base, esuf)
+    transform_ae = string.concat(transform_ae_base, esuf)
     gen_orchestrator = string.concat(gen_orchestrator_base, esuf)
 
     // (Re)build the helper tools if missing OR their source is newer than the
     // compiled binary — not absence-only, which let a stale binary survive a
     // source fix (see _helper_stale).
     transform_src = string.concat(aebhome, "/tools/transform-ae.ae")
-    gen_src       = string.concat(aebhome, "/tools/gen-orchestrator.ae")
-    aeblabel_src  = string.concat(aebhome, "/tools/aeblabel/module.ae")
+    gen_src = string.concat(aebhome, "/tools/gen-orchestrator.ae")
+    aeblabel_src = string.concat(aebhome, "/tools/aeblabel/module.ae")
     if _helper_stale(transform_ae, transform_src, "") == 1 {
         _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(transform_src, string.concat(" -o ", string.concat(transform_ae_base, " 2>/dev/null")))))
     }
@@ -970,15 +970,15 @@ main() {
     i = 0
     while i < n {
         file_path, _ = list.get_string(files, i)
-        fname     = encode_name(file_path)
-        label     = file_to_label(file_path)
-        type      = infer_type(file_path)
-        src       = string.concat("./", file_path)
-        ae_tmp    = string.concat(string.concat(build_dir, "/"), string.concat(fname, ".ae"))
-        c_out     = string.concat(string.concat(build_dir, "/"), string.concat(fname, ".c"))
-        dir       = dirname_pure(file_path)
-        tag       = extract_tag(file_path)
-        display   = dir
+        fname = encode_name(file_path)
+        label = file_to_label(file_path)
+        type = infer_type(file_path)
+        src = string.concat("./", file_path)
+        ae_tmp = string.concat(string.concat(build_dir, "/"), string.concat(fname, ".ae"))
+        c_out = string.concat(string.concat(build_dir, "/"), string.concat(fname, ".c"))
+        dir = dirname_pure(file_path)
+        tag = extract_tag(file_path)
+        display = dir
         if string.length(tag) > 0 {
             display = string.concat(string.concat(dir, ":"), tag)
         }
@@ -1034,7 +1034,7 @@ main() {
 
     // --- Generate orchestrator .ae ---
     orch_file = string.concat(build_dir, "/_orchestrator.ae")
-    orch_c    = string.concat(build_dir, "/_orchestrator.c")
+    orch_c = string.concat(build_dir, "/_orchestrator.c")
 
     // gen-orchestrator file1 file2 ... > orch_file
     // The file list scales with the build's module count; strbuilder
@@ -1301,7 +1301,7 @@ main() {
         // `build` (lib) + aeblabel (tools); the aeblabel dep is the shared
         // encode_name source whose staleness left a box on the pre-fix symbol.
         aeb_driver_src = string.concat(aebhome, "/tools/aeb-driver.ae")
-        aeblabel_src2  = string.concat(aebhome, "/tools/aeblabel/module.ae")
+        aeblabel_src2 = string.concat(aebhome, "/tools/aeblabel/module.ae")
         if _helper_stale(aeb_driver, aeb_driver_src, aeblabel_src2) == 1 {
             // -o uses the suffixless base (ae appends .exe on Windows).
             db = string.concat(aether_bin, " build ")

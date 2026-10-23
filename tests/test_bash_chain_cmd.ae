@@ -5,8 +5,8 @@
 import std.spec
 import std.list
 
-import bldr (_exec_chain_cmd)
-import bash (bash_chain_cmd)
+import bldr(_exec_chain_cmd)
+import bash(bash_chain_cmd)
 
 _lst() {
     return list.new()

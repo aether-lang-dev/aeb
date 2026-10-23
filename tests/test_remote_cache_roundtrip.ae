@@ -18,7 +18,7 @@ import std.map
 import std.path
 
 import cache
-import bldr (_sh, _sh_capture)
+import bldr(_sh, _sh_capture)
 
 _eq0(v: int) { if v == 0 { return 1 } return 0 }
 _eq_str(a: string, b: string) { if a == b { return 1 } return 0 }
@@ -46,7 +46,7 @@ _sharded(root: string, key: string) {
     return path.join(path.join(root, string.substring(key, 0, 2)), string.substring(key, 2, string.length(key)))
 }
 
-_use_local(d: string)  { _e = os.setenv("AEB_CACHE_DIR", d) }
+_use_local(d: string) { _e = os.setenv("AEB_CACHE_DIR", d) }
 _remote_on(url: string, mode: string) {
     _e1 = os.setenv("AEB_REMOTE_CACHE_URL", url)
     _e2 = os.setenv("AEB_REMOTE_CACHE_MODE", mode)

@@ -7,9 +7,9 @@
 // default_profile shape (no tcp); emit/parse round-trip.
 
 import std.spec
-import sandbox (new, grant_fs_read, grant_fs_write, grant_exec, grant_tcp,
-                grant_env, grant_all, pair_count, has_grant, is_grant_all,
-                intersect, default_profile, parse)
+import sandbox(new, grant_fs_read, grant_fs_write, grant_exec, grant_tcp,
+    grant_env, grant_all, pair_count, has_grant, is_grant_all,
+    intersect, default_profile, parse)
 import std.string
 import std.list
 

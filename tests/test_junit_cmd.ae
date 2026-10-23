@@ -2,7 +2,7 @@
 import std.spec
 import std.map
 import bldr
-import java (junit_cmd)
+import java(junit_cmd)
 
 main() {
     fw = spec.init()

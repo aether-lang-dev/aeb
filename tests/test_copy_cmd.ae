@@ -13,8 +13,8 @@
 //      stored under canonical keys.
 
 import std.spec
-import copy (cp_file_cmd, cp_tree_cmd, _resolve_path,
-             from, to)
+import copy(cp_file_cmd, cp_tree_cmd, _resolve_path,
+    from, to)
 import std.map
 
 _str_at(m: ptr, k: string) {

@@ -34,7 +34,7 @@ import std.path
 // Shared with the other graph-walking tool — one canonical copy.
 // NB _walk_dirname returns "" (not ".") at the top; that is the
 // ancestor-walk loop's termination sentinel. See aeblabel.
-import aeblabel (_walk_dirname, split_lines, split_tokens)
+import aeblabel(_walk_dirname, split_lines, split_tokens)
 
 extern println(s: string)
 extern exit(code: int)

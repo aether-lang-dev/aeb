@@ -197,8 +197,8 @@ rules_from_lines(text: string) {
     while string.length(rest) > 0 {
         nl = string.index_of(rest, "\n")
         line = ""
-        if nl < 0 { line = rest  rest = "" }
-        else { line = string.substring(rest, 0, nl)  rest = string.substring(rest, nl + 1, string.length(rest)) }
+        if nl < 0 { line = rest rest = "" }
+        else { line = string.substring(rest, 0, nl) rest = string.substring(rest, nl + 1, string.length(rest)) }
         line = string.trim(line)
         if string.length(line) > 0 { list.add(out, line) }
     }
@@ -266,8 +266,8 @@ _is_lib_origin(file: string, lib_roots: ptr) {
 //                    was handed (maven.dep("org:foo:1.2.3") → "org:foo:1.2.3").
 //   `arg_computed` — 1 if ANY arg of this call is `{"computed":true}`.
 _node_verdict(kind: string, callee: string, name: string, modpath: string,
-              file: string, indirect: int, arg_literal: string,
-              arg_computed: int, lib_roots: ptr, rules: ptr) {
+    file: string, indirect: int, arg_literal: string,
+    arg_computed: int, lib_roots: ptr, rules: ptr) {
     // SDK-origin nodes are exempt — the trusted --lib roots legitimately
     // declare externs and shell out.
     if _is_lib_origin(file, lib_roots) == 1 { return "" }
@@ -453,9 +453,9 @@ _exec_allowed(rules: ptr, arg_literal: string) {
         i = i + 1
         // allow rule: kind "allow", arg "exec\t<cmd>"
         if string.equals(_rule_kind(r), "allow") == 1 {
-            ra = _rule_arg(r)               // "exec\t<cmd>"
+            ra = _rule_arg(r) // "exec\t<cmd>"
             if string.equals(_rule_kind(ra), "exec") == 1 {
-                allowed = _rule_arg(ra)     // "<cmd>"
+                allowed = _rule_arg(ra) // "<cmd>"
                 if string.equals(allowed, prog) == 1 { return 1 }
                 // also allow the whole literal matching (e.g. allow an
                 // exact command with args)
@@ -498,7 +498,7 @@ _import_allowed(rules: ptr, modpath: string) {
         r, _ = list.get(rules, i)
         i = i + 1
         if string.equals(_rule_kind(r), "allow") == 1 {
-            ra = _rule_arg(r)               // "import\t<mod>"
+            ra = _rule_arg(r) // "import\t<mod>"
             if string.equals(_rule_kind(ra), "import") == 1 {
                 if string.equals(_rule_arg(ra), modpath) == 1 { return 1 }
             }
@@ -560,7 +560,7 @@ decide(ast_json: string, emit_exit: int, lib_roots: ptr, rules: ptr) {
             arg_literal = _first_literal_arg(node)
             arg_computed = _has_computed_arg(node)
             v = _node_verdict(kind, callee, name, modpath, file, indirect,
-                              arg_literal, arg_computed, lib_roots, rules)
+                arg_literal, arg_computed, lib_roots, rules)
             if string.length(v) > 0 { return v }
         }
     }

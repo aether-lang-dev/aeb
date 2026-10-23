@@ -1,7 +1,7 @@
 // Tests for kotlinc_cmd()
 import std.spec
 import std.map
-import kotlin (kotlinc_cmd)
+import kotlin(kotlinc_cmd)
 
 main() {
     fw = spec.init()

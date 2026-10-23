@@ -1,7 +1,7 @@
 // Tests for image_build_cmd() — OCI container build command builder
 import std.spec
 import std.map
-import container (image_build_cmd)
+import container(image_build_cmd)
 
 main() {
     fw = spec.init()

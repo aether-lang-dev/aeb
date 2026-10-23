@@ -6,7 +6,7 @@
 // the telemetry JSON must render as status "cache-hit".
 import bldr
 import aether
-import aether (source, output, extra_source)
+import aether(source, output, extra_source)
 
 aeb(cap) {
     bldr.build() {

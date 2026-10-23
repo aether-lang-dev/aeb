@@ -4,7 +4,7 @@
 // docs/design/agent-container-ladder.md: "<lang>:<ver>" -> "aeb-tc:<lang>-<ver>".
 
 import std.spec
-import agent (prereq_to_image, dominant_prereq)
+import agent(prereq_to_image, dominant_prereq)
 
 main() {
     fw = spec.init()
@@ -12,11 +12,11 @@ main() {
     // prereq_to_image: <lang>:<ver> -> aeb-tc:<lang>-<ver>
     spec.describe(fw, "prereq_to_image") {
         spec.it("<lang>:<ver> -> aeb-tc:<lang>-<ver>") callback {
-            spec.assert_str_eq(prereq_to_image("rust:1.75"),   "aeb-tc:rust-1.75",   "rust")
-            spec.assert_str_eq(prereq_to_image("jdk:21"),       "aeb-tc:jdk-21",       "jdk")
-            spec.assert_str_eq(prereq_to_image("go:1.22"),      "aeb-tc:go-1.22",      "go")
-            spec.assert_str_eq(prereq_to_image("python:3.12"),  "aeb-tc:python-3.12",  "python")
-            spec.assert_str_eq(prereq_to_image("kotlin:2.0"),   "aeb-tc:kotlin-2.0",   "kotlin")
+            spec.assert_str_eq(prereq_to_image("rust:1.75"), "aeb-tc:rust-1.75", "rust")
+            spec.assert_str_eq(prereq_to_image("jdk:21"), "aeb-tc:jdk-21", "jdk")
+            spec.assert_str_eq(prereq_to_image("go:1.22"), "aeb-tc:go-1.22", "go")
+            spec.assert_str_eq(prereq_to_image("python:3.12"), "aeb-tc:python-3.12", "python")
+            spec.assert_str_eq(prereq_to_image("kotlin:2.0"), "aeb-tc:kotlin-2.0", "kotlin")
         }
         // no version -> aeb-tc:<token>
         spec.it("no version -> aeb-tc:<token>") callback {
@@ -27,12 +27,12 @@ main() {
     // dominant_prereq: first token of a whitespace set wins (first-declared)
     spec.describe(fw, "dominant_prereq") {
         spec.it("first token of a whitespace set wins") callback {
-            spec.assert_str_eq(dominant_prereq("rust:1.75"),               "rust:1.75", "dom single")
+            spec.assert_str_eq(dominant_prereq("rust:1.75"), "rust:1.75", "dom single")
             spec.assert_str_eq(dominant_prereq("rust:1.75 jdk:21 go:1.22"), "rust:1.75", "dom space")
-            spec.assert_str_eq(dominant_prereq("jdk:21\nkotlin:2.0"),       "jdk:21",    "dom newline")
-            spec.assert_str_eq(dominant_prereq("  go:1.22  jdk:21 "),       "go:1.22",   "dom trimmed")
-            spec.assert_str_eq(dominant_prereq(""),                          "",         "dom empty")
-            spec.assert_str_eq(dominant_prereq("   "),                       "",         "dom ws-only")
+            spec.assert_str_eq(dominant_prereq("jdk:21\nkotlin:2.0"), "jdk:21", "dom newline")
+            spec.assert_str_eq(dominant_prereq("  go:1.22  jdk:21 "), "go:1.22", "dom trimmed")
+            spec.assert_str_eq(dominant_prereq(""), "", "dom empty")
+            spec.assert_str_eq(dominant_prereq("   "), "", "dom ws-only")
         }
     }
 

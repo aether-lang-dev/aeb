@@ -341,13 +341,13 @@ _infer_archive_flags(url_str: string) {
     if qmark >= 0 {
         base = string.substring(url_str, 0, qmark)
     }
-    if _ends_with_p(base, ".tar.gz")  == 1 { return "xzf" }
-    if _ends_with_p(base, ".tgz")     == 1 { return "xzf" }
+    if _ends_with_p(base, ".tar.gz") == 1 { return "xzf" }
+    if _ends_with_p(base, ".tgz") == 1 { return "xzf" }
     if _ends_with_p(base, ".tar.bz2") == 1 { return "xjf" }
-    if _ends_with_p(base, ".tbz2")    == 1 { return "xjf" }
-    if _ends_with_p(base, ".tar.xz")  == 1 { return "xJf" }
-    if _ends_with_p(base, ".txz")     == 1 { return "xJf" }
-    if _ends_with_p(base, ".tar")     == 1 { return "xf"  }
+    if _ends_with_p(base, ".tbz2") == 1 { return "xjf" }
+    if _ends_with_p(base, ".tar.xz") == 1 { return "xJf" }
+    if _ends_with_p(base, ".txz") == 1 { return "xJf" }
+    if _ends_with_p(base, ".tar") == 1 { return "xf" }
     return ""
 }
 
@@ -380,13 +380,13 @@ _ends_with_p(s: string, suffix: string) {
 // after checking `_format_is_zip`). Pure; tested separately from
 // `_infer_archive_flags` so the override path has its own coverage.
 _format_to_flags(fmt: string) {
-    if string.equals(fmt, "tar.gz")  == 1 { return "xzf" }
-    if string.equals(fmt, "tgz")     == 1 { return "xzf" }
+    if string.equals(fmt, "tar.gz") == 1 { return "xzf" }
+    if string.equals(fmt, "tgz") == 1 { return "xzf" }
     if string.equals(fmt, "tar.bz2") == 1 { return "xjf" }
-    if string.equals(fmt, "tbz2")    == 1 { return "xjf" }
-    if string.equals(fmt, "tar.xz")  == 1 { return "xJf" }
-    if string.equals(fmt, "txz")     == 1 { return "xJf" }
-    if string.equals(fmt, "tar")     == 1 { return "xf"  }
+    if string.equals(fmt, "tbz2") == 1 { return "xjf" }
+    if string.equals(fmt, "tar.xz") == 1 { return "xJf" }
+    if string.equals(fmt, "txz") == 1 { return "xJf" }
+    if string.equals(fmt, "tar") == 1 { return "xf" }
     return ""
 }
 
@@ -445,9 +445,9 @@ builder file(): int {
         return 1
     }
 
-    url_str, _   = map.get_string(_builder, "fetch_url")
-    sha_str, _   = map.get_string(_builder, "fetch_sha256")
-    out_rel, _   = map.get_string(_builder, "fetch_output_to")
+    url_str, _ = map.get_string(_builder, "fetch_url")
+    sha_str, _ = map.get_string(_builder, "fetch_sha256")
+    out_rel, _ = map.get_string(_builder, "fetch_output_to")
     out_abs = _resolve_path(source_dir, out_rel)
     parent_dir = path.dirname(out_abs)
     bldr._mkdirs(parent_dir)
@@ -517,9 +517,9 @@ builder archive(): int {
         return 1
     }
 
-    url_str, _   = map.get_string(_builder, "fetch_url")
-    sha_str, _   = map.get(_builder, "fetch_sha256")
-    ex_rel, _    = map.get_string(_builder, "fetch_extract_to")
+    url_str, _ = map.get_string(_builder, "fetch_url")
+    sha_str, _ = map.get(_builder, "fetch_sha256")
+    ex_rel, _ = map.get_string(_builder, "fetch_extract_to")
     ex_abs = _resolve_path(source_dir, ex_rel)
 
     strip = 0

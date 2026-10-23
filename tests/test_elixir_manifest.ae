@@ -3,7 +3,7 @@ import std.spec
 import std.list
 import std.map
 
-import elixir (mix_exs_content)
+import elixir(mix_exs_content)
 
 main() {
     fw = spec.init()

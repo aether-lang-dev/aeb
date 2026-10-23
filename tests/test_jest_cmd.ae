@@ -1,7 +1,7 @@
 // Tests for jest.jest_cmd()
 import std.spec
 import std.map
-import jest (jest_cmd)
+import jest(jest_cmd)
 
 main() {
     fw = spec.init()

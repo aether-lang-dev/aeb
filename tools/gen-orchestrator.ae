@@ -13,7 +13,7 @@ import std.os
 // Label / tag derivation comes from the shared aeblabel module
 // (built with `--lib tools`) — the single source of truth, so this
 // tool can never drift from tools/file-to-label.ae or aeb-link.ae.
-import aeblabel (file_to_label, infer_type, encode_name)
+import aeblabel(file_to_label, infer_type, encode_name)
 
 // encode_name + its replace-all helper come from aeblabel too (imported
 // above). They were local copies named `string_replace_all` — which
@@ -21,8 +21,6 @@ import aeblabel (file_to_label, infer_type, encode_name)
 // link error. The Windows rationale for keeping them shell-free (a
 // `printf | sed` shell-out returns empty under cmd.exe, yielding an
 // unparseable orchestrator) moved with them.
-
-
 
 main() {
     argc = aether_args_count()

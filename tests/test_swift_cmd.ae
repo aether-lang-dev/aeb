@@ -1,7 +1,7 @@
 // Tests for lib/swift's pure command-string builders + XCTest parser.
 import std.spec
-import swift (resolve_cmd, build_cmd, test_cmd, _config_flag,
-             _parse_xctest_counts)
+import swift(resolve_cmd, build_cmd, test_cmd, _config_flag,
+    _parse_xctest_counts)
 
 main() {
     fw = spec.init()

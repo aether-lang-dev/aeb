@@ -3,7 +3,7 @@
 import std.spec
 import std.map
 import std.list
-import lfe (lfe_run_cmd, src, test_src, run_main, pa)
+import lfe(lfe_run_cmd, src, test_src, run_main, pa)
 
 main() {
     fw = spec.init()

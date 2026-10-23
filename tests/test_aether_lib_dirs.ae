@@ -9,7 +9,7 @@ import std.string
 import std.list
 import std.map
 
-import aether (_node_lib_dirs, _node_lib_flags)
+import aether(_node_lib_dirs, _node_lib_flags)
 
 main() {
     fw = spec.init()
@@ -18,8 +18,8 @@ main() {
         spec.it("two resolved lib dirs") callback {
             bm = map.new()
             ld = list.new()
-            list.add(ld, "aevg")              // relative → source_dir/aevg
-            list.add(ld, "/abs/shared")        // absolute → passthrough
+            list.add(ld, "aevg") // relative → source_dir/aevg
+            list.add(ld, "/abs/shared") // absolute → passthrough
             map.put(bm, "lib", ld)
             res = _node_lib_dirs(bm, "/src")
             spec.assert_eq(list.size(res), 2, "two dirs")

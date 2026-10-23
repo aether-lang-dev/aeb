@@ -255,7 +255,7 @@ resolve(ctx: ptr) {
     // COREPACK_ENABLE_STRICT=0 allows pnpm to work even when
     // a parent package.json declares a different package manager
     cmd = pnpm_locked_cmd(path.join(aeb_dir, ".aeb_npm_lock"),
-                          pnpm_add_cmd(aeb_dir, missing))
+        pnpm_add_cmd(aeb_dir, missing))
     exit_code = bldr._sh(cmd)
     if exit_code == 0 {
         // Record what landed, so a later node asking for the same specs

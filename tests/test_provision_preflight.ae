@@ -6,7 +6,7 @@
 // clearly-absent sentinel. See docs/design/build-prerequisites-and-provisioning.md.
 
 import std.spec
-import provision (_split_token, _probe_binary, preflight_missing, _fmt_set)
+import provision(_split_token, _probe_binary, preflight_missing, _fmt_set)
 import std.list
 
 main() {

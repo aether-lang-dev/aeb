@@ -12,7 +12,7 @@
 // the UNMET paths use an impossibly-high floor ("999"), "" on any box.
 
 import std.spec
-import bldr (_resolve_run_jdk, _str_key, _version_ge, _normalize_jvm_version)
+import bldr(_resolve_run_jdk, _str_key, _version_ge, _normalize_jvm_version)
 import std.string
 import std.map
 
