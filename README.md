@@ -1618,6 +1618,10 @@ aether.program() {                   // no_closure_regen() — for "thin Aether
                                       //   link it. The closure still feeds the
                                       //   cache key; explicit regen(...) still runs.
 aether.program_test() { ... }        // same as program, plus runs the binary
+aether.program_test() {                   // env(K, V) — needs `import bldr (env)` —
+    source("abi_tests.ae")                //   exports K=V to the test binary, e.g.
+    env("MY_LIB", dep_artifact("core/.build.ae", "shared_lib"))  // a dep's .so
+}                                         //   path. Repeatable.
 
 aether.driver_test() {                    // Aether driver program that
     driver("test_app_driver.ae")           //   exercises a *separate* compiled

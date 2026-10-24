@@ -4,7 +4,7 @@
 import std.spec
 import std.string
 
-import aether(aetherc_emit_lib_cmd, aether_link_cmd, _test_bin_stem)
+import aether(aetherc_emit_lib_cmd, aether_link_cmd, _test_bin_stem, test_run_cmd)
 
 _link_opts(c_path: string, bin_path: string, lib_dir: string, inc_flags: string,
     extras_str: string, extra_link: string, rpath_link: string,
@@ -107,6 +107,26 @@ main() {
         }
         spec.it("no .ae extension") callback {
             spec.assert_str_eq(_test_bin_stem("runner"), "test_runner", "noext")
+        }
+    }
+
+    // program_test's run command: env(K, V) exports first, then the
+    // shared-lib path prefix, then the binary. No env, no libs: just the binary.
+    spec.describe(fw, "test_run_cmd") {
+        spec.it("bare binary") callback {
+            spec.assert_str_eq(test_run_cmd("", "LD_LIBRARY_PATH", "", "/t/bin/test_x"), "/t/bin/test_x", "bare")
+        }
+        spec.it("shared-lib path only") callback {
+            spec.assert_str_eq(test_run_cmd("", "LD_LIBRARY_PATH", "/l", "/t/bin/test_x"),
+                "LD_LIBRARY_PATH=/l /t/bin/test_x", "ld")
+        }
+        spec.it("env exports precede the binary") callback {
+            spec.assert_str_eq(test_run_cmd("export LIB='/a b/x.so' && ", "LD_LIBRARY_PATH", "", "/t/bin/test_x"),
+                "export LIB='/a b/x.so' && /t/bin/test_x", "env")
+        }
+        spec.it("env exports and shared-lib path") callback {
+            spec.assert_str_eq(test_run_cmd("export A='1' && ", "DYLD_LIBRARY_PATH", "/l", "/t/bin/test_x"),
+                "export A='1' && DYLD_LIBRARY_PATH=/l /t/bin/test_x", "both")
         }
     }
 

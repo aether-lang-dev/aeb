@@ -3676,6 +3676,24 @@ _test_bin_stem(src_name: string) {
     return string.concat("test_", base)
 }
 
+// test_run_cmd(env_prefix, dyld_var, ld_path, bin_path) — the command that
+// runs a program_test binary. `env_prefix` is bldr._env_export_prefix(_builder):
+// the `export K='V' && ` chain from env(K, V) calls in the builder block, so a
+// test can be handed a dep's artifact path the way every other test SDK can:
+//
+//     aether.program_test() {
+//         source("abi_tests.ae")
+//         env("MY_LIB", dep_artifact("core/.build.ae", "shared_lib"))
+//     }
+//
+// "" when no env() was set, so the command is unchanged for existing callers.
+// The shared-lib path var, when needed, stays an inline prefix on the binary.
+// Pure; tested in tests/test_aether_cmd.ae.
+test_run_cmd(env_prefix: string, dyld_var: string, ld_path: string, bin_path: string) -> string {
+    if string.length(ld_path) > 0 { return "${env_prefix}${dyld_var}=${ld_path} ${bin_path}" }
+    return "${env_prefix}${bin_path}"
+}
+
 builder program_test(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -3724,12 +3742,7 @@ builder program_test(): int {
     ld_path = _collect_ld_path(shared_libs)
 
     println("${mod_dir}: running Aether tests")
-    run_cmd = bin_path
-    if string.length(ld_path) > 0 {
-        dyld_var = bldr._dyld_env_var()
-        run_cmd = "${dyld_var}=${ld_path} ${bin_path}"
-    }
-    rc = bldr._sh(run_cmd)
+    rc = bldr._sh(test_run_cmd(bldr._env_export_prefix(_builder), bldr._dyld_env_var(), ld_path, bin_path))
     if rc != 0 {
         // aether.program_test runs one binary; non-zero exit = 1
         // logical failure. Exit-code-synthesised (no per-test report),
