@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+## v0.337 (2026-10-24)
+
+### Added
+
+- **`aether.program_test` accepts `env(K, V)`.** A test binary can be handed
+  values such as a dependency's library path:
+  `aether.program_test() { source("abi_tests.ae"); env("MY_LIB",
+  dep_artifact("core/.build.ae", "shared_lib")) }` (with `import bldr (env)`).
+  Before, such a test had to be built with `aether.program` and run by hand
+  with `os.system`, which loses the test result in the summary. Without
+  `env()` calls the test runs exactly as before.
+
+## v0.336 (2026-10-24)
+
+### Fixed
+
+- **A program or test that links libaether keeps the system libraries
+  libaether needs, `-lnghttp2` included.** They were lost when the module's
+  link header was filtered, so selaenium's `aether/.tests.ae` failed to link
+  on macOS and Linux. aeb now reads them from `ae cflags --libs`, as the
+  orchestrator link already did, and the pkg-config fallback lists
+  libnghttp2. Answered in `asks/REPLY-program-test-link-drops-nghttp2.md`.
+
 ## v0.335 (2026-10-23)
 
 ### Fixed
