@@ -209,6 +209,27 @@ _toolbin(aebhome: string, name: string) {
     return string.concat(_toolbase(aebhome, name), bldr._exe_suffix())
 }
 
+// _lazy_tool(aebhome, aether_bin, name, extra) — the helper's path, building
+// it from tools/<name>.ae first if it is not there. `extra` is appended to the
+// `ae build` line (e.g. " --lib <dir>"). If the build leaves no binary, print
+// the compiler's output and exit: the usual cause is an `ae` resolving another
+// toolchain's compiler or stdlib (an inherited AETHER_HOME), and unreported it
+// surfaced as "topo-sort produced no build order" with nothing pointing here.
+_lazy_tool(aebhome: string, aether_bin: string, name: string, extra: string) {
+    bin = _toolbin(aebhome, name)
+    if file.exists(bin) == 1 { return bin }
+    cmd = "${aether_bin} build ${aebhome}/tools/${name}.ae -o ${_toolbase(aebhome, name)}${extra} 2>&1"
+    out, _err = bldr._sh_capture(cmd)
+    if file.exists(bin) == 0 {
+        println("aeb: could not build its helper tool '${name}' with ${aether_bin}:")
+        println(out)
+        ah = os.getenv("AETHER_HOME")
+        println("aeb: AETHER_HOME=${ah}; if that is another Aether install than ${aether_bin}'s, unset it or point it there.")
+        exit(1)
+    }
+    return bin
+}
+
 // Strip trailing slash from a path (cosmetic match with bash's TARGET%/).
 strip_trailing_slash(s: string) {
     n = string.length(s)
@@ -453,48 +474,22 @@ main() {
     }
 
     // --- Lazy-build helper tools ---
-    extract_deps_bin = _toolbin(aebhome, "extract-deps")
-    if file.exists(extract_deps_bin) == 0 {
-        bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/extract-deps.ae -o "), string.concat(_toolbase(aebhome, "extract-deps"), " >/dev/null 2>&1"))))
-    }
-    scan_ae_files_bin = _toolbin(aebhome, "scan-ae-files")
-    if file.exists(scan_ae_files_bin) == 0 {
-        bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/scan-ae-files.ae -o "), string.concat(_toolbase(aebhome, "scan-ae-files"), " >/dev/null 2>&1"))))
-    }
-    topo_sort_bin = _toolbin(aebhome, "topo-sort")
-    if file.exists(topo_sort_bin) == 0 {
-        bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/topo-sort.ae -o "), string.concat(_toolbase(aebhome, "topo-sort"), " >/dev/null 2>&1"))))
-    }
-    aeb_link_bin = _toolbin(aebhome, "aeb-link")
-    if file.exists(aeb_link_bin) == 0 {
-        // --lib <aebhome>/tools resolves aeb-link's `import aeblabel`.
-        bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-link.ae -o "), string.concat(_toolbase(aebhome, "aeb-link"), string.concat(" --lib ", string.concat(aebhome, "/tools >/dev/null 2>&1"))))))
-    }
-    aeb_graph_bin = _toolbin(aebhome, "aeb-graph")
-    if file.exists(aeb_graph_bin) == 0 {
-        bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-graph.ae -o "), string.concat(_toolbase(aebhome, "aeb-graph"), " >/dev/null 2>&1"))))
-    }
+    // A release ships these as .ae sources; each is built on first use with the
+    // `ae` aeb was handed. _lazy_tool stops with the compiler's own errors when
+    // a build fails, rather than leaving a missing binary to surface later as
+    // a misleading error from the step that runs it.
+    extract_deps_bin = _lazy_tool(aebhome, aether_bin, "extract-deps", "")
+    scan_ae_files_bin = _lazy_tool(aebhome, aether_bin, "scan-ae-files", "")
+    topo_sort_bin = _lazy_tool(aebhome, aether_bin, "topo-sort", "")
+    // --lib <aebhome>/tools resolves aeb-link's `import aeblabel`.
+    aeb_link_bin = _lazy_tool(aebhome, aether_bin, "aeb-link", string.concat(" --lib ", string.concat(aebhome, "/tools")))
+    aeb_graph_bin = _lazy_tool(aebhome, aether_bin, "aeb-graph", "")
     // aeb-report: the render-from-artifacts timing/critical-path view (aeb#12),
-    // the read-only sibling of aeb-graph. Built lazily, --lib tools + lib so its
+    // the read-only sibling of aeb-graph. --lib tools + lib so its
     // aeblabel + bldr imports resolve.
-    aeb_report_bin = _toolbin(aebhome, "aeb-report")
-    if file.exists(aeb_report_bin) == 0 {
-        rbcmd = string.concat(aether_bin, " build ")
-        rbcmd = string.concat(rbcmd, string.concat(aebhome, "/tools/aeb-report.ae -o "))
-        rbcmd = string.concat(rbcmd, _toolbase(aebhome, "aeb-report"))
-        rbcmd = string.concat(rbcmd, string.concat(" --lib ", string.concat(aebhome, "/tools")))
-        rbcmd = string.concat(rbcmd, string.concat(" --lib ", string.concat(aebhome, "/lib")))
-        rbcmd = string.concat(rbcmd, " >/dev/null 2>&1")
-        bldr._sh(rbcmd)
-    }
-    aeb_query_bin = _toolbin(aebhome, "aeb-query")
-    if file.exists(aeb_query_bin) == 0 {
-        bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/aeb-query.ae -o "), string.concat(_toolbase(aebhome, "aeb-query"), " >/dev/null 2>&1"))))
-    }
-    affected_bin = _toolbin(aebhome, "affected-targets")
-    if file.exists(affected_bin) == 0 {
-        bldr._sh(string.concat(string.concat(aether_bin, " build "), string.concat(string.concat(aebhome, "/tools/affected-targets.ae -o "), string.concat(_toolbase(aebhome, "affected-targets"), " >/dev/null 2>&1"))))
-    }
+    aeb_report_bin = _lazy_tool(aebhome, aether_bin, "aeb-report", " --lib ${aebhome}/tools --lib ${aebhome}/lib")
+    aeb_query_bin = _lazy_tool(aebhome, aether_bin, "aeb-query", "")
+    affected_bin = _lazy_tool(aebhome, aether_bin, "affected-targets", "")
 
     // --- Discover the file set ---
     files = list.new()

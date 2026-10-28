@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A helper tool that fails to build now stops aeb with the compiler's
+  errors.** aeb builds `extract-deps`, `topo-sort` and its other helpers from
+  source on first use, but sent that build's output to `/dev/null` and never
+  checked for the binary. A failed build then showed up later as `topo-sort
+  produced no build order for a non-empty graph`, which points at the graph.
+  The usual cause is an `ae` using another Aether install's compiler or stdlib
+  through an inherited `AETHER_HOME`, and the new message names it.
+  `itests/helper-build-failure-visible.sh` covers this.
+
 ## v0.338 (2026-10-28)
 
 ### Changed
