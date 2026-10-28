@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.339 (2026-10-28)
+
+### Changed
+
+- **Release builds and bootstrap downloads use Aether 0.856.0**
+  (`AETHER_FETCH`). 0.856.0 fixes the pure-Aether TLS client accepting a
+  certificate it should reject. The minimum stays 0.855.0 (`AETHER_PIN`), so an
+  `ae` 0.855 on PATH is still used as it is, with no download.
+
 ### Fixed
 
 - **A helper tool that fails to build now stops aeb with the compiler's

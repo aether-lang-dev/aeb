@@ -277,4 +277,9 @@
 # as the floor; the session @keep compatibility fix is already in the tree.
 # 0.855.0 (2026-10-28): moves with the floor (std now uses @frees/@moves,
 # which older compilers reject; see AETHER_PIN).
-0.855.0
+# 0.856.0 (2026-10-28): fetch only, the floor stays 0.855.0 (aeb uses nothing
+# new). 0.856.0 fixes the pure-Aether TLS client accepting a certificate it
+# should reject, so a fresh bootstrap should get it. Verified on 0.856.0
+# (macOS arm64): 154/154 unit tests, every tool built by make install, ae fmt
+# --check clean.
+0.856.0
