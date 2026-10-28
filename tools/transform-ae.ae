@@ -120,15 +120,15 @@ _static_helper_names(src: string): ptr {
 }
 
 _is_ident_start_code(c: int) {
-    if c == 95 { return 1 }                  // _
-    if c >= 97 { if c <= 122 { return 1 } }  // a-z
-    if c >= 65 { if c <= 90 { return 1 } }   // A-Z
+    if c == 95 { return 1 } // _
+    if c >= 97 { if c <= 122 { return 1 } } // a-z
+    if c >= 65 { if c <= 90 { return 1 } } // A-Z
     return 0
 }
 
 _is_ident_code(c: int) {
     if _is_ident_start_code(c) == 1 { return 1 }
-    if c >= 48 { if c <= 57 { return 1 } }   // 0-9
+    if c >= 48 { if c <= 57 { return 1 } } // 0-9
     return 0
 }
 

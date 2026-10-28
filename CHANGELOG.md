@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## v0.338 (2026-10-28)
+
+### Changed
+
+- **aeb now needs Aether 0.855.0** (`AETHER_PIN` and `AETHER_FETCH`). 0.855's
+  std uses the new `@frees` / `@moves` extern-parameter attributes, which older
+  compilers reject with `E0100 unknown extern-param attribute`, so aeb built
+  against an older Aether failed whenever the project's toolchain was 0.855. An
+  older `ae` on PATH makes aeb fetch 0.855.0 into its own cache, as before.
+
 ## v0.337 (2026-10-24)
 
 ### Added

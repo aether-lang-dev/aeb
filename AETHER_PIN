@@ -453,4 +453,12 @@
 # 0.840.0 (2026-10-23): verified with std's @retain container stores.
 # bldr's session parameters and generated node entrypoints already carry
 # @keep (3f5acf4), as required when storing the session in a node's context.
-0.840.0
+# 0.855.0 (2026-10-28): 0.854/0.855 add the @frees and @moves extern-param
+# ownership attributes (aether #1300) and 0.855's std uses them (std.io,
+# std.string, std.fs, map, zip, ...). An older aetherc rejects them with
+# E0100 "unknown extern-param attribute", so aeb's orchestrator compile and
+# std regen break against a 0.855 toolchain. Raised from 0.840.0 so aeb's own
+# compiler can parse the std it is handed. Verified on 0.855.0 (Debian 12):
+# 154/154 unit tests, all 27 tools and every SDK cold-compile, presubmit and
+# failed-dep smokes green.
+0.855.0
