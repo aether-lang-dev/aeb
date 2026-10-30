@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.340 (2026-10-30)
+
+### Changed
+
+- **aeb now needs Aether 0.860.0** (`AETHER_PIN` and `AETHER_FETCH`, up from
+  0.855.0 and 0.856.0). An older `ae` on PATH makes aeb fetch 0.860.0 into its
+  own cache.
+
 ### Fixed
 
 - **Installing a prebuilt bundle over an older install now updates

@@ -282,4 +282,8 @@
 # should reject, so a fresh bootstrap should get it. Verified on 0.856.0
 # (macOS arm64): 154/154 unit tests, every tool built by make install, ae fmt
 # --check clean.
-0.856.0
+# 0.860.0 (2026-10-30): floor and fetch both moved to the latest release at
+# Paul's request, keeping PIN == FETCH. Verified on 0.860.0 (Debian 12):
+# 154/154 unit tests, all 27 tools and every SDK cold-compile, presubmit and
+# failed-dep smokes green, ae fmt --check clean.
+0.860.0
