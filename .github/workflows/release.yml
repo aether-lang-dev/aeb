@@ -543,7 +543,12 @@ jobs:
               [ -d "$src/$d" ] || continue
               rm -rf "$SHAREDIR/$d"; cp -R "$src/$d" "$SHAREDIR/$d"
           done
-          [ -f "$src/VERSION" ] && cp -f "$src/VERSION" "$SHAREDIR/VERSION"
+          # VERSION, and the Aether pins the aeb script reads from AEB_HOME. A
+          # stale AETHER_PIN/AETHER_FETCH left by an older install makes aeb
+          # compile with a too-old cached Aether against a newer std.
+          for f in VERSION AETHER_PIN AETHER_FETCH; do
+              if [ -f "$src/$f" ]; then cp -f "$src/$f" "$SHAREDIR/$f"; fi
+          done
           # The $BINDIR/aeb wrapper: point AEB_HOME at the runtime, exec the aeb
           # script (byte-for-byte what `make install` writes).
           printf '%s\n' \
@@ -560,6 +565,19 @@ jobs:
           echo "aeb installed to $BINDIR/aeb (aeb $VER)"
           INSTALL
               chmod +x "$B/install.sh"
+              # Smoke: install over a prior install carrying an older Aether
+              # pin; every pin file must come out matching this bundle.
+              # (v0.339's install.sh copied neither, so upgrades kept 0.840.)
+              P="$(mktemp -d)"; mkdir -p "$P/share/aeb"
+              echo 0.0.1 > "$P/share/aeb/AETHER_PIN"; echo 0.0.1 > "$P/share/aeb/AETHER_FETCH"
+              "$B/install.sh" "$P" >/dev/null
+              for f in AETHER_PIN AETHER_FETCH VERSION; do
+                if ! cmp -s "$B/share/aeb/$f" "$P/share/aeb/$f"; then
+                  echo "  $suffix: install.sh left a stale $f"; fail=1
+                fi
+              done
+              rm -rf "$P"
+              if [ "$fail" != 0 ]; then echo "::error::install.sh smoke failed"; exit 1; fi
               # Both archive forms (ask 2): .zip AND .tar.gz, so a minimal CI
               # image with only `tar` (no `unzip`) can consume the fast path.
               ( cd bundles && zip -qr "aeb-$suffix.zip" "aeb-$suffix" )

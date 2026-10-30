@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **Installing a prebuilt bundle over an older install now updates
+  `AETHER_PIN` and `AETHER_FETCH`.** The bundle's `install.sh` copied neither,
+  so upgrading kept the old pin: a v0.336 → v0.339 upgrade went on compiling
+  build files with Aether 0.840 against a 0.860 std (294 parse errors at
+  `@frees`). `make install` was unaffected. The release workflow now installs
+  each bundle over a prefix with stale pins and fails if any survive. Existing
+  bundle installs pick up the right pins on their next upgrade.
+
 ## v0.339 (2026-10-28)
 
 ### Changed
