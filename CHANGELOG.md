@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.341 (2026-11-06)
+
 ### Fixed
 
 - **A symlinked `ae` is followed to its install.** aeb took the directory of
