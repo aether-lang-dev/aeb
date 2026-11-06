@@ -1771,12 +1771,41 @@ _resolve_aether_dir() {
     if string.length(ae) == 0 {
         ae = "ae"
     }
-    // `command -v` is an unavoidable PATH lookup, but the dirname is now
+    return _aether_dir_of(ae)
+}
+
+// _aether_dir_of(bin) — the directory of the install `bin` (a name looked up
+// on PATH, or a path) belongs to, or "" when there is no such command. The
+// one place the toolchain dir is derived: bldr's own callers and aeb-main
+// (which hands it to aeb-link) both come here.
+//
+// A symlinked `ae` is followed to its install. `ae version use` and get.sh
+// leave `~/.local/bin/ae -> ~/.aether/current/bin/ae` (current itself a
+// symlink to versions/vX.Y.Z), Homebrew `bin/ae -> ../Cellar/...`. Every
+// probe downstream reads the toolchain's siblings (`<dir>/../share/aether`,
+// `<dir>/../lib`), so the unresolved `~/.local/bin` found an older install's
+// `~/.local/share/aether` and `~/.local/lib/libaether.a` left beside the
+// symlinks, and built a current `ae`'s output against a stale runtime
+// (2026-11-05: aeb's own build broke after `ae upgrade` to 0.890.0; guarded
+// by itests/symlinked-ae-stale-sibling.sh). Off Windows only: there
+// `command -v` yields MSYS paths that fs.realpath cannot stat, and
+// _to_native_path is what makes them usable.
+_aether_dir_of(bin: string) {
+    // `command -v` is an unavoidable PATH lookup, but the dirname is
     // native (no `dirname` coreutils shell-out — going-forward rule).
     // Through the chokepoint: `command -v` is a POSIX shell builtin cmd.exe
     // lacks, so on Windows it must run under sh.
-    raw, _eerr = _sh_capture("command -v ${ae}")
-    return _to_native_path(_dirname(string.trim(raw)))
+    raw, _eerr = _sh_capture("command -v ${bin} 2>/dev/null || true")
+    found = string.trim(raw)
+    if string.length(found) == 0 { return "" }
+    if _is_windows() == 0 {
+        // fs.realpath: (resolved, kind, message); kind 0 is KIND_OK.
+        rp, rkind, _rmsg = fs.realpath(found)
+        if rkind == 0 {
+            if string.length(rp) > 0 { found = rp }
+        }
+    }
+    return _to_native_path(_dirname(found))
 }
 
 // _to_native_path(p) — MSYS/Cygwin POSIX path -> the native form Aether's

@@ -1510,8 +1510,11 @@ main() {
     // because the trampoline's private-toolchain fetch sets $AETHER to an
     // absolute path). `|| true` keeps the empty case quiet; the
     // empty-check below turns it into a diagnosis.
-    aether_dir_cmd = string.concat("dirname $(command -v ", string.concat(aether_bin, ") 2>/dev/null || true"))
-    aether_dir = string.trim(run_capture(aether_dir_cmd))
+    // bldr._aether_dir_of also follows a symlinked ae to its install, so a
+    // stale older install beside the symlink (~/.local/share/aether next to
+    // ~/.local/bin/ae -> ~/.aether/current/bin/ae) is not what aeb-link links
+    // against; it returns "" for no such command, as the dirname form did.
+    aether_dir = bldr._aether_dir_of(aether_bin)
     if string.length(aether_dir) == 0 {
         println("aeb: cannot locate the aether toolchain — '${aether_bin}' is not on PATH.")
         println("aeb:   aeb needs an `ae` to compile Aether sources and to link against")

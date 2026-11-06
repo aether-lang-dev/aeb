@@ -158,6 +158,11 @@ jobs:
       # than a cryptic `undefined reference to os_arch_raw` (servirtium-vcr).
       - name: libaether 0.681 floor guard
         run: itests/libaether-floor-guard.sh
+      # A symlinked ae (`ae version use`, ~/.local/bin -> ~/.aether/current/bin)
+      # is followed to its install, so a stale older install beside the symlink
+      # is not what aeb compiles and links against.
+      - name: symlinked ae, stale sibling runtime
+        run: itests/symlinked-ae-stale-sibling.sh
       # A node using the retired `build` module (pre-bldr grammar) gets a clear
       # migration diagnostic, not a cryptic "unresolved import 'build'" that reads
       # like an install problem (aeb#16).
