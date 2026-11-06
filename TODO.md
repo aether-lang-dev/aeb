@@ -1475,27 +1475,26 @@ orchestrator (`target/_ae_build_all`), which is the purest fit for
 the one-process model. The container-vs-hosted tradeoff is written
 up in `docs/design/guest-languages.md`.
 
-It does **not** work from a real `.build.ae` yet. The orchestrator
-linker (`tools/aeb-link`) doesn't link foreign-language bridges, so
-`import contrib.host.lua` resolves but `lua.run(...)` fails to link.
-The work:
+It does **not** work from a real `.build.ae` yet, but the work changed
+shape on 2026-11-05/06, when the bridges left aether for the
+aether-guest-languages package (`import lua`, `import python`, ...; aether
+PR #3607 removed the rest of `contrib/host/<lang>`). The old plan here
+(teach `aeb-link` to spot `import contrib.host.<lang>`, add the bridge `.c`,
+`-DAETHER_HAS_<LANG>` and `pkg-config` flags, degrade to stubs) is obsolete:
+a guest-languages bridge compiles in through its module's `@source` and
+`dlopen`s the interpreter at run time, so nothing needs linking. What is
+left:
 
-- `aeb-link` detects `import contrib.host.<lang>` anywhere in the
-  module closure.
-- For each, it adds the bridge `.c`, `-DAETHER_HAS_<LANG>`,
-  `-DAETHER_HAS_SANDBOX`, and `pkg-config` cflags/libs to the
-  orchestrator's gcc invocation — exactly what
-  `tests/test_host_lua.build.sh` does for the test today. That
-  sidecar is the working reference; promote its logic into `aeb-link`.
-- Degrade gracefully: no dev library → stub mode (the bridge's
-  `#else` no-ops), so a missing `liblua` never fails the build.
-
-Blocked-ish upstream: the installed Aether tree ships
-`contrib/host/<lang>/` with `.ae`/`.h`/`README` but not
-`aether_host_<lang>.c`, so the bridge source is currently only
-locatable from a sibling Aether checkout. A clean fix wants Aether to
-ship the bridge `.c` (or fold the stubs into `libaether`) — flagged
-for the Aether side.
+- Put the package on the orchestrator's `--lib` (a `lib()`-style setter or
+  an `ae add`ed dependency, once `ae build` of the orchestrator honours the
+  project's `[dependencies]`).
+- The name: `import lua` in a `.build.ae` already means aeb's own
+  build-tool SDK `lib/lua` (`lua.script()`), so the guest module needs a
+  path that does not collide (for example `import aether_guest.lua`), or
+  aeb's SDK a different one. `tests/test_host_lua.build.sh` sidesteps it by
+  building from an empty directory.
+- Finding the interpreter at run time: the package's `tests/<lang>_env.sh`
+  probes (the sidecar runs `lua_env.sh` before the test).
 
 ## ~~Build environment validation~~ (not doing)
 

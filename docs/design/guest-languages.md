@@ -41,12 +41,18 @@ what a container *is*.
 
 ## Way 2 — in-process hosting: same process as aeb
 
-Aether can embed Lua / Python / Perl / Ruby / Tcl / JS *in-process*
-via `contrib.host.<lang>` — the interpreter is linked into the binary
-and runs in its address space.
+Aether can embed Lua / Python / Perl / Ruby / Tcl / JS and more
+*in-process* — the interpreter is loaded into the binary and runs in its
+address space. The bridges were aether's `contrib.host.<lang>`; since
+2026-11 they live in
+[aether-guest-languages](https://github.com/aether-lang-dev/aether-guest-languages)
+(`ae add github.com/aether-lang-dev/aether-guest-languages`, then
+`import lua`, `import python`, ...), each with a containment table and
+four ways to run it (embed, embed in a sandbox block, embed under the
+preload, a contained child over `std.guest`).
 
 ```aether
-import contrib.host.lua
+import lua
 
 lua.run("print('hello')")          // runs inside the caller's process
 ```
@@ -57,13 +63,17 @@ process** — sharing an address space with aeb's own build logic. That
 is the purest fit for aeb's one-process model: no fork, no IPC.
 
 **Status:** in-process hosting is demonstrated by `test_host_lua.ae`
-(built by the `test_host_lua.build.sh` sidecar, which links the
-`contrib.host.lua` C bridge). It does **not** yet work from a real
-`.build.ae`: aeb's orchestrator linker (`tools/aeb-link`) doesn't link
-foreign-language bridges. Enabling it means teaching `aeb-link` to
-spot `import contrib.host.<lang>` in a module closure and add the
-bridge `.c` + `-DAETHER_HAS_<LANG> -DAETHER_HAS_SANDBOX` +
-`pkg-config` flags — exactly what the test sidecar does today.
+(built by the `test_host_lua.build.sh` sidecar, which puts an
+aether-guest-languages checkout on `--lib`). It does **not** yet work from
+a real `.build.ae`, but what it needs changed with the move: the
+guest-languages bridges compile in through their module's `@source` and
+`dlopen` the interpreter at run time (no dev package, no `-D` flags, no
+bridge `.c` to find), so the orchestrator needs only the package on its
+`--lib` path, not the linker work this section used to describe. The
+import name is the catch: `import lua` in a `.build.ae` already means aeb's
+own build-tool SDK `lib/lua` (`lua.script()` and friends), which is why the
+sidecar builds from an empty directory. A `.build.ae` would need the guest
+module under another name or path (for example `import aether_guest.lua`).
 
 ## The tradeoff
 
@@ -73,7 +83,7 @@ bridge `.c` + `-DAETHER_HAS_<LANG> -DAETHER_HAS_SANDBOX` +
 | Guest crash / OOM / hang | takes the **whole build** down with it | aeb survives; kill the child |
 | Guest state between steps | **shared** — one interpreter persists across every step in the run | fresh per step |
 | Isolation | grant-list + `LD_PRELOAD` syscall checks only | kernel namespaces |
-| Toolchain at build time | links `lib<lang>` into the binary (needs the dev package) | none — the image carries it |
+| Toolchain at build time | none; the host's interpreter library is `dlopen`ed at run time | none — the image carries it |
 | Cost at run time | none — no fork | fork/exec + a container runtime |
 
 In-process hosting buys speed and one-process purity. The container
@@ -90,14 +100,14 @@ Neither replaces the other:
 
 ## Practical notes
 
-- The in-process bridge has two compile modes: **linked** (the dev
-  library is present — real interpreter) and **stub** (no dev library
-  — every entry point returns "not available"). `test_host_lua.ae`
-  gates on the return code and passes cleanly either way.
-- The installed Aether tree currently ships `contrib/host/<lang>/`
-  with `.ae` / `.h` / `README` but **not** `aether_host_<lang>.c`, so
-  the bridge source is located from a sibling Aether checkout. Until
-  Aether ships the bridge `.c` (or folds the stubs into `libaether`),
-  in-process hosting from an installed-only Aether isn't linkable.
+- The bridge always builds; whether the interpreter runs depends on its
+  library being found at run time (Lua: `$AETHER_LUA_SONAME`, then
+  `liblua.so`; the package's `tests/<lang>_env.sh` probes the usual
+  places). `test_host_lua.ae` gates on the return code and passes
+  cleanly either way; its sidecar runs the package's `lua_env.sh` probe
+  first, so a host with Lua installed really runs it.
+- The earlier caveat (an installed Aether shipped `contrib/host/<lang>/`
+  without its bridge `.c`, so a sibling aether checkout was needed) is
+  gone with the move: the package carries its bridge sources.
 - A container needs no Aether-side build support at all — `container.run`
   is a normal builder; the image is the only dependency.

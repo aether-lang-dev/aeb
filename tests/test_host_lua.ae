@@ -1,4 +1,5 @@
-// End-to-end test: Aether's in-process Lua host (contrib.host.lua) —
+// End-to-end test: Aether's in-process Lua host (`import lua`, from
+// aether-guest-languages; it was contrib.host.lua until Lua left aether) —
 // the HOSTED half of the container-vs-hosted comparison.
 //
 // Where test_container_lua.ae runs a Lua hello-world as a separate
@@ -8,27 +9,28 @@
 // shared process stdout (so there is nothing to "capture" — contrast
 // container.run, which captures a child process's pipe).
 //
-// Built by the sidecar test_host_lua.build.sh: linking the
-// contrib.host.lua C bridge needs -DAETHER_HAS_LUA + pkg-config
-// flags the uniform `ae build` line can't carry. Three outcomes,
-// all green:
-//   linked mode — liblua dev present: Lua really executes, rc 0
-//   stub mode   — bridge but no liblua dev: lua.run returns non-zero
-//   skip        — bridge source absent: build script emits a skip bin
+// Built by the sidecar test_host_lua.build.sh: the module lives in an
+// aether-guest-languages checkout, which the uniform `ae build` line in
+// run.sh does not have on its --lib path. The bridge compiles in through
+// the module's @source and dlopens liblua at run time, so there is no
+// Lua dev package or -D flag. Three outcomes, all green:
+//   liblua loads   — Lua really executes, rc 0
+//   no liblua      — lua.run returns non-zero and says why
+//   no checkout    — the build script emits a skip binary
 //
 // lua.run_sandboxed(perms, code) is the grant-list-gated form (see
 // examples/host-tcl-demo.ae in the Aether tree); a bare print needs
 // no grants, so this uses the plain lua.run.
 
-import contrib.host.lua
+import lua
 
 main() {
     println("hosted-lua: invoking the in-process Lua interpreter")
     rc = lua.run("print('  hello-from-hosted-lua')")
     if rc == 0 {
-        println("PASS: contrib.host.lua executed Lua in-process")
+        println("PASS: import lua executed Lua in-process")
     } else {
-        println("PASS: hosted Lua in stub mode — install liblua5.4-dev for real execution")
+        println("PASS: no liblua loaded — install Lua 5.3/5.4/5.5 (or set AETHER_LUA_SONAME) for real execution")
     }
     lua.finalize()
     println("host lua tests done")

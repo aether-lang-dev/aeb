@@ -6,8 +6,9 @@
 // aeb binary itself contains and links nothing Lua.
 //
 // Sibling: test_host_lua.ae runs the SAME hello-world via Aether's
-// in-process Lua host (contrib.host.lua) — no container, no
-// subprocess, liblua linked straight into the binary. The pair shows
+// in-process Lua host (`import lua`, from aether-guest-languages; it
+// was contrib.host.lua) — no container, no subprocess, liblua loaded
+// straight into the binary. The pair shows
 // the two ways aeb/Aether can run a guest language.
 //
 // Needs podman + the nickblah/lua image; skips cleanly without podman.

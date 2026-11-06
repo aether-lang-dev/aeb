@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A symlinked `ae` is followed to its install.** aeb took the directory of
+  `command -v ae` as the toolchain and looked for the runtime beside it, so
+  with `~/.local/bin/ae -> ~/.aether/current/bin/ae` (what `ae version use`
+  and get.sh leave) an older install's `~/.local/share/aether` and
+  `~/.local/lib/libaether.a` beside the symlinks were compiled and linked
+  against: after `ae upgrade` to 0.890.0, aeb's own build broke. Both places
+  that derive the toolchain dir (`bldr._resolve_aether_dir` and aeb-main's
+  handoff to aeb-link) now go through one helper that resolves the symlink
+  (POSIX; Windows is unchanged). `itests/symlinked-ae-stale-sibling.sh`
+  stages the layout and runs in CI.
+
+### Changed
+
+- **`tests/test_host_lua` uses the aether-guest-languages `lua` module.** The
+  guest-language bridges left aether (`contrib.host.lua` is gone), so the
+  test failed to build wherever no stale sibling aether checkout still had it.
+  Its sidecar now builds against an aether-guest-languages checkout
+  (`$AEB_GUEST_LANGUAGES`, a sibling, or `~/scm/...`; a clean skip without
+  one) and runs the package's Lua probe first, so a host with Lua installed
+  really runs it. `docs/design/guest-languages.md` and TODO.md say what
+  in-process hosting from a `.build.ae` needs now (no linking: the package's
+  bridge compiles in and `dlopen`s the interpreter).
+
 ## v0.340 (2026-10-30)
 
 ### Changed

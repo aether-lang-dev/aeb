@@ -1,37 +1,35 @@
 #!/usr/bin/env bash
 # test_host_lua.build.sh — non-uniform build for the in-process Lua
-# host test (test_host_lua.ae). Links the contrib.host.lua C bridge
-# into the binary, which the uniform `ae build` line in run.sh can't
-# do (it needs -DAETHER_HAS_LUA + pkg-config lua flags + the bridge
-# .c). This is aeb's tiny equivalent of Aether's own
-# tests/scripts/contrib_host_demos.sh.
+# host test (test_host_lua.ae). The test imports `lua`, which lives in
+# an aether-guest-languages checkout (github.com/aether-lang-dev/
+# aether-guest-languages; it was aether's contrib.host.lua until the
+# guest-language bridges left aether), so the build needs that checkout
+# on its --lib path, which the uniform `ae build` line in run.sh lacks.
+#
+# The module's bridge C comes in through its @source and dlopens liblua
+# at run time: no Lua dev package, no -DAETHER_HAS_LUA, no bridge source
+# to hunt for in an aether tree.
 #
 # Args (from run.sh): $1 AETHER (ae binary)  $2 output bin
 #                     $3 LIB_DIR             $4 TOOLS_DIR
 #
-# Three outcomes, each producing a runnable $BIN so the suite stays
-# green:
-#   linked — liblua dev present: -DAETHER_HAS_LUA, real Lua executes
-#   stub   — bridge but no liblua dev: bridge compiles to no-op stubs
-#   skip   — bridge source not found: emit a tiny pass-through binary
+# Two outcomes, each producing a runnable $BIN so the suite stays green:
+#   built — a checkout was found: the test runs (and says whether liblua
+#           loaded)
+#   skip  — no checkout: a tiny pass-through binary says so
 #
-# Aether's installed tree currently ships the host modules' .ae/.h
-# but NOT aether_host_<lang>.c, so the bridge source is located from
-# a sibling Aether checkout when the install copy is absent.
+# The checkout: $AEB_GUEST_LANGUAGES, else a sibling of this aeb checkout
+# (../aether-guest-languages), else ~/scm/aether-guest-languages.
 set -u
 
 AETHER="$1"; BIN="$2"; LIB_DIR="$3"; TOOLS_DIR="$4"
-: "$LIB_DIR" "$TOOLS_DIR"   # unused: test_host_lua.ae imports only std + contrib
+: "$LIB_DIR" "$TOOLS_DIR"   # unused: test_host_lua.ae imports only `lua`
 CC="${CC:-cc}"
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 SRC="$SRC_DIR/test_host_lua.ae"
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t 'host_lua')"
 trap 'rm -rf "$TMP"' EXIT
-
-AEBIN="$(command -v "$AETHER" 2>/dev/null || echo "$AETHER")"
-AETHERC="$(dirname "$AEBIN")/aetherc"
-PREFIX="$(dirname "$(dirname "$AEBIN")")"
 
 emit_skip() {
     # $1 = reason. A trivial binary that reports a clean skip so the
@@ -48,63 +46,36 @@ EOF
     exit $?
 }
 
-# Locate the contrib.host.lua C bridge.
-BRIDGE=""
+AGL=""
 for cand in \
-    "$PREFIX/share/aether/contrib/host/lua/aether_host_lua.c" \
-    "$(cd "$SRC_DIR/../.." 2>/dev/null && pwd)/aether/contrib/host/lua/aether_host_lua.c" \
-    "$HOME/scm/AetherThings/aether/contrib/host/lua/aether_host_lua.c"
+    "${AEB_GUEST_LANGUAGES:-}" \
+    "$(cd "$SRC_DIR/../.." 2>/dev/null && pwd)/aether-guest-languages" \
+    "$HOME/scm/aether-guest-languages"
 do
-    if [ -f "$cand" ]; then BRIDGE="$cand"; break; fi
+    if [ -n "$cand" ] && [ -f "$cand/lua/module.ae" ]; then AGL="$cand"; break; fi
 done
-[ -z "$BRIDGE" ] && emit_skip "Aether contrib host bridge source not found"
-[ -x "$AETHERC" ] || emit_skip "aetherc not found at $AETHERC"
+[ -z "$AGL" ] && emit_skip "no aether-guest-languages checkout (set AEB_GUEST_LANGUAGES)"
 
-# aetherc: test_host_lua.ae -> C
-if ! "$AETHERC" "$SRC" "$TMP/host_lua.c"; then
-    echo "host-lua: aetherc compile failed" >&2
+# Build from an empty directory: run from aeb's root, `ae build` also
+# searches ./lib, where aeb's own build-tool SDK lib/lua (`lua.script()`
+# and friends) would win the `import lua` over the guest-languages module.
+cp "$SRC" "$TMP/test_host_lua.ae"
+case "$BIN" in /*) OUT="$BIN" ;; *) OUT="$PWD/$BIN" ;; esac
+if ! (cd "$TMP" && "$AETHER" build test_host_lua.ae --lib "$AGL" -o "$OUT.real") > "$TMP/build.log" 2>&1; then
+    echo "host-lua: ae build against $AGL failed" >&2
+    sed 's/^/  /' "$TMP/build.log" >&2
     exit 1
 fi
+echo "host-lua: built against $AGL"
 
-# Probe liblua dev (pkg-config name varies by distro).
-LUA_CFLAGS=""; LUA_LIBS=""; LUA_DEF=""
-for v in lua5.4 lua-5.4 lua5.3 lua-5.3 lua; do
-    if pkg-config --exists "$v" 2>/dev/null; then
-        LUA_CFLAGS="$(pkg-config --cflags "$v")"
-        LUA_LIBS="$(pkg-config --libs "$v")"
-        LUA_DEF="-DAETHER_HAS_LUA"
-        echo "host-lua: liblua dev '$v' found"
-        break
-    fi
-done
-[ -z "$LUA_DEF" ] && echo "host-lua: no liblua dev present"
-
-# One cc step: generated C + the bridge + libaether (+ liblua when
-# linked). `ae cflags` subsets give the runtime -I / -L -laether.
-# -DAETHER_HAS_SANDBOX matches Aether's own host-demo build
-# (contrib_host_demos.sh): the bridge's run_sandboxed path uses the
-# sandbox typedefs the runtime header gates behind that define.
-SANDBOX_DEF="-DAETHER_HAS_SANDBOX"
-link_ok=0
-if [ -n "$LUA_DEF" ]; then
-    # shellcheck disable=SC2046,SC2086
-    if "$CC" $("$AETHER" cflags --cflags) $SANDBOX_DEF $LUA_DEF $LUA_CFLAGS \
-            "$TMP/host_lua.c" "$BRIDGE" \
-            $("$AETHER" cflags --libs) $LUA_LIBS -o "$BIN" 2>"$TMP/cc.log"; then
-        link_ok=1
-        echo "host-lua: linked mode — liblua compiled into the binary"
-    else
-        echo "host-lua: linked-mode compile failed — falling back to stub" >&2
-        sed 's/^/  /' "$TMP/cc.log" >&2
-    fi
-fi
-if [ "$link_ok" -ne 1 ]; then
-    # Stub mode: the bridge built without -DAETHER_HAS_LUA resolves
-    # to no-op stubs; no liblua needed. A linked-mode breakage in the
-    # Aether bridge thus degrades to a clean skip, never a red suite.
-    # shellcheck disable=SC2046,SC2086
-    "$CC" $("$AETHER" cflags --cflags) $SANDBOX_DEF \
-        "$TMP/host_lua.c" "$BRIDGE" \
-        $("$AETHER" cflags --libs) -o "$BIN"
-    echo "host-lua: stub mode — bridge linked, Lua not embedded"
-fi
+# The bridge finds liblua by $AETHER_LUA_SONAME, then `liblua.so` only (a
+# deliberate two-step contract, lua/README.md); finding the host's Lua is
+# left to the caller, and the checkout ships the probe its own tests use
+# (tests/lua_env.sh: Homebrew's dylib on macOS, the loader cache's
+# versioned soname on Linux). $BIN is a wrapper that runs it first.
+cat > "$OUT" <<EOF
+#!/bin/sh
+if [ -f "$AGL/tests/lua_env.sh" ]; then . "$AGL/tests/lua_env.sh"; lua_soname || true; fi
+exec "$OUT.real" "\$@"
+EOF
+chmod +x "$OUT"

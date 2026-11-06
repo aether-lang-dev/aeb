@@ -411,12 +411,14 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   a one-shot container and RETURNS its captured pid-1 stdout — the
   first slice of a container-as-step grammar. aeb's two ways to run a
   guest language — `container.run` (a separate process) vs Aether's
-  in-process `contrib.host.<lang>` hosting — and the isolation/cost
-  tradeoff between them are written up in `docs/design/guest-languages.md`.
-  In-process hosting from a `.build.ae` is not wired yet: `aeb-link`
-  would need to link the `contrib.host.<lang>` C bridge into the
-  orchestrator (the `tests/test_host_lua.build.sh` sidecar does this
-  for the test).
+  in-process hosting (the bridges were `contrib.host.<lang>`; since
+  2026-11 they are the aether-guest-languages package, `import lua` etc.)
+  — and the isolation/cost tradeoff between them are written up in
+  `docs/design/guest-languages.md`. In-process hosting from a `.build.ae`
+  is not wired yet: the orchestrator would need the package on `--lib`,
+  under a name that does not collide with aeb's own `lib/lua` SDK (the
+  `tests/test_host_lua.build.sh` sidecar builds from an empty dir for
+  exactly that reason).
 - `lib/aether/module.ae` — the Aether-program SDK.
   `aether.program()` shells out to `ae build` by default; declaring
   `extra_source(...)` / `link_flag(...)` / `regen(...)` opts into the
