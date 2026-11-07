@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- **`lib/janet`: a Janet SDK.** `janet.test()`/`run()` run a script under
+  `janet` (test() with no script runs `jpm test`); `deps()`/`install()` fill a
+  project-local jpm tree (`tree(...)`, never the global modpath) and publish it
+  on the `jpm_tree` edge; `jpm_build()`; `package()` stages `bundle(src, dest)`
+  files (e.g. an FFI shared library) and publishes `package_dir`. `JANET_PATH`
+  points at `<tree>/lib`; `env(K,V)` and `workdir` work as in other SDKs. A
+  missing `janet`/`jpm` (or `janet-pm`) fails the node with an install hint.
+  Covered by `tests/test_janet_cmd.ae`, `itests/janet-sdk.sh` and the SDK
+  cold-compile smoke.
+
 ## v0.342 (2026-11-07)
 
 ### Fixed

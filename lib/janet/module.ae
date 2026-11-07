@@ -1,0 +1,382 @@
+// janet — Janet SDK for aeb.
+//
+// Drives an existing Janet project as-is: run or test a script with `janet`,
+// install dependencies into a PROJECT-LOCAL jpm tree (never the developer's
+// global modpath), install/build a jpm project, and stage a package with
+// bundled native libraries. Janet's built-in FFI (`ffi/native`) loads a C
+// shared library directly, so native-library plumbing is just the shared
+// env(K,V) setter (e.g. env("SERVIRTIUM_VCR_LIB", lib)).
+//
+// Toolchain: `janet` and `jpm` are found on PATH (`janet-pm`, the newer name
+// of jpm, is the fallback). janet_bin("...") / jpm_bin("...") override. A
+// MISSING toolchain is an error (a build node that asked for Janet and cannot
+// run it must not look green), with an install hint.
+//
+//   import bldr
+//   import janet
+//   import janet (script, tree)
+//
+//   janet.deps()    { tree("../target/janet-tree") }          // jpm --tree=T deps
+//   janet.test()    {                                         // janet <script>
+//       env("SERVIRTIUM_VCR_LIB", lib)                        //   JANET_PATH=T/lib
+//       tree("target/janet-tree")
+//       script("test/run_all.janet")
+//   }
+//   janet.install() { tree("t"); install_from("https://github.com/…/x.git") }
+//   janet.package() { bundle(lib, "servirtium/native/libservirtium_vcr.so") }
+//
+// Verbs: test, run, deps, install, jpm_build, package.
+// Setters: script, script_arg, tree, install_from, bundle, janet_bin, jpm_bin,
+// plus the shared env(K,V) / workdir("dir") from lib/bldr.
+//
+// Paths in script/tree/bundle are relative to the node's source dir unless
+// absolute. test/run set JANET_PATH to <tree>/lib when tree(...) is given, so a
+// script `import`s what deps()/install() put there.
+import bldr
+import std.string
+import std.list
+import std.map
+import std.path
+import std.io
+import std.os
+
+// script("test/run_all.janet") — the script test()/run() hand to `janet`.
+// Optional for test() (absent => `jpm test`, which runs test/*.janet); required
+// for run(). Scalar.
+script(_ctx: ptr, p: string) {
+    _e = map.put(_ctx, "janet_script", p)
+}
+
+// script_arg("discovery") — an argv for the script. Repeatable.
+script_arg(_ctx: ptr, a: string) {
+    if map.has(_ctx, "janet_script_args") == 0 { _e1 = map.put(_ctx, "janet_script_args", list.new()) }
+    l, _ = map.get(_ctx, "janet_script_args")
+    _e2 = list.add(l, a)
+}
+
+// tree("target/janet-tree") — the project-local jpm tree (jpm --tree=). deps()
+// and install() require it (they refuse to touch the global modpath); test()/
+// run() use it for JANET_PATH. Scalar.
+tree(_ctx: ptr, p: string) {
+    _e = map.put(_ctx, "janet_tree", p)
+}
+
+// install_from("https://…/x.git") — what install() installs: a git URL or
+// package name, passed to `jpm install`. Default: none, i.e. the project in the
+// source dir (jpm does not take a local path argument).
+install_from(_ctx: ptr, p: string) {
+    _e = map.put(_ctx, "janet_install_from", p)
+}
+
+// bundle("<file>", "servirtium/native/lib.so") — package(): copy a file (e.g. a
+// dep_artifact shared library) to a path inside the project. Repeatable. Stored
+// "src<TAB>dest".
+bundle(_ctx: ptr, src: string, dest: string) {
+    if map.has(_ctx, "janet_bundles") == 0 { _e1 = map.put(_ctx, "janet_bundles", list.new()) }
+    l, _ = map.get(_ctx, "janet_bundles")
+    _e2 = list.add(l, string.concat(src, string.concat("\t", dest)))
+}
+
+// janet_bin("/opt/janet/bin/janet") / jpm_bin("…/jpm") — override discovery.
+janet_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "janet_bin", bin)
+}
+jpm_bin(_ctx: ptr, bin: string) {
+    _e = map.put(_ctx, "jpm_bin", bin)
+}
+
+// --- Pure helpers (tested in tests/test_janet_cmd.ae) ---
+
+_janet_of(bmap: ptr) {
+    if bmap != null {
+        if map.has(bmap, "janet_bin") == 1 {
+            b, _ = map.get(bmap, "janet_bin")
+            if string.length(b) > 0 { return b }
+        }
+    }
+    return "janet"
+}
+
+// _jpm_candidates(bmap) — the pm binaries to try, in order: the override alone,
+// else `jpm` then `janet-pm`.
+_jpm_candidates(bmap: ptr) {
+    l = list.new()
+    if bmap != null {
+        if map.has(bmap, "jpm_bin") == 1 {
+            b, _ = map.get(bmap, "jpm_bin")
+            if string.length(b) > 0 {
+                _a = list.add(l, b)
+                return l
+            }
+        }
+    }
+    _a1 = list.add(l, "jpm")
+    _a2 = list.add(l, "janet-pm")
+    return l
+}
+
+// _abs_in(source_dir, p) — absolute paths pass through; others join source_dir.
+_abs_in(source_dir: string, p: string) {
+    if string.starts_with(p, "/") == 1 { return p }
+    return path.join(source_dir, p)
+}
+
+// janet_script_cmd(source_dir, janet, scr, args_str) — `cd '<dir>' && <janet>
+// '<scr>' <args>`; args_str is pre-quoted (see _quoted_args). Pure.
+janet_script_cmd(source_dir: string, janet: string, scr: string, args_str: string) {
+    c = "cd '${source_dir}' && '${janet}' '${scr}'"
+    if string.length(args_str) > 0 { c = "${c} ${args_str}" }
+    return c
+}
+
+// jpm_cmd(source_dir, jpm, tree_abs, verb) — `cd '<dir>' && '<jpm>'
+// --tree='<tree>' <verb>`; no --tree flag when tree_abs is "". Pure.
+jpm_cmd(source_dir: string, jpm: string, tree_abs: string, verb: string) {
+    t = ""
+    if string.length(tree_abs) > 0 { t = " --tree='${tree_abs}'" }
+    return "cd '${source_dir}' && '${jpm}'${t} ${verb}"
+}
+
+// janet_path_prefix(tree_abs) — `export JANET_PATH='<tree>/lib' && `, or "" for
+// no tree. Pure.
+janet_path_prefix(tree_abs: string) {
+    if string.length(tree_abs) == 0 { return "" }
+    return "export JANET_PATH='${tree_abs}/lib' && "
+}
+
+// _quoted_args(bmap) — script_arg values, each single-quoted, space-joined.
+_quoted_args(bmap: ptr) {
+    out = ""
+    if bmap == null { return out }
+    if map.has(bmap, "janet_script_args") == 0 { return out }
+    l, _ = map.get(bmap, "janet_script_args")
+    n = list.size(l)
+    i = 0
+    while i < n {
+        a, _ = list.get_string(l, i)
+        if i > 0 { out = string.concat(out, " ") }
+        out = string.concat(out, "'${a}'")
+        i = i + 1
+    }
+    return out
+}
+
+_tree_abs(source_dir: string, bmap: ptr) {
+    if bmap != null {
+        if map.has(bmap, "janet_tree") == 1 {
+            t, _ = map.get_string(bmap, "janet_tree")
+            if string.length(t) > 0 { return _abs_in(source_dir, t) }
+        }
+    }
+    return ""
+}
+
+_missing_hint() {
+    return "install Janet (brew install janet jpm | pacman -S janet jpm | https://janet-lang.org)"
+}
+
+// _find_jpm(bmap) — first candidate on PATH (or an existing explicit path), "".
+_find_jpm(bmap: ptr) {
+    l = _jpm_candidates(bmap)
+    n = list.size(l)
+    i = 0
+    while i < n {
+        c, _ = list.get_string(l, i)
+        i = i + 1
+        if string.length(os.which(c)) > 0 { return c }
+    }
+    return ""
+}
+
+// _need_janet / _need_jpm — resolve or fail the node with a clear message.
+// Return the binary, or "" after failing (the caller returns 1).
+_need_janet(ctx: ptr, bmap: ptr, mod_dir: string) {
+    j = _janet_of(bmap)
+    hint = _missing_hint()
+    if string.length(os.which(j)) == 0 {
+        println("${mod_dir}: janet not found on PATH (${j}) — ${hint}")
+        bldr.fail(ctx, "janet not found: ${hint}")
+        return ""
+    }
+    return j
+}
+
+_need_jpm(ctx: ptr, bmap: ptr, mod_dir: string) {
+    p = _find_jpm(bmap)
+    hint = _missing_hint()
+    if string.length(p) == 0 {
+        println("${mod_dir}: jpm (or janet-pm) not found on PATH — ${hint}")
+        bldr.fail(ctx, "jpm not found: ${hint}")
+        return ""
+    }
+    return p
+}
+
+// _janet_run(ctx, bmap, is_test) — shared body of run() and test().
+_janet_run(ctx: ptr, bmap: ptr, is_test: int) {
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    scr = ""
+    if bmap != null {
+        if map.has(bmap, "janet_script") == 1 { scr, _ = map.get_string(bmap, "janet_script") }
+    }
+    tree_abs = _tree_abs(source_dir, bmap)
+    cmd = ""
+    if string.length(scr) == 0 {
+        if is_test == 0 {
+            bldr.fail(ctx, "janet.run: script(\"...\") is required")
+            return 1
+        }
+        // No script: let jpm run test/*.janet.
+        p = _need_jpm(ctx, bmap, mod_dir)
+        if string.length(p) == 0 { return 1 }
+        cmd = jpm_cmd(source_dir, p, tree_abs, "test")
+    } else {
+        j = _need_janet(ctx, bmap, mod_dir)
+        if string.length(j) == 0 { return 1 }
+        cmd = janet_script_cmd(source_dir, j, scr, _quoted_args(bmap))
+    }
+    cmd = string.concat(string.concat(bldr._env_export_prefix(bmap), janet_path_prefix(tree_abs)), cmd)
+
+    if is_test == 1 { println("${mod_dir}: running tests (janet)") } else { println("${mod_dir}: running ${scr} (janet)") }
+    rc = bldr._sh(cmd)
+    if rc != 0 {
+        if is_test == 1 {
+            bldr._record_test_result(ctx, 0, 1)
+            println("${mod_dir}: tests FAILED")
+            bldr.fail(ctx, "tests FAILED")
+        } else {
+            println("${mod_dir}: run FAILED")
+            bldr.fail(ctx, "janet run failed")
+        }
+        return rc
+    }
+    if is_test == 1 {
+        bldr._record_test_result(ctx, 1, 0)
+        println("${mod_dir}: tests PASSED")
+    }
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// janet.test() — run script() under `janet` (or `jpm test` when none); a
+// non-zero exit fails the build and is recorded as a failed test.
+builder test(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    return _janet_run(ctx, _builder, 1)
+}
+
+// janet.run() — run script() once; a non-zero exit fails the build.
+builder run(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    return _janet_run(ctx, _builder, 0)
+}
+
+// _jpm_step(ctx, bmap, verb, label, need_tree) — shared body of deps/install/
+// jpm_build. Publishes the tree (when set) on the "jpm_tree" artifact edge so a
+// dependent test node can `dep_artifact("x/.deps.ae", "jpm_tree")`.
+_jpm_step(ctx: ptr, bmap: ptr, verb: string, label: string, need_tree: int) {
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    tree_abs = _tree_abs(source_dir, bmap)
+    if need_tree == 1 {
+        if string.length(tree_abs) == 0 {
+            bldr.fail(ctx, "janet.${label}: tree(\"...\") is required (aeb never writes the global jpm modpath)")
+            return 1
+        }
+    }
+    p = _need_jpm(ctx, bmap, mod_dir)
+    if string.length(p) == 0 { return 1 }
+    if string.length(tree_abs) > 0 { bldr._mkdirs(tree_abs) }
+
+    println("${mod_dir}: jpm ${label}")
+    cmd = string.concat(bldr._env_export_prefix(bmap), jpm_cmd(source_dir, p, tree_abs, verb))
+    rc = bldr._sh(cmd)
+    if rc != 0 {
+        println("${mod_dir}: jpm ${label} FAILED")
+        bldr.fail(ctx, "jpm ${label} failed")
+        return rc
+    }
+    if string.length(tree_abs) > 0 { bldr._write_artifact(ctx, "jpm_tree", tree_abs) }
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}
+
+// janet.deps() — `jpm --tree=T deps`: install the project's project.janet
+// dependencies into the local tree. tree(...) required.
+builder deps(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    return _jpm_step(ctx, _builder, "deps", "deps", 1)
+}
+
+// janet.install() — `jpm --tree=T install [install_from]`: install the source
+// dir's project (default) or a git URL / package name into the tree. tree(...)
+// required.
+builder install(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    verb = "install"
+    if _builder != null {
+        if map.has(_builder, "janet_install_from") == 1 {
+            what, _ = map.get_string(_builder, "janet_install_from")
+            if string.length(what) > 0 { verb = "install '${what}'" }
+        }
+    }
+    return _jpm_step(ctx, _builder, verb, "install", 1)
+}
+
+// janet.jpm_build() — `jpm build` (native modules / executables); --tree= is
+// passed only when tree(...) is set.
+builder jpm_build(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    return _jpm_step(ctx, _builder, "build", "build", 0)
+}
+
+// janet.package() — stage bundle(src, dest) files into the project (dest is
+// relative to the source dir; parents are created) and publish the project dir
+// on "package_dir". A pure-Janet package needs nothing compiled, so this is
+// the whole "package" step for an FFI binding that ships its shared library.
+builder package(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(target_dir)
+
+    if _builder != null {
+        if map.has(_builder, "janet_bundles") == 1 {
+            l, _ = map.get(_builder, "janet_bundles")
+            n = list.size(l)
+            i = 0
+            while i < n {
+                pair, _ = list.get_string(l, i)
+                i = i + 1
+                tab = string.index_of(pair, "\t")
+                src = _abs_in(source_dir, string.substring(pair, 0, tab))
+                dest = _abs_in(source_dir, string.substring(pair, tab + 1, string.length(pair)))
+                bldr._mkdirs(path.dirname(dest))
+                rc = bldr._sh("cp -f '${src}' '${dest}'")
+                if rc != 0 {
+                    println("${mod_dir}: bundling ${src} -> ${dest} failed")
+                    bldr.fail(ctx, "janet.package: bundling ${src} failed")
+                    return 1
+                }
+            }
+        }
+    }
+    bldr._write_artifact(ctx, "package_dir", source_dir)
+    println("${mod_dir}: janet package staged (${source_dir})")
+    _et = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
+}

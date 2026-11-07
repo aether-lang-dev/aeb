@@ -1,0 +1,87 @@
+// Tests for lib/janet's pure surface: command builders, binary resolvers,
+// and the setters.
+import std.spec
+import std.map
+import std.list
+import janet(janet_script_cmd, jpm_cmd, janet_path_prefix, _janet_of, _jpm_candidates,
+    _quoted_args, _tree_abs, _abs_in, script, script_arg, tree, bundle, janet_bin, jpm_bin, install_from)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "command builders") {
+        spec.it("janet_script_cmd with and without args") callback {
+            spec.assert_str_eq(janet_script_cmd("/p", "janet", "test/run.janet", ""),
+                "cd '/p' && 'janet' 'test/run.janet'", "no args")
+            spec.assert_str_eq(janet_script_cmd("/p", "janet", "a.janet", "'x' 'y'"),
+                "cd '/p' && 'janet' 'a.janet' 'x' 'y'", "args")
+        }
+        spec.it("jpm_cmd with and without tree") callback {
+            spec.assert_str_eq(jpm_cmd("/p", "jpm", "/t", "deps"),
+                "cd '/p' && 'jpm' --tree='/t' deps", "tree")
+            spec.assert_str_eq(jpm_cmd("/p", "janet-pm", "", "build"),
+                "cd '/p' && 'janet-pm' build", "no tree")
+            spec.assert_str_eq(jpm_cmd("/p", "jpm", "/t", "install '.'"),
+                "cd '/p' && 'jpm' --tree='/t' install '.'", "install")
+        }
+        spec.it("janet_path_prefix") callback {
+            spec.assert_str_eq(janet_path_prefix("/t"), "export JANET_PATH='/t/lib' && ", "tree")
+            spec.assert_str_eq(janet_path_prefix(""), "", "none")
+        }
+        spec.it("_abs_in") callback {
+            spec.assert_str_eq(_abs_in("/src", "rel/x"), "/src/rel/x", "relative")
+            spec.assert_str_eq(_abs_in("/src", "/abs/x"), "/abs/x", "absolute")
+        }
+    }
+
+    spec.describe(fw, "resolvers") {
+        spec.it("_janet_of") callback {
+            spec.assert_str_eq(_janet_of(null), "janet", "null")
+            m = map_new()
+            janet_bin(m, "/opt/janet")
+            spec.assert_str_eq(_janet_of(m), "/opt/janet", "override")
+        }
+        spec.it("_jpm_candidates: jpm then janet-pm; override alone") callback {
+            l = _jpm_candidates(null)
+            a, _ = list.get_string(l, 0)
+            b, _ = list.get_string(l, 1)
+            spec.assert_str_eq(a, "jpm", "first")
+            spec.assert_str_eq(b, "janet-pm", "second")
+            m = map_new()
+            jpm_bin(m, "/x/jpm")
+            l2 = _jpm_candidates(m)
+            spec.assert_eq(list.size(l2), 1, "override only")
+        }
+        spec.it("_tree_abs") callback {
+            spec.assert_str_eq(_tree_abs("/src", null), "", "unset")
+            m = map_new()
+            tree(m, "t/jpm")
+            spec.assert_str_eq(_tree_abs("/src", m), "/src/t/jpm", "relative")
+            tree(m, "/abs/t")
+            spec.assert_str_eq(_tree_abs("/src", m), "/abs/t", "absolute")
+        }
+    }
+
+    spec.describe(fw, "setters") {
+        spec.it("script, install_from scalar; script_arg, bundle repeatable") callback {
+            m = map_new()
+            script(m, "a.janet")
+            script(m, "b.janet")
+            v, _ = map.get(m, "janet_script")
+            spec.assert_str_eq(v, "b.janet", "script last-wins")
+            install_from(m, "https://x/y.git")
+            u, _ = map.get(m, "janet_install_from")
+            spec.assert_str_eq(u, "https://x/y.git", "install_from")
+            script_arg(m, "one")
+            script_arg(m, "two")
+            spec.assert_str_eq(_quoted_args(m), "'one' 'two'", "args quoted")
+            bundle(m, "/lib.so", "pkg/native/lib.so")
+            l, _ = map.get(m, "janet_bundles")
+            spec.assert_eq(list.size(l), 1, "bundle")
+            s, _ = list.get_string(l, 0)
+            spec.assert_str_eq(s, "/lib.so\tpkg/native/lib.so", "bundle pair")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

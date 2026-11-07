@@ -38,7 +38,7 @@ the two in step.)
 | Dimension | aeb status |
 |-----------|------------|
 | Build-graph topology | ✓ File-based DAG via `dep("path")`, scanned without compilation. |
-| Multi-language polyglot | ✓ 20+ SDKs (Java, Kotlin, Go, Rust, TS, Scala, Clojure, .NET, Python, Dart, MoonBit, Gleam, Ruby, Aether, Bash, Container, …). |
+| Multi-language polyglot | ✓ 20+ SDKs (Java, Kotlin, Go, Rust, TS, Scala, Clojure, .NET, Python, Dart, MoonBit, Gleam, Janet, Ruby, Aether, Bash, Container, …). |
 | Cross-language FFI artifacts | ✓ JNI / cdylib / shared-lib handoff wired (Java→Rust, Java→Go, C#→Rust, Python→Rust, …). |
 | Local incremental cache | ✓ Content-addressed (sha256), wired into every artifact-producing JVM/native/TS/… SDK. |
 | Affected-target detection | ✓ `aeb --since <ref>` builds only impacted targets; `--print-affected` lists them. |
