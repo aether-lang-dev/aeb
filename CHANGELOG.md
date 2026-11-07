@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.343 (2026-11-07)
+
 ### Added
 
 - **`lib/janet`: a Janet SDK.** `janet.test()`/`run()` run a script under
