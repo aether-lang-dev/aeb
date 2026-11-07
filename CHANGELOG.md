@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+### Fixed
+
+- **aeb works on a source tree with no `.git`.** Root discovery walked up for
+  `.aeb` or a VCS marker and, finding neither (a `git archive` or GitHub
+  tarball extract), added no project root to the compiler's `--lib`, so a
+  root-relative import such as `import core.phonenumber` failed to resolve
+  (workaround was `git init`). With no marker the root now falls back to the
+  directory aeb was invoked from. Behaviour with a marker is unchanged, and a
+  `.git` file (worktree/submodule) was already a marker.
+  `itests/markerless-root-import.sh` covers both and runs in CI.
+
 ## v0.341 (2026-11-06)
 
 ### Fixed

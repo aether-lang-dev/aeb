@@ -65,10 +65,8 @@ extern exit(code: int)
 //      on the aeb root, not the submodule).
 //   2. If no `.aeb` is found, fall back to the nearest VCS working-copy /
 //      checkout marker (`.git`, `.svn`, ...).
-// If NEITHER is found, return "" — the caller then adds nothing to --lib.
-// (cwd is already an implicit aetherc search root, so same-dir imports
-// still work; there is simply no principled root to widen resolution to
-// in a marker-less tree, so we don't pretend there is one.)
+// If NEITHER is found (a `git archive` / tarball extract), the root falls
+// back to <start>, the invocation dir; see _discover_repo_root.
 //
 // Marker probes use `fs.exists` (path-agnostic), NOT `dir.exists`, because
 // several markers are FILES not directories: a git worktree or submodule
@@ -146,12 +144,21 @@ _walk_for_vcs(start: string) {
     return string.concat("", "")
 }
 
-// Returns the project root, or "" when no marker is found anywhere up the
-// tree (caller adds nothing to --lib in that case).
+// Returns the project root. Preference: `.aeb`, then the nearest VCS marker
+// (a `.git` FILE counts, see above). When NEITHER exists anywhere up the tree
+// -- a `git archive` / GitHub source tarball extract -- fall back to <start>,
+// the directory aeb was invoked from (its build root, the same dir every
+// label and target/ path is already relative to). Without it a root-relative
+// `import core.x` cannot resolve in an extract that a checkout resolves
+// fine. cwd is the least surprising anchor: it is where the user ran aeb,
+// labels are cwd-relative already, and unmarked ancestors are not evidence
+// of anything. Never changes behaviour when a marker is present.
 _discover_repo_root(start: string) {
     aeb_root = _walk_for_aeb(start)
     if string.length(aeb_root) > 0 { return aeb_root }
-    return _walk_for_vcs(start)
+    vcs_root = _walk_for_vcs(start)
+    if string.length(vcs_root) > 0 { return vcs_root }
+    return string.concat(start, "")
 }
 
 // Platform detection for OS-specific linker flags. See
@@ -878,10 +885,8 @@ main() {
     // module in another directory via a root-relative dotted import (see
     // _discover_repo_root for the full rationale). The discovered root —
     // not the bare <root>=cwd — is what makes the share resolve from a
-    // subdir invocation too. When discovery finds no marker (marker-less
-    // tree) it returns "", and we add NOTHING: cwd is already an implicit
-    // aetherc search root, so same-dir imports still work, and there is no
-    // principled root to widen cross-dir resolution to.
+    // subdir invocation too. A marker-less tree (source tarball, `git archive`)
+    // falls back to <root>=cwd, so root-relative imports resolve there too.
     repo_root = _discover_repo_root(root)
     compile_lib = string.concat(aeb_lib, "")
     if string.length(repo_root) > 0 {

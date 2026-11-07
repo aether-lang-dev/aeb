@@ -163,6 +163,10 @@ jobs:
       # is not what aeb compiles and links against.
       - name: symlinked ae, stale sibling runtime
         run: itests/symlinked-ae-stale-sibling.sh
+      # A source tree with no .git/.aeb (git archive, GitHub tarball) roots at the
+      # invocation dir, so root-relative imports resolve; a `.git` file marks a root.
+      - name: marker-less root, root-relative import
+        run: itests/markerless-root-import.sh
       # A node using the retired `build` module (pre-bldr grammar) gets a clear
       # migration diagnostic, not a cryptic "unresolved import 'build'" that reads
       # like an install problem (aeb#16).
