@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.342 (2026-11-07)
+
 ### Fixed
 
 - **aeb works on a source tree with no `.git`.** Root discovery walked up for
