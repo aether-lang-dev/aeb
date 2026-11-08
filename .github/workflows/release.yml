@@ -610,6 +610,34 @@ jobs:
           echo "zips=$assets" >> "$GITHUB_OUTPUT"
           echo "built: $assets"
 
+      # The bundle step is fail-safe per row (a target that fails to
+      # cross-build is skipped so the others still build), which let the
+      # first v0.344 cut publish WITHOUT the FreeBSD bundle when its sysroot
+      # download hit a GitHub 504, the one platform that release was for.
+      # Skipping is fine while building; publishing a short set is not. Every
+      # platform must be here, in both archive forms, each with its .sha256.
+      - name: Require every platform bundle
+        run: |
+          set -euo pipefail
+          missing=0
+          for suffix in linux-x86_64 linux-arm64 linux-x86_64-musl linux-arm64-musl \
+                        windows-x86_64 windows-arm64 macos-x86_64 macos-arm64 \
+                        freebsd-x86_64; do
+            for f in "aeb-$suffix.zip" "aeb-$suffix.tar.gz"; do
+              for g in "$f" "$f.sha256"; do
+                if [ ! -s "bundles/$g" ]; then
+                  echo "::error::missing bundle file bundles/$g"; missing=1
+                fi
+              done
+            done
+          done
+          if [ "$missing" != 0 ]; then
+            echo "Refusing to publish a release without every platform bundle."
+            echo "Fix the failed row (see the bundle step's FAILED lines) or re-run."
+            exit 1
+          fi
+          echo "all 9 platform bundles present (36 files)"
+
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
