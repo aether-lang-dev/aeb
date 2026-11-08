@@ -221,6 +221,17 @@ jobs:
       #
       # A release whose payload cannot bootstrap is worse than no release:
       # it looks official and fails on the user's node.
+      # The released Aether's libaether.a references libfyaml (fy_* symbols)
+      # and `ae cflags --libs` names -lfyaml, so anything aeb links against it
+      # needs the library present. Aether 0.860.0 did not; 0.897.0+ does. The
+      # stock ubuntu-22.04 image lacks it, which failed the v0.344 cut at the
+      # bootstrap link ("cannot find -lfyaml").
+      - name: Install the link deps the fetched Aether names
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libfyaml-dev
+
       - name: Verify the payload actually bootstraps
         run: |
           set -euo pipefail
