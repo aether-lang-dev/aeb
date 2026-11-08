@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.344 (2026-11-08)
+
+### Changed
+
+- **Aether floor and fetch raised to 0.898.0** (`AETHER_PIN` == `AETHER_FETCH`).
+  On FreeBSD, aeb's own tools built with an older Aether spawned
+  `sh -c -- CMD`, which FreeBSD's `/bin/sh` reads as a command named `--`, so a
+  stock aeb failed at its first helper build ("`--: not found`"). Aether
+  0.898.0 fixes the spawn (aether#3624); this release's binaries are built with
+  it, and a source install now requires it.
+
 ## v0.343 (2026-11-07)
 
 ### Added

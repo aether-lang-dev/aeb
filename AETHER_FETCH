@@ -286,4 +286,10 @@
 # Paul's request, keeping PIN == FETCH. Verified on 0.860.0 (Debian 12):
 # 154/154 unit tests, all 27 tools and every SDK cold-compile, presubmit and
 # failed-dep smokes green, ae fmt --check clean.
-0.860.0
+# 0.898.0 (2026-11-08): floor and fetch both moved, PIN == FETCH. Needed on
+# FreeBSD: Aether before 0.898.0 spawns `sh -c -- CMD`, which FreeBSD's
+# /bin/sh reads as a command named `--`, so every aeb tool built with an
+# older Aether fails there at its first os.system (aether#3624). Raising the
+# floor makes a source install rebuild with the fixed runtime, and the fetch
+# makes the release binaries carry it.
+0.898.0
