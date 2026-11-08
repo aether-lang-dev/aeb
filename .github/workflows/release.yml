@@ -262,7 +262,7 @@ jobs:
           # the shipped behaviour. The trampoline now matches, and falls
           # back to a source build where no asset exists, e.g. linux-arm64.)
           FETCH_VER="$(grep -v '^#' "$HOME_DIR/AETHER_FETCH" | tr -d '[:space:]')"
-          curl -fsSL -o /tmp/ae.tgz \
+          curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/ae.tgz \
             "https://github.com/aether-lang-dev/aether/releases/download/v$FETCH_VER/aether-$FETCH_VER-linux-x86_64.tar.gz"
           # NO --strip-components: the Aether tarball has no top-level
           # wrapper dir, so it extracts bin/ include/ lib/ share/ directly.
@@ -449,7 +449,7 @@ jobs:
           ZIG_VER=0.16.0
           ZIG_DIR="/tmp/zig-x86_64-linux-$ZIG_VER"
           if [ ! -x "$ZIG_DIR/zig" ]; then
-            curl -fsSL "https://ziglang.org/download/$ZIG_VER/zig-x86_64-linux-$ZIG_VER.tar.xz" \
+            curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "https://ziglang.org/download/$ZIG_VER/zig-x86_64-linux-$ZIG_VER.tar.xz" \
               -o /tmp/zig.tar.xz \
               && tar -xJf /tmp/zig.tar.xz -C /tmp \
               || emit_empty "zig $ZIG_VER download failed"
@@ -470,7 +470,9 @@ jobs:
           # ../../lib/<name>.so.N symlinks the linker resolves through.
           FBSD_SYSROOT=""
           FBSD_URL="https://github.com/aether-lang-dev/aether/releases/download/v$FETCH_VER/aether-$FETCH_VER-freebsd-x86_64-sysroot.tar.xz"
-          if curl -fsSL "$FBSD_URL" -o /tmp/fbsd-sysroot.tar.xz 2>/dev/null; then
+          # Retried: a GitHub 504 here silently dropped the FreeBSD bundle from the
+          # first v0.344 cut (the row is fail-safe, so the release still shipped).
+          if curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "$FBSD_URL" -o /tmp/fbsd-sysroot.tar.xz; then
             mkdir -p /tmp/fbsd-sr && tar -xJf /tmp/fbsd-sysroot.tar.xz -C /tmp/fbsd-sr 2>/dev/null \
               && FBSD_SYSROOT="$(ls -d /tmp/fbsd-sr/fbsd-sysroot 2>/dev/null || echo /tmp/fbsd-sr)" \
               && echo "freebsd sysroot ready: $FBSD_SYSROOT"
