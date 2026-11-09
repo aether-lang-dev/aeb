@@ -53,7 +53,7 @@
 #   AEB_FROM_SOURCE=1 / AEBBOOT_NO_BINARY=1  force source builds (skip binaries).
 #
 # ---------------------------------------------------------------------------
-# AEBGET_REV: 3
+# AEBGET_REV: 4
 # ^ PROPAGATION SNIFF MARKER. Bumped by hand on every change. raw.github lags a
 # push by up to minutes; poll the raw URL for `AEBGET_REV: <n>` to know your push
 # redeployed. (A file can't contain its own not-yet-existing commit hash.)
@@ -91,6 +91,106 @@ sha256_of() {
     elif have shasum;   then shasum -a 256 "$1" | awk '{print $1}'
     fi
 }
+
+# --- release assets: web URL first, REST API second -------------------------
+# https://github.com/<repo>/releases/download/<tag>/<asset> is served by a
+# different backend from api.github.com and can fail alone (a repo-specific
+# HTTP 504 on aether's was seen on 2026-11-09). Every asset download below goes
+# through gh_release_download, which then fetches the same bytes from the API.
+# >>> gh-release-download (the same text is in tools/gh-release-fetch.sh; itests/gh-release-fallback.sh checks they match)
+# https://github.com/<repo>/releases/download/<tag>/<asset> is served by a
+# different backend from api.github.com, and it can fail alone (a repo-specific
+# HTTP 504 on it was seen on 2026-11-09). The API serves the same bytes: find
+# the asset's id in /releases/tags/<tag>, then GET /releases/assets/<id> with
+# Accept: application/octet-stream (a redirect to the CDN). Unauthenticated use
+# is allowed; GITHUB_TOKEN or GH_TOKEN, when set, is sent as a Bearer token.
+# The API lists a sha256 `digest` per asset; the fallback verifies against it.
+# AE_GITHUB_WEB_BASE / AE_GITHUB_API_BASE move the two endpoints (for tests).
+GH_WEB="${AE_GITHUB_WEB_BASE:-https://github.com}"
+GH_API="${AE_GITHUB_API_BASE:-https://api.github.com}"
+
+# gh_http URL DEST [octet] [auth] : one GET with curl, else wget; non-zero on failure.
+# The token goes in a mode-600 file, never on the command line.
+gh_http() {
+    _ghh_u="$1"; _ghh_d="$2"; _ghh_o="${3:-}"; _ghh_tok=""
+    # The token is for the API only; the plain release URL is tried without it.
+    [ -z "${4:-}" ] || _ghh_tok="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+    case "$_ghh_tok" in *[!A-Za-z0-9_.-]*) _ghh_tok="" ;; esac
+    _ghh_cfg=""
+    if [ -n "$_ghh_tok" ]; then
+        _ghh_cfg="$(umask 077; mktemp)" || return 1
+        if have curl; then printf 'header = "Authorization: Bearer %s"\n' "$_ghh_tok" > "$_ghh_cfg"
+        else printf 'header = Authorization: Bearer %s\n' "$_ghh_tok" > "$_ghh_cfg"; fi
+    fi
+    if have curl; then
+        set -- -fsSL --connect-timeout 10
+        [ -z "$_ghh_o" ] || set -- "$@" -H "Accept: application/octet-stream"
+        [ -z "$_ghh_cfg" ] || set -- "$@" -K "$_ghh_cfg"
+        _ghh_rc=0; curl "$@" -o "$_ghh_d" "$_ghh_u" 2>/dev/null || _ghh_rc=$?
+    elif have wget; then
+        set -- -q --timeout=10 --tries=2
+        [ -z "$_ghh_o" ] || set -- "$@" --header="Accept: application/octet-stream"
+        [ -z "$_ghh_cfg" ] || set -- "$@" --config="$_ghh_cfg"
+        _ghh_rc=0; wget "$@" -O "$_ghh_d" "$_ghh_u" 2>/dev/null || _ghh_rc=$?
+    else
+        _ghh_rc=1
+    fi
+    [ -z "$_ghh_cfg" ] || rm -f "$_ghh_cfg"
+    return $_ghh_rc
+}
+
+gh_sha256() {
+    if have sha256sum; then sha256sum "$1" | awk '{print $1}'
+    elif have shasum; then shasum -a 256 "$1" | awk '{print $1}'
+    fi
+}
+
+# gh_release_download REPO TAG ASSET DEST : fetch a release asset, trying the
+# normal URL and then the API. 0 on success; on failure says that both failed.
+gh_release_download() {
+    _ghd_r="$1"; _ghd_t="$2"; _ghd_a="$3"; _ghd_d="$4"
+    gh_http "$GH_WEB/$_ghd_r/releases/download/$_ghd_t/$_ghd_a" "$_ghd_d" && return 0
+    rm -f "$_ghd_d"
+    say "  $GH_WEB/$_ghd_r/releases/download/$_ghd_t/$_ghd_a failed; trying the GitHub API"
+    _ghd_j="$_ghd_d.release.json"
+    if ! gh_http "$GH_API/repos/$_ghd_r/releases/tags/$_ghd_t" "$_ghd_j" "" auth; then
+        rm -f "$_ghd_j"
+        say "  both the release URL and the GitHub API failed for $_ghd_a ($_ghd_t): the API could not be read (no network, no such release, or its rate limit)"
+        return 1
+    fi
+    # No jq: split the JSON at commas, one field per line, and take the id of
+    # the asset whose "name" is exactly $_ghd_a, plus its sha256 digest if listed.
+    _ghd_l="$(tr ',' '\n' < "$_ghd_j" | awk -v f="$_ghd_a" '
+        /"id"[[:space:]]*:/ && !hit { s=$0; sub(/.*"id"[[:space:]]*:[[:space:]]*/,"",s); sub(/[^0-9].*/,"",s); lastid=s }
+        /"name"[[:space:]]*:/ { if (hit) exit
+            n=$0; sub(/.*"name"[[:space:]]*:[[:space:]]*"/,"",n); sub(/".*/,"",n)
+            if (n==f) { hit=1; id=lastid } }
+        hit && /"digest"[[:space:]]*:/ { d=$0; sub(/.*sha256:/,"",d); sub(/[^0-9a-f].*/,"",d); dig=d }
+        END { if (hit) print id, dig }')"
+    rm -f "$_ghd_j"
+    _ghd_id="${_ghd_l%% *}"; _ghd_dig=""
+    case "$_ghd_l" in *" "*) _ghd_dig="${_ghd_l#* }" ;; esac
+    if [ -z "$_ghd_id" ]; then
+        say "  both the release URL and the GitHub API failed for $_ghd_a ($_ghd_t): the release lists no asset by that name"
+        return 1
+    fi
+    if ! gh_http "$GH_API/repos/$_ghd_r/releases/assets/$_ghd_id" "$_ghd_d" octet auth; then
+        rm -f "$_ghd_d"
+        say "  both the release URL and the GitHub API failed for $_ghd_a ($_ghd_t): the API asset download failed"
+        return 1
+    fi
+    if [ "${#_ghd_dig}" = 64 ]; then
+        _ghd_got="$(gh_sha256 "$_ghd_d")"
+        if [ -n "$_ghd_got" ] && [ "$_ghd_got" != "$_ghd_dig" ]; then
+            rm -f "$_ghd_d"
+            say "  the API download of $_ghd_a does not match the sha256 digest GitHub lists (expected $_ghd_dig, got $_ghd_got)"
+            return 1
+        fi
+    fi
+    say "  fetched $_ghd_a through the GitHub API"
+    return 0
+}
+# <<< gh-release-download
 
 # aebget_platform : echo "os arch" normalized (os linux/macos/freebsd/windows,
 # arch x86_64/arm64), or nothing if unrecognized. The arch is the NORMALIZED
@@ -131,10 +231,9 @@ aebget_install_ae_binary() {
     _ver="$1"; _prefix="${PREFIX:-$HOME/.local}"
     _plat="$(aebget_platform)"; [ -n "$_plat" ] || return 1
     _os="${_plat% *}"; _arch="${_plat#* }"      # aether arch word == normalized
-    _url="https://github.com/$AEBGET_AETHER_REPO/releases/download/v$_ver/aether-$_ver-$_os-$_arch.tar.gz"
     _td="$(mktemp -d)"
     say "trying ae binary: aether-$_ver-$_os-$_arch.tar.gz (no .sha256 upstream; HTTPS-trust)"
-    if ! curl -fsSL "$_url" -o "$_td/ae.tgz" 2>/dev/null; then
+    if ! gh_release_download "$AEBGET_AETHER_REPO" "v$_ver" "aether-$_ver-$_os-$_arch.tar.gz" "$_td/ae.tgz"; then
         rm -rf "$_td"; say "  no ae binary for $_os-$_arch @ $_ver — will build from source"; return 1
     fi
     mkdir -p "$_prefix"
@@ -194,16 +293,15 @@ aebget_install_aeb_binary() {
     for _a in $_arches; do
         _cand="aeb-$_os-$_a"
         say "trying aeb binary: $_cand.tar.gz @ $_tag (with .sha256 verify)"
-        if curl -fsSL "https://github.com/$AEBGET_AEB_REPO/releases/download/$_tag/$_cand.tar.gz" -o "$_td/aeb.tgz" 2>/dev/null; then
+        if gh_release_download "$AEBGET_AEB_REPO" "$_tag" "$_cand.tar.gz" "$_td/aeb.tgz"; then
             _base="$_cand"; break
         fi
         say "  no $_cand.tar.gz @ $_tag"
     done
-    _url="https://github.com/$AEBGET_AEB_REPO/releases/download/$_tag/$_base.tar.gz"
     if [ -z "$_base" ]; then
         rm -rf "$_td"; say "  no aeb binary for $_os ($_arches) @ $_tag — will build from source"; return 1
     fi
-    if curl -fsSL "$_url.sha256" -o "$_td/aeb.sha256" 2>/dev/null; then
+    if gh_release_download "$AEBGET_AEB_REPO" "$_tag" "$_base.tar.gz.sha256" "$_td/aeb.sha256"; then
         _want="$(awk '{print $1}' "$_td/aeb.sha256")"; _got="$(sha256_of "$_td/aeb.tgz")"
         if [ -z "$_got" ]; then
             rm -rf "$_td"; say "  no sha256 tool to verify — building from source instead"; return 1
@@ -250,19 +348,18 @@ aebget_install_aeb_binary() {
 aebget_prefetch_resolver() {
     _rtag="$1"; _ros="$2"; _rprefix="$3"
     have java || { say "  (no java on PATH — skipping aeb-resolve.jar pre-fetch; a JVM build will fetch it on first use)"; return 0; }
-    have curl || return 0
+    have curl || have wget || return 0
     _rhome="$_rprefix/share/aeb"
     [ -d "$_rhome/tools" ] || return 0
     _rjar="$_rhome/tools/aeb-resolve.jar"
     [ -f "$_rjar" ] && return 0   # already present (bundled or a prior run)
-    _rurl="https://github.com/$AEBGET_AEB_REPO/releases/download/$_rtag/aeb-resolve.jar"
     _rtd="$(mktemp -d)"
-    if ! curl -fsSL "$_rurl" -o "$_rtd/aeb-resolve.jar" 2>/dev/null; then
+    if ! gh_release_download "$AEBGET_AEB_REPO" "$_rtag" "aeb-resolve.jar" "$_rtd/aeb-resolve.jar"; then
         rm -rf "$_rtd"
         say "  (no aeb-resolve.jar asset @ $_rtag — a JVM build will fetch/build it on first use)"
         return 0
     fi
-    if curl -fsSL "$_rurl.sha256" -o "$_rtd/aeb-resolve.jar.sha256" 2>/dev/null; then
+    if gh_release_download "$AEBGET_AEB_REPO" "$_rtag" "aeb-resolve.jar.sha256" "$_rtd/aeb-resolve.jar.sha256"; then
         _rwant="$(awk '{print $1}' "$_rtd/aeb-resolve.jar.sha256")"; _rgot="$(sha256_of "$_rtd/aeb-resolve.jar")"
         if [ -n "$_rgot" ] && [ "$_rwant" != "$_rgot" ]; then
             rm -rf "$_rtd"; say "  (aeb-resolve.jar checksum mismatch @ $_rtag — skipping pre-fetch)"; return 0

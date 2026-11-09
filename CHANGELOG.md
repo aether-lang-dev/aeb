@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Fixed
+
+- **`get.sh`, the `aeb` toolchain fetch and the resolver-jar fetch survive
+  GitHub's release-download endpoint failing.** `github.com/<repo>/releases/download/...`
+  answered HTTP 504 for every aether asset on 2026-11-09 while the REST API
+  served the same bytes. Each release-asset download (the ae and aeb bundles,
+  the aeb `.sha256` sidecar, `aeb-resolve.jar`) now tries the plain URL, then
+  looks the asset up in `api.github.com/.../releases/tags/<tag>` and fetches
+  `/releases/assets/<id>` as `application/octet-stream`; `GITHUB_TOKEN` or
+  `GH_TOKEN` is sent as a Bearer token to the API when set, and the sha256 the
+  API lists is checked. POSIX sh, curl or wget, no jq. `get.sh` carries the
+  function inline; the `aeb` trampoline and `lib/bldr` call
+  `tools/gh-release-fetch.sh`. Tested by `itests/gh-release-fallback.sh`.
+
 ## v0.344 (2026-11-08)
 
 ### Changed

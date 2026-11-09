@@ -2821,7 +2821,17 @@ _ensure_resolver_jar(aeb_home: string) {
     // move into tools/. Best-effort: any failure returns "" (caller decides).
     tools_dir = path.join(aeb_home, "tools")
     _mkdirs(tools_dir)
-    fetch = "_td=$(mktemp -d); if curl -fsSL '${url}' -o \"$_td/j\" 2>/dev/null; then if curl -fsSL '${url}.sha256' -o \"$_td/s\" 2>/dev/null; then _w=$(awk '{print $1}' \"$_td/s\"); _g=$(sha256sum \"$_td/j\" 2>/dev/null | awk '{print $1}'); if [ -n \"$_g\" ] && [ \"$_w\" != \"$_g\" ]; then rm -rf \"$_td\"; exit 3; fi; fi; mv -f \"$_td/j\" '${jar}'; rm -rf \"$_td\"; exit 0; else rm -rf \"$_td\"; exit 1; fi"
+    // Each asset comes by the plain release URL first, then the REST API
+    // (tools/gh-release-fetch.sh does both; the download endpoint can fail alone).
+    // With that file absent (a stripped install) it is the bare curl as before.
+    helper = path.join(aeb_home, "tools/gh-release-fetch.sh")
+    dl_jar = "curl -fsSL '${url}' -o \"$_td/j\" 2>/dev/null"
+    dl_sum = "curl -fsSL '${url}.sha256' -o \"$_td/s\" 2>/dev/null"
+    if file.exists(helper) == 1 {
+        dl_jar = "sh '${helper}' aether-lang-dev/aeb '${tag}' aeb-resolve.jar \"$_td/j\" 2>/dev/null"
+        dl_sum = "sh '${helper}' aether-lang-dev/aeb '${tag}' aeb-resolve.jar.sha256 \"$_td/s\" 2>/dev/null"
+    }
+    fetch = "_td=$(mktemp -d); if ${dl_jar}; then if ${dl_sum}; then _w=$(awk '{print $1}' \"$_td/s\"); _g=$(sha256sum \"$_td/j\" 2>/dev/null | awk '{print $1}'); if [ -n \"$_g\" ] && [ \"$_w\" != \"$_g\" ]; then rm -rf \"$_td\"; exit 3; fi; fi; mv -f \"$_td/j\" '${jar}'; rm -rf \"$_td\"; exit 0; else rm -rf \"$_td\"; exit 1; fi"
     rc = _sh(fetch)
     if rc == 0 {
         if file.exists(jar) == 1 { return jar }

@@ -23,6 +23,17 @@ AETHER="${AETHER:-ae}"
 AEB_HOME="$(cd "$(dirname "$0")" && pwd)"
 export AEB_HOME
 
+# _aeb_gh_fetch REPO TAG ASSET DEST — one GitHub release asset: the plain
+# release URL first, then the REST API (tools/gh-release-fetch.sh, which does
+# both). Falls back to a bare curl when that file is not beside us.
+_aeb_gh_fetch() {
+    if [ -f "$AEB_HOME/tools/gh-release-fetch.sh" ]; then
+        sh "$AEB_HOME/tools/gh-release-fetch.sh" "$@"
+    else
+        curl -fsSL -o "$4" "${AE_GITHUB_WEB_BASE:-https://github.com}/$1/releases/download/$2/$3"
+    fi
+}
+
 # --- Windows: give every tool a NATIVE-form temp dir -----------------------
 #
 # On MSYS2/MinGW the aeb tools write throwaway shell scripts with Aether's
@@ -193,9 +204,10 @@ if [ -n "$_aeb_pin" ] && [ "$_aeb_user_pinned_aether" = "0" ]; then
                 _aeb_tmp="$_aeb_cache/toolchain/.dl-$_aeb_fetch_ver.$$"
                 rm -rf "$_aeb_tmp"; mkdir -p "$_aeb_tmp"
                 printf 'trying prebuilt asset: %s\n' "$_aeb_asset" >>"$_aeb_log" 2>&1
-                if curl -fsSL -o "$_aeb_tmp/$_aeb_asset" \
-                     "https://github.com/aether-lang-dev/aether/releases/download/v$_aeb_fetch_ver/$_aeb_asset" \
-                     >>"$_aeb_log" 2>&1; then
+                # Plain release URL first, then the REST API (tools/gh-release-fetch.sh):
+                # the download endpoint can fail alone, as it did on 2026-11-09.
+                if _aeb_gh_fetch aether-lang-dev/aether "v$_aeb_fetch_ver" "$_aeb_asset" \
+                     "$_aeb_tmp/$_aeb_asset" >>"$_aeb_log" 2>&1; then
                     # NO --strip-components: these archives have no wrapper
                     # dir, they extract bin/ include/ lib/ share/ directly.
                     # Stripping a level flattens bin/ae to ./ae and the probe
