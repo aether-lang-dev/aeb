@@ -78,11 +78,11 @@ pair_count(s: ptr) {
 
 // _cat(s, i) / _pat(s, i) — the i-th grant's category / pattern.
 _cat(s: ptr, i: int) {
-    v, _ = list.get(s, i * 2)
+    v, _ = list.get_string(s, i * 2)
     return v
 }
 _pat(s: ptr, i: int) {
-    v, _ = list.get(s, i * 2 + 1)
+    v, _ = list.get_string(s, i * 2 + 1)
     return v
 }
 

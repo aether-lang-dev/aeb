@@ -50,7 +50,7 @@ main() {
             cp = map.new()
             compiler_plugin(cp, "/p/a.jar")
             compiler_plugin(cp, "/p/b.jar")
-            cpv, _ = map.get(cp, "compiler_plugin")
+            cpv, _ = map.get_string(cp, "compiler_plugin")
             spec.assert_str_eq(cpv, "/p/a.jar,/p/b.jar", "compiler_plugin accumulates comma-joined")
         }
     }
@@ -61,10 +61,10 @@ main() {
         spec.it("first arg stored, second space-appended") callback {
             ja = map.new()
             jvm_args(ja, "--enable-native-access=ALL-UNNAMED")
-            jav, _ = map.get(ja, "jvm_args")
+            jav, _ = map.get_string(ja, "jvm_args")
             spec.assert_str_eq(jav, "--enable-native-access=ALL-UNNAMED", "jvm_args first arg stored")
             jvm_args(ja, "-Xmx512m")
-            jav2, _ = map.get(ja, "jvm_args")
+            jav2, _ = map.get_string(ja, "jvm_args")
             spec.assert_str_eq(jav2, "--enable-native-access=ALL-UNNAMED -Xmx512m", "jvm_args second arg space-appended")
         }
     }

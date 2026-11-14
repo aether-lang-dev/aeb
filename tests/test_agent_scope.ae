@@ -176,13 +176,13 @@ main() {
             pool = "# my agents\nhttp://192.168.0.57:9440 - ping-secret-123\n\nhttp://mac.local:9440 - mac-tok\nhttp://nostoken:9440\n"
             lines = _parse_pool(pool)
             spec.assert_true(list.size(lines) == 3, "pool: 3 non-comment lines")
-            l0, _ = list.get(lines, 0)
+            l0, _ = list.get_string(lines, 0)
             spec.assert_str_eq(_pool_url_of(l0), "http://192.168.0.57:9440", "pool line0 url")
             spec.assert_str_eq(_pool_token_of(l0), "ping-secret-123", "pool line0 token")
-            l1, _ = list.get(lines, 1)
+            l1, _ = list.get_string(lines, 1)
             spec.assert_str_eq(_pool_url_of(l1), "http://mac.local:9440", "pool line1 url")
             spec.assert_str_eq(_pool_token_of(l1), "mac-tok", "pool line1 token")
-            l2, _ = list.get(lines, 2)
+            l2, _ = list.get_string(lines, 2)
             spec.assert_str_eq(_pool_url_of(l2), "http://nostoken:9440", "pool line2 url (no token)")
             spec.assert_str_eq(_pool_token_of(l2), "", "pool line2 token empty")
             spec.assert_true(1, "pool skips comments + blanks")
@@ -194,10 +194,10 @@ main() {
             tpool = "http://192.168.0.57:9440\tae1.preint.123.deadbeef\nhttp://mac.local:9440\tmac-tok\n"
             tlines = _parse_pool(tpool)
             spec.assert_true(list.size(tlines) == 2, "tab pool: 2 lines")
-            tl0, _ = list.get(tlines, 0)
+            tl0, _ = list.get_string(tlines, 0)
             spec.assert_str_eq(_pool_url_of(tl0), "http://192.168.0.57:9440", "tab line0 url")
             spec.assert_str_eq(_pool_token_of(tl0), "ae1.preint.123.deadbeef", "tab line0 token")
-            tl1, _ = list.get(tlines, 1)
+            tl1, _ = list.get_string(tlines, 1)
             spec.assert_str_eq(_pool_url_of(tl1), "http://mac.local:9440", "tab line1 url")
             spec.assert_str_eq(_pool_token_of(tl1), "mac-tok", "tab line1 token")
             // A token containing " - " is NOT mis-split when a tab is present (tab wins).
@@ -254,7 +254,7 @@ main() {
         spec.it("_veto_default_rules: built-in list is non-empty + well-formed") callback {
             drules = _veto_default_rules()
             spec.assert_true(1 - _lt(list.size(drules), 1), "veto default rules present")
-            r0, _ = list.get(drules, 0)
+            r0, _ = list.get_string(drules, 0)
             spec.assert_str_eq(_veto_rule_field(r0, 0), "secret-rsa", "veto default rule0 id")
             spec.assert_true(1 - _streq(_veto_rule_field(r0, 3), ""), "veto default rule0 has reason")
 
@@ -513,7 +513,7 @@ _has_rule_with_scope(rules: ptr, rid: string, scope: string) {
     i = 0
     n = list.size(rules)
     while i < n {
-        row, _ = list.get(rules, i)
+        row, _ = list.get_string(rules, i)
         if string.equals(_veto_rule_field(row, 0), rid) == 1 {
             if string.equals(_veto_rule_field(row, 1), scope) == 1 { return 1 }
         }

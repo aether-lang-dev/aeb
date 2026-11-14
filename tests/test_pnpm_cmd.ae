@@ -89,15 +89,15 @@ main() {
             script_arg(bm1, "--silent")
             script_arg(bm1, "--reporter=tap")
             args1, _ = map_get(bm1, "pnpm_script_args")
-            arg0, _ = list_get(args1, 0)
-            arg1, _ = list_get(args1, 1)
+            arg0, _ = list.get_string(args1, 0)
+            arg1, _ = list.get_string(args1, 1)
             spec.assert_str_eq(arg0, "--silent", "script_arg first stored")
             spec.assert_str_eq(arg1, "--reporter=tap", "script_arg second stored")
         }
         spec.it("frozen_lockfile marker set") callback {
             bm2 = map_new()
             frozen_lockfile(bm2)
-            frozen_marker, _ = map_get(bm2, "pnpm_frozen_lockfile")
+            frozen_marker, _ = map.get_string(bm2, "pnpm_frozen_lockfile")
             spec.assert_str_eq(frozen_marker, "1", "frozen_lockfile marker set")
         }
     }

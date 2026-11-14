@@ -138,7 +138,7 @@ _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_
             n = list.size(l)
             i = 0
             while i < n {
-                s, _ = list.get(l, i)
+                s, _ = list.get_string(l, i)
                 i = i + 1
                 srcs = string.concat(srcs, string.concat(" ", path.join(source_dir, s)))
             }
@@ -172,7 +172,7 @@ _build_lua_ext(ctx: ptr, bmap: ptr, source_dir: string, target_dir: string, mod_
     if bmap != null {
         if map.has(bmap, "lua_host_source") == 1 {
             if string.length(_lua54_interp()) == 0 {
-                hsrc, _ = map.get(bmap, "lua_host_source")
+                hsrc, _ = map.get_string(bmap, "lua_host_source")
                 host_path = path.join(source_dir, "lua54")
                 println("${mod_dir}: no lua5.4 on PATH — building bundled host")
                 // The host DOES link liblua (it's the interpreter).

@@ -1,5 +1,6 @@
 // Tests for cargo_build_cmd() / cargo_test_cmd() and the binary_name / extra setters.
 import std.spec
+import std.map
 import rust(cargo_build_cmd, cargo_test_cmd, binary_name, extra)
 
 main() {
@@ -43,14 +44,14 @@ main() {
         spec.it("stores the name") callback {
             bm = map_new()
             binary_name(bm, "selenium-manager")
-            bn, _ = map_get(bm, "binary_name")
+            bn, _ = map.get_string(bm, "binary_name")
             spec.assert_str_eq(bn, "selenium-manager", "binary_name setter stores the name")
         }
         spec.it("scalar last-call-wins") callback {
             bm = map_new()
             binary_name(bm, "selenium-manager")
             binary_name(bm, "renamed")
-            bn2, _ = map_get(bm, "binary_name")
+            bn2, _ = map.get_string(bm, "binary_name")
             spec.assert_str_eq(bn2, "renamed", "binary_name last-call-wins")
         }
     }
@@ -64,7 +65,7 @@ main() {
         spec.it("stores the args") callback {
             xm = map_new()
             extra(xm, "--lib")
-            xv, _ = map_get(xm, "extra")
+            xv, _ = map.get_string(xm, "extra")
             spec.assert_str_eq(xv, "--lib", "extra setter stores the args")
         }
         spec.it("feeds cargo_test_cmd (cargo test --lib)") callback {

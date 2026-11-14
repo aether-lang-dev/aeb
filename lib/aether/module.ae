@@ -475,7 +475,7 @@ _collect_shared_libs(ctx: ptr) {
     n = list.size(deps)
     i = 0
     while i < n {
-        dp, _ = list.get(deps, i)
+        dp, _ = list.get_string(deps, i)
         dm = bldr._strip_lang(dp)
         sh = bldr._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
         if string.length(sh) > 0 {
@@ -525,7 +525,7 @@ _expand_source_globs(builder_map: ptr, source_dir: string) {
 
     ip = 0
     while ip < np {
-        p, _ = list.get(patterns, ip)
+        p, _ = list.get_string(patterns, ip)
         resolved = p
         if string.length(p) > 0 {
             _absq = _is_abs_path(p)
@@ -969,7 +969,7 @@ _link_flag_lib_files(flags: ptr, source_dir: string) {
                 si = 0
                 resolved = ""
                 while si < ns {
-                    sd, _ = list.get(search, si)
+                    sd, _ = list.get_string(search, si)
                     si = si + 1
                     if string.length(resolved) == 0 {
                         cand_a = path.join(sd, string.concat("lib", string.concat(name, ".a")))
@@ -1092,7 +1092,7 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
             ne = list.size(extras)
             ie = 0
             while ie < ne {
-                ef, _ = list.get(extras, ie)
+                ef, _ = list.get_string(extras, ie)
                 resolved = ef
                 if string.length(ef) > 0 {
                     _absq = _is_abs_path(ef)
@@ -1167,7 +1167,7 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
             nlf = list.size(lib_files)
             lfi = 0
             while lfi < nlf {
-                lff, _ = list.get(lib_files, lfi)
+                lff, _ = list.get_string(lib_files, lfi)
                 lfi = lfi + 1
                 lfh, lfe = cache.hash_file(lff)
                 if string.length(lfe) > 0 {
@@ -1314,7 +1314,7 @@ _resolved_user_include_dirs(builder_map: ptr, source_dir: string) {
     n = list.size(dirs)
     i = 0
     while i < n {
-        d, _ = list.get(dirs, i)
+        d, _ = list.get_string(dirs, i)
         rd = d
         if string.length(d) > 0 {
             if _is_abs_path(d) == 0 {
@@ -1339,7 +1339,7 @@ _node_lib_dirs(builder_map: ptr, source_dir: string) {
     n = list.size(dirs)
     i = 0
     while i < n {
-        d, _ = list.get(dirs, i)
+        d, _ = list.get_string(dirs, i)
         rd = d
         if string.length(d) > 0 {
             if _is_abs_path(d) == 0 {
@@ -1377,7 +1377,7 @@ _collect_dep_header_dirs(ctx: ptr) {
     n = list.size(deps)
     i = 0
     while i < n {
-        dp, _ = list.get(deps, i)
+        dp, _ = list.get_string(deps, i)
         i = i + 1
         dm = bldr._strip_lang(dp)
         dirs = bldr._read_dep_artifact(ctx, dm, "c_header_dirs")
@@ -1641,7 +1641,7 @@ _resolve_sysdeps() {
     n = list.size(mods)
     i = 0
     while i < n {
-        m, _ = list.get(mods, i)
+        m, _ = list.get_string(mods, i)
         flags = _pkg_config_libs(m)
         if string.length(flags) > 0 {
             out = string.concat(out, string.concat(" ", flags))
@@ -1814,7 +1814,7 @@ ae_lib_flags(caps: string, builder_map: ptr, source_dir: string) {
             ne = list.size(extras)
             ie = 0
             while ie < ne {
-                ef, _ = list.get(extras, ie)
+                ef, _ = list.get_string(extras, ie)
                 resolved = ef
                 if string.length(ef) > 0 {
                     if _is_abs_path(ef) == 0 { resolved = path.join(source_dir, ef) }
@@ -2239,7 +2239,7 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
     n = list.size(regens)
     i = 0
     while i < n {
-        rel, _ = list.get(regens, i)
+        rel, _ = list.get_string(regens, i)
         abs_p = rel
         if string.length(rel) > 0 {
             _absq = _is_abs_path(rel)
@@ -2263,7 +2263,7 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
     }
     j = 0
     while j < n {
-        relx, _ = list.get(regens, j)
+        relx, _ = list.get_string(regens, j)
         abs_x = relx
         if string.length(relx) > 0 {
             _absq = _is_abs_path(relx)
@@ -2278,7 +2278,7 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
     ns = list.size(seeds)
     si = 0
     while si < ns {
-        seed_path, _ = list.get(seeds, si)
+        seed_path, _ = list.get_string(seeds, si)
         imps = _transitive_import_aes(seed_path, roots)
         ni = list.size(imps)
         ii = 0
@@ -2310,7 +2310,7 @@ _expand_transitive_regens(builder_map: ptr, source_dir: string, src_path: string
     nd = list.size(discovered)
     di = 0
     while di < nd {
-        f2, _ = list.get(discovered, di)
+        f2, _ = list.get_string(discovered, di)
         cf2 = _canonical_path(f2)
         if map.has(known, cf2) == 0 {
             caps = _union_caps(_detect_caps(f2), node_caps)
@@ -2814,7 +2814,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
             ne = list.size(extras)
             ie = 0
             while ie < ne {
-                ef, _ = list.get(extras, ie)
+                ef, _ = list.get_string(extras, ie)
                 resolved = ef
                 if string.length(ef) > 0 {
                     _absq = _is_abs_path(ef)
@@ -2932,7 +2932,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
             _nest = list.size(_est)
             _iest = 0
             while _iest < _nest {
-                _estf, _ = list.get(_est, _iest)
+                _estf, _ = list.get_string(_est, _iest)
                 _iest = _iest + 1
                 _estr = _estf
                 if string.length(_estf) > 0 {
@@ -3900,7 +3900,7 @@ builder driver_test(): int {
         bn = list.size(buts)
         i = 0
         while i < bn {
-            rec, _ = list.get(buts, i)
+            rec, _ = list.get_string(buts, i)
             f = bldr._split_tabs(rec, 3)
             name, _ = list.get_string(f, 0)
             decl_path, _ = list.get_string(f, 1)

@@ -93,7 +93,7 @@ _render_list(files: ptr) {
     shown = 0
     i = 0
     while i < n {
-        f, _ = list.get(files, i)
+        f, _ = list.get_string(files, i)
         if _is_set_type(_list_type(f)) == 1 {
             if shown == 0 { println("sets:") }
             println(string.concat("  ", f))
@@ -106,7 +106,7 @@ _render_list(files: ptr) {
     seen_types = list.new()
     i = 0
     while i < n {
-        f, _ = list.get(files, i)
+        f, _ = list.get_string(files, i)
         t = _list_type(f)
         if _is_set_type(t) == 0 {
             already = 0
@@ -122,7 +122,7 @@ _render_list(files: ptr) {
                 println(string.concat(t, ":"))
                 k = 0
                 while k < n {
-                    g, _ = list.get(files, k)
+                    g, _ = list.get_string(files, k)
                     if string.equals(_list_type(g), t) == 1 {
                         println(string.concat("  ", g))
                     }
@@ -564,7 +564,7 @@ main() {
         st_n = list.size(seed_targets)
         sti = 0
         while sti < st_n {
-            tgt, _ = list.get(seed_targets, sti)
+            tgt, _ = list.get_string(seed_targets, sti)
             sti = sti + 1
             if string.ends_with(tgt, ".ae") == 1 {
                 check_path = string.concat("./", tgt)
@@ -733,7 +733,7 @@ main() {
     nfiles = list.size(files)
     j = 0
     while j < nfiles {
-        f, _ = list.get(files, j)
+        f, _ = list.get_string(files, j)
         ds = string.concat("", "")
         if map.has(file_deps, f) == 1 {
             ds, _ = map.get_string(file_deps, f)
@@ -1080,7 +1080,7 @@ main() {
         pn = list.size(files)
         pi = 0
         while pi < pn {
-            f, _ = list.get(files, pi)
+            f, _ = list.get_string(files, pi)
             base = path.basename(f)
             if string.glob_match(pattern, base) == 1 {
                 _e_pl = list.add(pat_files, f)
@@ -1121,7 +1121,7 @@ main() {
         cn = list.size(files)
         cword = string.concat("", "")
         while chead < cn {
-            cf, _ = list.get(files, chead)
+            cf, _ = list.get_string(files, chead)
             chead = chead + 1
             cdeps = string.concat("", "")
             if map.has(file_deps, cf) == 1 {
@@ -1204,7 +1204,7 @@ main() {
         nlines = list.size(files)
         nf = 0
         while nf < nlines {
-            f, _ = list.get(files, nf)
+            f, _ = list.get_string(files, nf)
             ds = string.concat("", "")
             if map.has(file_deps, f) == 1 {
                 ds, _ = map.get_string(file_deps, f)
@@ -1436,7 +1436,7 @@ main() {
                 wh = 0
                 wq = list.size(work)
                 while wh < wq {
-                    wn, _ = list.get(work, wh)
+                    wn, _ = list.get_string(work, wh)
                     wh = wh + 1
                     if map.has(node_deps, wn) == 1 {
                         wd, _ = map.get_string(node_deps, wn)
@@ -1463,7 +1463,7 @@ main() {
             eon = list.size(node_order)
             eoi = 0
             while eoi < eon {
-                en, _ = list.get(node_order, eoi)
+                en, _ = list.get_string(node_order, eoi)
                 eoi = eoi + 1
                 if map.has(keep, en) == 1 {
                     ed, _ = map.get(node_deps, en)

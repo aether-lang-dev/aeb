@@ -209,7 +209,7 @@ cargo_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 name = _split_first(entry, "~")
                 ver = _split_second(entry, "~")
                 toml = string.concat(toml, "${name} = \"${ver}\"\n")
@@ -223,7 +223,7 @@ cargo_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 // format: name=version=feat1,feat2
                 name = _split_first(entry, "~")
                 rest = _split_second(entry, "~")
@@ -242,7 +242,7 @@ cargo_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 name = _split_first(entry, "~")
                 p = _split_second(entry, "~")
                 toml = string.concat(toml, "${name} = { path = \"${p}\" }\n")
@@ -455,7 +455,7 @@ cargo_workspace_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 name = _split_first(entry, "~")
                 ver = _split_second(entry, "~")
                 toml = string.concat(toml, "${name} = \"${ver}\"\n")
@@ -469,7 +469,7 @@ cargo_workspace_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 name = _split_first(entry, "~")
                 rest = _split_second(entry, "~")
                 ver = _split_first(rest, "~")
@@ -486,7 +486,7 @@ cargo_workspace_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 // Parse 5-field entry via progressive splits
                 f_name = _split_first(entry, "~")
                 r1 = _split_second(entry, "~")
@@ -589,7 +589,7 @@ cargo_crate_toml_content(opts: ptr) {
             bcount = list.size(bins)
             bi = 0
             while bi < bcount {
-                bentry, _ = list.get(bins, bi)
+                bentry, _ = list.get_string(bins, bi)
                 bname = _split_first(bentry, "~")
                 bpath = _split_second(bentry, "~")
                 toml = string.concat(toml, "\n[[bin]]\n")
@@ -648,7 +648,7 @@ cargo_crate_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 name = _split_first(entry, "~")
                 ver = _split_second(entry, "~")
                 toml = string.concat(toml, "${name} = \"${ver}\"\n")
@@ -662,7 +662,7 @@ cargo_crate_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 name = _split_first(entry, "~")
                 rest = _split_second(entry, "~")
                 ver = _split_first(rest, "~")
@@ -679,7 +679,7 @@ cargo_crate_toml_content(opts: ptr) {
             count = list.size(deps)
             i = 0
             while i < count {
-                entry, _ = list.get(deps, i)
+                entry, _ = list.get_string(deps, i)
                 name = _split_first(entry, "~")
                 p = _split_second(entry, "~")
                 toml = string.concat(toml, "${name} = { path = \"${p}\" }\n")
@@ -724,7 +724,7 @@ cargo_crate_toml_content(opts: ptr) {
             fcount = list.size(feat_list)
             fi = 0
             while fi < fcount {
-                fentry, _ = list.get(feat_list, fi)
+                fentry, _ = list.get_string(feat_list, fi)
                 fname = _split_first(fentry, "~")
                 fdeps_csv = _split_second(fentry, "~")
                 if string.length(fdeps_csv) == 0 {
@@ -831,7 +831,7 @@ _cache_key_for_cargo(ctx: ptr, argfile_path: string, cargo_cmd_str: string, sour
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
-        src, _ = list.get(sources, si)
+        src, _ = list.get_string(sources, si)
         sh, serr = cache.hash_file(src)
         if string.length(serr) > 0 {
             return "", serr
@@ -860,7 +860,7 @@ _cache_key_for_cargo(ctx: ptr, argfile_path: string, cargo_cmd_str: string, sour
     dn = list.size(deps)
     di = 0
     while di < dn {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         dep_sh = bldr._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
@@ -1031,7 +1031,7 @@ _merge_rust_dep_artifacts(ctx: ptr, bld: ptr) {
     dep_count = list.size(deps)
     di = 0
     while di < dep_count {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
 
         // --- path deps ---

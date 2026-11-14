@@ -40,7 +40,7 @@ main() {
             // --- Test 1: a single GNU ld undefined-reference line.
             syms = _extract_undefined_refs("/usr/bin/ld: module_generated.c:(.text+0x9953): undefined reference to `repo_primary_hash'")
             spec.assert_eq(list.size(syms), 1, "single undefined-ref produces one symbol")
-            s0, _ = list.get(syms, 0)
+            s0, _ = list.get_string(syms, 0)
             spec.assert_str_eq(s0, "repo_primary_hash", "the symbol name is extracted intact")
 
             // --- Test 2: multi-line blob, duplicates collapse, order preserved.
@@ -51,9 +51,9 @@ main() {
             blob = string.concat(blob, "collect2: error: ld returned 1 exit status\n")
             syms2 = _extract_undefined_refs(blob)
             spec.assert_eq(list.size(syms2), 3, "three unique symbols across four refs")
-            first2, _ = list.get(syms2, 0)
-            second2, _ = list.get(syms2, 1)
-            third2, _ = list.get(syms2, 2)
+            first2, _ = list.get_string(syms2, 0)
+            second2, _ = list.get_string(syms2, 1)
+            third2, _ = list.get_string(syms2, 2)
             spec.assert_str_eq(first2, "repos_rev_blob_sha", "first symbol preserved")
             spec.assert_str_eq(second2, "repo_primary_hash", "second symbol preserved")
             spec.assert_str_eq(third2, "repos_head_rev", "third symbol preserved")

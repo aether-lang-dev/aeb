@@ -53,7 +53,7 @@ pnpm_add_cmd(prefix_dir: string, deps: ptr) {
     n = list.size(deps)
     i = 0
     while i < n {
-        pkg, _ = list.get(deps, i)
+        pkg, _ = list.get_string(deps, i)
         spec = pnpm_spec_from_dep(pkg)
         cmd = string.concat(cmd, " '${spec}'")
         i = i + 1
@@ -213,7 +213,7 @@ resolve(ctx: ptr) {
     missing = list.new()
     di = 0
     while di < dep_count {
-        d_pkg, _ = list.get(npm_deps, di)
+        d_pkg, _ = list.get_string(npm_deps, di)
         d_spec = pnpm_spec_from_dep(d_pkg)
         if _line_present(added_txt, d_spec) == 0 {
             _lm = list.add(missing, d_pkg)
@@ -264,7 +264,7 @@ resolve(ctx: ptr) {
         mi = 0
         mn = list.size(missing)
         while mi < mn {
-            m_pkg, _ = list.get(missing, mi)
+            m_pkg, _ = list.get_string(missing, mi)
             added_txt = string.concat(added_txt, pnpm_spec_from_dep(m_pkg))
             added_txt = string.concat(added_txt, "\n")
             mi = mi + 1

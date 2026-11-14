@@ -192,7 +192,7 @@ walk(start: string, extract_deps_bin: string) {
     qs = list.size(queue)
 
     while head < qs {
-        f, _ = list.get(queue, head)
+        f, _ = list.get_string(queue, head)
         head = head + 1
 
         // Record this file's directory once, in first-seen order.
@@ -327,7 +327,7 @@ main() {
             k = 0
             kn = list.size(dirs)
             while k < kn {
-                dv, _ = list.get(dirs, k)
+                dv, _ = list.get_string(dirs, k)
                 sparse_add(dv)
                 k = k + 1
             }

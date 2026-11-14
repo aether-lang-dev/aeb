@@ -158,7 +158,7 @@ _dep_src_classpath(ctx: ptr) {
     count = list.size(deps)
     i = 0
     while i < count {
-        dp, _ = list.get(deps, i)
+        dp, _ = list.get_string(deps, i)
         dm = bldr._strip_lang(dp)
         dep_src = bldr._read_dep_artifact(ctx, dm, "clojure_src_path")
         cp = bldr._cp_append(cp, dep_src)
@@ -204,7 +204,7 @@ _cache_key_for_clj(ctx: ptr, argfile_path: string, aot_cmd_str: string, maven_cp
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
-        src, _ = list.get(sources, si)
+        src, _ = list.get_string(sources, si)
         sh, serr = cache.hash_file(src)
         if string.length(serr) > 0 {
             return "", serr
@@ -218,7 +218,7 @@ _cache_key_for_clj(ctx: ptr, argfile_path: string, aot_cmd_str: string, maven_cp
     dn = list.size(deps)
     di = 0
     while di < dn {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         dep_src = bldr._read_dep_artifact(ctx, dm, "clojure_src_path")
         if string.length(dep_src) > 0 {
@@ -282,7 +282,7 @@ builder compile(): int {
     // AOT compile if main_ns is set
     if _builder != null {
         if map.has(_builder, "main_ns") == 1 {
-            ns, _ = map.get(_builder, "main_ns")
+            ns, _ = map.get_string(_builder, "main_ns")
             cmd = clj_aot_compile_cmd(classes_dir, cp, ns)
 
             // Source set for the cache key (every .clj under src/).

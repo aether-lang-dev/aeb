@@ -12,7 +12,7 @@ _list_size_at(m: ptr, k: string) {
 }
 _list_get_at(m: ptr, k: string, i: int) {
     l, _ = map.get(m, k)
-    v, _ = list.get(l, i)
+    v, _ = list.get_string(l, i)
     return v
 }
 
@@ -48,13 +48,13 @@ main() {
             m = map_new()
             run_cmd(m, "cargo run --offline --")
             run_cmd(m, "./app")
-            v, _ = map.get(m, "run_cmd")
+            v, _ = map.get_string(m, "run_cmd")
             spec.assert_str_eq(v, "./app", "last-wins")
         }
         spec.it("pre_cmd stores scalar under pre_cmd") callback {
             m = map_new()
             pre_cmd(m, "cargo build --offline")
-            v, _ = map.get(m, "pre_cmd")
+            v, _ = map.get_string(m, "pre_cmd")
             spec.assert_str_eq(v, "cargo build --offline", "pre_cmd")
         }
         spec.it("run_arg accumulates under run_args in order") callback {

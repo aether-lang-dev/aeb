@@ -81,7 +81,7 @@ check_token_names(tokens: ptr) {
     n = list.size(tokens)
     i = 0
     while i < n {
-        tok, _ = list.get(tokens, i)
+        tok, _ = list.get_string(tokens, i)
         i = i + 1
         tc, _v = _split_token(tok)
         canon = _misname_canonical(tc)
@@ -151,7 +151,7 @@ preflight_missing(tokens: ptr) {
     n = list.size(tokens)
     i = 0
     while i < n {
-        tok, _ = list.get(tokens, i)
+        tok, _ = list.get_string(tokens, i)
         i = i + 1
         if string.length(tok) == 0 { continue }
         if map.has(seen, tok) == 1 { continue }

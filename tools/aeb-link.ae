@@ -654,7 +654,7 @@ _resolve_sysdeps_link() {
     n = list.size(mods)
     i = 0
     while i < n {
-        m, _ = list.get(mods, i)
+        m, _ = list.get_string(mods, i)
         flags = _pkg_config_libs_link(m)
         if string.length(flags) > 0 {
             out = string.concat(out, string.concat(" ", flags))
@@ -1049,7 +1049,7 @@ main() {
     j = 0
     while j < n {
         if j > 0 { strbuilder.append(gofiles, " ") }
-        _f, _ = list.get(files, j)
+        _f, _ = list.get_string(files, j)
         strbuilder.append(gofiles, _f)
         j = j + 1
     }
@@ -1102,7 +1102,7 @@ main() {
     k = 0
     while k < n {
         strbuilder.append(objs, " ")
-        _cf, _ = list.get(c_files, k)
+        _cf, _ = list.get_string(c_files, k)
         strbuilder.append(objs, _cf)
         k = k + 1
     }
@@ -1175,7 +1175,7 @@ main() {
     _al_seen = " "
     _kk = 0
     while _kk < n {
-        _alcf, _ = list.get(c_files, _kk)
+        _alcf, _ = list.get_string(c_files, _kk)
         _alnew = _aether_link_libs_link(_alcf, _al_seen)
         cc = string.concat(cc, _alnew)
         // Fold this file's kept tokens (each " -lx") into seen as "-lx " so the
@@ -1196,7 +1196,7 @@ main() {
     _as_seen = " "
     _sk = 0
     while _sk < n {
-        _ascf, _ = list.get(c_files, _sk)
+        _ascf, _ = list.get_string(c_files, _sk)
         _asres = _aether_source_files_link(_ascf, repo_root, _as_seen)
         cc = string.concat(cc, _asres_files(_asres))
         _as_seen = string.concat(_as_seen, _asres_seen(_asres))

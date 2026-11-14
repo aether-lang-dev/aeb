@@ -1,6 +1,7 @@
 // Tests for clojure.clj_aot_compile_cmd, clojure.clj_load_check_cmd,
 // clojure.clj_test_cmd and the uberjar / munging helpers.
 import std.spec
+import std.map
 import clojure(clj_aot_compile_cmd, clj_load_check_cmd, clj_test_cmd,
     uber_unzip_jar_cmd, uber_copy_tree_cmd, uber_jar_cmd,
     _ns_to_main_class, _ends_with_jar,
@@ -103,8 +104,8 @@ main() {
             bm = map_new()
             main_ns(bm, "com.example.core")
             output_jar(bm, "app-1.0.jar")
-            mn, _ = map_get(bm, "main_ns")
-            oj, _ = map_get(bm, "clojure_output_jar")
+            mn, _ = map.get_string(bm, "main_ns")
+            oj, _ = map.get_string(bm, "clojure_output_jar")
             spec.assert_str_eq(mn, "com.example.core", "main_ns stored")
             spec.assert_str_eq(oj, "app-1.0.jar", "output_jar stored")
         }

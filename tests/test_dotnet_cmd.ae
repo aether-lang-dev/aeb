@@ -102,10 +102,10 @@ main() {
         spec.it("stores the path, last-call-wins") callback {
             bm = map_new()
             csproj_path(bm, "Selenium.WebDriver.csproj")
-            csp, _ = map_get(bm, "csproj_path")
+            csp, _ = map.get_string(bm, "csproj_path")
             spec.assert_str_eq(csp, "Selenium.WebDriver.csproj", "stored")
             csproj_path(bm, "Other.csproj")
-            csp2, _ = map_get(bm, "csproj_path")
+            csp2, _ = map.get_string(bm, "csproj_path")
             spec.assert_str_eq(csp2, "Other.csproj", "last-call-wins")
         }
     }

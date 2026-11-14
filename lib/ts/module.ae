@@ -239,7 +239,7 @@ _cache_key_for_tsc(ctx: ptr, argfile_path: string, tsconfig_path: string, tsc_cm
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
-        src, _ = list.get(sources, si)
+        src, _ = list.get_string(sources, si)
         sh, serr = cache.hash_file(src)
         if string.length(serr) > 0 {
             return "", serr
@@ -253,7 +253,7 @@ _cache_key_for_tsc(ctx: ptr, argfile_path: string, tsconfig_path: string, tsc_cm
     dn = list.size(deps)
     di = 0
     while di < dn {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         dep_td = bldr._read_dep_artifact(ctx, dm, "typescript_module_deps_including_transitive")
         if string.length(dep_td) > 0 {
@@ -317,7 +317,7 @@ _merge_npm_registry_deps(ctx: ptr) {
     dep_count = list.size(deps)
     di = 0
     while di < dep_count {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         raw = bldr._read_dep_artifact(ctx, dm, "npm_registry_deps_including_transitive")
         if string.length(raw) > 0 {
@@ -359,7 +359,7 @@ builder tsc_files(): int {
     ts_deps = path.join(target_dir, "js")
     i = 0
     while i < dep_count {
-        dp6, _ = list.get(deps, i)
+        dp6, _ = list.get_string(deps, i)
         dm6 = bldr._strip_lang(dp6)
         dep_td = bldr._read_dep_artifact(ctx, dm6, "typescript_module_deps_including_transitive")
         if string.length(dep_td) > 0 {
@@ -387,7 +387,7 @@ builder tsc_files(): int {
     }
     i = 0
     while i < dep_count {
-        dp7, _ = list.get(deps, i)
+        dp7, _ = list.get_string(deps, i)
         dm7 = bldr._strip_lang(dp7)
         dep_npm = bldr._read_dep_artifact(ctx, dm7, "npm_deps_including_transitive")
         if string.length(dep_npm) > 0 {
@@ -404,7 +404,7 @@ builder tsc_files(): int {
     shared_out = ""
     i = 0
     while i < dep_count {
-        dp8, _ = list.get(deps, i)
+        dp8, _ = list.get_string(deps, i)
         dm8 = bldr._strip_lang(dp8)
         dep_sh = bldr._read_dep_artifact(ctx, dm8, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
@@ -461,7 +461,7 @@ builder mocha(test_file: string): int {
     dep_count = list.size(deps)
     i = 0
     while i < dep_count {
-        dp9, _ = list.get(deps, i)
+        dp9, _ = list.get_string(deps, i)
         dm9 = bldr._strip_lang(dp9)
         dep_td = bldr._read_dep_artifact(ctx, dm9, "typescript_module_deps_including_transitive")
         if string.length(dep_td) > 0 {
@@ -483,7 +483,7 @@ builder mocha(test_file: string): int {
     ld_path = ""
     i = 0
     while i < dep_count {
-        dpA, _ = list.get(deps, i)
+        dpA, _ = list.get_string(deps, i)
         dmA = bldr._strip_lang(dpA)
         dep_sh = bldr._read_dep_artifact(ctx, dmA, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
@@ -552,7 +552,7 @@ builder tsc(): int {
     tc = path.join(source_dir, "tsconfig.lib.json")
     if _builder != null {
         if map.has(_builder, "tsconfig") == 1 {
-            tc_rel, _ = map.get(_builder, "tsconfig")
+            tc_rel, _ = map.get_string(_builder, "tsconfig")
             tc = path.join(source_dir, tc_rel)
         }
     }

@@ -106,7 +106,7 @@ _files_str(bmap: ptr, key: string, source_dir: string) {
             n = list.size(l)
             i = 0
             while i < n {
-                f, _ = list.get(l, i)
+                f, _ = list.get_string(l, i)
                 out = string.concat(out, string.concat(" '", string.concat(path.join(source_dir, f), "'")))
                 i = i + 1
             }

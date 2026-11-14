@@ -296,7 +296,7 @@ builder consumer_example(): int {
     nd = list.size(deps)
     di = 0
     while di < nd {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         td = bldr._read_dep_artifact(ctx, dm, "tarball_dir")
         if string.length(td) > 0 { tarball_dir = td }

@@ -300,7 +300,7 @@ _cache_key_for_go(ctx: ptr, argfile_path: string, go_build_cmd_str: string, sour
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
-        src, _ = list.get(sources, si)
+        src, _ = list.get_string(sources, si)
         sh, serr = cache.hash_file(src)
         if string.length(serr) > 0 {
             return "", serr
@@ -329,7 +329,7 @@ _cache_key_for_go(ctx: ptr, argfile_path: string, go_build_cmd_str: string, sour
     dn = list.size(deps)
     di = 0
     while di < dn {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         dep_sh = bldr._read_dep_artifact(ctx, dm, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
@@ -467,7 +467,7 @@ builder go_build(): int {
     dep_count = list.size(deps)
     n = 0
     while n < dep_count {
-        dp4, _ = list.get(deps, n)
+        dp4, _ = list.get_string(deps, n)
         dm4 = bldr._strip_lang(dp4)
         dep_sh = bldr._read_dep_artifact(ctx, dm4, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {
@@ -492,7 +492,7 @@ builder go_test(): int {
     dep_count = list.size(deps)
     g = 0
     while g < dep_count {
-        dp5, _ = list.get(deps, g)
+        dp5, _ = list.get_string(deps, g)
         dm5 = bldr._strip_lang(dp5)
         dep_sh = bldr._read_dep_artifact(ctx, dm5, "shared_library_deps_including_transitive")
         if string.length(dep_sh) > 0 {

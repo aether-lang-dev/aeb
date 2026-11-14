@@ -42,7 +42,7 @@ builder bundle(): int {
     wp_config = path.join(source_dir, "webpack.aeb.config.js")
     if _builder != null {
         if map.has(_builder, "webpack_config") == 1 {
-            cfg, _ = map.get(_builder, "webpack_config")
+            cfg, _ = map.get_string(_builder, "webpack_config")
             wp_config = path.join(source_dir, cfg)
         }
     }

@@ -230,7 +230,7 @@ _cache_key_for_scalac(ctx: ptr, argfile_path: string, scalac_cmd_str: string, co
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
-        src, _ = list.get(sources, si)
+        src, _ = list.get_string(sources, si)
         sh, serr = cache.hash_file(src)
         if string.length(serr) > 0 {
             return "", serr
@@ -244,7 +244,7 @@ _cache_key_for_scalac(ctx: ptr, argfile_path: string, scalac_cmd_str: string, co
     dn = list.size(deps)
     di = 0
     while di < dn {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         dep_cp = bldr._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp) > 0 {

@@ -177,7 +177,7 @@ main() {
     n = list.size(directives)
     j = 0
     while j < n {
-        d, _gd = list.get(directives, j)
+        d, _gd = list.get_string(directives, j)
         kind = aebcli.directive_kind(d)
         if string.equals(kind, "error") == 1 {
             code_s = aebcli.directive_field(d, 1)

@@ -502,7 +502,7 @@ builder install(): int {
     dl_count = list.size(dep_list)
     dli = 0
     while dli < dl_count {
-        dp_w, _ = list.get(dep_list, dli)
+        dp_w, _ = list.get_string(dep_list, dli)
         dm_w = bldr._strip_lang(dp_w)
         raw_pypi = bldr._read_dep_artifact(ctx, dm_w, "python_pypi_deps_including_transitive")
         if string.length(raw_pypi) > 0 {
@@ -512,7 +512,7 @@ builder install(): int {
             nc = list.size(coords)
             ci = 0
             while ci < nc {
-                pline, _ = list.get(coords, ci)
+                pline, _ = list.get_string(coords, ci)
                 spec = _pip_spec(pline)
                 rc_c = bldr._sh(pip_install_cmd(pip_bin, spec))
                 if rc_c != 0 {
@@ -797,7 +797,7 @@ builder package(): int {
     pkg_dep_count = list.size(pkg_deps)
     pdi = 0
     while pdi < pkg_dep_count {
-        pdp, _ = list.get(pkg_deps, pdi)
+        pdp, _ = list.get_string(pkg_deps, pdi)
         pdm = bldr._strip_lang(pdp)
         raw_p = bldr._read_dep_artifact(ctx, pdm, "python_pypi_deps_including_transitive")
         if string.length(raw_p) > 0 {
@@ -1099,7 +1099,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
         n = list.size(inputs)
         i = 0
         while i < n {
-            p, _ = list.get(inputs, i)
+            p, _ = list.get_string(inputs, i)
             abs_p = _codegen_resolve(cwd, p)
             t = fs.file_mtime(abs_p)
             if t > newest_in { newest_in = t }
@@ -1116,7 +1116,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
         nd = list.size(input_dirs)
         di = 0
         while di < nd {
-            dp, _ = list.get(input_dirs, di)
+            dp, _ = list.get_string(input_dirs, di)
             abs_d = _codegen_resolve(cwd, dp)
             dir_newest = _dir_newest_mtime(abs_d)
             if dir_newest > newest_in { newest_in = dir_newest }
@@ -1128,7 +1128,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
     j = 0
     long oldest_out = 0
     while j < no {
-        op, _ = list.get(outputs, j)
+        op, _ = list.get_string(outputs, j)
         abs_o = _codegen_resolve(cwd, op)
         ot = fs.file_mtime(abs_o)
         if ot == 0 { return 0 }
@@ -1190,7 +1190,7 @@ _codegen_check_outputs(cwd: string, outputs: ptr, mod_dir: string) {
     missing = 0
     i = 0
     while i < n {
-        p, _ = list.get(outputs, i)
+        p, _ = list.get_string(outputs, i)
         abs_p = _codegen_resolve(cwd, p)
         if file.exists(abs_p) == 0 {
             println("${mod_dir}: codegen output missing: ${abs_p}")
@@ -1210,7 +1210,7 @@ _codegen_format_output_list(cwd: string, outputs: ptr) {
     out = ""
     i = 0
     while i < n {
-        p, _ = list.get(outputs, i)
+        p, _ = list.get_string(outputs, i)
         abs_p = _codegen_resolve(cwd, p)
         if i > 0 { out = string.concat(out, "\n") }
         out = string.concat(out, abs_p)
@@ -1276,7 +1276,7 @@ builder consumer_example(): int {
     nd = list.size(deps)
     di = 0
     while di < nd {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         wd = bldr._read_dep_artifact(ctx, dm, "wheel_dir")
         if string.length(wd) > 0 { wheel_dir = wd }

@@ -61,8 +61,8 @@ main() {
             map.put(bm, "include_dir", ud)
             res = _resolved_user_include_dirs(bm, "/src")
             spec.assert_eq(list.size(res), 2, "two dirs")
-            r0, _ = list.get(res, 0)
-            r1, _ = list.get(res, 1)
+            r0, _ = list.get_string(res, 0)
+            r1, _ = list.get_string(res, 1)
             spec.assert_str_eq(r0, "/src/inc", "relative → source_dir")
             spec.assert_str_eq(r1, "/abs/inc", "absolute passes through")
         }

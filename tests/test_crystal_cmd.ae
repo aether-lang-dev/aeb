@@ -34,14 +34,14 @@ main() {
         spec.it("spec_path stores under crystal_spec") callback {
             m = map_new()
             spec_path(m, "spec/integration")
-            v, _ = map.get(m, "crystal_spec")
+            v, _ = map.get_string(m, "crystal_spec")
             spec.assert_str_eq(v, "spec/integration", "spec_path")
         }
         spec.it("crystal_bin stores under crystal_bin, last-call-wins") callback {
             m = map_new()
             crystal_bin(m, "a")
             crystal_bin(m, "b")
-            v, _ = map.get(m, "crystal_bin")
+            v, _ = map.get_string(m, "crystal_bin")
             spec.assert_str_eq(v, "b", "last-wins")
         }
     }

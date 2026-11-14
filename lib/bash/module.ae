@@ -504,7 +504,7 @@ _run_parallel(mod_dir: string, source_dir: string, scripts: ptr, jobs_str: strin
     items = ""
     i = 0
     while i < n {
-        s, _ = list.get(scripts, i)
+        s, _ = list.get_string(scripts, i)
         full = _resolve_script_path(source_dir, s)
         if i > 0 { items = string.concat(items, "\n") }
         items = string.concat(items, s)

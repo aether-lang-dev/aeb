@@ -606,7 +606,7 @@ _command_fetch_cmd(cmd: string, bld: ptr) {
     n = list.size(args_v)
     i = 0
     while i < n {
-        a, _ = list.get(args_v, i)
+        a, _ = list.get_string(args_v, i)
         out = string.concat(out, " ")
         out = string.concat(out, _shell_quote(a))
         i = i + 1

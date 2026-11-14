@@ -72,7 +72,7 @@ begin(s: @keep ptr, module_dir: string) {
         return _null
     }
 
-    root, _ = map.get(s, "root")
+    root, _ = map.get_string(s, "root")
     ctx = map.new()
     _e1 = map.put(ctx, "root", root)
     _e2 = map.put(ctx, "module_dir", module_dir)
@@ -1102,7 +1102,7 @@ _accumulate_aether_sources(sources: ptr, seen: ptr, c_path: string, base_dir: st
     nf = list.size(found)
     i = 0
     while i < nf {
-        raw_path, _ = list.get(found, i)
+        raw_path, _ = list.get_string(found, i)
         i = i + 1
         resolved = raw_path
         if _is_abs_path_bldr(raw_path) == 0 {
@@ -1145,7 +1145,7 @@ _aether_sources_link_str(c_paths: ptr, base_dir: string) {
     n = list.size(c_paths)
     i = 0
     while i < n {
-        cp, _ = list.get(c_paths, i)
+        cp, _ = list.get_string(c_paths, i)
         i = i + 1
         _accumulate_aether_sources(sources, seen, cp, base_dir)
     }
@@ -1177,7 +1177,7 @@ _aether_sources_link_str_objc_apart(c_paths: ptr, base_dir: string, obj_dir: str
     n = list.size(c_paths)
     i = 0
     while i < n {
-        cp, _ = list.get(c_paths, i)
+        cp, _ = list.get_string(c_paths, i)
         i = i + 1
         _accumulate_aether_sources(sources, seen, cp, base_dir)
     }
@@ -2784,7 +2784,7 @@ run_post_build(ctx: ptr) {
     md = _get(ctx, "module_dir")
     i = 0
     while i < n {
-        raw, _ = list.get(steps, i)
+        raw, _ = list.get_string(steps, i)
         cmd = _post_build_interp(ctx, raw)
         println("${md}: post-build: ${cmd}")
         rc = _sh(cmd)
@@ -3002,7 +3002,7 @@ _run_project_cmd(source_dir: string, root: string, bmap: ptr, default_step: stri
     steps = list.new()
     if bmap != null {
         if map.has(bmap, "proc_workdir") == 1 {
-            wd, _ = map.get(bmap, "proc_workdir")
+            wd, _ = map.get_string(bmap, "proc_workdir")
             absdir = path.join(root, wd)
         }
         if map.has(bmap, "proc_env") == 1 { env_pairs, _ = map.get(bmap, "proc_env") }
@@ -3726,7 +3726,7 @@ _synth_fixture_pre(seeds: ptr, servers: ptr) {
         ns = list.size(seeds)
         i = 0
         while i < ns {
-            rec, _ = list.get(seeds, i)
+            rec, _ = list.get_string(seeds, i)
             f = _split_tabs(rec, 3)
             name, _ = list.get_string(f, 0)
             fpath, _ = list.get_string(f, 1)
@@ -3750,7 +3750,7 @@ _synth_fixture_pre(seeds: ptr, servers: ptr) {
         nv = list.size(servers)
         j = 0
         while j < nv {
-            rec, _ = list.get(servers, j)
+            rec, _ = list.get_string(servers, j)
             f = _split_tabs(rec, 5)
             name, _ = list.get_string(f, 0)
             bin, _ = list.get_string(f, 1)
@@ -3845,7 +3845,7 @@ _synth_fixture_post(seeds: ptr, servers: ptr) {
         nv = list.size(servers)
         j = nv - 1
         while j >= 0 {
-            rec, _ = list.get(servers, j)
+            rec, _ = list.get_string(servers, j)
             f = _split_tabs(rec, 5)
             name, _ = list.get_string(f, 0)
             up = _upper_ascii_word(name)
@@ -3884,7 +3884,7 @@ _synth_fixture_post(seeds: ptr, servers: ptr) {
         ns = list.size(seeds)
         i = 0
         while i < ns {
-            rec, _ = list.get(seeds, i)
+            rec, _ = list.get_string(seeds, i)
             f = _split_tabs(rec, 3)
             fpath, _ = list.get_string(f, 1)
             list.add(out, "rm -rf \"${fpath}\" 2>/dev/null || true")
@@ -4432,10 +4432,10 @@ render_telemetry(records: ptr, total_ms: int) {
     i = 0
     while i < n {
         rec, _ = list.get(records, i)
-        label, _ = map.get(rec, "label")
-        type_word, _ = map.get(rec, "type")
-        wm_s, _ = map.get(rec, "wall_ms")
-        cache, _ = map.get(rec, "cache")
+        label, _ = map.get_string(rec, "label")
+        type_word, _ = map.get_string(rec, "type")
+        wm_s, _ = map.get_string(rec, "wall_ms")
+        cache, _ = map.get_string(rec, "cache")
         wall_ms, _werr = string.to_int(wm_s)
         // Test-result fields are absent for build/dist records; map.has
         // gates so the line falls back to the no-trailer rendering.
@@ -4443,9 +4443,9 @@ render_telemetry(records: ptr, total_ms: int) {
         failed = 0
         has_test_result = 0
         if map.has(rec, "test_passed") == 1 {
-            tp_s, _ = map.get(rec, "test_passed")
+            tp_s, _ = map.get_string(rec, "test_passed")
             passed, _ = string.to_int(tp_s)
-            tf_s, _ = map.get(rec, "test_failed")
+            tf_s, _ = map.get_string(rec, "test_failed")
             failed, _ = string.to_int(tf_s)
             has_test_result = 1
         }
@@ -4571,10 +4571,10 @@ _json_str(s: string) {
 }
 
 _record_json(rec: ptr) {
-    label, _ = map.get(rec, "label")
-    type_word, _ = map.get(rec, "type")
+    label, _ = map.get_string(rec, "label")
+    type_word, _ = map.get_string(rec, "type")
     wm_s, _ = map.get(rec, "wall_ms")
-    cache, _ = map.get(rec, "cache")
+    cache, _ = map.get_string(rec, "cache")
     status = _telemetry_status(rec)
     rc = "0"
     if map.has(rec, "rc") == 1 {
@@ -4605,8 +4605,8 @@ _record_json(rec: ptr) {
     }
     if map.has(rec, "test_passed") == 1 {
         if has_report == 1 {
-            tp, _ = map.get(rec, "test_passed")
-            tf, _ = map.get(rec, "test_failed")
+            tp, _ = map.get_string(rec, "test_passed")
+            tf, _ = map.get_string(rec, "test_failed")
             tsk = "0"
             if map.has(rec, "test_skipped") == 1 { tsk, _ = map.get_string(rec, "test_skipped") }
             total_i, _ = string.to_int(tp)
@@ -4654,7 +4654,7 @@ _telemetry_status(rec: ptr) {
     if map.has(rec, "rc") == 1 { rc, _ = map.get_string(rec, "rc") }
     if string.equals(rc, "0") == 0 { return "fail" }
     if map.has(rec, "test_failed") == 1 {
-        tf, _ = map.get(rec, "test_failed")
+        tf, _ = map.get_string(rec, "test_failed")
         tfi, _ = string.to_int(tf)
         if tfi > 0 { return "fail" }
     }
@@ -4717,9 +4717,9 @@ render_tests_json(records: ptr) {
         // read), not because its type is spelled "test". Any *_test-verb node
         // qualifies whatever its filename.
         if map.has(rec, "test_passed") == 1 {
-            label, _ = map.get(rec, "label")
+            label, _ = map.get_string(rec, "label")
             wm_s, _ = map.get(rec, "wall_ms")
-            cache, _ = map.get(rec, "cache")
+            cache, _ = map.get_string(rec, "cache")
             passed = "0"
             failed = "0"
             has_results = "false"
@@ -4753,7 +4753,7 @@ render_tests_json(records: ptr) {
             out = string.concat(out, ",\"verdict\":")
             out = string.concat(out, _json_str(verdict))
             if map.has(rec, "test_failed_names") == 1 {
-                tfn, _ = map.get(rec, "test_failed_names")
+                tfn, _ = map.get_string(rec, "test_failed_names")
                 out = string.concat(out, ",\"failed_names\":")
                 out = string.concat(out, _json_str(tfn))
             }
@@ -4773,8 +4773,8 @@ render_artifacts_json(root: string, records: ptr) {
     i = 0
     while i < n {
         rec, _ = list.get(records, i)
-        label, _ = map.get(rec, "label")
-        type_word, _ = map.get(rec, "type")
+        label, _ = map.get_string(rec, "label")
+        type_word, _ = map.get_string(rec, "type")
         td = _label_to_target_dir(root, label)
         pat = path.join(td, "*")
         files, _gerr = fs.glob(pat)
@@ -5005,7 +5005,7 @@ _build_dep_classpath(ctx: ptr) {
     count = list.size(deps)
     i = 0
     while i < count {
-        dp, _ = list.get(deps, i)
+        dp, _ = list.get_string(deps, i)
         dm = _strip_lang(dp)
         dep_cp_raw = _read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp_raw) > 0 {
@@ -5029,7 +5029,7 @@ _build_lib_classpath(ctx: ptr) {
     count = list.size(libs)
     i = 0
     while i < count {
-        lp, _ = list.get(libs, i)
+        lp, _ = list.get_string(libs, i)
         libs_dir = path.join(root, "libs")
         full = path.join(libs_dir, lp)
         if string.length(cp) > 0 {

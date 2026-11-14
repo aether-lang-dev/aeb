@@ -518,13 +518,13 @@ builder archive(): int {
     }
 
     url_str, _ = map.get_string(_builder, "fetch_url")
-    sha_str, _ = map.get(_builder, "fetch_sha256")
+    sha_str, _ = map.get_string(_builder, "fetch_sha256")
     ex_rel, _ = map.get_string(_builder, "fetch_extract_to")
     ex_abs = _resolve_path(source_dir, ex_rel)
 
     strip = 0
     if map.has(_builder, "fetch_strip") == 1 {
-        strip_str, _ = map.get(_builder, "fetch_strip")
+        strip_str, _ = map.get_string(_builder, "fetch_strip")
         strip, _ = string.to_int(strip_str)
     }
 
@@ -674,7 +674,7 @@ builder git(): int {
     }
     depth_n = 0
     if map.has(_builder, "fetch_depth") == 1 {
-        depth_s, _ = map.get(_builder, "fetch_depth")
+        depth_s, _ = map.get_string(_builder, "fetch_depth")
         depth_n, _ = string.to_int(depth_s)
     }
 

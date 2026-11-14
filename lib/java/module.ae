@@ -213,7 +213,7 @@ _collect_ldlibdeps(ctx: ptr) {
     ld_path = ""
     m = 0
     while m < ndeps {
-        dp, _ = list.get(deps, m)
+        dp, _ = list.get_string(deps, m)
         dm = bldr._strip_lang(dp)
         dep_ld = bldr._read_dep_artifact(ctx, dm, "ldlibdeps")
         if string.length(dep_ld) > 0 {
@@ -753,7 +753,7 @@ _read_classpath_files(builder_map: ptr, source_dir: string) {
     out = ""
     i = 0
     while i < n {
-        rel, _ = list.get(cfs, i)
+        rel, _ = list.get_string(cfs, i)
         p = rel
         // Absolute paths pass through; relative resolve against source_dir.
         // bldr._is_abs_path is host-aware — on Windows an absolute path leads
@@ -891,7 +891,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
     jdk_ver = _jdk_version()
     if builder_map != null {
         if map.has(builder_map, "_selected_jdk_home") == 1 {
-            sel_home, _ = map.get(builder_map, "_selected_jdk_home")
+            sel_home, _ = map.get_string(builder_map, "_selected_jdk_home")
             sel_javac = path.join(sel_home, "bin/javac")
             jv_raw, _jverr = bldr._sh_capture("'${sel_javac}' -version 2>&1")
             jdk_ver = string.concat(string.concat(sel_home, "|"), string.trim(jv_raw))
@@ -908,7 +908,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
-        src, _ = list.get(sources, si)
+        src, _ = list.get_string(sources, si)
         sh, serr = cache.hash_file(src)
         if string.length(serr) > 0 {
             return "", serr
@@ -924,7 +924,7 @@ _cache_key_for_javac(ctx: ptr, builder_map: ptr, argfile_path: string, javac_cmd
     dn = list.size(deps)
     di = 0
     while di < dn {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         dep_cp = bldr._read_dep_artifact(ctx, dm, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp) > 0 {
@@ -976,7 +976,7 @@ builder javac(): int {
 
     // Create generated sources dir if requested (for annotation processors like QueryDSL)
     if map.has(_builder, "generated_sources") == 1 {
-        gen_dir, _ = map.get(_builder, "generated_sources")
+        gen_dir, _ = map.get_string(_builder, "generated_sources")
         bldr._mkdirs(gen_dir)
     }
 
@@ -1060,7 +1060,7 @@ builder javac(): int {
             // mktemp'd file by hand; with_temp_file cleans it up on every exit.
             _tmph = map.new()
             bldr.with_temp_file(_tmph) callback {
-                tmp_tar, _ = map.get(_tmph, "path")
+                tmp_tar, _ = map.get_string(_tmph, "path")
                 if string.length(tmp_tar) > 0 {
                     grc = cache.get(cache_key, tmp_tar)
                     if string.length(grc) == 0 {
@@ -1153,7 +1153,7 @@ builder javac(): int {
     shared_out = ""
     k = 0
     while k < dep_count {
-        dp2, _ = list.get(deps, k)
+        dp2, _ = list.get_string(deps, k)
         dm2 = bldr._strip_lang(dp2)
         dep_ld = bldr._read_dep_artifact(ctx, dm2, "ldlibdeps")
         if string.length(dep_ld) > 0 {
@@ -1548,7 +1548,7 @@ builder junit(): int {
     ld_path = ""
     m = 0
     while m < ndeps {
-        dp3, _ = list.get(deps, m)
+        dp3, _ = list.get_string(deps, m)
         dm3 = bldr._strip_lang(dp3)
         dep_ld = bldr._read_dep_artifact(ctx, dm3, "ldlibdeps")
         if string.length(dep_ld) > 0 {
@@ -1735,7 +1735,7 @@ builder junit5() {
     ld_path = ""
     m = 0
     while m < ndeps {
-        dp3, _ = list.get(deps, m)
+        dp3, _ = list.get_string(deps, m)
         dm3 = bldr._strip_lang(dp3)
         dep_ld = bldr._read_dep_artifact(ctx, dm3, "ldlibdeps")
         if string.length(dep_ld) > 0 {
@@ -1976,7 +1976,7 @@ shade(_ctx: ptr, main_cls: string, jar_name: string) {
     ld_content = ""
     di = 0
     while di < dep_count {
-        dpx, _ = list.get(deps, di)
+        dpx, _ = list.get_string(deps, di)
         dmx = bldr._strip_lang(dpx)
         dep_cp = bldr._read_dep_artifact(ctx, dmx, "jvm_classpath_deps_including_transitive")
         if string.length(dep_cp) > 0 {
@@ -2208,7 +2208,7 @@ builder consumer_example(): int {
     nd = list.size(deps)
     di = 0
     while di < nd {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         j = bldr._read_dep_artifact(ctx, dm, "jar")
         if string.length(j) > 0 { jar = j }

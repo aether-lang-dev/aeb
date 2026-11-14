@@ -283,7 +283,7 @@ _node_verdict(kind: string, callee: string, name: string, modpath: string,
     nr = list.size(rules)
     ri = 0
     while ri < nr {
-        rule, _ = list.get(rules, ri)
+        rule, _ = list.get_string(rules, ri)
         rk = _rule_kind(rule)
         ra = _rule_arg(rule)
         ri = ri + 1
@@ -449,7 +449,7 @@ _exec_allowed(rules: ptr, arg_literal: string) {
     n = list.size(rules)
     i = 0
     while i < n {
-        r, _ = list.get(rules, i)
+        r, _ = list.get_string(rules, i)
         i = i + 1
         // allow rule: kind "allow", arg "exec\t<cmd>"
         if string.equals(_rule_kind(r), "allow") == 1 {
@@ -476,7 +476,7 @@ _coord_allowed(rules: ptr, arg_literal: string) {
     n = list.size(rules)
     i = 0
     while i < n {
-        r, _ = list.get(rules, i)
+        r, _ = list.get_string(rules, i)
         i = i + 1
         if string.equals(_rule_kind(r), "coord_allow") == 1 {
             prefix = _rule_arg(r)
@@ -495,7 +495,7 @@ _import_allowed(rules: ptr, modpath: string) {
     n = list.size(rules)
     i = 0
     while i < n {
-        r, _ = list.get(rules, i)
+        r, _ = list.get_string(rules, i)
         i = i + 1
         if string.equals(_rule_kind(r), "allow") == 1 {
             ra = _rule_arg(r) // "import\t<mod>"

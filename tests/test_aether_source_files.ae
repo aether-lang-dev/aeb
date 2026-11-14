@@ -60,8 +60,8 @@ main() {
                 "// aether-link: -lz\n// aether-source: a.c\n// aether-source: sub/b.c")
             files = _aether_source_files_in(c)
             spec.assert_eq(list.size(files), 2, "two @source lines read")
-            f0, _ = list.get(files, 0)
-            f1, _ = list.get(files, 1)
+            f0, _ = list.get_string(files, 0)
+            f1, _ = list.get_string(files, 1)
             spec.assert_str_eq(f0, "a.c", "first path")
             spec.assert_str_eq(f1, "sub/b.c", "second path")
         }
@@ -71,7 +71,7 @@ main() {
                 "// aether-source: before.c\nint x;\n// aether-source: after.c")
             files = _aether_source_files_in(c)
             spec.assert_eq(list.size(files), 1, "only the pre-code source line")
-            f0, _ = list.get(files, 0)
+            f0, _ = list.get_string(files, 0)
             spec.assert_str_eq(f0, "before.c", "the one before the code")
         }
         spec.it("returns an empty list when there is no header") callback {

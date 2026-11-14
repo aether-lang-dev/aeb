@@ -92,7 +92,7 @@ dfs_visit(file: string, file_deps: ptr, visited_map: ptr, order: ptr) {
     n = list.size(deps_list)
     i = 0
     while i < n {
-        dep, _ = list.get(deps_list, i)
+        dep, _ = list.get_string(deps_list, i)
         // Only follow deps that are themselves in the input set
         if map.has(file_deps, dep) == 1 {
             dfs_visit(dep, file_deps, visited_map, order)
@@ -145,7 +145,7 @@ main() {
     fcount = list.size(files)
     j = 0
     while j < fcount {
-        f, _ = list.get(files, j)
+        f, _ = list.get_string(files, j)
         dfs_visit(f, file_deps, visited_map, order)
         j = j + 1
     }

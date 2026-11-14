@@ -25,7 +25,7 @@ _list_size_at(m: ptr, k: string) {
 }
 _list_get_at(m: ptr, k: string, i: int) {
     l, _ = map.get(m, k)
-    v, _ = list.get(l, i)
+    v, _ = list.get_string(l, i)
     return v
 }
 _str_at(m: ptr, k: string) {

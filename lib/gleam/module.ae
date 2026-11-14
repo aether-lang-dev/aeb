@@ -718,7 +718,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
         n = list.size(inputs)
         i = 0
         while i < n {
-            p, _ = list.get(inputs, i)
+            p, _ = list.get_string(inputs, i)
             abs_p = _codegen_resolve(cwd, p)
             t = fs.file_mtime(abs_p)
             if t > newest_in { newest_in = t }
@@ -729,7 +729,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
         nd = list.size(input_dirs)
         di = 0
         while di < nd {
-            dp, _ = list.get(input_dirs, di)
+            dp, _ = list.get_string(input_dirs, di)
             abs_d = _codegen_resolve(cwd, dp)
             dir_newest = _dir_newest_mtime(abs_d)
             if dir_newest > newest_in { newest_in = dir_newest }
@@ -740,7 +740,7 @@ _codegen_can_skip(cwd: string, inputs: ptr, input_dirs: ptr, outputs: ptr) {
     j = 0
     long oldest_out = 0
     while j < no {
-        op, _ = list.get(outputs, j)
+        op, _ = list.get_string(outputs, j)
         abs_o = _codegen_resolve(cwd, op)
         ot = fs.file_mtime(abs_o)
         if ot == 0 { return 0 }
@@ -793,7 +793,7 @@ _codegen_check_outputs(cwd: string, outputs: ptr, mod_dir: string) {
     missing = 0
     i = 0
     while i < n {
-        p, _ = list.get(outputs, i)
+        p, _ = list.get_string(outputs, i)
         abs_p = _codegen_resolve(cwd, p)
         if file.exists(abs_p) == 0 {
             println("${mod_dir}: codegen output missing: ${abs_p}")
@@ -812,7 +812,7 @@ _codegen_format_output_list(cwd: string, outputs: ptr) {
     out = ""
     i = 0
     while i < n {
-        p, _ = list.get(outputs, i)
+        p, _ = list.get_string(outputs, i)
         abs_p = _codegen_resolve(cwd, p)
         if i > 0 { out = string.concat(out, "\n") }
         out = string.concat(out, abs_p)

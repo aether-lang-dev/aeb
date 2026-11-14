@@ -94,7 +94,7 @@ main() {
             bm = map.new()
             pyproject_path(bm, "py/pyproject.toml")
             pyproject_path(bm, "subproject/pyproject.toml")
-            pyproject_stored, _ = map.get(bm, "pyproject_path")
+            pyproject_stored, _ = map.get_string(bm, "pyproject_path")
             spec.assert_str_eq(pyproject_stored, "subproject/pyproject.toml", "pyproject_path setter is last-call-wins")
         }
     }

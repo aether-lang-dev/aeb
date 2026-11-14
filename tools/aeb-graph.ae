@@ -117,7 +117,7 @@ _collect_nodes(edges_text: string) {
     n = list.size(lines)
     i = 0
     while i < n {
-        line, _ = list.get(lines, i)
+        line, _ = list.get_string(lines, i)
         if string.length(line) > 0 {
             tokens = _split_tokens(line)
             tn = list.size(tokens)
@@ -170,7 +170,7 @@ dot_render(edges_text: string, rc_dir: string) {
     nn = list.size(nodes)
     k = 0
     while k < nn {
-        node, _ = list.get(nodes, k)
+        node, _ = list.get_string(nodes, k)
         strbuilder.append(sb, "  ")
         strbuilder.append(sb, node_id(node))
         if color_on == 1 {
@@ -184,16 +184,16 @@ dot_render(edges_text: string, rc_dir: string) {
     n = list.size(lines)
     i = 0
     while i < n {
-        line, _ = list.get(lines, i)
+        line, _ = list.get_string(lines, i)
         if string.length(line) > 0 {
             tokens = _split_tokens(line)
             tn = list.size(tokens)
             if tn >= 1 {
-                src, _ = list.get(tokens, 0)
+                src, _ = list.get_string(tokens, 0)
                 src_id = node_id(src)
                 j = 1
                 while j < tn {
-                    dep, _ = list.get(tokens, j)
+                    dep, _ = list.get_string(tokens, j)
                     strbuilder.append(sb, "  ")
                     strbuilder.append(sb, src_id)
                     strbuilder.append(sb, " -> ")
@@ -269,7 +269,7 @@ mermaid_render(edges_text: string, rc_dir: string) {
     nn = list.size(nodes)
     k = 0
     while k < nn {
-        node, _ = list.get(nodes, k)
+        node, _ = list.get_string(nodes, k)
         strbuilder.append(sb, "    ")
         strbuilder.append(sb, mermaid_id(node))
         strbuilder.append(sb, "[\"")
@@ -287,16 +287,16 @@ mermaid_render(edges_text: string, rc_dir: string) {
     n = list.size(lines)
     i = 0
     while i < n {
-        line, _ = list.get(lines, i)
+        line, _ = list.get_string(lines, i)
         if string.length(line) > 0 {
             tokens = _split_tokens(line)
             tn = list.size(tokens)
             if tn >= 1 {
-                src, _ = list.get(tokens, 0)
+                src, _ = list.get_string(tokens, 0)
                 src_id = mermaid_id(src)
                 j = 1
                 while j < tn {
-                    dep, _ = list.get(tokens, j)
+                    dep, _ = list.get_string(tokens, j)
                     strbuilder.append(sb, "    ")
                     strbuilder.append(sb, src_id)
                     strbuilder.append(sb, " --> ")

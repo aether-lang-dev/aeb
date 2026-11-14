@@ -20,7 +20,7 @@ _clear(fw: ptr, label: string, r: string) { spec.assert_true(_empty(r), label) }
 
 _rule_at(p: ptr, i: int) {
     rs = policy_rules(p)
-    v, _ = list.get(rs, i)
+    v, _ = list.get_string(rs, i)
     return v
 }
 _libroots() {

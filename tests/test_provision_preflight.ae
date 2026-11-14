@@ -45,7 +45,7 @@ main() {
             missing = preflight_missing(toks)
             spec.assert_eq(list.size(missing), 1, "preflight: exactly one missing")
             if list.size(missing) == 1 {
-                m0, _ = list.get(missing, 0)
+                m0, _ = list.get_string(missing, 0)
                 spec.assert_str_eq(m0, "definitely-not-a-real-toolchain-xyzzy:9",
                     "preflight: the absent one is reported")
             }

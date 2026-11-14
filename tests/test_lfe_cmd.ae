@@ -28,7 +28,7 @@ main() {
             m = map_new()
             run_main(m, "a")
             run_main(m, "b")
-            v, _ = map.get(m, "lfe_run_main")
+            v, _ = map.get_string(m, "lfe_run_main")
             spec.assert_str_eq(v, "b", "run_main")
         }
         spec.it("src accumulates a list under lfe_src") callback {
@@ -37,8 +37,8 @@ main() {
             src(m, "src/two.lfe")
             l, _ = map.get(m, "lfe_src")
             spec.assert_eq(list.size(l), 2, "src count")
-            f0, _ = list.get(l, 0)
-            f1, _ = list.get(l, 1)
+            f0, _ = list.get_string(l, 0)
+            f1, _ = list.get_string(l, 1)
             spec.assert_str_eq(f0, "src/one.lfe", "src[0]")
             spec.assert_str_eq(f1, "src/two.lfe", "src[1]")
         }
@@ -47,7 +47,7 @@ main() {
             test_src(m, "test/a_test.lfe")
             l, _ = map.get(m, "lfe_test_src")
             spec.assert_eq(list.size(l), 1, "test_src count")
-            f0, _ = list.get(l, 0)
+            f0, _ = list.get_string(l, 0)
             spec.assert_str_eq(f0, "test/a_test.lfe", "test_src[0]")
         }
         spec.it("pa accumulates a list under lfe_pa") callback {
@@ -56,8 +56,8 @@ main() {
             pa(m, "/e2/ebin")
             l, _ = map.get(m, "lfe_pa")
             spec.assert_eq(list.size(l), 2, "pa count")
-            f0, _ = list.get(l, 0)
-            f1, _ = list.get(l, 1)
+            f0, _ = list.get_string(l, 0)
+            f1, _ = list.get_string(l, 1)
             spec.assert_str_eq(f0, "/e1/ebin", "pa[0]")
             spec.assert_str_eq(f1, "/e2/ebin", "pa[1]")
         }

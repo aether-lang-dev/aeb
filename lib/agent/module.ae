@@ -226,7 +226,7 @@ _scope_accepts(scope_map: ptr, purpose: string) {
     if n == 0 { return 1 }
     i = 0
     while i < n {
-        g, _ = list.get(globs, i)
+        g, _ = list.get_string(globs, i)
         if _scope_glob_match(g, purpose) == 1 { return 1 }
         i = i + 1
     }
@@ -283,7 +283,7 @@ _branch_allowed(allow_csv: string, branch: string) {
     i = 0
     n = list.size(globs)
     while i < n {
-        g, _ = list.get(globs, i)
+        g, _ = list.get_string(globs, i)
         if _scope_glob_match(g, branch) == 1 { return 1 }
         i = i + 1
     }
@@ -1015,7 +1015,7 @@ _lease_node(pool_content: string, purp: string, token_hint: string, want_platfor
     n = list.size(nodes)
     i = 0
     while i < n {
-        line, _ = list.get(nodes, i)
+        line, _ = list.get_string(nodes, i)
         url = _pool_url_of(line)
         tok = _pool_token_of(line)
         if string.length(tok) == 0 { tok = token_hint }
@@ -1391,7 +1391,7 @@ _veto_run_rules(repo: string, target: string, patch_path: string) {
     i = 0
     n = list.size(rules)
     while i < n {
-        row, _ = list.get(rules, i)
+        row, _ = list.get_string(rules, i)
         rid = _veto_rule_field(row, 0)
         scope = _veto_rule_field(row, 1)
         pattern = _veto_rule_field(row, 2)

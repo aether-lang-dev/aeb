@@ -13,10 +13,10 @@ main() {
         spec.it("main_class stores under thin_main_class (scalar, last-wins)") callback {
             m = map_new()
             main_class(m, "aeb.maven.BldResolve")
-            v, _ = map.get(m, "thin_main_class")
+            v, _ = map.get_string(m, "thin_main_class")
             spec.assert_str_eq(v, "aeb.maven.BldResolve", "stored")
             main_class(m, "other.Main")
-            v2, _ = map.get(m, "thin_main_class")
+            v2, _ = map.get_string(m, "thin_main_class")
             spec.assert_str_eq(v2, "other.Main", "last-wins")
         }
         spec.it("class_path accumulates a list, order preserved") callback {
@@ -25,9 +25,9 @@ main() {
             class_path(m, "extra.jar")
             l, _ = map.get(m, "thin_class_path")
             spec.assert_eq(list.size(l), 2, "two entries")
-            first, _ = list.get(l, 0)
+            first, _ = list.get_string(l, 0)
             spec.assert_str_eq(first, "bld-2.3.0.jar", "first preserved")
-            second, _ = list.get(l, 1)
+            second, _ = list.get_string(l, 1)
             spec.assert_str_eq(second, "extra.jar", "second preserved")
         }
     }

@@ -151,7 +151,7 @@ _json_arr(items: ptr) {
     n = list.size(items)
     i = 0
     while i < n {
-        v, _ = list.get(items, i)
+        v, _ = list.get_string(items, i)
         if i > 0 { s = string.concat(s, ",") }
         s = string.concat(s, string.concat("\"", string.concat(_esc(v), "\"")))
         i = i + 1

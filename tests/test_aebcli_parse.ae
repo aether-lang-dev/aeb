@@ -27,7 +27,7 @@ _argv(a: string, b: string, c: string, d: string, e: string) {
 
 // Fetch directive at index `i` of the parse result.
 _at(res: ptr, i: int) {
-    got, _g = list.get(res, i)
+    got, _g = list.get_string(res, i)
     return got
 }
 

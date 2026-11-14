@@ -341,7 +341,7 @@ rake_cmd(bundle_bin: string, rake_bin: string, source_dir: string, tasks: string
 _resolve_bundle_path(builder_map: ptr, root: string) {
     if builder_map != null {
         if map.has(builder_map, "ruby_bundle_path") == 1 {
-            p, _ = map.get(builder_map, "ruby_bundle_path")
+            p, _ = map.get_string(builder_map, "ruby_bundle_path")
             if string.length(p) > 0 {
                 if bldr._is_abs_path(p) == 1 { return p }
                 return path.join(root, p)
@@ -535,7 +535,7 @@ _minitest_files_str(builder_map: ptr) {
     out = ""
     i = 0
     while i < n {
-        f, _ = list.get(files, i)
+        f, _ = list.get_string(files, i)
         base = bldr._basename(f)
         if string.ends_with(base, ".rb") == 1 {
             base = string.substring(base, 0, string.length(base) - 3)
@@ -727,7 +727,7 @@ builder gem(): int {
         bldr.fail(ctx, "ruby.gem requires build(\"...gemspec\")")
         return 1
     }
-    gemspec_rel, _ = map.get(_builder, "ruby_gemspec")
+    gemspec_rel, _ = map.get_string(_builder, "ruby_gemspec")
     gemspec_abs = path.join(source_dir, gemspec_rel)
     if file.exists(gemspec_abs) == 0 {
         println("${mod_dir}: ruby.gem: gemspec not found at ${gemspec_abs}")
@@ -771,7 +771,7 @@ builder consumer_example(): int {
     nd = list.size(deps)
     di = 0
     while di < nd {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         gd = bldr._read_dep_artifact(ctx, dm, "gem_dir")
         if string.length(gd) > 0 { gem_dir = gd }

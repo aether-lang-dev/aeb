@@ -153,7 +153,7 @@ _collect_dep_objects(ctx: ptr) {
     dep_count = list.size(deps)
     n = 0
     while n < dep_count {
-        dp, _ = list.get(deps, n)
+        dp, _ = list.get_string(deps, n)
         n = n + 1
         dm = bldr._strip_lang(dp)
         objs = bldr._read_dep_artifact(ctx, dm, "c_objects")

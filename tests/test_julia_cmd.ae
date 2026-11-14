@@ -34,14 +34,14 @@ main() {
         spec.it("script stores under julia_script") callback {
             m = map_new()
             script(m, "test/ffi_test.jl")
-            v, _ = map.get(m, "julia_script")
+            v, _ = map.get_string(m, "julia_script")
             spec.assert_str_eq(v, "test/ffi_test.jl", "script")
         }
         spec.it("julia_bin stores under julia_bin, last-call-wins") callback {
             m = map_new()
             julia_bin(m, "a")
             julia_bin(m, "b")
-            v, _ = map.get(m, "julia_bin")
+            v, _ = map.get_string(m, "julia_bin")
             spec.assert_str_eq(v, "b", "last-wins")
         }
     }

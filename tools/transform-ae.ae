@@ -353,7 +353,7 @@ _resolve_imports(src: string, lib_dir: string) {
         mn = list.size(mods)
         j = 0
         while j < mn {
-            m, _ = list.get(mods, j)
+            m, _ = list.get_string(mods, j)
             j = j + 1
             if _seen_has(seen, m) == 0 { list.add(seen, m) }
         }
@@ -364,7 +364,7 @@ _resolve_imports(src: string, lib_dir: string) {
     sn = list.size(seen)
     k = 0
     while k < sn {
-        m, _ = list.get(seen, k)
+        m, _ = list.get_string(seen, k)
         k = k + 1
         if _seen_has(direct, m) == 0 {
             if string.length(out) > 0 { out = string.concat(out, "\n") }

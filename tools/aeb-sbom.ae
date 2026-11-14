@@ -145,7 +145,7 @@ _json_maven(coords: ptr) {
     n = list.size(coords)
     i = 0
     while i < n {
-        c, _ = list.get(coords, i)
+        c, _ = list.get_string(coords, i)
         if i > 0 { s = string.concat(s, ",") }
         s = string.concat(s, string.concat("\"", string.concat(_json_escape(c), "\"")))
         i = i + 1

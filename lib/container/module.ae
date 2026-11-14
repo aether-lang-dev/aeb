@@ -298,7 +298,7 @@ dockerfile_full_content(opts: ptr) -> string {
 
     // ARG name=default (one per line, in call order)
     if map.has(opts, "args") == 1 {
-        args_s, _ = map.get(opts, "args")
+        args_s, _ = map.get_string(opts, "args")
         pos = 0
         while pos >= 0 {
             line, nxt = _next_field(args_s, pos, "\n")
@@ -314,7 +314,7 @@ dockerfile_full_content(opts: ptr) -> string {
     // Ordered recipe steps: "TYPE\tpayload" per RS-delimited record (the
     // payload may itself be multi-line), rendered in call order.
     if map.has(opts, "recipe_steps") == 1 {
-        steps_s, _ = map.get(opts, "recipe_steps")
+        steps_s, _ = map.get_string(opts, "recipe_steps")
         pos = 0
         while pos >= 0 {
             line, nxt = _next_field(steps_s, pos, "\x1e")
@@ -335,7 +335,7 @@ dockerfile_full_content(opts: ptr) -> string {
 
     // ENV k=v
     if map.has(opts, "env_vars") == 1 {
-        env_s, _ = map.get(opts, "env_vars")
+        env_s, _ = map.get_string(opts, "env_vars")
         pos = 0
         while pos >= 0 {
             line, nxt = _next_field(env_s, pos, "\n")
@@ -463,8 +463,8 @@ container_run_cmd(img: string, opts: ptr) {
 builder image(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
-    root, _ = map.get(ctx, "root")
-    target_dir, _ = map.get(ctx, "target_dir")
+    root, _ = map.get_string(ctx, "root")
+    target_dir, _ = map.get_string(ctx, "target_dir")
     mod_dir, _ = map.get_string(ctx, "module_dir")
     mod_name, _ = map.get_string(ctx, "module")
 

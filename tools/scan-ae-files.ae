@@ -62,7 +62,7 @@ _sort_lines(buf: string) {
     emitted = 0
     prev_line = ""
     while k < n {
-        e, _ = list.get(lines, k)
+        e, _ = list.get_string(lines, k)
         dup = 0
         if emitted > 0 {
             if string.equals(prev_line, e) == 1 { dup = 1 }

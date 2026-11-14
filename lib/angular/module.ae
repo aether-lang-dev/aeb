@@ -67,7 +67,7 @@ builder ngc(): int {
     tc = path.join(source_dir, "tsconfig.lib.json")
     if _builder != null {
         if map.has(_builder, "tsconfig") == 1 {
-            tc_rel, _ = map.get(_builder, "tsconfig")
+            tc_rel, _ = map.get_string(_builder, "tsconfig")
             tc = path.join(source_dir, tc_rel)
         }
     }

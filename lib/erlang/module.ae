@@ -340,7 +340,7 @@ builder nif(): int {
             n = list.size(l)
             i = 0
             while i < n {
-                s, _ = list.get(l, i)
+                s, _ = list.get_string(l, i)
                 i = i + 1
                 esrcs = string.concat(esrcs, string.concat(" '", string.concat(path.join(source_dir, s), "'")))
             }
@@ -428,7 +428,7 @@ builder eunit(): int {
                     tn = list.size(tl)
                     ti = 0
                     while ti < tn {
-                        ts, _ = list.get(tl, ti)
+                        ts, _ = list.get_string(tl, ti)
                         tsrcs = string.concat(tsrcs, string.concat(" '", string.concat(path.join(source_dir, ts), "'")))
                         ti = ti + 1
                     }

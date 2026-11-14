@@ -12,10 +12,10 @@ main() {
         spec.it("from_dist stores the dist module (scalar, last-wins)") callback {
             m = map_new()
             from_dist(m, "tools/agent")
-            v, _ = map.get(m, "il_from_dist")
+            v, _ = map.get_string(m, "il_from_dist")
             spec.assert_str_eq(v, "tools/agent", "stored")
             from_dist(m, "tools/lease")
-            v2, _ = map.get(m, "il_from_dist")
+            v2, _ = map.get_string(m, "il_from_dist")
             spec.assert_str_eq(v2, "tools/lease", "last-wins")
         }
         spec.it("with_path sets the flag; absent by default") callback {

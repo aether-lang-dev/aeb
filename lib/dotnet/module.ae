@@ -543,7 +543,7 @@ _cache_key_for_dotnet(ctx: ptr, argfile_path: string, csproj_fingerprint: string
     nsrc = list.size(sources)
     si = 0
     while si < nsrc {
-        src, _ = list.get(sources, si)
+        src, _ = list.get_string(sources, si)
         sh, serr = cache.hash_file(src)
         if string.length(serr) > 0 {
             return "", serr
@@ -562,7 +562,7 @@ _cache_key_for_dotnet(ctx: ptr, argfile_path: string, csproj_fingerprint: string
     dn = list.size(deps)
     di = 0
     while di < dn {
-        dp, _ = list.get(deps, di)
+        dp, _ = list.get_string(deps, di)
         dm = bldr._strip_lang(dp)
         dep_n = bldr._read_dep_artifact(ctx, dm, "dotnet_nuget_deps_including_transitive")
         if string.length(dep_n) > 0 {
@@ -625,7 +625,7 @@ _dotnet_cache_restore(ctx: ptr, argfile: string, fingerprint: string, config: st
 // bin dir is empty (a custom OutputPath redirected output elsewhere —
 // guard against caching an empty tree → never a false hit).
 _dotnet_cache_store(ctx: ptr, config: string, source_dir: string) {
-    ck, _ = map.get(ctx, "_dotnet_cache_key")
+    ck, _ = map.get_string(ctx, "_dotnet_cache_key")
     if string.length(ck) == 0 { return 0 }
     bin_dir = path.join(path.join(source_dir, "bin"), config)
     if bldr._dir_nonempty(bin_dir) == 0 { return 0 }
@@ -774,7 +774,7 @@ builder build_project(): int {
     dl_count = list.size(dep_list)
     dli = 0
     while dli < dl_count {
-        dp_n, _ = list.get(dep_list, dli)
+        dp_n, _ = list.get_string(dep_list, dli)
         dm_n = bldr._strip_lang(dp_n)
         raw_n = bldr._read_dep_artifact(ctx, dm_n, "dotnet_nuget_deps_including_transitive")
         if string.length(raw_n) > 0 {
@@ -789,7 +789,7 @@ builder build_project(): int {
     vendored_refs = list.new()
     dli2 = 0
     while dli2 < dl_count {
-        dp_r, _ = list.get(dep_list, dli2)
+        dp_r, _ = list.get_string(dep_list, dli2)
         dm_r = bldr._strip_lang(dp_r)
         raw_r = bldr._read_dep_artifact(ctx, dm_r, "dotnet_vendored_refs_including_transitive")
         if string.length(raw_r) > 0 {
@@ -829,7 +829,7 @@ builder build_project(): int {
     dep_count = list.size(deps)
     i = 0
     while i < dep_count {
-        dp, _ = list.get(deps, i)
+        dp, _ = list.get_string(deps, i)
         dep_dir = path.join(root, dp)
         rel_raw, _erel = bldr._sh_capture("python3 -c \"import os; print(os.path.relpath('${dep_dir}', '${source_dir}'))\"")
         rel = string.trim(rel_raw)

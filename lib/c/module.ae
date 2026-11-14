@@ -390,7 +390,7 @@ _c_add_import_closure(source_dir: string, entry: string, out: ptr) {
     _s0 = map.put(seen, entry, "1")
     head = 0
     while head < list.size(queue) {
-        f, _ = list.get(queue, head)
+        f, _ = list.get_string(queue, head)
         head = head + 1
         content, rerr = io.read_file(path.join(source_dir, f))
         if string.equals(rerr, "") == 1 {
@@ -428,7 +428,7 @@ _sources_changed(source_dir: string, srcs: ptr, ts_file: string) {
     n = list.size(srcs)
     i = 0
     while i < n {
-        rel, _ = list.get(srcs, i)
+        rel, _ = list.get_string(srcs, i)
         i = i + 1
         full = rel
         if bldr._is_abs_path_bldr(rel) == 0 { full = path.join(source_dir, rel) }
@@ -849,7 +849,7 @@ builder program(): int {
     ci = 0
     cn = list.size(ae_for_check)
     while ci < cn {
-        aep, _ = list.get(ae_for_check, ci)
+        aep, _ = list.get_string(ae_for_check, ci)
         ci = ci + 1
         list.add(change_set, aep)
         // ...and every project module it imports: editing an imported
@@ -864,7 +864,7 @@ builder program(): int {
     prev_gens = list.new()
     pi = 0
     while pi < cn {
-        pae, _ = list.get(ae_for_check, pi)
+        pae, _ = list.get_string(ae_for_check, pi)
         pi = pi + 1
         _pg = list.add(prev_gens, path.join(path.join(target_dir, "gen"), string.concat(_gen_stem(pae), "_gen.c")))
     }
@@ -1106,7 +1106,7 @@ _collect_dep_objects(ctx: ptr) {
     dep_count = list.size(deps)
     n = 0
     while n < dep_count {
-        dp, _ = list.get(deps, n)
+        dp, _ = list.get_string(deps, n)
         n = n + 1
         dm = bldr._strip_lang(dp)
         objs = bldr._read_dep_artifact(ctx, dm, "c_objects")
@@ -1137,7 +1137,7 @@ _deps_need_aether_runtime(ctx: ptr) {
     dep_count = list.size(deps)
     n = 0
     while n < dep_count {
-        dp, _ = list.get(deps, n)
+        dp, _ = list.get_string(deps, n)
         n = n + 1
         dm = bldr._strip_lang(dp)
         flag = bldr._read_dep_artifact(ctx, dm, "c_needs_aether_runtime")
@@ -1157,7 +1157,7 @@ _collect_dep_header_dirs(ctx: ptr) {
     dep_count = list.size(deps)
     n = 0
     while n < dep_count {
-        dp, _ = list.get(deps, n)
+        dp, _ = list.get_string(deps, n)
         n = n + 1
         dm = bldr._strip_lang(dp)
         dirs = bldr._read_dep_artifact(ctx, dm, "c_header_dirs")
@@ -1237,7 +1237,7 @@ _c_tus_includes(gen_cs: ptr) {
     n = list.size(gen_cs)
     i = 0
     while i < n {
-        g, _ = list.get(gen_cs, i)
+        g, _ = list.get_string(gen_cs, i)
         i = i + 1
         rest = _c_header_includes(g)
         while string.length(rest) > 0 {
@@ -1270,7 +1270,7 @@ _c_shipped_sources(gen_cs: ptr, source_dir: string) {
     n = list.size(gen_cs)
     i = 0
     while i < n {
-        g, _ = list.get(gen_cs, i)
+        g, _ = list.get_string(gen_cs, i)
         i = i + 1
         bldr._accumulate_aether_sources(found, seen, g, source_dir)
     }
@@ -1322,7 +1322,7 @@ _c_shipped_links(gen_cs: ptr, lib_dir: string) {
     n = list.size(gen_cs)
     i = 0
     while i < n {
-        g, _ = list.get(gen_cs, i)
+        g, _ = list.get_string(gen_cs, i)
         i = i + 1
         libs = bldr._aether_link_libs(g)
         if string.length(libs) > 0 {

@@ -122,14 +122,14 @@ main() {
             bm = map_new()
             main_class(bm, "com.example.App")
             output_jar(bm, "myapp-1.0.jar")
-            mc, _ = map_get(bm, "main_class")
-            oj, _ = map_get(bm, "scala_output_jar")
+            mc, _ = map.get_string(bm, "main_class")
+            oj, _ = map.get_string(bm, "scala_output_jar")
             spec.assert_str_eq(mc, "com.example.App", "main_class stored")
             spec.assert_str_eq(oj, "myapp-1.0.jar", "output_jar stored")
 
             // Scalar last-call-wins.
             main_class(bm, "com.example.Other")
-            mc2, _ = map_get(bm, "main_class")
+            mc2, _ = map.get_string(bm, "main_class")
             spec.assert_str_eq(mc2, "com.example.Other", "main_class last-call-wins")
         }
     }
