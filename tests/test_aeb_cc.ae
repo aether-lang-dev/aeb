@@ -1,0 +1,25 @@
+// tools/aeb-cc.sh: parallel, content-cached per-TU compile for aeb-link.
+// The real assertions live in tests/aeb_cc_check.sh (shell, because the unit
+// under test is a shell script); this runs it from the repo root and checks
+// for its "OK". POSIX only: aeb-link keeps the single gcc invocation on Windows.
+
+import std.spec
+import std.string
+import std.os
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "aeb-cc.sh") {
+        spec.it("caches by preprocessed content, rebuilds on header/source change") callback {
+            if string.equals(os.getenv("OS"), "Windows_NT") == 1 {
+                spec.assert_eq(1, 1, "skipped on Windows")
+            } else {
+                out, err = os.exec("sh tests/aeb_cc_check.sh 2>&1")
+                spec.assert_str_eq(string.trim(out), "OK", "aeb_cc_check.sh: ${out} ${err}")
+            }
+        }
+    }
+
+    return spec.run_summary(fw)
+}

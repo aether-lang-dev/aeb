@@ -549,8 +549,8 @@ _aether_source_files_link(c_path: string, base_dir: string, seen: string) {
 
 // Split-accessors for the _aether_source_files_link result map (AGENTS.md: prefer
 // a map + split accessors over chaining a multi-value return).
-_asres_files(r: ptr) { v, _ = map.get(r, "files") return v }
-_asres_seen(r: ptr) { v, _ = map.get(r, "seen") return v }
+_asres_files(r: ptr) { v, _ = map.get_string(r, "files") return v }
+_asres_seen(r: ptr) { v, _ = map.get_string(r, "seen") return v }
 
 // 1 if `p` is an absolute path (leading '/', Windows drive, or UNC). Local twin.
 _is_abs_path_link(p: string) {
@@ -837,6 +837,61 @@ _helper_stale(bin: string, src: string, dep: string) {
     return 0
 }
 
+// Split a space-separated list of "quoted" paths (the shape
+// _aether_source_files_link emits) into `out`, quotes stripped.
+_unquote_into_link(out: ptr, s: string) {
+    rest = s
+    while string.length(rest) > 0 {
+        a = string.index_of(rest, "\"")
+        if a < 0 { return 0 }
+        rest = string.substring(rest, a + 1, string.length(rest))
+        b = string.index_of(rest, "\"")
+        if b < 0 { return 0 }
+        _ul = list.add(out, string.substring(rest, 0, b))
+        rest = string.substring(rest, b + 1, string.length(rest))
+    }
+    return 0
+}
+
+// " <build>/_obj/0.o <build>/_obj/1.o ..." for n TUs, in TU-list order.
+_obj_args_link(build_dir: string, n: int) {
+    sb = strbuilder.new(1024)
+    i = 0
+    while i < n {
+        strbuilder.append(sb, string.concat(" ", string.concat(build_dir, string.concat("/_obj/", string.concat(string.from_int(i), ".o")))))
+        i = i + 1
+    }
+    return strbuilder.finish(sb)
+}
+
+// Compile the TU list to <build>/_obj/<i>.o via tools/aeb-cc.sh. 1 on success,
+// 0 when the helper is missing or fails (the caller then falls back to the
+// single gcc invocation, which also prints the real compiler diagnostics).
+_compile_objects_link(aebhome: string, link_cc: string, inc_flags: string, build_dir: string, tus: ptr) {
+    helper = string.concat(aebhome, "/tools/aeb-cc.sh")
+    if file.exists(helper) == 0 { return 0 }
+    lst = string.concat(build_dir, "/_tus.txt")
+    sb = strbuilder.new(1024)
+    n = list.size(tus)
+    i = 0
+    while i < n {
+        f, _ = list.get_string(tus, i)
+        strbuilder.append(sb, string.concat(string.from_int(i), string.concat(" ", string.concat(f, "\n"))))
+        i = i + 1
+    }
+    werr = io.write_file(lst, strbuilder.finish(sb))
+    if string.length(werr) > 0 { return 0 }
+    _m = os.system(string.concat("mkdir -p ", string.concat(build_dir, "/_obj")))
+    _e1 = os.setenv("AEB_CC", link_cc)
+    _e2 = os.setenv("AEB_CC_INC", inc_flags)
+    jobs = os.getenv("AEB_JOBS")
+    if string.length(jobs) == 0 { jobs = string.from_int(os.cpu_count()) }
+    _e3 = os.setenv("AEB_CC_JOBS", jobs)
+    rc = _sh_link(string.concat("sh '", string.concat(helper, string.concat("' '", string.concat(string.concat(build_dir, "/_obj"), string.concat("' '", string.concat(lst, "' 2>&1")))))))
+    if rc != 0 { return 0 }
+    return 1
+}
+
 main() {
     if aether_args_count() < 8 {
         println("Usage: aeb-link <edges-file> <build-dir> <aeb-lib> <aether-dir> <aether-bin> <out-bin> <root>")
@@ -1096,6 +1151,14 @@ main() {
     if string.length(link_cc) == 0 { link_cc = "gcc" }
     cc = string.concat(link_cc, " -O2 -pipe -w ")
     cc = string.concat(cc, orch_c)
+    // Parallel + cached per-TU compile (see the block before the link below):
+    // the TU list (orchestrator + every node entry + @source C files), the
+    // -I flags the compile needs, and the library tail the link needs, are
+    // tracked beside the single-invocation `cc` string so either shape can run.
+    tu_list = list.new()
+    _tl0 = list.add(tu_list, orch_c)
+    inc_flags = ""
+    libs_tail = ""
     // The per-module object list scales with the build's module
     // count; strbuilder keeps the link-line accumulation O(1)/file.
     objs = strbuilder.new(1024)
@@ -1104,6 +1167,7 @@ main() {
         strbuilder.append(objs, " ")
         _cf, _ = list.get_string(c_files, k)
         strbuilder.append(objs, _cf)
+        _tl1 = list.add(tu_list, _cf)
         k = k + 1
     }
     cc = string.concat(cc, strbuilder.finish(objs))
@@ -1155,17 +1219,21 @@ main() {
         find_cmd = string.concat("set -f; find ", inc_root)
         find_cmd = string.concat(find_cmd, " -type d -name .git -prune -o -type d -name build -prune -o -name *.h -print | sed -e s,/[^/]*$,, -e s,^,-I, | sort -u")
         inc_raw, _ferr = _sh_capture_link(find_cmd)
-        cc = string.concat(cc, _flags_from_lines_link(inc_raw))
+        inc_flags = _flags_from_lines_link(inc_raw)
+        cc = string.concat(cc, inc_flags)
     }
 
     if string.length(libaether_dir) == 0 {
         println("aeb-link: libaether.a not found near ${aether_dir} — your Aether install looks incomplete")
         exit(1)
     }
+    libs_tail = string.concat(" -L", libaether_dir)
     cc = string.concat(cc, " -L")
     cc = string.concat(cc, libaether_dir)
     // Dev-layout contrib search path, so a module @link'ing a make-contrib
     // veneer archive (e.g. -laether_sqlite) resolves without consumer config.
+    libs_tail = string.concat(libs_tail, _contrib_L_link(libaether_dir))
+    libs_tail = string.concat(libs_tail, " -laether")
     cc = string.concat(cc, _contrib_L_link(libaether_dir))
     cc = string.concat(cc, " -laether")
     // Module-declared native deps from each TU's `// aether-link:` header
@@ -1177,6 +1245,7 @@ main() {
     while _kk < n {
         _alcf, _ = list.get_string(c_files, _kk)
         _alnew = _aether_link_libs_link(_alcf, _al_seen)
+        libs_tail = string.concat(libs_tail, _alnew)
         cc = string.concat(cc, _alnew)
         // Fold this file's kept tokens (each " -lx") into seen as "-lx " so the
         // next TU's index_of(" -lx ") dedup sees them.
@@ -1198,6 +1267,7 @@ main() {
     while _sk < n {
         _ascf, _ = list.get_string(c_files, _sk)
         _asres = _aether_source_files_link(_ascf, repo_root, _as_seen)
+        _unquote_into_link(tu_list, _asres_files(_asres))
         cc = string.concat(cc, _asres_files(_asres))
         _as_seen = string.concat(_as_seen, _asres_seen(_asres))
         _sk = _sk + 1
@@ -1255,7 +1325,33 @@ main() {
     cc = string.concat(cc, sysdeps)
     cc = string.concat(cc, winsysdeps)
     cc = string.concat(cc, " 2>&1")
-    link_rc = _sh_link(cc)
+    link_rc = 1
+    objs_done = 0
+    // Compile every TU to an object in PARALLEL, each one cached by the sha256
+    // of its preprocessed text (tools/aeb-cc.sh), then link the objects. The
+    // single `gcc a.c b.c ... -o out` above compiles its TUs one after another
+    // on one core (171 aether-ui nodes: ~7.5 minutes, every run, cache hit or
+    // not, because the orchestrator is rebuilt from the node entry files each
+    // time). Opt out with AEB_NO_OBJ_CACHE=1; POSIX hosts only (the Windows
+    // shell path keeps the single invocation).
+    if _is_windows_link() == 0 {
+        if string.length(os.getenv("AEB_NO_OBJ_CACHE")) == 0 {
+            objs_done = _compile_objects_link(aebhome, link_cc, inc_flags, build_dir, tu_list)
+        }
+    }
+    if objs_done == 1 {
+        ocmd = string.concat(link_cc, " -O2 -pipe -w")
+        ocmd = string.concat(ocmd, _obj_args_link(build_dir, list.size(tu_list)))
+        ocmd = string.concat(ocmd, libs_tail)
+        ocmd = string.concat(ocmd, " -o ")
+        ocmd = string.concat(ocmd, out_bin)
+        ocmd = string.concat(ocmd, " -pthread -lm")
+        ocmd = string.concat(ocmd, sysdeps)
+        ocmd = string.concat(ocmd, " 2>&1")
+        link_rc = _sh_link(ocmd)
+    } else {
+        link_rc = _sh_link(cc)
+    }
     // The orchestrator LINK is the second command a fan-out cannot survive
     // losing. gcc's error is printed (2>&1 above), but interleaved in a long
     // plan echo where nothing marks it fatal — so when the link fails, say so
