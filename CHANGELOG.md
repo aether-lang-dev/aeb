@@ -1,9 +1,17 @@
 # Changelog
 
-## Unreleased
+## v0.345 (2026-11-14)
 
 ### Fixed
 
+- **aeb compiles on Aether 0.914.0 and 0.915.0.** Those releases make a `ptr`
+  passed where a `string` is expected a compile error (E0202, aether#3694 and
+  #3696). aeb read strings out of lists and maps with `list.get` / `map.get`
+  (a `ptr`) and passed them on as text in about 480 places across 80 files;
+  they now use `list.get_string` / `map.get_string` (Aether 0.830.0 and
+  later). No behaviour change; still built with Aether 0.898.0
+  (`AETHER_PIN` == `AETHER_FETCH` unchanged). Verified: tests/run.sh 155/155 on
+  macOS arm64, ae-x64 and cachyos (0.914.0), and on macOS with 0.915.0.
 - **`get.sh`, the `aeb` toolchain fetch and the resolver-jar fetch survive
   GitHub's release-download endpoint failing.** `github.com/<repo>/releases/download/...`
   answered HTTP 504 for every aether asset on 2026-11-09 while the REST API
