@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.346 (2026-11-14)
+
+### Changed
+
+- **`aeb-link` compiles a fan-out's C in parallel, each object cached by
+  content.** It compiled the orchestrator and every node entry file in one
+  serial `gcc` call on every run, even when every node hit the cache (7:38
+  for aether-ui's 171 nodes). `tools/aeb-cc.sh` now compiles each file to an
+  object in parallel and caches it under `obj/` in the aeb cache directory,
+  keyed on sha256 of the compiler id, flags and the preprocessed C, so a
+  header or toolchain change misses and a checkout's location does not.
+  `AEB_NO_OBJ_CACHE=1` and Windows keep the single invocation; a failing
+  helper falls back to it for full diagnostics. aether-ui fresh clone: cold
+  7:39 to 2:36, with a restored cache 7:37 to 0:31. Tested by
+  `tests/test_aeb_cc.ae`; tests/run.sh 156/156 on macOS arm64, ae-x64 and
+  cachyos.
 ## v0.345 (2026-11-14)
 
 ### Fixed
