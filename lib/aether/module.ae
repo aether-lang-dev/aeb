@@ -1740,7 +1740,7 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
         rc = bldr._sh(cmd)
         if rc != 0 {
             println("${mod_dir}: ae build (in ${container_image}) failed")
-            bldr.fail(ctx, "ae build (containerized) failed")
+            bldr.fail(ctx, "ae build (containerized) failed: ${src_path}")
             return rc
         }
         // Same delegation as the local path below — the toolchain in the
@@ -1760,7 +1760,7 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     rc = bldr._sh(cmd)
     if rc != 0 {
         println("${mod_dir}: ae build failed")
-        bldr.fail(ctx, "ae build failed")
+        bldr.fail(ctx, "ae build failed: ${src_path}")
         return rc
     }
     // This path delegates staleness to `ae build`'s own incremental cache, so
@@ -3728,7 +3728,7 @@ builder program_test(): int {
         rc = _build_binary(ctx, _builder, src_path, bin_path, c_path)
         if rc != 0 {
             println("${mod_dir}: tests FAILED (compile)")
-            bldr.fail(ctx, "aether test build failed")
+            bldr.fail(ctx, "aether test build failed: ${src_name}")
             return rc
         }
     }
@@ -3750,7 +3750,7 @@ builder program_test(): int {
         // with sub-test counts (junit5, pytest, …) report finer granularity.
         bldr._record_test_result_exitcode(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
-        bldr.fail(ctx, "aether tests failed")
+        bldr.fail(ctx, "aether tests failed: ${src_name}")
         return rc
     }
     bldr._record_test_result_exitcode(ctx, 1, 0)

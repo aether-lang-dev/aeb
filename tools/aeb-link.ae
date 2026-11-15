@@ -1064,7 +1064,18 @@ main() {
         tr_cmd = string.concat(tr_cmd, aeb_lib)
         tr_cmd = string.concat(tr_cmd, " ")
         tr_cmd = string.concat(tr_cmd, aebhome)
-        _sh_link(tr_cmd)
+        // transform-ae refuses a node it cannot safely lower (retired grammar,
+        // an unclosed block, a builder opened inside another builder's
+        // block). Its rc was once discarded, so the build carried on from
+        // whatever ae_tmp the previous run left: nested test builders were
+        // silently dropped and the node still reported PASS. Stop instead.
+        tr_rc = _sh_link(tr_cmd)
+        if tr_rc != 0 {
+            _rmt = _sh_link(string.concat("rm -f ", ae_tmp))
+            _rmc = _sh_link(string.concat("rm -f ", c_out))
+            println("aeb-link: FATAL — ${file_path} was rejected by transform-ae (the error above).")
+            exit(1)
+        }
 
         // aetherc <--lib aeb_lib [--lib repo_root]> <ae_tmp> <c_out>
         // One --lib flag per entry (compile_lib_flags) so SDK imports AND

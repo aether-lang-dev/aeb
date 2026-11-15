@@ -507,6 +507,22 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   and then **prove it reddens** by breaking a real test once. A build runner may
   cry wolf; it may not stay quiet.
 
+- **A builder block that loses its `}` used to drop every test after it, green.**
+  aetherc accepts a missing closing brace at EOF, and a builder takes the
+  innermost open block's map as its context, so every builder written after
+  an unclosed `aether.program_test() {` ran nested: with the outer builder's
+  config map (no source/target dir, no session), its `bldr.fail` returning
+  quietly, and the outer builder itself skipped by the `return` inside its
+  block. nib-code built 72 of 82 test programs that way and said PASS
+  (2026-11-15). Three guards now, pinned by
+  `itests/nested-builder-not-silently-dropped.sh`: transform-ae refuses a node
+  with an unclosed block or a `mod.builder() {` opened inside another
+  builder's block, naming both lines (`_check_block_structure`; aeb-link no
+  longer ignores transform-ae's exit code); `bldr.fail` on a map without
+  `module_dir` (a builder's config map, i.e. a builder nested through a helper
+  function) prints and exits 1 instead of returning; and a node's
+  `.aeb_test_result` sums every test builder it ran rather than keeping the
+  last one's, so 82 program_tests read `82/82`, not `1/1`.
 - **Build scripts can share a source module across directories via a
   root-relative dotted import.** A `.build.ae` in one dir can import an
   Aether source module living in another dir by naming it as a path from

@@ -177,6 +177,19 @@ _mark_failed(s: ptr, label: string, reason: string) {
 fail(_ctx: ptr, reason: string) {
     if _ctx == 0 { return 0 }
     ctx = _ctx
+    // A node context (begin() or standalone start()) always carries
+    // module_dir. A map without it is a builder's per-call config map: this
+    // fail() came from a builder (or setter) that ran inside ANOTHER
+    // builder's block, so builder_context() handed it the outer block's map,
+    // which has no session. Returning quietly here is how a nested test
+    // program that failed to build left its node green. A failure nobody
+    // can record must still stop the node.
+    if map.has(ctx, "module_dir") == 0 {
+        println("aeb: FAILED — ${reason}")
+        println("aeb:   (reported with a builder's config map, not the node context: a builder ran")
+        println("aeb:   inside another builder's block, likely a missing `}`. Stopping the node.)")
+        exit(1)
+    }
     if map.has(ctx, "_session") == 0 { return 0 }
     s, _ = map.get(ctx, "_session")
     if s == null { return 0 }
@@ -3491,6 +3504,28 @@ _record_test_result_exitcode(ctx: ptr, passed: int, failed: int) {
 // orchestrator reads back. `skipped=` is additive — an older reader that
 // doesn't know the key ignores it.
 _record_test_result_r(ctx: ptr, passed: int, failed: int, skipped: int, has_report: int) {
+    // A node may run several test builders (one aether.program_test per test
+    // program is the common shape). Each used to OVERWRITE the marker, so a
+    // node of 82 test programs reported `1/1 PASS` and a missing one could
+    // not show in the count. Sum them over this node run instead: the running
+    // totals live on the node ctx (fresh per run, so nothing stale carries
+    // over), and the marker is rewritten with the totals each time. The
+    // report flag is 1 only while every contribution reported real counts.
+    if ctx != 0 {
+        if map.has(ctx, "module_dir") == 1 {
+            if map.has(ctx, "_tr_n") == 1 {
+                passed = passed + _ctx_int(ctx, "_tr_passed")
+                failed = failed + _ctx_int(ctx, "_tr_failed")
+                skipped = skipped + _ctx_int(ctx, "_tr_skipped")
+                if _ctx_int(ctx, "_tr_report") == 0 { has_report = 0 }
+            }
+            _a1 = map.put(ctx, "_tr_n", "1")
+            _a2 = map.put(ctx, "_tr_passed", string.from_int(passed))
+            _a3 = map.put(ctx, "_tr_failed", string.from_int(failed))
+            _a4 = map.put(ctx, "_tr_skipped", string.from_int(skipped))
+            _a5 = map.put(ctx, "_tr_report", string.from_int(has_report))
+        }
+    }
     td = _get(ctx, "target_dir")
     _mkdirs(td)
     p = path.join(td, ".aeb_test_result")
@@ -3503,6 +3538,14 @@ _record_test_result_r(ctx: ptr, passed: int, failed: int, skipped: int, has_repo
     body = string.concat(body, string.from_int(has_report))
     body = string.concat(body, "\n")
     _e = fs.write_atomic(p, string.bytes(body))
+}
+
+// _ctx_int(ctx, key) — an int stored as a decimal string on ctx, 0 if absent.
+_ctx_int(ctx: ptr, key: string) -> int {
+    if map.has(ctx, key) == 0 { return 0 }
+    v, _ = map.get_string(ctx, key)
+    n, _e = string.to_int(v)
+    return n
 }
 
 // _read_test_result(target_dir) — orchestrator-side read of the
