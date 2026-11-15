@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.347 (2026-11-15)
+
+### Fixed
+
+- **`aeb .tests.ae` never reports PASS for tests that did not run.** A build
+  file missing one block's closing `}` (aetherc accepts it at end of file)
+  nested every later builder inside that block, where they failed quietly
+  and the node printed `1/1 PASS`: nib-code's suite built 71 of 82 test
+  programs. transform-ae now refuses an unclosed block, or a builder opened
+  inside another builder's block, naming both lines (checked against all
+  2128 dot-prefixed `.ae` files under the family's checkouts: only the
+  broken file trips it), and aeb-link stops when transform-ae fails instead
+  of compiling a stale file. `bldr.fail()` on a builder's config map exits 1
+  instead of returning. A node's `.aeb_test_result` sums every test builder
+  it ran (82 program tests read 82/82, not 1/1). Tested by
+  `itests/nested-builder-not-silently-dropped.sh` (7 of 10 checks fail on
+  v0.346); tests/run.sh 156/156 on macOS arm64 and ae-x64.
+
 ## v0.346 (2026-11-14)
 
 ### Changed
