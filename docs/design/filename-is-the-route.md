@@ -93,15 +93,20 @@ already present at every site that needs it, in the build-file name.
      computation, cache-marker finders. All must move to `target/build/<dir>`.
 
 2. **Dep-strings that name a DIRECTORY, not a build file, lose the buildtype.**
-   Some deps are written `dep("java/components/vowelbase/.build.ae")` (dir only — the
-   doc comments show both forms). A dir-only dep has no `.build.ae` in it, so
-   the buildtype isn't recoverable from the string → can't derive
-   `target/build/...` vs `target/tests/...`. **Resolution options:** (a)
-   require deps to name the build file (`.../.build.ae`) — a migration of
-   every dir-only dep; or (b) default a dir-only dep to `build` type
-   (`target/build/<dir>`), which is almost always what's meant (you depend on
-   a thing's *build* output, not its tests). Option (b) is likely fine and
-   keeps dir-only deps working, but must be decided explicitly.
+   A dir-only dep (`dep("java/components/vowelbase")`) has no `.<type>.ae` in
+   it, so the buildtype isn't in the string. This doc first settled that by
+   defaulting a dir-only dep to `build`, and the tools tried `.build.ae`,
+   `.tests.ae` and `.dist.ae` in a fixed order (a different order for a
+   command-line target than for a dep). That was a list of preferred names,
+   which is what this scheme set out to remove, and it made a directory
+   holding only `.compile.ae` unreachable by its directory.
+
+   **Decided 2026-11-19:** a directory stands for the one build file in it,
+   whatever its name. A directory with several build files is refused,
+   naming them, and the caller writes the file. The same rule serves
+   `aeb some/dir`, `dep("some/dir")` and `aeb gcheckout add some/dir`
+   (`tools/aebnode`, `itests/dir-shorthand.sh`). The type of a dir-only dep
+   is then the type of that one file, not a default.
 
 3. **Multiple build files in one dir** (the `:tag` case, e.g. `.build-seed.ae`
    + `.build.ae`) — under this scheme they become `target/build-seed/<dir>`
@@ -127,7 +132,8 @@ already present at every site that needs it, in the build-file name.
    `<type>` from the build-file basename (`.build.ae`→`build` etc.):
    `bldr.begin` (writer), `_label_to_target_dir` (finder), and the dep
    path resolution (`_read_dep_artifact` / `_strip_lang`).
-2. Decide the dir-only-dep default (option (b): treat as `build`).
+2. Decide the dir-only dep (decided: the one build file in the directory,
+   or a refusal; see cost 2 above).
 3. Update `.gitignore`, the agent container, docs, any `target/<dir>`
    hard-codes to `target/build/<dir>`.
 4. Verify: a clean build + a second build cache-hits; cross-dep resolution

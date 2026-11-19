@@ -339,7 +339,10 @@ build(s: @keep ptr, label: string) {
 
 // --- Dependency declarations (one per line, greppable) ---
 //
-// Module deps:   dep(b, "java/components/vowelbase")
+// Module deps:   dep("java/components/vowelbase/.build.ae")
+//                dep("java/components/vowelbase")   // a directory: the one
+//                                                   // build file in it, or a
+//                                                   // refusal naming several
 // Maven deps:    dep(b, "org.springframework.boot:spring-boot-starter:3.4.4")
 //                dep(b, "org.springframework.data:spring-data-keyvalue")  // version from BOM
 // npm deps:      dep(b, "npm:@angular/core:11.2.4")

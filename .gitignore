@@ -23,7 +23,6 @@ tools/file-to-label
 tools/gcheckout
 tools/gen-orchestrator
 tools/infer-type
-tools/resolve-dep
 tools/scan-ae-files
 tools/topo-sort
 tools/transform-ae

@@ -323,6 +323,10 @@ aeb jpa/example/.tests.ae
 # Or from inside the module directory:
 cd jpa/example && aeb .tests.ae
 
+# A directory stands for the one build file in it, whatever its name
+# (.build.ae, .compile.ae, ...). With several, aeb lists them and stops:
+aeb jpa/model
+
 # Synonym address (resolves to .build.ae, echoes the canonical path):
 aeb jpa/example:build
 
@@ -351,7 +355,7 @@ monorepo consumer can fetch only the modules they actually need.
 ```bash
 aeb gcheckout --init                      # enable sparse-checkout, add scaffolding
 aeb gcheckout add jpa/example/.tests.ae   # walk DAG from target, sparse-add each dir
-aeb gcheckout add java/components/vowels  # directory form (resolves to .build.ae etc.)
+aeb gcheckout add java/components/vowels  # directory form: the one build file in it
 aeb gcheckout --reset                     # disable sparse-checkout
 ```
 
@@ -1807,7 +1811,6 @@ aeb/
 │   ├── encode-name.ae         # path → C-safe identifier
 │   ├── infer-type.ae          # filename suffix → build/test/dist
 │   ├── file-to-label.ae       # file path → bldr.build() module label
-│   ├── resolve-dep.ae         # dep reference → file path
 │   ├── extract-deps.ae        # parse a .ae file's dep("...") lines (+ --prereqs)
 │   ├── scan-ae-files.ae       # walk cwd for every .*.ae build file
 │   ├── topo-sort.ae           # DFS post-order over the file dep graph

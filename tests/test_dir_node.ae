@@ -1,0 +1,73 @@
+// A bare directory stands for the one build file in it, whatever its name;
+// several is a refusal that names them. Real directories and files.
+import std.spec
+import std.fs
+import std.os
+import std.string
+import aebnode(dir_node, dir_nodes, is_node_name)
+
+_touch(p: string) {
+    _e = fs.write(p, "main() {}\n")
+}
+
+main() {
+    fw = spec.init()
+    // mktemp through the shell, then the native spelling of it under MSYS,
+    // as tests/test_cache.ae does.
+    base, _ = os.exec("mktemp -d")
+    base = string.trim(base)
+    nat, _nerr = os.exec("cygpath -m ${base} 2>/dev/null")
+    nat = string.trim(nat)
+    if string.length(nat) > 0 { base = nat }
+    _m1 = fs.mkdir_p("${base}/one")
+    _m2 = fs.mkdir_p("${base}/odd")
+    _m3 = fs.mkdir_p("${base}/two")
+    _m4 = fs.mkdir_p("${base}/none/.sub.ae")
+    _touch("${base}/one/.build.ae")
+    _touch("${base}/one/Main.java")
+    _touch("${base}/odd/.compile.ae")
+    _touch("${base}/two/.tests.ae")
+    _touch("${base}/two/.build.ae")
+    _touch("${base}/none/notes.ae")
+    _touch("${base}/none/.ae")
+
+    spec.describe(fw, "dir_node") {
+        spec.it("one build file resolves to it") callback {
+            p, e = dir_node("${base}/one")
+            spec.assert_str_eq(e, "", "no error")
+            spec.assert_str_eq(p, "${base}/one/.build.ae", "the build file")
+        }
+        spec.it("no name is preferred: a lone .compile.ae resolves") callback {
+            p, e = dir_node("${base}/odd")
+            spec.assert_str_eq(e, "", "no error")
+            spec.assert_str_eq(p, "${base}/odd/.compile.ae", "the build file")
+        }
+        spec.it("several is refused, named in sorted order") callback {
+            p, e = dir_node("${base}/two")
+            spec.assert_str_eq(p, "", "no path")
+            spec.assert_contains(e, "(.build.ae, .tests.ae)", "names both: ${e}")
+            spec.assert_contains(e, "${base}/two/.build.ae", "shows a full spelling: ${e}")
+        }
+        spec.it("none is refused; a directory or a plain .ae is not a build file") callback {
+            p, e = dir_node("${base}/none")
+            spec.assert_str_eq(p, "", "no path")
+            spec.assert_contains(e, "has no build file", "says none: ${e}")
+        }
+        spec.it("a missing directory is refused") callback {
+            p, e = dir_node("${base}/absent")
+            spec.assert_str_eq(p, "", "no path")
+            spec.assert_contains(e, "has no build file", "says none: ${e}")
+        }
+    }
+    spec.describe(fw, "is_node_name") {
+        spec.it("needs a leading dot, a type and .ae") callback {
+            spec.assert_eq(is_node_name(".build.ae"), 1, ".build.ae")
+            spec.assert_eq(is_node_name(".x.ae"), 1, ".x.ae")
+            spec.assert_eq(is_node_name(".ae"), 0, ".ae")
+            spec.assert_eq(is_node_name("build.ae"), 0, "build.ae")
+            spec.assert_eq(is_node_name(".build.aex"), 0, ".build.aex")
+        }
+    }
+    _c2 = fs.remove_tree(base)
+    return spec.run_summary(fw)
+}

@@ -1,0 +1,97 @@
+// aebnode — which build file a bare directory means.
+//
+// A target or a dep may name a directory instead of a `.<type>.ae` file. The
+// directory then stands for the one build file in it. aeb has no list of
+// preferred names: a directory with one build file resolves to it, whatever
+// it is called (.build.ae, .compile.ae, .essais.ae), and a directory with
+// several is refused with their names, so the caller says which.
+//
+// Shared by the tools that take a directory: aeb-main (`aeb some/dir`),
+// extract-deps (`dep("some/dir")`) and gcheckout.
+
+import std.string
+import std.dir
+
+exports(is_node_name, dir_nodes, dir_node)
+
+// is_node_name(name) — 1 when a file name is a build file: ".<type>.ae" with
+// a non-empty <type>.
+is_node_name(name: string) {
+    if string.starts_with(name, ".") == 0 { return 0 }
+    if string.ends_with(name, ".ae") == 0 { return 0 }
+    if string.length(name) < 5 { return 0 }
+    return 1
+}
+
+// _insert_sorted(lines, name) — `lines` is newline-joined and sorted; the
+// result has `name` in its place. Sorted so a refusal lists the same names in
+// the same order on every host (readdir order differs).
+_insert_sorted(lines: string, name: string) {
+    if string.length(lines) == 0 { return string.concat(name, "") }
+    out = ""
+    placed = 0
+    parts = string.split(lines, "\n")
+    n = string.array_size(parts)
+    i = 0
+    while i < n {
+        cur = string.array_get(parts, i)
+        if placed == 0 {
+            if string.compare(name, cur) < 0 {
+                if string.length(out) > 0 { out = string.concat(out, "\n") }
+                out = string.concat(out, name)
+                placed = 1
+            }
+        }
+        if string.length(out) > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, cur)
+        i = i + 1
+    }
+    string.array_free(parts)
+    if placed == 0 { out = string.concat(string.concat(out, "\n"), name) }
+    return out
+}
+
+// dir_nodes(d) — the build files directly in directory `d`, as file names,
+// sorted and newline-joined. "" when there are none or `d` is not a directory.
+dir_nodes(d: string) {
+    where_ = d
+    if string.length(where_) == 0 { where_ = "." }
+    l, err = dir.list(where_)
+    if err != "" { return string.concat("", "") }
+    out = ""
+    n = dir.list_count(l)
+    i = 0
+    while i < n {
+        name = string.concat(dir.list_get(l, i), "")
+        // kind 2 is a directory; anything else (file, symlink, unknown) can
+        // be a build file.
+        if is_node_name(name) == 1 {
+            if dir.list_kind(l, i) != 2 { out = _insert_sorted(out, name) }
+        }
+        i = i + 1
+    }
+    dir.list_free(l)
+    return out
+}
+
+// dir_node(d) -> (path, err) — the build file directory `d` stands for.
+// (d/<name>, "") when it holds exactly one; ("", why) when it holds none or
+// several, the several named so the caller can pick.
+dir_node(d: string) -> {
+    nodes = dir_nodes(d)
+    if string.length(nodes) == 0 {
+        return "", "${d} has no build file (.<name>.ae)"
+    }
+    if string.index_of(nodes, "\n") >= 0 {
+        names = string.replace(nodes, "\n", ", ")
+        return "", "${d} has several build files (${names}); name the one you mean, e.g. ${d}/${_first_line(nodes)}"
+    }
+    if string.length(d) == 0 { return nodes, "" }
+    return "${d}/${nodes}", ""
+}
+
+_first_line(s: string) {
+    nl = string.index_of(s, "\n")
+    if nl < 0 { return string.concat(s, "") }
+    return string.substring(s, 0, nl)
+}

@@ -20,6 +20,7 @@
 
 import bldr
 import provision
+import aebnode(dir_node, dir_nodes)
 import std.string
 import std.file
 import std.fs
@@ -150,8 +151,7 @@ _render_list(files: ptr) {
         if string.equals(rootm, cwd) == 0 {
             plausible = 0
             if dir.exists(string.concat(rootm, "/.aeb")) == 1 { plausible = 1 }
-            if file.exists(string.concat(rootm, "/.build.ae")) == 1 { plausible = 1 }
-            if file.exists(string.concat(rootm, "/.presubmit.ae")) == 1 { plausible = 1 }
+            if string.length(dir_nodes(rootm)) > 0 { plausible = 1 }
             if plausible == 1 {
                 println("")
                 println("# Note: targets from parent directories omitted")
@@ -241,16 +241,19 @@ strip_trailing_slash(s: string) {
     return string.concat(s, "")
 }
 
-// Resolve a directory target to one of .build.ae / .tests.ae / .dist.ae,
-// preferring tests if both exist (matches bash precedence).
-resolve_target_dir(target: string) {
-    tests = string.concat(target, "/.tests.ae")
-    if file.exists(tests) == 1 { return tests }
-    build = string.concat(target, "/.build.ae")
-    if file.exists(build) == 1 { return build }
-    dist = string.concat(target, "/.dist.ae")
-    if file.exists(dist) == 1 { return dist }
-    return string.concat("", "")
+// What extract-deps prints, alone on stdout, when it refuses a dep (it has
+// already said why on stderr). tools/extract-deps.ae has the same constant.
+const EXTRACT_DEPS_FAILED = "__AEB_EXTRACT_DEPS_FAILED__"
+
+// _deps_of(extract_deps_bin, f) — the build files `f` deps on, space-separated.
+// Stops the build when extract-deps refused one of them.
+_deps_of(extract_deps_bin: string, f: string) {
+    d = run_capture(string.concat(string.concat(extract_deps_bin, " "), f))
+    if string.contains(d, EXTRACT_DEPS_FAILED) == 1 {
+        println("aeb: in ${f}")
+        exit(1)
+    }
+    return d
 }
 
 // Run a shell command and return stdout (trimmed) or "" on failure. Routed
@@ -478,7 +481,7 @@ main() {
     // `ae` aeb was handed. _lazy_tool stops with the compiler's own errors when
     // a build fails, rather than leaving a missing binary to surface later as
     // a misleading error from the step that runs it.
-    extract_deps_bin = _lazy_tool(aebhome, aether_bin, "extract-deps", "")
+    extract_deps_bin = _lazy_tool(aebhome, aether_bin, "extract-deps", string.concat(" --lib ", string.concat(aebhome, "/tools")))
     scan_ae_files_bin = _lazy_tool(aebhome, aether_bin, "scan-ae-files", "")
     topo_sort_bin = _lazy_tool(aebhome, aether_bin, "topo-sort", "")
     // --lib <aebhome>/tools resolves aeb-link's `import aeblabel`.
@@ -547,13 +550,13 @@ main() {
         i = 0
         while i < nf {
             f, _ = list.get(files, i)
-            d = run_capture(string.concat(string.concat(extract_deps_bin, " "), f))
+            d = _deps_of(extract_deps_bin, string.concat(f, ""))
             _md = map.put(file_deps, f, string.concat(d, ""))
             i = i + 1
         }
     } else {
         // Target mode: resolve every positional target (a dir resolves to
-        // its .build/.tests/.dist file) and seed the BFS from all of them.
+        // the one build file in it) and seed the BFS from all of them.
         // A modal flag (--preflight/--prereqs) sets `target` directly and
         // leaves `targets` empty — fall back to the single `target` then.
         seed_targets = targets
@@ -573,9 +576,11 @@ main() {
                     exit(1)
                 }
             } else {
-                resolved = resolve_target_dir(tgt)
-                if string.length(resolved) == 0 {
-                    println(string.concat("error: no .ae files found in ", tgt))
+                // A directory stands for the one build file in it, whatever
+                // its name; several is a refusal that names them.
+                resolved, rerr = dir_node(tgt)
+                if rerr != "" {
+                    println("error: ${rerr}")
                     exit(1)
                 }
                 tgt = resolved
@@ -598,7 +603,7 @@ main() {
             f, _ = list.get(queue, head)
             head = head + 1
             _lf2 = list.add(files, string.concat(f, ""))
-            d = run_capture(string.concat(string.concat(extract_deps_bin, " "), f))
+            d = _deps_of(extract_deps_bin, string.concat(f, ""))
             d = string.concat(d, "")
             _md2 = map.put(file_deps, f, d)
             // Enqueue any unseen dep that exists on disk.

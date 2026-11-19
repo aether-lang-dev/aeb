@@ -25,6 +25,7 @@
 // zero-ceremony flag form over the same wire + lease machinery.
 
 import bldr
+import aebnode(dir_node)
 import std.os
 import std.string
 import std.io
@@ -57,7 +58,15 @@ main() {
         if string.length(target) == 0 { target = a }
         i = i + 1
     }
-    if string.length(target) == 0 { target = ".build.ae" }
+    if string.length(target) == 0 {
+        // No target: the one build file at the root, whatever its name.
+        here, herr = dir_node(".")
+        if herr != "" {
+            println("aeb --use-remote-agents: ${herr}")
+            exit(1)
+        }
+        target = string.substring(here, 2, string.length(here))
+    }
 
     pool_file = os.getenv("AEB_AGENTS")
     if string.length(pool_file) == 0 {

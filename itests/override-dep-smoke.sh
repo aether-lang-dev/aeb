@@ -155,7 +155,9 @@ main() {
 }
 EOF
 # inline the marker path (the heredoc is quoted, so substitute it after)
-sed -i "s#\$ED_MARK#$MARK/read_follow#" "$ED/cons/.build.ae"
+# No `sed -i`: BSD sed (macOS) takes the script for the backup suffix.
+sed "s#\$ED_MARK#$MARK/read_follow#" "$ED/cons/.build.ae" > "$ED/cons/.build.ae.new"
+mv "$ED/cons/.build.ae.new" "$ED/cons/.build.ae"
 rm -f "$MARK/read_follow"
 ( cd "$ED" && "$AEB" --overrideDep "eng/.build.ae=eng/.getFromGitHubReleases.ae" cons/.build.ae ) >"$WORK/e.log" 2>&1
 got_lib="$(cat "$MARK/read_follow" 2>/dev/null || true)"

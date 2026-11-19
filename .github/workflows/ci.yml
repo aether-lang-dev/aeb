@@ -205,5 +205,9 @@ jobs:
       # every test builder it ran (nib-code built 72 of 82 and said PASS).
       - name: nested builder not silently dropped
         run: itests/nested-builder-not-silently-dropped.sh
+      # A directory, as a target or in dep(), is the one build file in it
+      # whatever its name; several is a refusal that names them.
+      - name: directory shorthand has no preferred names
+        run: itests/dir-shorthand.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

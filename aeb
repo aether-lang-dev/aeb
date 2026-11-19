@@ -347,7 +347,7 @@ fi
 if [[ "${1:-}" == "gcheckout" ]]; then
     GCHECKOUT_BIN="$AEB_HOME/tools/gcheckout"
     if [[ ! -x "$GCHECKOUT_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/gcheckout.ae" -o "$GCHECKOUT_BIN" 2>/dev/null
+        "$AETHER" build "$AEB_HOME/tools/gcheckout.ae" --lib "$AEB_HOME/tools" -o "$GCHECKOUT_BIN" 2>/dev/null
     fi
     shift
     exec "$GCHECKOUT_BIN" "$@"
@@ -803,7 +803,7 @@ fi
 if [[ -n "${AEB_USE_REMOTE_AGENTS:-}" ]]; then
     AEB_REMOTE_BIN="$AEB_HOME/tools/aeb-remote"
     if [[ ! -x "$AEB_REMOTE_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/aeb-remote.ae" --lib "$AEB_HOME/lib" -o "$AEB_REMOTE_BIN" 2>/dev/null
+        "$AETHER" build "$AEB_HOME/tools/aeb-remote.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$AEB_REMOTE_BIN" 2>/dev/null
     fi
     exec "$AEB_REMOTE_BIN" "$@"
 fi

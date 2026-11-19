@@ -27,9 +27,14 @@ import std.fs
 import std.io
 import std.os
 import std.map
+import std.dir
+import aebnode(dir_node, dir_nodes)
 
 extern println(s: string)
 extern exit(code: int)
+
+// What extract-deps prints, alone on stdout, when it refuses a dep.
+const FAILED = "__AEB_EXTRACT_DEPS_FAILED__"
 
 // Auto-prepend "./" so fs.glob's recursive `**` marker fires.
 // Mirrors the same trick `tools/scan-ae-files.ae` uses; see also
@@ -52,23 +57,29 @@ strip_dot_slash(p: string) {
     return string.concat(p, "")
 }
 
+// _dir_dep(d) — the build file a directory dep stands for: the one build
+// file in `d`, whatever its name (tools/aebnode). "" when `d` is not a
+// directory or holds no build file: no edge, as for any dep that is not on
+// disk. A directory with several build files stops the build, naming them;
+// the message goes to stderr and FAILED to stdout, which is what the callers
+// read (they capture stdout and cannot see the exit status).
+_dir_dep(d: string) {
+    if dir.exists(d) == 0 { return string.concat("", "") }
+    if string.length(dir_nodes(d)) == 0 { return string.concat("", "") }
+    p, err = dir_node(d)
+    if err != "" {
+        _w = io.stderr_write("aeb: dep(\"${d}\"): ${err}\n")
+        println(FAILED)
+        exit(2)
+    }
+    return p
+}
+
 resolve_dep(dep: string) {
     if string.ends_with(dep, ".ae") == 1 {
         return string.concat(dep, "")
     }
-    build_path = string.concat(dep, "/.build.ae")
-    if file.exists(build_path) == 1 {
-        return build_path
-    }
-    tests_path = string.concat(dep, "/.tests.ae")
-    if file.exists(tests_path) == 1 {
-        return tests_path
-    }
-    dist_path = string.concat(dep, "/.dist.ae")
-    if file.exists(dist_path) == 1 {
-        return dist_path
-    }
-    return string.concat(build_path, "")
+    return _dir_dep(dep)
 }
 
 // Directory component of a path (everything before the last "/"), or
@@ -261,15 +272,19 @@ resolve_dep_rel(dep: string, base_dir: string) {
         return ""
     }
     resolved = resolve_dep(dep)
-    if file.exists(resolved) == 1 {
-        return resolved
+    if string.length(resolved) > 0 {
+        if file.exists(resolved) == 1 {
+            return resolved
+        }
     }
     if string.length(base_dir) > 0 {
         joined = string.concat(base_dir, "/")
         joined = string.concat(joined, dep)
         rel = resolve_dep(joined)
-        if file.exists(rel) == 1 {
-            return rel
+        if string.length(rel) > 0 {
+            if file.exists(rel) == 1 {
+                return rel
+            }
         }
     }
     return resolved

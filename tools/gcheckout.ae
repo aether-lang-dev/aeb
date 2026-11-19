@@ -63,6 +63,7 @@ import std.fs
 import std.os
 import std.list
 import std.map
+import aebnode(dir_node)
 
 extern println(s: string)
 extern exit(code: int)
@@ -158,20 +159,17 @@ dirname_pure(path: string) {
     return string.substring(path, 0, last)
 }
 
-resolve_target(target: string) {
+// resolve_target(target) -> (file, err) — a build file as given, or the one
+// build file a directory holds, whatever its name (tools/aebnode).
+resolve_target(target: string) -> {
     if string.ends_with(target, ".ae") == 1 {
         if file.exists(target) == 1 {
-            return target
+            return target, ""
         }
-        return ""
+        return "", "${target} not found"
     }
-    tests = string.concat(target, "/.tests.ae")
-    if file.exists(tests) == 1 { return tests }
-    build = string.concat(target, "/.build.ae")
-    if file.exists(build) == 1 { return build }
-    dist = string.concat(target, "/.dist.ae")
-    if file.exists(dist) == 1 { return dist }
-    return ""
+    p, err = dir_node(target)
+    return p, err
 }
 
 // Walk the dep DAG from `start`, COLLECTING each visited file's parent dir into
@@ -206,6 +204,11 @@ walk(start: string, extract_deps_bin: string) {
         // Read this file's deps and enqueue any unseen ones that exist on disk.
         raw, _err = os.exec(string.concat(string.concat(extract_deps_bin, " "), f))
         d = string.trim(raw)
+        // extract-deps refused a dep of this file and has said why on stderr.
+        if string.contains(d, "__AEB_EXTRACT_DEPS_FAILED__") == 1 {
+            println("aeb: in ${f}")
+            exit(1)
+        }
 
         drest = d
         while string.length(drest) > 0 {
@@ -294,11 +297,9 @@ main() {
             exit(1)
         }
         target = aether_args_get(2)
-        resolved = resolve_target(target)
-        if string.length(resolved) == 0 {
-            msg = string.concat("error: ", target)
-            msg = string.concat(msg, " not found and no .build.ae/.tests.ae/.dist.ae under it")
-            println(msg)
+        resolved, rerr = resolve_target(target)
+        if rerr != "" {
+            println("error: ${rerr}")
             exit(1)
         }
 
