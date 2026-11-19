@@ -3,6 +3,17 @@
 // Compiles Clojure source via java+clojure.jar and runs tests
 // via clojure.test (built into Clojure). Maven deps are resolved
 // via the maven module (Clojure uses Maven coordinates).
+//
+// What clojure.compile does depends on main_ns:
+//   * main_ns("my.app") — AOT-compiles that namespace (and what it requires)
+//     to classes/ with clojure.main; that classes/ tree is what lib/cache
+//     stores and restores.
+//   * no main_ns — Clojure is shipped as source, so nothing is compiled: the
+//     builder REQUIREs every namespace under src/ (a load-check, so a compile
+//     error in the code fails the build rather than only the tests) and
+//     produces no classes. Deliberately not AOT: AOT-compiling every
+//     namespace would put class files next to the sources, shadow them on the
+//     classpath and go stale. This path is not cached; the JVM runs each build.
 import bldr
 import cache
 import maven
@@ -232,8 +243,8 @@ _cache_key_for_clj(ctx: ptr, argfile_path: string, aot_cmd_str: string, maven_cp
     return digest, derr
 }
 
-// If main_ns is set, AOT compiles to .class files.
-// Otherwise validates sources are loadable.
+// If main_ns is set, AOT compiles to .class files (cached).
+// Otherwise validates sources are loadable: no classes, no cache (see header).
 builder compile(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }

@@ -57,7 +57,7 @@ the other four with `ts`/`javascript`).
 | `angular` | aeb / delegated | none | delegated | none | none | none | no | none | direct: `angular.ngc`; fallback: `angular.ng_build` |
 | `bash` | none | aeb | none | none | none | none | no | none |  |
 | `c` | aeb | aeb | none | aeb | none | module-only | no | none |  |
-| `clojure` | aeb | aeb | aeb | aeb | none | module-only | yes | none |  |
+| `clojure` | aeb | aeb | aeb | aeb | none | module-only | yes | none | `clojure.compile` with `main_ns` AOT-compiles and is cached; without `main_ns` it only load-checks every namespace (no classes, not cached, deliberately) |
 | `cpp` | aeb | aeb | none | aeb | none | none | no | none |  |
 | `crystal` | none | delegated | none | none | none | none | no | none |  |
 | `d` | aeb | aeb | none | none | none | none | no | none |  |
@@ -224,12 +224,12 @@ Grammar: clojure.compile, clojure.run_main, clojure.test, clojure.uberjar; sette
 
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
-| clojure | compile | aeb | lib/clojure/module.ae:78 | `clojure.main` | clojure.compile |
-| clojure | test | aeb | lib/clojure/module.ae:91 | `clojure.test/run-tests` | clojure.test |
-| clojure | resolve | aeb | lib/clojure/module.ae:279 | `maven.classpath(ctx)` | clojure.compile |
-| clojure | package | aeb | lib/clojure/module.ae:119 | `jar cfM` | clojure.uberjar |
-| clojure | incremental | module-only | lib/clojure/module.ae:295 | `cache.available()` | clojure.compile |
-| clojure | cache | yes | lib/clojure/module.ae:336 | `cache.put(` | clojure.compile |
+| clojure | compile | aeb | lib/clojure/module.ae:89 | `clojure.main` | clojure.compile |
+| clojure | test | aeb | lib/clojure/module.ae:102 | `clojure.test/run-tests` | clojure.test |
+| clojure | resolve | aeb | lib/clojure/module.ae:290 | `maven.classpath(ctx)` | clojure.compile |
+| clojure | package | aeb | lib/clojure/module.ae:130 | `jar cfM` | clojure.uberjar |
+| clojure | incremental | module-only | lib/clojure/module.ae:306 | `cache.available()` | clojure.compile |
+| clojure | cache | yes | lib/clojure/module.ae:347 | `cache.put(` | clojure.compile |
 
 ### cpp
 
