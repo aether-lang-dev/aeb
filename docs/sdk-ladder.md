@@ -88,7 +88,7 @@ the other four with `ts`/`javascript`).
 | `rust` | delegated | delegated | delegated | delegated | none | delegated | yes | none | both forms delegated: `rust.cargo_project` (generated Cargo.toml), `rust.cargo_project_existing` |
 | `scala` | aeb | aeb | aeb | aeb | none | module-only | yes | none |  |
 | `swift` | delegated | delegated | delegated | delegated | none | delegated | no | none |  |
-| `ts` | aeb | aeb | delegated | none | none | module-only | yes | none | `ts.tsc` (cached), `ts.tsc_files`, `ts.mocha` |
+| `ts` | aeb | aeb | delegated | none | none | module-only | yes | none | `ts.tsc` and `ts.tsc_files` (both cached through one shared path), `ts.mocha` (not cached) |
 | `webpack` | none | none | delegated | aeb | none | none | no | none |  |
 | `zig` | delegated | delegated | delegated | delegated | none | delegated | no | none |  |
 
@@ -606,9 +606,9 @@ Grammar: ts.tsc, ts.tsc_files, ts.mocha, ts.generate_manifest, ts.npm_vendored, 
 | ts | compile | aeb | lib/ts/module.ae:84 | `-p '${tsconfig_path}'` | ts.tsc |
 | ts | compile | aeb | lib/ts/module.ae:103 | `tsc` | ts.tsc_files |
 | ts | test | aeb | lib/ts/module.ae:153 | `node ${mocha_bin}` | ts.mocha |
-| ts | resolve | delegated | lib/ts/module.ae:607 | `pnpm.resolve` | ts.tsc |
-| ts | cache | yes | lib/ts/module.ae:637 | `cache.available` | ts.tsc |
-| ts | cache | yes | lib/ts/module.ae:682 | `cache.put` | ts.tsc |
+| ts | resolve | delegated | lib/ts/module.ae:686 | `pnpm.resolve` | ts.tsc |
+| ts | cache | yes | lib/ts/module.ae:314 | `cache.available` | ts.tsc, ts.tsc_files |
+| ts | cache | yes | lib/ts/module.ae:333 | `cache.put` | ts.tsc |
 
 ### webpack
 

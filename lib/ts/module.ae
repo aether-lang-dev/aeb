@@ -272,6 +272,77 @@ _cache_key_for_tsc(ctx: ptr, argfile_path: string, tsconfig_path: string, tsc_cm
     return digest, derr
 }
 
+// _tsc_cached_run(ctx, cmd, tsconfig_path, tsc_bin, out_dir, argfile) — run a tsc
+// command through lib/cache, shared by ts.tsc and ts.tsc_files. On a hit the
+// out_dir tree (sans *.tsbuildinfo) is restored and tsc is not run; on a miss
+// tsc runs and, when out_dir received output, the tree is stored. `argfile`
+// lists the files that make up the key's source set. Records the cache outcome.
+// Returns 0 on success or a hit; a tsc failure is recorded with bldr.fail and
+// its exit code returned.
+_tsc_cached_run(ctx: ptr, cmd: string, tc: string, tsc_bin: string, out_dir_c: string, argfile: string) {
+    mod_dir = bldr._get(ctx, "module_dir")
+    // Cache check: restore the out-dir tree on hit (sans *.tsbuildinfo)
+    // and skip tsc. exit_code sentinel: 0 = cache hit, -1 = run tsc.
+    cache_key = ""
+    exit_code = -1
+    if cache.available() == 1 {
+        ck, kerr = _cache_key_for_tsc(ctx, argfile, tc, cmd, tsc_bin)
+        if string.length(kerr) == 0 {
+            cache_key = ck
+            tmp_raw, _terr = fs.make_temp_file(os.temp_dir(), "aeb")
+            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
+            if string.length(tmp_tar) > 0 {
+                grc = cache.get(cache_key, tmp_tar)
+                if string.length(grc) == 0 {
+                    uerr = bldr._untar_into(tmp_tar, out_dir_c)
+                    _rf = fs.remove_tree(tmp_tar)
+                    if string.length(uerr) == 0 {
+                        println("${mod_dir}: tsc cache hit ${cache_key}")
+                        bldr._record_cache(ctx, "hit")
+                        exit_code = 0
+                    } else {
+                        _rt = fs.remove_tree(out_dir_c)
+                    }
+                } else {
+                    _rf = fs.remove_tree(tmp_tar)
+                }
+            }
+        }
+    }
+
+    if exit_code == -1 {
+        if cache.available() == 0 {
+            bldr._record_cache(ctx, "unavailable")
+        } else {
+            bldr._record_cache(ctx, "miss")
+        }
+        exit_code = bldr._sh(cmd)
+        if exit_code != 0 {
+            println("${mod_dir}: tsc failed")
+            bldr.fail(ctx, "tsc failed")
+            return exit_code
+        }
+        // Only populate the cache when the assumed out-dir actually
+        // received output. A wrong guess (project tsconfig directs
+        // output elsewhere) leaves out_dir_c empty → we skip the put →
+        // no future false hit. Self-correcting, no-hacks.
+        if string.length(cache_key) > 0 {
+            if bldr._dir_nonempty(out_dir_c) == 1 {
+                tar_path, terr = _tar_out_dir_no_tsbuildinfo(out_dir_c)
+                if string.length(terr) == 0 {
+                    perr = cache.put(cache_key, tar_path)
+                    _rf = fs.remove_tree(tar_path)
+                    if string.length(perr) > 0 {
+                        println("${mod_dir}: tsc cache write failed: ${perr}")
+                    }
+                }
+            }
+        }
+    }
+
+    return 0
+}
+
 // --- SDK functions ---
 
 // npm_vendored — declare an npm package from the local vendored layout.
@@ -434,12 +505,20 @@ builder tsc_files(): int {
     }
 
     cmd = tsc_files_cmd(source_dir, _builder)
-    exit_code = bldr._sh(cmd)
-    if exit_code != 0 {
-        println("${mod_dir}: tsc failed")
-        bldr.fail(ctx, "tsc failed")
-        return exit_code
+
+    // Same compile + cache path as ts.tsc. tsc finds the project's own
+    // tsconfig.json in source_dir; the generated base-tsconfig.json it extends
+    // (path mappings from the deps) is part of the key through the source set.
+    out_dir_c = _ts_out_dir(_builder, target_dir)
+    argfile = path.join(target_dir, "tsc_sources.txt")
+    src_list = bldr._walk_collect(source_dir, ".ts", ".d.ts", "/node_modules/")
+    base_tsconfig = path.join(target_dir, "base-tsconfig.json")
+    if file.exists(base_tsconfig) == 1 {
+        src_list = string.concat(src_list, string.concat("\n", base_tsconfig))
     }
+    _ew_af = io.write_file(argfile, src_list)
+    exit_code = _tsc_cached_run(ctx, cmd, path.join(source_dir, "tsconfig.json"), "tsc", out_dir_c, argfile)
+    if exit_code != 0 { return exit_code }
 
     _ewf = io.write_file(ts_file, "")
     return 0
@@ -630,64 +709,8 @@ builder tsc(): int {
     argfile = path.join(target_dir, "tsc_sources.txt")
     _ew_af = io.write_file(argfile, bldr._walk_collect(source_dir, ".ts", ".d.ts", "/node_modules/"))
 
-    // Cache check: restore the out-dir tree on hit (sans *.tsbuildinfo)
-    // and skip tsc. exit_code sentinel: 0 = cache hit, -1 = run tsc.
-    cache_key = ""
-    exit_code = -1
-    if cache.available() == 1 {
-        ck, kerr = _cache_key_for_tsc(ctx, argfile, tc, cmd, tsc_bin)
-        if string.length(kerr) == 0 {
-            cache_key = ck
-            tmp_raw, _terr = fs.make_temp_file(os.temp_dir(), "aeb")
-            tmp_tar = bldr._to_native_path(string.trim(tmp_raw))
-            if string.length(tmp_tar) > 0 {
-                grc = cache.get(cache_key, tmp_tar)
-                if string.length(grc) == 0 {
-                    uerr = bldr._untar_into(tmp_tar, out_dir_c)
-                    _rf = fs.remove_tree(tmp_tar)
-                    if string.length(uerr) == 0 {
-                        println("${mod_dir}: tsc cache hit ${cache_key}")
-                        bldr._record_cache(ctx, "hit")
-                        exit_code = 0
-                    } else {
-                        _rt = fs.remove_tree(out_dir_c)
-                    }
-                } else {
-                    _rf = fs.remove_tree(tmp_tar)
-                }
-            }
-        }
-    }
-
-    if exit_code == -1 {
-        if cache.available() == 0 {
-            bldr._record_cache(ctx, "unavailable")
-        } else {
-            bldr._record_cache(ctx, "miss")
-        }
-        exit_code = bldr._sh(cmd)
-        if exit_code != 0 {
-            println("${mod_dir}: tsc failed")
-            bldr.fail(ctx, "tsc failed")
-            return exit_code
-        }
-        // Only populate the cache when the assumed out-dir actually
-        // received output. A wrong guess (project tsconfig directs
-        // output elsewhere) leaves out_dir_c empty → we skip the put →
-        // no future false hit. Self-correcting, no-hacks.
-        if string.length(cache_key) > 0 {
-            if bldr._dir_nonempty(out_dir_c) == 1 {
-                tar_path, terr = _tar_out_dir_no_tsbuildinfo(out_dir_c)
-                if string.length(terr) == 0 {
-                    perr = cache.put(cache_key, tar_path)
-                    _rf = fs.remove_tree(tar_path)
-                    if string.length(perr) > 0 {
-                        println("${mod_dir}: tsc cache write failed: ${perr}")
-                    }
-                }
-            }
-        }
-    }
+    exit_code = _tsc_cached_run(ctx, cmd, tc, tsc_bin, out_dir_c, argfile)
+    if exit_code != 0 { return exit_code }
 
     _ewt = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0

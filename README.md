@@ -47,7 +47,7 @@ the two in step.)
 | Build-graph topology | ✓ File-based DAG via `dep("path")`, scanned without compilation. |
 | Multi-language polyglot | ✓ One SDK per language under `lib/`; the full list, and which steps each one does itself versus hands to the language's own build tool, is in the [SDK ladder](docs/sdk-ladder.md). |
 | Cross-language FFI artifacts | ✓ JNI / cdylib / shared-lib handoff wired (Java→Rust, Java→Go, C#→Rust, Python→Rust, …). |
-| Local incremental cache | ✓ Content-addressed (sha256), whole-module. Wired into `aether`, `java`, `kotlin`, `scala`, `groovy`, `clojure` (only `compile` with `main_ns`), `maven`, `go`, `rust` (only the single cdylib), `dotnet` (not test projects) and `ts` (only `ts.tsc`). The other SDKs (`c`, `cpp`, `zig`, `swift`, `nim`, `d`, `crystal`, `javascript`, `pnpm`, `jest`, `webpack`, `angular`, ...) do not use it; see the [ladder](docs/sdk-ladder.md). |
+| Local incremental cache | ✓ Content-addressed (sha256), whole-module. Wired into `aether`, `java`, `kotlin`, `scala`, `groovy`, `clojure` (only `compile` with `main_ns`), `maven`, `go`, `rust` (only the single cdylib), `dotnet` (not test projects) and `ts` (`ts.tsc` and `ts.tsc_files`, not `mocha`). The other SDKs (`c`, `cpp`, `zig`, `swift`, `nim`, `d`, `crystal`, `javascript`, `pnpm`, `jest`, `webpack`, `angular`, ...) do not use it; see the [ladder](docs/sdk-ladder.md). |
 | Affected-target detection | ✓ `aeb --since <ref>` builds only impacted targets; `--print-affected` lists them. |
 | Dependency resolution (transitive) | ◐ aeb's own resolver covers Maven only (`lib/maven`, a bundled Eclipse Aether jar); the JVM SDKs use it. npm/pnpm, NuGet, Cargo and Python are delegated to `pnpm`/`npm`, `dotnet build` restore, `cargo` and `pip install`; `rust.crate_registry` only records an artifact. See the [ladder](docs/sdk-ladder.md). |
 | Build graph visualisation | ✓ `aeb --graph` (DOT / Mermaid). |
@@ -1023,7 +1023,7 @@ and `angular` do not use it at all; see the [SDK ladder](docs/sdk-ladder.md)):
 - **`lib/java`** / **`lib/kotlin`** / **`lib/scala`** / **`lib/groovy`** — `classes/` and
   `test-classes/` trees (tar+zlib)
 - **`lib/maven`** — resolved classpath (separate cache from per-target)
-- **`lib/ts`** — `ts.tsc` out-dir tree (excludes `*.tsbuildinfo`); `tsc_files` and `mocha` are not cached
+- **`lib/ts`** — `ts.tsc` and `ts.tsc_files` out-dir tree (excludes `*.tsbuildinfo`); `mocha` is not cached
 - **`lib/dotnet`** — `bin/<config>` (never `obj/`; test projects not cached)
 - **`lib/go`** / **`lib/rust`** — the output binary/.so (single-file; for rust only the single cdylib)
 - **`lib/clojure`** — AOT `classes/` tree (only `compile` with `main_ns`)
