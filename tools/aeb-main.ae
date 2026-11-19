@@ -481,7 +481,7 @@ main() {
     // `ae` aeb was handed. _lazy_tool stops with the compiler's own errors when
     // a build fails, rather than leaving a missing binary to surface later as
     // a misleading error from the step that runs it.
-    extract_deps_bin = _lazy_tool(aebhome, aether_bin, "extract-deps", string.concat(" --lib ", string.concat(aebhome, "/tools")))
+    extract_deps_bin = _lazy_tool(aebhome, aether_bin, "extract-deps", string.concat(string.concat(" --lib ", string.concat(aebhome, "/tools")), string.concat(" --lib ", string.concat(aebhome, "/lib"))))
     scan_ae_files_bin = _lazy_tool(aebhome, aether_bin, "scan-ae-files", "")
     topo_sort_bin = _lazy_tool(aebhome, aether_bin, "topo-sort", "")
     // --lib <aebhome>/tools resolves aeb-link's `import aeblabel`.

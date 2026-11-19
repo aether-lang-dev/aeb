@@ -644,11 +644,12 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
 //       }                                                      DECLARES
 //
 // The node's jar is fetched like jar_pinned's (cache, ~/.m2, then the repos)
-// and checked against the sha256. Its classpath is the jar and everything
-// reachable through its deps, one version of each artifact: a diamond below
-// it is a failure until a dep_arbitration settles it (lib/mvngraph). Nothing
-// here resolves a pom at build time; the poms were read once, by the
-// generator, and what they said is these files.
+// and checked against the sha256. What it hands up is a record: itself and
+// everything its deps recorded, as the poms have it, diamonds included. The
+// first node a person wrote settles that into a classpath with one version
+// of each artifact, or fails until a dep_arbitration says which
+// (lib/mvngraph). Nothing here resolves a pom at build time; the poms were
+// read once, by the generator, and what they said is these files.
 
 // excluding("<group:artifact of a dependency>", "<group:artifact left out>")
 // — the pom's <exclusions> on that dependency. Either half of the second
@@ -718,6 +719,19 @@ _maven_publish(ctx: ptr, text: string) {
     return 0
 }
 
+// _maven_record_only(ctx, text) — write a generated node's record as it is,
+// with nothing settled. A generated node is what a pom says, and a pom's own
+// closure can hold a diamond (kotlinx-coroutines asks for annotations 23,
+// its kotlin-stdlib for 13). That is not this node's to decide and there is
+// nobody here to decide it: the record goes up with both, and the first node
+// a person wrote, which can carry a dep_arbitration, settles it.
+_maven_record_only(ctx: ptr, text: string) {
+    bldr._write_artifact(ctx, "maven_coords", text)
+    bldr._write_artifact(ctx, "maven_arbitrations", "")
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", mvngraph.jars_of(text))
+    return 0
+}
+
 // jar_maven("g:a:v", "<sha256>") — this node is that artifact. See above.
 // Setters in the block: excluding(...), and repo(...)/central() when the jar
 // is not on Maven Central.
@@ -732,7 +746,7 @@ builder jar_maven(coord: string, sha256: string): int {
         bldr.fail(ctx, "jar_maven: ${coord} unresolved")
         return 1
     }
-    return _maven_publish(ctx, _maven_node_record(ctx, coord, sha256, jar, _maven_edges(_builder)))
+    return _maven_record_only(ctx, _maven_node_record(ctx, coord, sha256, jar, _maven_edges(_builder)))
 }
 
 // pom_maven("g:a:v") — an artifact with no jar of its own (packaging pom):
@@ -741,7 +755,7 @@ builder pom_maven(coord: string): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     bldr._mkdirs(bldr._get(ctx, "target_dir"))
-    return _maven_publish(ctx, _maven_node_record(ctx, coord, "", "", _maven_edges(_builder)))
+    return _maven_record_only(ctx, _maven_node_record(ctx, coord, "", "", _maven_edges(_builder)))
 }
 
 // jar_bundle() — this node is its deps' jars and nothing of its own: a name

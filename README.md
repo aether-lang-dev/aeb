@@ -1711,14 +1711,21 @@ was asked for fails the node; it never hands back part of a classpath.
 
 ### Maven artifacts as hashed nodes
 
-`dep("group:artifact:version")` resolves at build time and records nothing.
-The other way is to read the poms once and keep what they said as build
-files, one per artifact, each with its jar's sha256:
+By default `dep("group:artifact:version")` resolves at build time and records
+nothing. A project with a `third_party/java` directory keeps its artifacts
+instead: the poms are read once and what they said is build files, one per
+artifact, each with its jar's sha256.
 
 ```sh
-aeb mvn add org.hibernate:hibernate-core:5.4.32.Final
-# writes third_party/java/<group dirs>/<artifact>/<version>/.jar.ae, 20 of them
+mkdir -p third_party/java
+aeb app/.build.ae        # first use: dep("org.hibernate:hibernate-core:5.4.32.Final")
+                         # writes third_party/java/<group dirs>/<artifact>/<version>/.jar.ae,
+                         # 20 of them; review and commit
+aeb --locked app/.build.ae   # writes nothing; a coordinate with no node is an error
 ```
+
+`--locked` is the default when `CI` is set. `aeb mvn add <g:a:v>...` writes
+the same files without a build, and a node can be named by path:
 
 ```aether
 dep("third_party/java/org/hibernate/hibernate-core/5.4.32.Final/.jar.ae")
@@ -1734,7 +1741,8 @@ beside the artifact (`aeb mvn add --pick <g:a>=<v>`):
 dep_arbitration("org.jboss.logging:jboss-logging", "3.4.1.Final", and_not("3.3.2.Final"))
 ```
 
-It covers the versions it names and no others. See
+It covers the versions it names and no others. A BOM's managed versions are
+written the same way, by aeb, into the `.bom.ae` that names the BOM. See
 [docs/design/maven-nodes-and-arbitration.md](docs/design/maven-nodes-and-arbitration.md).
 
 ## Cross-language dependencies

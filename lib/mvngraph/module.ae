@@ -41,7 +41,8 @@ import std.list
 
 exports(coord_ga, coord_version, merge, settle, jars_of, coords_of, roots_of,
         art_field, arb_line, effective_arb, lost_jars, csv_has, askers,
-        arts_only, arbitration_in)
+        arts_only, arbitration_in, arbitrations_in, node_dir, managed_version,
+        calls_in, node_coord, is_coord, own_arb)
 
 // ---- small text helpers -------------------------------------------------
 
@@ -628,7 +629,16 @@ settle(text: string, arbs: string) {
             ga = string.array_get(gas, gi)
             if string.length(ga) > 0 {
                 vs = _versions(got, ga)
-                if string.contains(vs, ",") == 1 {
+                contested = string.contains(vs, ",")
+                if contested == 0 {
+                    // One version reachable. This node's own arbitration
+                    // still moves it when it is a version named as "not".
+                    opick, onots = own_arb(arbs, ga)
+                    if string.length(opick) > 0 {
+                        if csv_has(onots, vs) == 1 { contested = 1 }
+                    }
+                }
+                if contested == 1 {
                     pick, nots, wh, err = effective_arb(arbs, ga)
                     all_vs = _versions(asked, ga)
                     if string.length(err) > 0 {
@@ -776,26 +786,102 @@ _quoted(line: string) {
     return out
 }
 
-// arbitration_in(source, ga) -> (pick, nots)
-//   The dep_arbitration("<ga>", "<pick>", and_not("<a>, <b>")) written in a
-//   build file's text, read as text the way aeb reads dep(): one statement on
-//   one line, not in a // comment. ("", "") when the file has none for ga.
-arbitration_in(source: string, ga: string) {
+// arbitrations_in(source) — every dep_arbitration("<ga>", "<pick>",
+// and_not("<a>, <b>")) written in a build file or a .bom.ae, as lines
+// "<ga>|<pick>|<nots>". Read as text the way aeb reads dep(): one statement
+// on one line, not in a // comment. Several lines for one artifact with the
+// same pick are one, with all their and-not lists; a later line with another
+// pick is ignored (the first is the decision).
+arbitrations_in(source: string) {
     lines = string.split(source, "\n")
+    n = string.array_size(lines)
+    out = ""
+    i = 0
+    while i < n {
+        l = string.trim(string.array_get(lines, i))
+        if string.starts_with(l, "//") == 0 {
+            if string.contains(l, "dep_arbitration(") == 1 {
+                q = _quoted(l)
+                ga = _nth(q, "\n", 0)
+                pick = _nth(q, "\n", 1)
+                nots = _nth(q, "\n", 2)
+                if string.length(ga) > 0 && string.length(pick) > 0 {
+                    // Fold into an existing line for this ga.
+                    olds = string.split(out, "\n")
+                    on = string.array_size(olds)
+                    rebuilt = ""
+                    found = 0
+                    oi = 0
+                    while oi < on {
+                        ol = string.array_get(olds, oi)
+                        if string.length(ol) > 0 {
+                            keep = string.concat(ol, "")
+                            if string.equals(_nth(ol, "|", 0), ga) == 1 {
+                                found = 1
+                                if string.equals(_nth(ol, "|", 1), pick) == 1 {
+                                    keep = string.concat(string.concat(ga, "|"), pick)
+                                    keep = string.concat(string.concat(keep, "|"), _csv_union(_nth(ol, "|", 2), nots))
+                                }
+                            }
+                            if string.length(rebuilt) > 0 { rebuilt = string.concat(rebuilt, "\n") }
+                            rebuilt = string.concat(rebuilt, keep)
+                        }
+                        oi = oi + 1
+                    }
+                    string.array_free(olds)
+                    if found == 0 {
+                        nl = string.concat(string.concat(ga, "|"), pick)
+                        nl = string.concat(string.concat(nl, "|"), _csv_union("", nots))
+                        if string.length(rebuilt) > 0 { rebuilt = string.concat(rebuilt, "\n") }
+                        rebuilt = string.concat(rebuilt, nl)
+                    }
+                    out = rebuilt
+                }
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// arbitration_in(source, ga) -> (pick, nots): the one for ga, ("", "") if none.
+arbitration_in(source: string, ga: string) {
+    all = arbitrations_in(source)
+    lines = string.split(all, "\n")
     n = string.array_size(lines)
     pick = ""
     nots = ""
     i = 0
     while i < n {
-        l = string.trim(string.array_get(lines, i))
+        l = string.array_get(lines, i)
+        if string.equals(_nth(l, "|", 0), ga) == 1 {
+            pick = _nth(l, "|", 1)
+            nots = _nth(l, "|", 2)
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return pick, nots
+}
+
+// own_arb(arbs, ga) -> (pick, nots): this node's OWN arbitration for ga,
+// ("", "") if it has none. Its own statement holds whether or not there is a
+// contest: "1.2, and not 1.0" moves a lone request for 1.0 to 1.2. That is
+// how a BOM's managed version replaces what a pom asks for.
+own_arb(arbs: string, ga: string) {
+    lines = string.split(arbs, "\n")
+    n = string.array_size(lines)
+    pick = ""
+    nots = ""
+    i = 0
+    while i < n {
+        l = string.array_get(lines, i)
         if string.length(pick) == 0 {
-            if string.starts_with(l, "//") == 0 {
-                if string.contains(l, "dep_arbitration(") == 1 {
-                    q = _quoted(l)
-                    if string.equals(_nth(q, "\n", 0), ga) == 1 {
-                        pick = _nth(q, "\n", 1)
-                        nots = _nth(q, "\n", 2)
-                    }
+            if string.equals(_nth(l, "|", 0), "own") == 1 {
+                if string.equals(_nth(l, "|", 1), ga) == 1 {
+                    pick = _nth(l, "|", 2)
+                    nots = _nth(l, "|", 3)
                 }
             }
         }
@@ -803,4 +889,97 @@ arbitration_in(source: string, ga: string) {
     }
     string.array_free(lines)
     return pick, nots
+}
+
+// ---- coordinates and the files that stand for them ----------------------
+
+// is_coord(s) — 1 when a dep() string is a Maven coordinate: it has a colon
+// and is not one of the prefixed kinds (npm:, git:).
+is_coord(s: string) {
+    if string.index_of(s, ":") < 0 { return 0 }
+    if string.starts_with(s, "npm:") == 1 { return 0 }
+    if string.starts_with(s, "git:") == 1 { return 0 }
+    return 1
+}
+
+// node_dir(into, coord) — <into>/<group dirs>/<artifact>/<version>, with
+// -<classifier> on the version when the coord has one. "" for a coord with
+// no version.
+node_dir(into: string, coord: string) {
+    parts = string.split(coord, ":")
+    n = string.array_size(parts)
+    out = ""
+    if n >= 3 {
+        g = string.replace_all(string.array_get(parts, 0), ".", "/")
+        out = string.concat(string.concat(into, "/"), g)
+        out = string.concat(string.concat(out, "/"), string.array_get(parts, 1))
+        out = string.concat(string.concat(out, "/"), string.array_get(parts, 2))
+        if n >= 4 { out = string.concat(string.concat(out, "-"), string.array_get(parts, 3)) }
+    }
+    string.array_free(parts)
+    return out
+}
+
+// calls_in(source, fn) — the first quoted argument of every `fn("...")` on a
+// line that is not a // comment, newline-joined, in order, each once. fn is
+// matched as a whole name (dep does not match dep_arbitration or pkg_dep).
+calls_in(source: string, fn: string) {
+    lines = string.split(source, "\n")
+    n = string.array_size(lines)
+    needle = string.concat(fn, "(\"")
+    nl = string.length(needle)
+    out = ""
+    i = 0
+    while i < n {
+        l = string.trim(string.array_get(lines, i))
+        if string.starts_with(l, "//") == 0 {
+            rest = string.concat(l, "")
+            while string.length(rest) > 0 {
+                idx = string.index_of(rest, needle)
+                if idx < 0 {
+                    rest = ""
+                } else {
+                    whole = 1
+                    if idx > 0 {
+                        pc = string.substring(rest, idx - 1, idx)
+                        if string.compare(pc, "a") >= 0 { if string.compare(pc, "z") <= 0 { whole = 0 } }
+                        if string.compare(pc, "A") >= 0 { if string.compare(pc, "Z") <= 0 { whole = 0 } }
+                        if string.compare(pc, "0") >= 0 { if string.compare(pc, "9") <= 0 { whole = 0 } }
+                        if string.equals(pc, "_") == 1 { whole = 0 }
+                    }
+                    tail = string.substring(rest, idx + nl, string.length(rest))
+                    close = string.index_of(tail, "\"")
+                    if close < 0 {
+                        rest = ""
+                    } else {
+                        if whole == 1 { out = _add_line(out, string.substring(tail, 0, close)) }
+                        rest = string.substring(tail, close + 1, string.length(tail))
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// managed_version(managed, ga) — the version a managed.bom.ae gives ga
+// (group:artifact), "" if it does not manage it.
+managed_version(managed: string, ga: string) {
+    want = string.concat(string.concat("managed(\"", ga), "\", \"")
+    idx = string.index_of(managed, want)
+    if idx < 0 { return string.concat("", "") }
+    tail = string.substring(managed, idx + string.length(want), string.length(managed))
+    close = string.index_of(tail, "\"")
+    if close < 0 { return string.concat("", "") }
+    return string.substring(tail, 0, close)
+}
+
+// node_coord(source) — the coordinate a generated node is: the argument of
+// its jar_maven("...") or pom_maven("..."). "" for any other build file.
+node_coord(source: string) {
+    c = calls_in(source, "jar_maven")
+    if string.length(c) == 0 { c = calls_in(source, "pom_maven") }
+    return _nth(c, "\n", 0)
 }

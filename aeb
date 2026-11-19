@@ -580,6 +580,12 @@ while [[ $i -le $# ]]; do
         fi
         export AEB_INTENT_JSON="${!i}"
         export AEB_TRACE_INTENT=1   # naming an output implies --trace-intent
+    elif [[ "$a" == "--locked" ]]; then
+        # Nothing is generated or written into the source tree: a Maven
+        # coordinate with no node yet, or a BOM-managed version not yet written
+        # down, is an error, not a first use (tools/aebmvn). The default when
+        # CI is set; AEB_LOCKED=0 turns it off there.
+        export AEB_LOCKED=1
     elif [[ "$a" == "--timeout" ]]; then
         i=$((i + 1))
         if [[ $i -gt $# ]]; then

@@ -383,19 +383,19 @@ Grammar: java.javac, java.javac_test, java.junit, java.junit5, java.java_main, j
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
 | java | compile | aeb | lib/java/module.ae:241 | `javac_bin = "javac"` | java.javac |
-| java | compile | aeb | lib/java/module.ae:1552 | `javac_cmd(` | java.javac_test |
-| java | compile | delegated | lib/java/module.ae:840 | `"compile"` | java.mvn_project |
+| java | compile | aeb | lib/java/module.ae:1566 | `javac_cmd(` | java.javac_test |
+| java | compile | delegated | lib/java/module.ae:854 | `"compile"` | java.mvn_project |
 | java | test | aeb | lib/java/module.ae:392 | `org.junit.runner.JUnitCore` | java.junit |
-| java | test | aeb | lib/java/module.ae:1846 | `org.junit.platform.console.ConsoleLauncher` | java.junit5 |
-| java | test | aeb | lib/java/module.ae:1988 | `-ea` | java.java_main |
-| java | test | delegated | lib/java/module.ae:853 | `"test"` | java.mvn_project |
-| java | resolve | aeb | lib/java/module.ae:1099 | `maven.classpath(ctx)` | java.javac |
+| java | test | aeb | lib/java/module.ae:1860 | `org.junit.platform.console.ConsoleLauncher` | java.junit5 |
+| java | test | aeb | lib/java/module.ae:2002 | `-ea` | java.java_main |
+| java | test | delegated | lib/java/module.ae:867 | `"test"` | java.mvn_project |
+| java | resolve | aeb | lib/java/module.ae:1113 | `maven.classpath(ctx)` | java.javac |
 | java | resolve | aeb | lib/java/module.ae:628 | `cryptography.sha256_file` | java.jar_pinned |
-| java | package | aeb | lib/java/module.ae:1473 | `jar --create` | java.package_jar |
-| java | package | aeb | lib/java/module.ae:2084 | `jar cfM` | java.shade |
-| java | package | aeb | lib/java/module.ae:2183 | `jar cfM` | java.thin_jar |
-| java | incremental | module-only | lib/java/module.ae:1192 | `cache.available()` | java.javac |
-| java | cache | yes | lib/java/module.ae:1202 | `cache.get(` | java.javac |
+| java | package | aeb | lib/java/module.ae:1487 | `jar --create` | java.package_jar |
+| java | package | aeb | lib/java/module.ae:2098 | `jar cfM` | java.shade |
+| java | package | aeb | lib/java/module.ae:2197 | `jar cfM` | java.thin_jar |
+| java | incremental | module-only | lib/java/module.ae:1206 | `cache.available()` | java.javac |
+| java | cache | yes | lib/java/module.ae:1216 | `cache.get(` | java.javac |
 
 ### javascript
 
@@ -465,10 +465,10 @@ Grammar: maven.test, maven.install (project forms: drive an existing pom.xml); l
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
 | maven | resolve | aeb | lib/maven/module.ae:64 | `java -jar ${resolver_jar}` | maven.resolve |
-| maven | test | delegated | lib/maven/module.ae:457 | `mvn -q test` | maven.test |
-| maven | package | delegated | lib/maven/module.ae:464 | `mvn -q -DskipTests install` | maven.install |
-| maven | incremental | delegated | lib/maven/module.ae:464 | `mvn -q` | maven.install |
-| maven | cache | yes | lib/maven/module.ae:332 | `cache.available()` | maven.resolve |
+| maven | test | delegated | lib/maven/module.ae:461 | `mvn -q test` | maven.test |
+| maven | package | delegated | lib/maven/module.ae:468 | `mvn -q -DskipTests install` | maven.install |
+| maven | incremental | delegated | lib/maven/module.ae:461 | `mvn -q` | maven.install |
+| maven | cache | yes | lib/maven/module.ae:333 | `cache.available()` | maven.resolve |
 
 ### moonbit
 

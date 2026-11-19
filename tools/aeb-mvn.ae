@@ -55,10 +55,22 @@ main() {
         println("  Build it: aeb tools/resolver/.dist.ae (needs a JDK), or install a release build.")
         exit(3)
     }
-    cmd = "java -jar '${jar}' --output nodes"
+    // `aeb mvn add --managed --bom G:A:V`: record what a BOM manages instead
+    // of writing artifact nodes.
+    mode = "nodes"
+    k = 3
+    while k < n {
+        if string.equals(aether_args_get(k), "--managed") == 1 { mode = "managed" }
+        k = k + 1
+    }
+    cmd = "java -jar '${jar}' --output ${mode}"
     i = 3
     while i < n {
         a = aether_args_get(i)
+        if string.equals(a, "--managed") == 1 {
+            i = i + 1
+            continue
+        }
         if string.contains(a, "'") == 1 {
             println("aeb mvn: an argument with a single quote in it: ${a}")
             exit(2)

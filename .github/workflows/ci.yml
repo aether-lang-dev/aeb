@@ -232,5 +232,10 @@ jobs:
       # until a dep_arbitration names the pick and what it is not.
       - name: Maven nodes and dep_arbitration
         run: itests/mvn-nodes-arbitration.sh
+      # In a project with third_party/java, dep("g:a:v") is that artifact's
+      # node, written on first use; a locked build refuses to write; a BOM's
+      # managed versions are written into the .bom.ae as arbitrations.
+      - name: Maven coordinates as nodes, first use and locked
+        run: itests/mvn-first-use.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

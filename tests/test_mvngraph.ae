@@ -119,7 +119,7 @@ main() {
             src = "main() {\n    bldr.build() {\n        dep_arbitration(\"x:d\", \"1.2\", and_not(\"1.0, 1.1\"))\n        dep_arbitration(\"x:e\", \"3\", and_not(\"2\"))\n    }\n}\n"
             pick, nots = mvngraph.arbitration_in(src, "x:d")
             spec.assert_str_eq(pick, "1.2", "pick")
-            spec.assert_str_eq(nots, "1.0, 1.1", "and not")
+            spec.assert_str_eq(nots, "1.0,1.1", "and not, as a list")
             pick2, nots2 = mvngraph.arbitration_in(src, "x:e")
             spec.assert_str_eq(pick2, "3", "the other artifact's")
         }
@@ -127,6 +127,60 @@ main() {
             src = "    // dep_arbitration(\"x:d\", \"9\", and_not(\"8\"))\n    dep(\"x/d/1.0/.jar.ae\")\n"
             pick, nots = mvngraph.arbitration_in(src, "x:d")
             spec.assert_str_eq(pick, "", "a commented-out line is not a decision")
+        }
+    }
+
+    spec.describe(fw, "a node's own arbitration, with no contest") {
+        spec.it("moves a lone request for a version it names as not") callback {
+            // Only b asks, for d:1.0. The node says 1.2, and not 1.0, and d:1.2 is on hand.
+            t = "root x:b:1\nart x:b:1|sb|/j/b.jar|n|x:d:1.0|\nart x:d:1.0|s0|/j/d0.jar|n||\nart x:d:1.2|s2|/j/d2.jar|n||"
+            s, applied, problems = mvngraph.settle(t, mvngraph.arb_line("own", "x:d", "1.2", "1.0", "x.bom.ae"))
+            spec.assert_str_eq(problems, "", "no problems")
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b.jar\n/j/d2.jar", "1.2")
+        }
+        spec.it("an inherited or default one does not: they speak only to a contest") callback {
+            t = "root x:b:1\nart x:b:1|sb|/j/b.jar|n|x:d:1.0|\nart x:d:1.0|s0|/j/d0.jar|n||\nart x:d:1.2|s2|/j/d2.jar|n||"
+            s, applied, problems = mvngraph.settle(t, mvngraph.arb_line("default", "x:d", "1.2", "1.0", "tp"))
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b.jar\n/j/d0.jar", "1.0 stays")
+        }
+        spec.it("one that names nothing asked for changes nothing") callback {
+            t = "root x:b:1\nart x:b:1|sb|/j/b.jar|n|x:d:1.0|\nart x:d:1.0|s0|/j/d0.jar|n||"
+            s, applied, problems = mvngraph.settle(t, mvngraph.arb_line("own", "x:d", "1.2", "0.9", "x.bom.ae"))
+            spec.assert_str_eq(problems, "", "no problems")
+            spec.assert_str_eq(applied, "", "not applied")
+        }
+    }
+
+    spec.describe(fw, "a coordinate and the files that stand for it") {
+        spec.it("the node directory") callback {
+            spec.assert_str_eq(mvngraph.node_dir("third_party/java", "org.x.y:lib:1.2"), "third_party/java/org/x/y/lib/1.2", "group dirs")
+            spec.assert_str_eq(mvngraph.node_dir("tp", "g:a:1:linux"), "tp/g/a/1-linux", "classifier")
+            spec.assert_str_eq(mvngraph.node_dir("tp", "g:a"), "", "no version, no directory")
+        }
+        spec.it("what is a coordinate") callback {
+            spec.assert_eq(mvngraph.is_coord("g:a:1"), 1, "g:a:v")
+            spec.assert_eq(mvngraph.is_coord("npm:left-pad@1"), 0, "npm")
+            spec.assert_eq(mvngraph.is_coord("git:https://x/y#d:n"), 0, "git")
+            spec.assert_eq(mvngraph.is_coord("libs/java/x"), 0, "a path")
+        }
+        spec.it("calls read from a file's text, whole names only, not comments") callback {
+            src = "dep(\"a/.jar.ae\")\n  dep(\"g:a:1\")  dep(\"b\")\n// dep(\"no\")\ndep_arbitration(\"g:a\", \"1\", and_not(\"2\"))\npkg_dep(\"x\", \"y\")\n"
+            spec.assert_str_eq(mvngraph.calls_in(src, "dep"), "a/.jar.ae\ng:a:1\nb", "dep only")
+        }
+        spec.it("what a BOM's record manages") callback {
+            m = "managed(\"g:a\", \"1.2\")\nmanaged(\"g:ab\", \"9\")\n"
+            spec.assert_str_eq(mvngraph.managed_version(m, "g:a"), "1.2", "g:a")
+            spec.assert_str_eq(mvngraph.managed_version(m, "g:ab"), "9", "not a prefix match")
+            spec.assert_str_eq(mvngraph.managed_version(m, "g:z"), "", "not managed")
+        }
+        spec.it("the coordinate a generated node is") callback {
+            spec.assert_str_eq(mvngraph.node_coord("        java.jar_maven(\"g:a:1\", \"abc\")\n"), "g:a:1", "jar")
+            spec.assert_str_eq(mvngraph.node_coord("        java.pom_maven(\"g:p:2\")\n"), "g:p:2", "pom")
+            spec.assert_str_eq(mvngraph.node_coord("        java.javac()\n"), "", "any other build file")
+        }
+        spec.it("several lines for one artifact with the same pick are one") callback {
+            src = "dep_arbitration(\"g:a\", \"2\", and_not(\"1.0\"))\ndep_arbitration(\"g:a\", \"2\", and_not(\"1.1\"))\ndep_arbitration(\"g:a\", \"3\", and_not(\"2\"))\n"
+            spec.assert_str_eq(mvngraph.arbitrations_in(src), "g:a|2|1.0,1.1", "the first pick, all its lists")
         }
     }
 

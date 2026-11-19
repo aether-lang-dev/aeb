@@ -1,0 +1,527 @@
+// aebmvn — a Maven coordinate in a dep() is a node on disk.
+//
+// In a project that keeps its Maven artifacts as build files (one per
+// artifact, with its jar's sha256; see docs/design/maven-nodes-and-
+// arbitration.md), `dep("group:artifact:version")` is shorthand for
+//
+//     dep("<dir>/<group dirs>/<artifact>/<version>/.jar.ae")
+//
+// and this module is where the shorthand is expanded, while the graph is
+// being read and before anything is built:
+//
+//   - The node is there: that is the edge. Nothing is resolved.
+//   - It is not: FIRST USE. `aeb mvn add` writes it and its closure, the
+//     build carries on, and the new files are the diff to review and commit.
+//   - Locked (--locked, AEB_LOCKED=1, or CI set and AEB_LOCKED not 0): a
+//     missing node is an error. A dependency nobody reviewed does not get in
+//     by being built.
+//
+// A version-less `dep("group:artifact")` takes its version from the BOMs the
+// build file loads (load_bom_file -> maven_bom("G:A:V")), read from the
+// checked-in record of what each BOM manages (<dir>/.../managed.bom.ae,
+// also written on first use).
+//
+// A BOM manages more than the roots: in Maven it replaces the version of
+// anything in the closure. Nodes are written as their poms declare, so here
+// that replacement is an arbitration like any other, and it is WRITTEN: where
+// the closure asks for a version other than the BOM's, a
+//
+//     dep_arbitration("<g:a>", "<the BOM's>", and_not("<what the poms asked>"))
+//
+// line is appended to the .bom.ae that names the BOM, the node for the BOM's
+// version is generated if missing, and the build file gets an edge to it so
+// it is built first. A line already there for the artifact, whoever wrote it,
+// is left alone: change the pick in that line to decide differently.
+//
+// The project keeps its artifacts in $AEB_MVN_DIR, or third_party/java when
+// that directory exists. With neither, mvn_dir() is "" and a coordinate is
+// resolved at build time as before (lib/maven), recorded nowhere.
+
+import std.string
+import std.file
+import std.dir
+import std.io
+import std.os
+import std.list
+import mvngraph
+
+exports(mvn_dir, locked, edges)
+
+// mvn_dir() — where this project keeps its Maven nodes, relative to the
+// project root (the working directory); "" when it does not keep any.
+mvn_dir() {
+    e = os.getenv("AEB_MVN_DIR")
+    if string.length(e) > 0 { return string.concat(e, "") }
+    if dir.exists("third_party/java") == 1 { return string.concat("third_party/java", "") }
+    return string.concat("", "")
+}
+
+// locked() — 1 when nothing may be generated or written into the tree.
+locked() {
+    l = os.getenv("AEB_LOCKED")
+    if string.equals(l, "1") == 1 { return 1 }
+    if string.equals(l, "0") == 1 { return 0 }
+    if string.length(os.getenv("CI")) > 0 { return 1 }
+    return 0
+}
+
+_has_line(text: string, line: string) {
+    if string.length(text) == 0 { return 0 }
+    hay = string.concat(string.concat("\n", text), "\n")
+    return string.contains(hay, string.concat(string.concat("\n", line), "\n"))
+}
+
+_add_line(text: string, line: string) {
+    if string.length(line) == 0 { return string.concat(text, "") }
+    if _has_line(text, line) == 1 { return string.concat(text, "") }
+    if string.length(text) == 0 { return string.concat(line, "") }
+    return string.concat(string.concat(text, "\n"), line)
+}
+
+_read(p: string) {
+    if file.exists(p) == 0 { return string.concat("", "") }
+    c, err = io.read_file(p)
+    if err != "" { return string.concat("", "") }
+    return c
+}
+
+_parts(s: string, sep: string) {
+    parts = string.split(s, sep)
+    n = string.array_size(parts)
+    string.array_free(parts)
+    return n
+}
+
+_nth(s: string, sep: string, n: int) {
+    parts = string.split(s, sep)
+    out = ""
+    if n < string.array_size(parts) { out = string.concat(string.array_get(parts, n), "") }
+    string.array_free(parts)
+    return out
+}
+
+// _join(base, rel) — rel against a directory, "." and ".." segments folded,
+// so the result is the spelling the graph uses for the same file.
+_join(base: string, rel: string) {
+    full = string.concat(rel, "")
+    if string.length(base) > 0 { full = string.concat(string.concat(base, "/"), rel) }
+    segs = string.split(full, "/")
+    n = string.array_size(segs)
+    kept = list.new()
+    i = 0
+    while i < n {
+        sg = string.array_get(segs, i)
+        if string.equals(sg, "..") == 1 && list.size(kept) > 0 {
+            list.remove(kept, list.size(kept) - 1)
+        } else if string.length(sg) > 0 && string.equals(sg, ".") == 0 {
+            _a = list.add(kept, string.concat(sg, ""))
+        }
+        i = i + 1
+    }
+    string.array_free(segs)
+    out = ""
+    k = 0
+    while k < list.size(kept) {
+        sg2, _ = list.get_string(kept, k)
+        if k > 0 { out = string.concat(out, "/") }
+        out = string.concat(out, sg2)
+        k = k + 1
+    }
+    return out
+}
+
+// _generate(args, what) — run `aeb mvn add <args>`, its output on stderr
+// (stdout belongs to whoever reads the edges). "" or an error.
+_generate(args: string, what: string) {
+    if locked() == 1 {
+        return "${what} is not in the tree, and this build is locked, so it will not be generated. Run `aeb mvn add ${args}` on a workstation, review and commit what it writes."
+    }
+    home = os.getenv("AEB_HOME")
+    if string.length(home) == 0 {
+        return "${what} is not in the tree and AEB_HOME is not set to run `aeb mvn add ${args}`"
+    }
+    _w = io.stderr_write("aeb: first use of ${what}: aeb mvn add ${args}\n")
+    rc = os.system("'${home}/aeb' mvn add ${args} 1>&2")
+    if rc != 0 { return "`aeb mvn add ${args}` failed (above)" }
+    return ""
+}
+
+_repo_args(repos: string) {
+    out = ""
+    rs = string.split(repos, "\n")
+    n = string.array_size(rs)
+    i = 0
+    while i < n {
+        r = string.array_get(rs, i)
+        if string.length(r) > 0 { out = string.concat(out, " --repo '${r}'") }
+        i = i + 1
+    }
+    string.array_free(rs)
+    return out
+}
+
+// _managed_by(into, boms, ga) -> (version, bom): the first of the BOMs (in
+// the order the build file loads them) that manages ga, and its version.
+_managed_by(into: string, boms: string, ga: string) {
+    bs = string.split(boms, "\n")
+    n = string.array_size(bs)
+    ver = ""
+    by = ""
+    i = 0
+    while i < n {
+        b = string.array_get(bs, i)
+        if string.length(ver) == 0 && string.length(b) > 0 {
+            m = _read(string.concat(mvngraph.node_dir(into, b), "/managed.bom.ae"))
+            v = mvngraph.managed_version(m, ga)
+            if string.length(v) > 0 {
+                ver = v
+                by = string.concat(b, "")
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(bs)
+    return ver, by
+}
+
+// edges(build_file, content, base_dir) -> (paths, err)
+//   The node files `build_file` depends on through its Maven coordinates,
+//   space-separated; generating and writing as described at the top.
+//   ("", "") when the project keeps no Maven nodes or the file names none.
+edges(build_file: string, content: string, base_dir: string) {
+    into = mvn_dir()
+    if string.length(into) == 0 { return "", "" }
+
+    // --- what the build file asks for: its own dep()s and its .bom.ae's ---
+    coords = ""
+    boms = ""
+    repos = ""
+    bom_files = ""          // lines "<path>"
+    arbs = ""               // lines "<ga>|<pick>|<nots>|<file>"
+    own = mvngraph.arbitrations_in(content)
+    ol = string.split(own, "\n")
+    on = string.array_size(ol)
+    oi = 0
+    while oi < on {
+        o = string.array_get(ol, oi)
+        if string.length(o) > 0 { arbs = _add_line(arbs, string.concat(string.concat(o, "|"), build_file)) }
+        oi = oi + 1
+    }
+    string.array_free(ol)
+    ds = string.split(mvngraph.calls_in(content, "dep"), "\n")
+    dn = string.array_size(ds)
+    di = 0
+    while di < dn {
+        d = string.array_get(ds, di)
+        if mvngraph.is_coord(d) == 1 { coords = _add_line(coords, d) }
+        di = di + 1
+    }
+    string.array_free(ds)
+    lf = string.split(mvngraph.merge(mvngraph.calls_in(content, "load_bom_file"), mvngraph.calls_in(content, "load_third_party_deps")), "\n")
+    ln = string.array_size(lf)
+    li = 0
+    while li < ln {
+        rel = string.array_get(lf, li)
+        if string.length(rel) > 0 {
+            bp = _join(base_dir, rel)
+            btxt = _read(bp)
+            if string.length(btxt) > 0 {
+                bom_files = _add_line(bom_files, bp)
+                boms = mvngraph.merge(boms, mvngraph.calls_in(btxt, "maven_bom"))
+                repos = mvngraph.merge(repos, mvngraph.calls_in(btxt, "maven_repo"))
+                bd = string.split(mvngraph.calls_in(btxt, "dep"), "\n")
+                bn = string.array_size(bd)
+                bi = 0
+                while bi < bn {
+                    d2 = string.array_get(bd, bi)
+                    if mvngraph.is_coord(d2) == 1 { coords = _add_line(coords, d2) }
+                    bi = bi + 1
+                }
+                string.array_free(bd)
+                ba = string.split(mvngraph.arbitrations_in(btxt), "\n")
+                ban = string.array_size(ba)
+                bai = 0
+                while bai < ban {
+                    a0 = string.array_get(ba, bai)
+                    if string.length(a0) > 0 { arbs = _add_line(arbs, string.concat(string.concat(a0, "|"), bp)) }
+                    bai = bai + 1
+                }
+                string.array_free(ba)
+            }
+        }
+        li = li + 1
+    }
+    string.array_free(lf)
+    if string.length(coords) == 0 { return "", "" }
+    rargs = _repo_args(repos)
+
+    // --- the record of what each BOM manages ---
+    bs = string.split(boms, "\n")
+    bsn = string.array_size(bs)
+    bsi = 0
+    err = ""
+    while bsi < bsn {
+        b = string.array_get(bs, bsi)
+        if string.length(b) > 0 && string.length(err) == 0 {
+            mf = string.concat(mvngraph.node_dir(into, b), "/managed.bom.ae")
+            if file.exists(mf) == 0 {
+                err = _generate("--managed --into '${into}'${rargs} --bom '${b}'", "the BOM ${b}")
+            }
+        }
+        bsi = bsi + 1
+    }
+    string.array_free(bs)
+    if string.length(err) > 0 { return "", err }
+
+    // --- each coordinate at a version, and its node ---
+    roots = ""              // node files
+    missing = ""            // coords to generate, space-separated and quoted
+    cs = string.split(coords, "\n")
+    cn = string.array_size(cs)
+    ci = 0
+    while ci < cn {
+        c = string.concat(string.array_get(cs, ci), "")
+        if string.length(c) > 0 && string.length(err) == 0 {
+            if _parts(c, ":") == 2 {
+                v, _by = _managed_by(into, boms, c)
+                if string.length(v) == 0 {
+                    err = "dep(\"${c}\") has no version, and no BOM this file loads manages it"
+                } else {
+                    c = string.concat(string.concat(c, ":"), v)
+                }
+            }
+            if string.length(err) == 0 {
+                nf = string.concat(mvngraph.node_dir(into, c), "/.jar.ae")
+                roots = _add_line(roots, nf)
+                if file.exists(nf) == 0 { missing = string.concat(missing, " '${c}'") }
+            }
+        }
+        ci = ci + 1
+    }
+    string.array_free(cs)
+    if string.length(err) > 0 { return "", err }
+    if string.length(missing) > 0 {
+        err = _generate("--into '${into}'${rargs}${missing}", string.trim(string.replace_all(missing, "'", "")))
+        if string.length(err) > 0 { return "", err }
+    }
+
+    // --- what the BOMs manage differently from what the poms ask ---
+    // Walk the closure as written. Where a pom asks for an artifact at a
+    // version its BOM manages otherwise, the BOM's version is followed (as
+    // Maven would), and the difference is noted to be written down.
+    out = string.replace_all(roots, "\n", " ")
+    seen_gas = ""
+    want = ""               // lines "<ga>|<pick>|<nots>|<bom>"
+    queue = list.new()
+    rl = string.split(roots, "\n")
+    rn = string.array_size(rl)
+    ri = 0
+    while ri < rn {
+        r = string.array_get(rl, ri)
+        if string.length(r) > 0 { _q = list.add(queue, string.concat(r, "")) }
+        ri = ri + 1
+    }
+    string.array_free(rl)
+    visited = ""
+    head = 0
+    while head < list.size(queue) && string.length(err) == 0 {
+        nf, _ = list.get_string(queue, head)
+        head = head + 1
+        if _has_line(visited, nf) == 0 {
+            visited = _add_line(visited, nf)
+            ntxt = _read(nf)
+            nc = mvngraph.node_coord(ntxt)
+            if string.length(nc) > 0 { seen_gas = _add_line(seen_gas, mvngraph.coord_ga(nc)) }
+            nds = string.split(mvngraph.calls_in(ntxt, "dep"), "\n")
+            ndn = string.array_size(nds)
+            ndi = 0
+            while ndi < ndn {
+                dp = string.concat(string.array_get(nds, ndi), "")
+                if string.length(dp) > 0 && string.length(err) == 0 {
+                    dc = mvngraph.node_coord(_read(dp))
+                    follow = dp
+                    if string.length(dc) > 0 && string.length(boms) > 0 {
+                        ga = mvngraph.coord_ga(dc)
+                        seen_gas = _add_line(seen_gas, ga)
+                        dv = mvngraph.coord_version(dc)
+                        mv = ""
+                        mby = ""
+                        if _parts(ga, ":") == 2 {
+                            mv0, mby0 = _managed_by(into, boms, ga)
+                            mv = mv0
+                            mby = mby0
+                        }
+                        if string.length(mv) > 0 && string.equals(mv, dv) == 0 {
+                            // Is there already a decision for this artifact?
+                            decided = ""
+                            al = string.split(arbs, "\n")
+                            aln = string.array_size(al)
+                            ali = 0
+                            while ali < aln {
+                                a1 = string.array_get(al, ali)
+                                if string.equals(_nth(a1, "|", 0), ga) == 1 {
+                                    if string.length(decided) == 0 { decided = _nth(a1, "|", 1) }
+                                }
+                                ali = ali + 1
+                            }
+                            string.array_free(al)
+                            pick = mv
+                            if string.length(decided) > 0 { pick = decided }
+                            if string.equals(pick, mv) == 1 {
+                                // Note the BOM's replacement of dv.
+                                wl = string.split(want, "\n")
+                                wn = string.array_size(wl)
+                                rebuilt = ""
+                                found = 0
+                                wi = 0
+                                while wi < wn {
+                                    w = string.array_get(wl, wi)
+                                    if string.length(w) > 0 {
+                                        keep = string.concat(w, "")
+                                        if string.equals(_nth(w, "|", 0), ga) == 1 {
+                                            found = 1
+                                            nots = _nth(w, "|", 2)
+                                            if mvngraph.csv_has(nots, dv) == 0 { nots = string.concat(string.concat(nots, ","), dv) }
+                                            keep = string.concat(string.concat(ga, "|"), mv)
+                                            keep = string.concat(string.concat(keep, "|"), nots)
+                                            keep = string.concat(string.concat(keep, "|"), mby)
+                                        }
+                                        rebuilt = _add_line(rebuilt, keep)
+                                    }
+                                    wi = wi + 1
+                                }
+                                string.array_free(wl)
+                                if found == 0 {
+                                    nw = string.concat(string.concat(ga, "|"), mv)
+                                    nw = string.concat(string.concat(nw, "|"), dv)
+                                    rebuilt = _add_line(rebuilt, string.concat(string.concat(nw, "|"), mby))
+                                }
+                                want = rebuilt
+                            }
+                            if string.equals(pick, dv) == 0 {
+                                pc = string.concat(string.concat(ga, ":"), pick)
+                                pf = string.concat(mvngraph.node_dir(into, pc), "/.jar.ae")
+                                if file.exists(pf) == 0 {
+                                    err = _generate("--into '${into}'${rargs} '${pc}'", pc)
+                                }
+                                follow = pf
+                                if _has_line(string.replace_all(out, " ", "\n"), pf) == 0 {
+                                    out = string.concat(string.concat(out, " "), pf)
+                                }
+                            }
+                        }
+                    }
+                    _q2 = list.add(queue, string.concat(follow, ""))
+                }
+                ndi = ndi + 1
+            }
+            string.array_free(nds)
+        }
+    }
+    if string.length(err) > 0 { return "", err }
+
+    // --- write down what was found, in the .bom.ae that names the BOM ---
+    wl2 = string.split(want, "\n")
+    wn2 = string.array_size(wl2)
+    wi2 = 0
+    while wi2 < wn2 && string.length(err) == 0 {
+        w = string.array_get(wl2, wi2)
+        if string.length(w) > 0 {
+            ga = _nth(w, "|", 0)
+            mv = _nth(w, "|", 1)
+            nots = _nth(w, "|", 2)
+            mby = _nth(w, "|", 3)
+            // Covered already, by this file or one of its .bom.ae?
+            have = ""
+            al2 = string.split(arbs, "\n")
+            aln2 = string.array_size(al2)
+            ali2 = 0
+            while ali2 < aln2 {
+                a2 = string.array_get(al2, ali2)
+                if string.equals(_nth(a2, "|", 0), ga) == 1 {
+                    if string.equals(_nth(a2, "|", 1), mv) == 1 {
+                        have = string.concat(string.concat(have, ","), _nth(a2, "|", 2))
+                    }
+                }
+                ali2 = ali2 + 1
+            }
+            string.array_free(al2)
+            lack = ""
+            nl = string.split(nots, ",")
+            nln = string.array_size(nl)
+            nli = 0
+            while nli < nln {
+                nv = string.array_get(nl, nli)
+                if string.length(nv) > 0 && mvngraph.csv_has(have, nv) == 0 {
+                    if string.length(lack) > 0 { lack = string.concat(lack, ", ") }
+                    lack = string.concat(lack, nv)
+                }
+                nli = nli + 1
+            }
+            string.array_free(nl)
+            if string.length(lack) > 0 {
+                // The .bom.ae that names the BOM managing it.
+                target = ""
+                bfl = string.split(bom_files, "\n")
+                bfn = string.array_size(bfl)
+                bfi = 0
+                while bfi < bfn {
+                    bf = string.array_get(bfl, bfi)
+                    if string.length(target) == 0 && string.length(bf) > 0 {
+                        if _has_line(mvngraph.calls_in(_read(bf), "maven_bom"), mby) == 1 { target = string.concat(bf, "") }
+                    }
+                    bfi = bfi + 1
+                }
+                string.array_free(bfl)
+                line = "dep_arbitration(\"${ga}\", \"${mv}\", and_not(\"${lack}\"))"
+                if locked() == 1 {
+                    err = "${mby} manages ${ga} at ${mv}, the closure of ${build_file} asks for ${lack}, and ${target} does not say so. This build is locked; on a workstation, build once and commit the line it adds:\n  ${line}"
+                } else {
+                    cur = _read(target)
+                    if string.contains(cur, "// Where a BOM here manages a version and a pom asks for another.") == 0 {
+                        if string.ends_with(cur, "\n") == 0 { cur = string.concat(cur, "\n") }
+                        cur = string.concat(cur, "\n// Where a BOM here manages a version and a pom asks for another. Written by aeb\n// as builds meet them; change the pick on a line to decide differently.\n")
+                    }
+                    cur = string.concat(string.concat(cur, line), "\n")
+                    werr = io.write_file(target, cur)
+                    if string.length(werr) > 0 {
+                        err = "cannot write ${target}: ${werr}"
+                    } else {
+                        _w2 = io.stderr_write("aeb: ${target}: ${line}   (${mby})\n")
+                    }
+                }
+            }
+        }
+        wi2 = wi2 + 1
+    }
+    string.array_free(wl2)
+    if string.length(err) > 0 { return "", err }
+
+    // --- an edge to the node of every pick this file can see, so it is
+    //     built before this file's classpath is settled ---
+    al3 = string.split(arbs, "\n")
+    aln3 = string.array_size(al3)
+    ali3 = 0
+    while ali3 < aln3 {
+        a3 = string.array_get(al3, ali3)
+        if string.length(a3) > 0 {
+            ga = _nth(a3, "|", 0)
+            if _has_line(seen_gas, ga) == 1 {
+                gparts = string.split(ga, ":")
+                pc = string.concat(string.concat(string.array_get(gparts, 0), ":"), string.array_get(gparts, 1))
+                pc = string.concat(string.concat(pc, ":"), _nth(a3, "|", 1))
+                if string.array_size(gparts) >= 3 { pc = string.concat(string.concat(pc, ":"), string.array_get(gparts, 2)) }
+                string.array_free(gparts)
+                pf = string.concat(mvngraph.node_dir(into, pc), "/.jar.ae")
+                if file.exists(pf) == 1 {
+                    if _has_line(string.replace_all(out, " ", "\n"), pf) == 0 {
+                        out = string.concat(string.concat(out, " "), pf)
+                    }
+                }
+            }
+        }
+        ali3 = ali3 + 1
+    }
+    string.array_free(al3)
+    return out, ""
+}

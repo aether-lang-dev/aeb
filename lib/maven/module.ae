@@ -302,6 +302,10 @@ resolve(ctx: ptr) {
         return v
     }
 
+    // In a project that keeps its Maven artifacts as build files, the
+    // coordinates are deps on those nodes and there is nothing to resolve.
+    bldr._maven_coords_to_deps(ctx)
+
     // A node that declares no maven_dep()/load_bom_file() never created the
     // "maven_deps" key. Guard BEFORE reading it: map.get yields null and
     // list.size(null) segfaults (exit 139) — the dep_count==0 guard below

@@ -42,14 +42,76 @@ main() {
   and `--bom` are as for any resolve. `--into` is the only place the
   directory is named: nothing in aeb looks for `third_party`.
 
+- A pom that asks for a range (`[1.0,2.0)`) is settled when the node is
+  written: the highest published version in the range, said in the output.
+  The node records the version, not the range. `[1.2]` is 1.2.
+- `--bom` only gives a version to a version-less coordinate on the command
+  line. It changes no node's edges: a node is one file shared by everything
+  that depends on it, so it cannot carry one consumer's BOM.
+
 A consumer depends on a node like any other:
 `dep("third_party/java/org/hibernate/hibernate-core/5.4.32.Final/.jar.ae")`.
+
+## dep("group:artifact:version") is the node, written on first use
+
+In a project that keeps its Maven artifacts this way, the coordinate form is
+shorthand for the path:
+
+```aether
+dep("org.hibernate:hibernate-core:5.4.32.Final")
+```
+
+A project keeps them when `third_party/java` exists at its root, or
+`AEB_MVN_DIR` names another directory. Without either, a coordinate resolves
+at build time as it always did (`lib/maven`), recorded nowhere.
+
+While the graph is being read, before anything builds (`tools/aebmvn`, the
+same place a `git:` dep is fetched):
+
+- **The node is there**: that is the edge. Nothing is resolved.
+- **It is not**: first use. `aeb mvn add` writes it and its closure, the
+  build carries on, and the new files are the diff to review and commit. The
+  hash is whatever the repository served that day, as with any lock file.
+- **Locked** (`--locked`, `AEB_LOCKED=1`, or `CI` set and `AEB_LOCKED` not
+  `0`): a missing node is an error that gives the command. A dependency
+  nobody reviewed does not get in by being built.
+
+## A BOM is a list of picks
+
+A version-less `dep("group:artifact")` takes its version from the BOMs the
+build file loads (`load_bom_file` → `maven_bom("G:A:V")`). What a BOM
+manages is read once and kept in the tree
+(`third_party/java/<group dirs>/<artifact>/<version>/managed.bom.ae`, one
+`managed("g:a", "v")` line each), so a build reads versions from a file.
+
+In Maven a BOM also replaces the version of anything in the closure. Here
+that is an arbitration like any other, and it is written down: where the
+closure asks for a version other than the BOM's, aeb appends
+
+```aether
+dep_arbitration("org.junit.jupiter:junit-jupiter-api", "6.1.1", and_not("5.13.4"))
+```
+
+to the `.bom.ae` that names the BOM, writes the node for the BOM's version
+if it is missing, and gives the build file an edge to it. Every node that
+loads that `.bom.ae` has those lines as its own. A line already there for
+the artifact is left alone, whoever wrote it: change the pick on the line to
+decide differently. A locked build does not write the line; it fails and
+shows it.
+
+Hand-written arbitrations for a whole project go in the same file. On jooby
+(7 BOMs, 99 artifacts for the core, guice, hikari, netty and kotlin modules)
+that was one line from a BOM and five by hand, among them slf4j-api 2.0.18
+over HikariCP's 2.0.17 and log4jdbc's 1.6.0, and byte-buddy 1.18.3 (assertj)
+over 1.17.7 (mockito): choices Maven makes without saying.
 
 ## A diamond stops the build
 
 A classpath that would hold one artifact at two versions is a diamond. Maven
 settles it silently (nearest wins), Gradle silently (highest wins). aeb does
-not settle it. The node whose classpath first holds both fails, and says:
+not settle it. A generated node settles nothing either: it is what a pom
+says, and it hands its record up with both versions in it. The first node a
+person wrote whose classpath holds both fails, and says:
 
 ```
 app: org.jboss.logging:jboss-logging is on this classpath at more than one version:
@@ -74,8 +136,12 @@ anything"; this says "3.4.1 wins over 3.3.2".
   ask for 3.5.0, that version is neither the pick nor in the list, and the
   build stops for a person to look again.
 - A pick with no list is refused.
-- An arbitration that settles nothing (the classpath asks for one version)
-  is reported as out of date.
+- A node's own arbitration holds without a contest too: "3.4.1, and not
+  3.3.2" moves a lone request for 3.3.2 to 3.4.1. (That is how a BOM's
+  version replaces a pom's.) An inherited or default one speaks only when
+  two versions meet.
+- An arbitration written in a build file that names nothing its classpath
+  asks for is reported as out of date.
 - With the pick applied, what is on the classpath is recomputed from the
   roots: the pick's own dependencies come with it and the loser's go.
 
@@ -85,7 +151,8 @@ Correctness needs one version per classpath, not per repository, so the
 arbitration is written wherever the decision belongs, and three places are
 read, nearest first:
 
-1. **The node being built.** Its own `dep_arbitration` is the last word.
+1. **The node being built.** Its own `dep_arbitration`, and those in the
+   `.bom.ae` files it loads, are the last word.
 2. **The nodes it depends on.** An arbitration is inherited by whatever
    depends on the node that wrote it, so it is not repeated up the graph.
    Two nodes below that pick differently are a disagreement only this node
@@ -101,11 +168,15 @@ aeb says so (`note: lib has x:d 1.0 on its own classpath; here it runs with
 
 ## What is not done
 
-- `dep("group:artifact:version")` still resolves at build time through
-  `aeb-resolve.jar`, unhashed, with versions mediated by the resolver. The
-  two ways do not see each other: a classpath fed by both is not checked
-  across them.
-- Only `jar` and `pom` typed dependencies; version ranges are not handled.
+- In a project with no `third_party/java`, `dep("group:artifact:version")`
+  still resolves at build time through `aeb-resolve.jar`, unhashed, with
+  versions mediated by the resolver.
+- `java.jar_registry` resolves that way everywhere.
+- Only `jar` and `pom` typed dependencies.
+- The walk that finds what a BOM manages differently does not apply pom
+  exclusions, so it can write a pick for a version only reached through an
+  excluded edge. The line is then unused, not wrong.
+- Compile and runtime scope are one closure.
 - A `.dist.ae` that shades reads its deps' classpath lists as they wrote
   them. That is right when it depends on the node that compiled (whose list
   is already settled), and unchecked when it depends directly on two nodes
@@ -113,6 +184,7 @@ aeb says so (`note: lib has x:d 1.0 on its own classpath; here it runs with
 
 The rules are in `lib/mvngraph` (pure, `tests/test_mvngraph.ae`); the
 reading and reporting in `lib/bldr`; the builders (`java.jar_maven`,
-`java.pom_maven`, `java.jar_bundle`) in `lib/java`; the generator in
-`tools/resolver` (`--output nodes`). `itests/mvn-nodes-arbitration.sh` runs
-the whole of it against a diamond.
+`java.pom_maven`, `java.jar_bundle`) in `lib/java`; the coordinate-to-node
+pass in `tools/aebmvn`; the generator in `tools/resolver` (`--output nodes`,
+`--output managed`). `itests/mvn-nodes-arbitration.sh` and
+`itests/mvn-first-use.sh` run the whole of it against a diamond and a BOM.

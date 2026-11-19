@@ -5337,8 +5337,12 @@ _maven_settle(ctx: ptr, text: string) {
         if string.length(ol) > 0 {
             f2 = string.split(ol, "|")
             oga = string.concat(string.array_get(f2, 1), "")
+            owh = string.concat(string.array_get(f2, 4), "")
             string.array_free(f2)
-            if string.contains(string.concat("\n", applied), string.concat(string.concat("\n", oga), "|")) == 0 {
+            // One read from a .bom.ae is shared by every node that loads the
+            // file; it is not out of date for settling nothing in this one.
+            if string.ends_with(owh, ".bom.ae") == 1 { oga = "" }
+            if string.length(oga) > 0 && string.contains(string.concat("\n", applied), string.concat(string.concat("\n", oga), "|")) == 0 {
                 println("${md}: warning: dep_arbitration(\"${oga}\", ...) settles nothing here: this classpath asks for one version of it. Remove it.")
             }
         }
@@ -5390,13 +5394,28 @@ _maven_explain(md: string, text: string, problem: string) {
         v = string.array_get(vl, vi)
         c = _maven_coord_at(ga, v)
         println("${md}:   ${v}  asked for by ${mvngraph.askers(text, c)}")
-        if vi == vn - 1 {
-            first = string.concat(v, "")
-        } else {
-            if string.length(rest) > 0 { rest = string.concat(rest, ", ") }
-            rest = string.concat(rest, v)
-        }
         vi = vi + 1
+    }
+    // The line to offer: the version this node asked for itself if it asked
+    // for one, else the last listed. It is a suggestion; the person decides.
+    roots = string.concat(string.concat("\n", mvngraph.roots_of(text)), "\n")
+    vj = 0
+    while vj < vn {
+        v2 = string.array_get(vl, vj)
+        if string.contains(roots, string.concat(string.concat("\n", _maven_coord_at(ga, v2)), "\n")) == 1 {
+            first = string.concat(v2, "")
+        }
+        vj = vj + 1
+    }
+    if string.length(first) == 0 { first = string.concat(string.array_get(vl, vn - 1), "") }
+    vk = 0
+    while vk < vn {
+        v3 = string.array_get(vl, vk)
+        if string.equals(v3, first) == 0 {
+            if string.length(rest) > 0 { rest = string.concat(rest, ", ") }
+            rest = string.concat(rest, v3)
+        }
+        vk = vk + 1
     }
     string.array_free(vl)
     if string.equals(kind, "none") == 1 {
@@ -5422,6 +5441,7 @@ _maven_explain(md: string, text: string, problem: string) {
 // _maven_dep_record(ctx) — the maven_coords records of this node's deps,
 // merged. "" when no dep carries one (nothing Maven-generated below).
 _maven_dep_record(ctx: ptr) {
+    _maven_coords_to_deps(ctx)
     deps, _ = map.get(ctx, "deps")
     count = list.size(deps)
     text = ""
@@ -5432,33 +5452,217 @@ _maven_dep_record(ctx: ptr) {
         if string.length(rec) > 0 { text = mvngraph.merge(text, rec) }
         i = i + 1
     }
+    // The nodes of the versions this node's arbitrations pick: on hand, not
+    // asked for. Their art lines are there for a request to be moved to; they
+    // are not roots, so one that nothing here reaches adds nothing.
+    if string.length(text) > 0 && map.has(ctx, "_maven_pick_nodes") == 1 {
+        root = _get(ctx, "root")
+        pn, _ = map.get(ctx, "_maven_pick_nodes")
+        pc = list.size(pn)
+        j = 0
+        while j < pc {
+            pf, _ = list.get_string(pn, j)
+            rp = path.join(_dep_target_dir(root, pf), "maven_coords")
+            if file.exists(rp) == 1 {
+                prec, perr = io.read_file(rp)
+                if string.length(perr) == 0 { text = mvngraph.merge(text, mvngraph.arts_only(prec)) }
+            }
+            j = j + 1
+        }
+    }
     return text
 }
 
-// _maven_lost_jars(ctx) — settle this node's classpath once, and return the
-// jars of the versions turned down (newline-joined) so they can be taken off
-// a classpath assembled from the deps' own lists. "" when there is nothing
-// to settle or nothing lost. On an unsettled diamond the node is failed.
-_maven_lost_jars(ctx: ptr) {
-    if map.has(ctx, "_maven_lost") == 1 {
-        v, _ = map.get_string(ctx, "_maven_lost")
-        return string.concat(v, "")
+// _root_relative(root, p) — p with "." and ".." segments folded and the
+// root taken off the front: the spelling to print for a file in the project.
+_root_relative(root: string, p: string) {
+    segs = string.split(p, "/")
+    n = string.array_size(segs)
+    kept = list.new()
+    i = 0
+    while i < n {
+        sg = string.array_get(segs, i)
+        if string.equals(sg, "..") == 1 && list.size(kept) > 0 {
+            list.remove(kept, list.size(kept) - 1)
+        } else if string.length(sg) > 0 && string.equals(sg, ".") == 0 {
+            _a = list.add(kept, string.concat(sg, ""))
+        }
+        i = i + 1
     }
-    text = _maven_dep_record(ctx)
-    lost = ""
-    if string.length(text) > 0 {
-        settled, ok = _maven_settle(ctx, text)
-        if ok == 1 { lost = mvngraph.lost_jars(text, settled) }
+    string.array_free(segs)
+    out = ""
+    if string.starts_with(p, "/") == 1 { out = "/" }
+    k = 0
+    while k < list.size(kept) {
+        sg2, _ = list.get_string(kept, k)
+        if k > 0 { out = string.concat(out, "/") }
+        out = string.concat(out, sg2)
+        k = k + 1
     }
-    _e = map.put(ctx, "_maven_lost", string.concat(lost, ""))
-    return lost
+    pre = string.concat(root, "/")
+    if string.starts_with(out, pre) == 1 {
+        return string.substring(out, string.length(pre), string.length(out))
+    }
+    return out
 }
 
-// _cp_without(cp, lost) — a colon-joined classpath with the newline-joined
-// entries of `lost` taken out.
-_cp_without(cp: string, lost: string) {
-    if string.length(lost) == 0 { return string.concat(cp, "") }
-    hay = string.concat(string.concat("\n", lost), "\n")
+// _mvn_dir(ctx) — where this project keeps its Maven artifacts as build
+// files, relative to the root: $AEB_MVN_DIR, or third_party/java when that
+// directory exists. "" when it keeps none; a coordinate is then resolved at
+// build time by lib/maven, as before. tools/aebmvn has the same rule for the
+// graph; the two must agree.
+_mvn_dir(ctx: ptr) {
+    e = os.getenv("AEB_MVN_DIR")
+    if string.length(e) > 0 { return string.concat(e, "") }
+    if dir.exists(path.join(_get(ctx, "root"), "third_party/java")) == 1 {
+        return string.concat("third_party/java", "")
+    }
+    return string.concat("", "")
+}
+
+// _maven_coords_to_deps(ctx) — once per node, in a project that keeps Maven
+// nodes: every coordinate this node named with dep("g:a[:v]"), and every one
+// in the .bom.ae files it loaded, becomes a dep on that artifact's node. A
+// version-less one takes its version from the checked-in record of what the
+// loaded BOMs manage. The .bom.ae files' dep_arbitration lines become this
+// node's own. Nothing is fetched or generated here: the graph pass
+// (tools/aebmvn) did that, and built the nodes before this one.
+_maven_coords_to_deps(ctx: ptr) {
+    if map.has(ctx, "_maven_coords_done") == 1 { return 0 }
+    _e0 = map.put(ctx, "_maven_coords_done", "1")
+    into = _mvn_dir(ctx)
+    if string.length(into) == 0 { return 0 }
+    root = _get(ctx, "root")
+    md = _get(ctx, "module_dir")
+    maven_deps, _ = map.get(ctx, "maven_deps")
+    boms = ""
+    if map.has(ctx, "_arbitrations") == 0 { _e1 = map.put(ctx, "_arbitrations", list.new()) }
+    al, _ = map.get(ctx, "_arbitrations")
+    if map.has(ctx, "_bom_files") == 1 {
+        bfs, _ = map.get(ctx, "_bom_files")
+        bn = list.size(bfs)
+        bi = 0
+        while bi < bn {
+            bf, _ = list.get_string(bfs, bi)
+            btxt, berr = io.read_file(bf)
+            if string.length(berr) == 0 {
+                boms = mvngraph.merge(boms, mvngraph.calls_in(btxt, "maven_bom"))
+                bd = string.split(mvngraph.calls_in(btxt, "dep"), "\n")
+                bdn = string.array_size(bd)
+                bdi = 0
+                while bdi < bdn {
+                    d = string.array_get(bd, bdi)
+                    if mvngraph.is_coord(d) == 1 { _a0 = list.add(maven_deps, string.concat(d, "")) }
+                    bdi = bdi + 1
+                }
+                string.array_free(bd)
+                ba = string.split(mvngraph.arbitrations_in(btxt), "\n")
+                ban = string.array_size(ba)
+                bai = 0
+                while bai < ban {
+                    a = string.array_get(ba, bai)
+                    if string.length(a) > 0 {
+                        f = string.split(a, "|")
+                        _a1 = list.add(al, mvngraph.arb_line("own", string.array_get(f, 0), string.array_get(f, 1), string.array_get(f, 2), _root_relative(root, bf)))
+                        string.array_free(f)
+                    }
+                    bai = bai + 1
+                }
+                string.array_free(ba)
+            }
+            bi = bi + 1
+        }
+    }
+
+    deps, _ = map.get(ctx, "deps")
+    n = list.size(maven_deps)
+    i = 0
+    while i < n {
+        c0, _ = list.get_string(maven_deps, i)
+        c = string.concat(c0, "")
+        parts = string.split(c, ":")
+        np = string.array_size(parts)
+        string.array_free(parts)
+        if np == 2 {
+            v = ""
+            bs = string.split(boms, "\n")
+            bsn = string.array_size(bs)
+            bsi = 0
+            while bsi < bsn {
+                b = string.array_get(bs, bsi)
+                if string.length(v) == 0 && string.length(b) > 0 {
+                    mf = path.join(root, string.concat(mvngraph.node_dir(into, b), "/managed.bom.ae"))
+                    mtxt, merr = io.read_file(mf)
+                    if string.length(merr) == 0 { v = mvngraph.managed_version(mtxt, c) }
+                }
+                bsi = bsi + 1
+            }
+            string.array_free(bs)
+            if string.length(v) == 0 {
+                println("${md}: dep(\"${c}\") has no version, and no BOM this node loads manages it")
+                fail(ctx, "dep(\"${c}\"): no version")
+                c = ""
+            } else {
+                c = string.concat(string.concat(c, ":"), v)
+            }
+        }
+        if string.length(c) > 0 {
+            nf = string.concat(mvngraph.node_dir(into, c), "/.jar.ae")
+            if file.exists(path.join(root, nf)) == 0 {
+                println("${md}: ${c} has no node at ${nf}")
+                println("${md}:   write it: aeb mvn add ${c}")
+                fail(ctx, "${c} has no node")
+            } else {
+                _a2 = list.add(deps, nf)
+            }
+        }
+        i = i + 1
+    }
+    list.clear(maven_deps)
+
+    // The node of each version an arbitration of this node's picks.
+    pn = list.new()
+    an = list.size(al)
+    ai = 0
+    while ai < an {
+        a, _ = list.get_string(al, ai)
+        f = string.split(a, "|")
+        pcoord = _maven_coord_at(string.array_get(f, 1), string.array_get(f, 2))
+        string.array_free(f)
+        pf = string.concat(mvngraph.node_dir(into, pcoord), "/.jar.ae")
+        if file.exists(path.join(root, pf)) == 1 { _a3 = list.add(pn, pf) }
+        ai = ai + 1
+    }
+    _e2 = map.put(ctx, "_maven_pick_nodes", pn)
+    return 0
+}
+
+// _maven_classpath(ctx, cp) — the deps' classpath with its Maven jars
+// replaced by the settled set: every jar the deps' records hold is taken
+// out, and the jars of what is reachable after arbitration are put back, in
+// classpath order. That takes off the versions turned down and puts on a
+// pick that no dep's own list carried. cp unchanged when there is nothing
+// Maven below. On an unsettled diamond the node is failed (and cp returned
+// as it was, for whatever the builder does next).
+_maven_classpath(ctx: ptr, cp: string) {
+    if map.has(ctx, "_maven_cp_drop") == 0 {
+        text = _maven_dep_record(ctx)
+        drop = ""
+        add = ""
+        if string.length(text) > 0 {
+            settled, ok = _maven_settle(ctx, text)
+            if ok == 1 {
+                drop = mvngraph.jars_of(text)
+                add = mvngraph.jars_of(settled)
+            }
+        }
+        _e1 = map.put(ctx, "_maven_cp_drop", string.concat(drop, ""))
+        _e2 = map.put(ctx, "_maven_cp_add", string.concat(add, ""))
+    }
+    drop, _ = map.get_string(ctx, "_maven_cp_drop")
+    add, _ = map.get_string(ctx, "_maven_cp_add")
+    if string.length(drop) == 0 { return string.concat(cp, "") }
+    hay = string.concat(string.concat("\n", drop), "\n")
     parts = string.split(cp, _path_sep())
     n = string.array_size(parts)
     out = ""
@@ -5474,10 +5678,23 @@ _cp_without(cp: string, lost: string) {
         i = i + 1
     }
     string.array_free(parts)
+    as_ = string.split(add, "\n")
+    an = string.array_size(as_)
+    ai = 0
+    while ai < an {
+        a = string.array_get(as_, ai)
+        if string.length(a) > 0 {
+            if string.length(out) > 0 { out = string.concat(out, _path_sep()) }
+            out = string.concat(out, a)
+        }
+        ai = ai + 1
+    }
+    string.array_free(as_)
     return out
 }
 
 _build_dep_classpath(ctx: ptr) {
+    _maven_coords_to_deps(ctx)
     deps, _ = map.get(ctx, "deps")
     cp = ""
     count = list.size(deps)
@@ -5497,9 +5714,9 @@ _build_dep_classpath(ctx: ptr) {
         }
         i = i + 1
     }
-    // One version of each Maven artifact: take off the jars an arbitration
-    // turned down (and fail the node on a diamond nobody has settled).
-    return _cp_without(cp, _maven_lost_jars(ctx))
+    // One version of each Maven artifact (and fail the node on a diamond
+    // nobody has settled).
+    return _maven_classpath(ctx, cp)
 }
 
 _build_lib_classpath(ctx: ptr) {

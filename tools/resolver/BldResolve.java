@@ -20,6 +20,13 @@
  *              and a person picks (dep_arbitration; --pick writes a default).
  *   --into     <dir>     nodes: where (default third_party/java), laid out
  *                        <dir>/<group dirs>/<artifact>/<version>/.jar.ae
+ *              --bom there only gives a version to a version-less
+ *              coordinate named on the command line; no node's edges are
+ *              changed by it.
+ *   --output   managed: for each --bom G:A:V, write what it manages to
+ *              <dir>/<group dirs>/<artifact>/<version>/managed.bom.ae, one
+ *              managed("group:artifact", "version") line each, sorted. The
+ *              build reads versions from that file, not from the network.
  *   --pick     G:A=V     nodes: write <dir>/<group dirs>/<artifact>/.jar.ae,
  *                        the default for G:A: V, and not the other versions
  *                        this run found (may repeat)
@@ -227,7 +234,9 @@ public class BldResolve {
                 }
             }
 
-            if ("nodes".equals(outputMode)) {
+            if ("managed".equals(outputMode)) {
+                result = writeManaged(boms, into, fetchUrls, errors);
+            } else if ("nodes".equals(outputMode)) {
                 result = writeNodes(deps, into, picks, repoUrls, vr, retriever, repos,
                         fetchUrls, overrides, out, errors);
             } else if ("sbom".equals(outputMode)) {
@@ -332,6 +341,7 @@ public class BldResolve {
         Map<String, List<String>> askedBy = new LinkedHashMap<>();     // coord -> who asked
         java.util.ArrayDeque<Dependency> queue = new java.util.ArrayDeque<>();
         int written = 0, unchanged = 0;
+        List<String> notes = new ArrayList<>();
 
         for (String coord : roots) {
             try {
@@ -347,6 +357,11 @@ public class BldResolve {
                 errors.add("cannot read coordinate " + coord + ": " + e.getMessage());
             }
         }
+        // A BOM has now done all it does here: given a version to a root
+        // that had none. From this point every edge is what the artifact's
+        // own pom declares. A node is one file shared by everything that
+        // depends on it, so it cannot carry one consumer's BOM.
+        overrides.clear();
 
         while (!queue.isEmpty()) {
             Dependency d = queue.poll();
@@ -413,11 +428,27 @@ public class BldResolve {
                 }
                 StringBuilder depLines = new StringBuilder();
                 for (Dependency raw : direct) {
-                    Dependency dep = vr.overrideDependency(raw);
+                    Dependency dep = raw;
                     if (isUnknownVersion(dep.version())) {
-                        errors.add(coord + " asks for " + dep.toArtifactString()
-                                + " with no version its pom or a BOM supplies");
-                        continue;
+                        // A version bld could not read as one: a range. Take
+                        // it from the pom's own text and settle it now, once;
+                        // the node records the version, not the range.
+                        String range = pomXml == null ? null
+                                : declaredVersion(pomXml, raw.groupId(), raw.artifactId());
+                        String fixed = range == null ? null
+                                : versionInRange(range, raw.groupId(), raw.artifactId(), fetchUrls);
+                        if (fixed == null) {
+                            errors.add(coord + " asks for " + dep.toArtifactString()
+                                    + (range == null ? " with no version its pom supplies"
+                                        : " at " + range + ", and no published version is in that range"));
+                            continue;
+                        }
+                        if (!range.equals("[" + fixed + "]")) {
+                            notes.add(coord + " asks for " + dep.toArtifactString() + " at " + range
+                                    + ": taken as " + fixed + ", the highest published in the range today");
+                        }
+                        dep = new Dependency(raw.groupId(), raw.artifactId(), Version.parse(fixed),
+                                raw.classifier(), raw.type(), raw.exclusions());
                     }
                     String dc = coordOf(dep);
                     depLines.append("        dep(\"").append(nodeDir(into, dep)).append("/.jar.ae\")\n");
@@ -526,8 +557,141 @@ public class BldResolve {
                       .append(highest.version()).append("  (the highest; a suggestion)\n");
             }
         }
+        for (String note : notes) report.append("range: ").append(note).append("\n");
         report.append(written).append(" node").append(written == 1 ? "" : "s").append(" written, ")
               .append(unchanged).append(" unchanged, under ").append(into);
+        return report.toString();
+    }
+
+    /**
+     * The <version> text a pom gives its own dependency on group:artifact,
+     * with ${...} properties of that pom filled in; null if it gives none.
+     */
+    private static String declaredVersion(String pomXml, String group, String artifact) throws Exception {
+        Element project = parseXml(pomXml).getDocumentElement();
+        Map<String, String> props = new LinkedHashMap<>();
+        Element propsEl = firstChild(project, "properties");
+        if (propsEl != null) {
+            NodeList kids = propsEl.getChildNodes();
+            for (int i = 0; i < kids.getLength(); i++) {
+                Node k = kids.item(i);
+                if (k.getNodeType() == Node.ELEMENT_NODE) props.put(k.getNodeName(), k.getTextContent().trim());
+            }
+        }
+        String pv = childText(project, "version");
+        if (pv != null) props.putIfAbsent("project.version", pv);
+        Element depsEl = firstChild(project, "dependencies");
+        if (depsEl == null) return null;
+        for (Element dep : childElements(depsEl, "dependency")) {
+            if (group.equals(interpolate(childText(dep, "groupId"), props))
+                    && artifact.equals(interpolate(childText(dep, "artifactId"), props))) {
+                String v = interpolate(childText(dep, "version"), props);
+                return (v == null || v.isEmpty()) ? null : v;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The version a Maven range stands for: "[1.2]" is 1.2; anything with a
+     * bound ("[1.0,2.0)", "[1.5,)", "(,1.0]", several joined by commas) is the
+     * highest published version inside it, read from the artifact's
+     * maven-metadata.xml. Null when the text is not a range or nothing fits.
+     */
+    private static String versionInRange(String range, String group, String artifact,
+                                         List<String> repoUrls) {
+        String r = range.trim();
+        if (!(r.startsWith("[") || r.startsWith("("))) return null;
+        Matcher exact = Pattern.compile("^\\[([^,\\[\\]()]+)\\]$").matcher(r);
+        if (exact.matches()) return exact.group(1).trim();
+
+        List<String[]> spans = new ArrayList<>();   // [open, low, high, close]
+        Matcher m = Pattern.compile("([\\[(])([^,\\[\\]()]*),([^,\\[\\]()]*)([\\])])").matcher(r);
+        while (m.find()) spans.add(new String[]{m.group(1), m.group(2).trim(), m.group(3).trim(), m.group(4)});
+        if (spans.isEmpty()) return null;
+
+        String rel = group.replace('.', '/') + "/" + artifact + "/maven-metadata.xml";
+        List<String> published = new ArrayList<>();
+        for (String base : repoUrls) {
+            String url = base.endsWith("/") ? base + rel : base + "/" + rel;
+            try {
+                String xml;
+                if (url.startsWith("file:")) {
+                    Path p = Paths.get(URI.create(url));
+                    if (!Files.exists(p)) continue;
+                    xml = new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
+                } else {
+                    HttpResponse<String> resp = HTTP.send(HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                            HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                    if (resp.statusCode() != 200) continue;
+                    xml = resp.body();
+                }
+                Matcher vm = Pattern.compile("<version>([^<]+)</version>").matcher(xml);
+                while (vm.find()) published.add(vm.group(1).trim());
+                if (!published.isEmpty()) break;
+            } catch (Exception e) {
+                // try the next repository
+            }
+        }
+        Version best = null;
+        for (String pv : published) {
+            Version v;
+            try { v = Version.parse(pv); } catch (Exception e) { continue; }
+            // A range does not reach for a pre-release unless it names one.
+            String q = v.qualifier();
+            if (q != null && !q.isEmpty() && !r.contains(q)) continue;
+            for (String[] sp : spans) {
+                boolean ok = true;
+                if (!sp[1].isEmpty()) {
+                    int c = v.compareTo(Version.parse(sp[1]));
+                    ok = "[".equals(sp[0]) ? c >= 0 : c > 0;
+                }
+                if (ok && !sp[2].isEmpty()) {
+                    int c = v.compareTo(Version.parse(sp[2]));
+                    ok = "]".equals(sp[3]) ? c <= 0 : c < 0;
+                }
+                if (ok && (best == null || v.compareTo(best) > 0)) best = v;
+            }
+        }
+        return best == null ? null : best.toString();
+    }
+
+    /**
+     * --output managed: one file per --bom, listing what it manages. Each BOM
+     * is read on its own (its parents and imports included), so the file says
+     * what THAT BOM manages, not the union of all given.
+     */
+    private static String writeManaged(List<String> boms, String into,
+                                       List<String> fetchUrls, List<String> errors) {
+        StringBuilder report = new StringBuilder();
+        for (String bom : boms) {
+            String[] p = bom.split(":");
+            if (p.length != 3) { errors.add("a BOM is group:artifact:version, got " + bom); continue; }
+            Map<String, Version> managed = new LinkedHashMap<>();
+            int before = errors.size();
+            try {
+                loadBomCoord(bom, fetchUrls, managed, errors);
+            } catch (Exception e) {
+                errors.add("could not load BOM " + bom + ": " + e.getMessage());
+            }
+            if (errors.size() > before) continue;
+            StringBuilder body = new StringBuilder();
+            body.append("// What ").append(bom).append(" manages.\n");
+            body.append("// Written by `aeb mvn add`; run that again rather than edit this.\n");
+            for (String ga : new TreeSet<>(managed.keySet())) {
+                body.append("managed(\"").append(ga).append("\", \"")
+                        .append(managed.get(ga)).append("\")\n");
+            }
+            Path f = Paths.get(into, p[0].replace('.', '/'), p[1], p[2], "managed.bom.ae");
+            try {
+                writeIfChanged(f, body.toString());
+                if (report.length() > 0) report.append("\n");
+                report.append(bom).append(" manages ").append(managed.size())
+                        .append(" artifacts  (").append(f).append(")");
+            } catch (Exception e) {
+                errors.add("cannot write " + f + ": " + e.getMessage());
+            }
+        }
         return report.toString();
     }
 

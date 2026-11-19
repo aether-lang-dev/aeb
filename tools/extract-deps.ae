@@ -29,6 +29,7 @@ import std.os
 import std.map
 import std.dir
 import aebnode(dir_node, dir_nodes)
+import aebmvn
 
 extern println(s: string)
 extern exit(code: int)
@@ -480,6 +481,33 @@ main() {
                 rest = string.substring(stail, sclose + 1, string.length(stail))
             }
         }
+    }
+
+    // Pass 3: Maven coordinates, in a project that keeps its artifacts as
+    // build files: each is an edge to its node, written on first use
+    // (tools/aebmvn). Elsewhere a coordinate is no edge, as before.
+    medges, merr = aebmvn.edges(path, content, base_dir)
+    if string.length(merr) > 0 {
+        _mw = io.stderr_write("aeb: ${path}: ${merr}\n")
+        println(FAILED)
+        exit(2)
+    }
+    if string.length(medges) > 0 {
+        mparts = string.split(medges, " ")
+        mn = string.array_size(mparts)
+        mi = 0
+        while mi < mn {
+            mp = string.concat(string.array_get(mparts, mi), "")
+            if string.length(mp) > 0 {
+                if map.has(seen, mp) == 0 {
+                    if string.length(out) > 0 { out = string.concat(out, " ") }
+                    out = string.concat(out, mp)
+                    _e_s3 = map.put(seen, mp, "1")
+                }
+            }
+            mi = mi + 1
+        }
+        string.array_free(mparts)
     }
 
     // Bash version emits a trailing space and then echo adds a newline;
