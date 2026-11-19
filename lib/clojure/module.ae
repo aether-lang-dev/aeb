@@ -107,14 +107,6 @@ clj_test_cmd(classpath: string, quoted_namespaces: string, test_timeout: string)
     return cmd
 }
 
-// DEPRECATED (0.667.0+): the uberjar builder now extracts via bldr._unzip_to_dir
-// (std.zip, no `unzip` binary). Kept only for the test's string assertions.
-// uber_unzip_jar_cmd — unzip one classpath .jar into the staging
-// dir. `unzip -qq -o` quiet + overwrite. Pure.
-uber_unzip_jar_cmd(jar_src: string, stage_dir: string) {
-    return "unzip -qq -o '${jar_src}' -d '${stage_dir}'"
-}
-
 // uber_copy_tree_cmd — mirror a directory's contents into the
 // staging dir (`cp -a <dir>/. <stage>/`). Used for AOT classes and
 // for source roots that ship inside the uberjar so non-AOT

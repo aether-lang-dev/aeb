@@ -226,10 +226,10 @@ Grammar: clojure.compile, clojure.run_main, clojure.test, clojure.uberjar; sette
 |---|---|---|---|---|---|
 | clojure | compile | aeb | lib/clojure/module.ae:89 | `clojure.main` | clojure.compile |
 | clojure | test | aeb | lib/clojure/module.ae:102 | `clojure.test/run-tests` | clojure.test |
-| clojure | resolve | aeb | lib/clojure/module.ae:290 | `maven.classpath(ctx)` | clojure.compile |
-| clojure | package | aeb | lib/clojure/module.ae:130 | `jar cfM` | clojure.uberjar |
-| clojure | incremental | module-only | lib/clojure/module.ae:306 | `cache.available()` | clojure.compile |
-| clojure | cache | yes | lib/clojure/module.ae:347 | `cache.put(` | clojure.compile |
+| clojure | resolve | aeb | lib/clojure/module.ae:282 | `maven.classpath(ctx)` | clojure.compile |
+| clojure | package | aeb | lib/clojure/module.ae:122 | `jar cfM` | clojure.uberjar |
+| clojure | incremental | module-only | lib/clojure/module.ae:298 | `cache.available()` | clojure.compile |
+| clojure | cache | yes | lib/clojure/module.ae:339 | `cache.put(` | clojure.compile |
 
 ### cpp
 
@@ -577,13 +577,13 @@ Grammar: scala.scalac, scala.scalac_test, scala.munit, scala.assembly; setters s
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
 | scala | compile | aeb | lib/scala/module.ae:89 | `dotty.tools.dotc.Main` | scala.scalac |
-| scala | compile | aeb | lib/scala/module.ae:473 | `scalac_cmd(` | scala.scalac_test |
+| scala | compile | aeb | lib/scala/module.ae:463 | `scalac_cmd(` | scala.scalac_test |
 | scala | test | aeb | lib/scala/module.ae:95 | `munit_cmd` | scala.munit |
-| scala | test | aeb | lib/scala/module.ae:572 | `bldr._sh(run_cmd)` | scala.scalac_test |
-| scala | resolve | aeb | lib/scala/module.ae:147 | `java -jar ${resolver_jar}` | scala.scalac |
-| scala | package | aeb | lib/scala/module.ae:123 | `jar cfM` | scala.assembly |
-| scala | incremental | module-only | lib/scala/module.ae:306 | `cache.available()` | scala.scalac |
-| scala | cache | yes | lib/scala/module.ae:347 | `cache.put(` | scala.scalac |
+| scala | test | aeb | lib/scala/module.ae:562 | `bldr._sh(run_cmd)` | scala.scalac_test |
+| scala | resolve | aeb | lib/scala/module.ae:137 | `java -jar ${resolver_jar}` | scala.scalac |
+| scala | package | aeb | lib/scala/module.ae:113 | `jar cfM` | scala.assembly |
+| scala | incremental | module-only | lib/scala/module.ae:296 | `cache.available()` | scala.scalac |
+| scala | cache | yes | lib/scala/module.ae:337 | `cache.put(` | scala.scalac |
 
 ### swift
 

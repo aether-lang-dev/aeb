@@ -3,7 +3,7 @@
 import std.spec
 import std.map
 import clojure(clj_aot_compile_cmd, clj_load_check_cmd, clj_test_cmd,
-    uber_unzip_jar_cmd, uber_copy_tree_cmd, uber_jar_cmd,
+    uber_copy_tree_cmd, uber_jar_cmd,
     _ns_to_main_class, _ends_with_jar,
     main_ns, output_jar)
 
@@ -44,12 +44,6 @@ main() {
     }
 
     spec.describe(fw, "clojure.uberjar pure command builders") {
-        spec.it("uber_unzip_jar_cmd basic") callback {
-            spec.assert_str_eq(
-                uber_unzip_jar_cmd("/m2/clojure-1.12.0.jar", "/proj/target/_uber"),
-                "unzip -qq -o '/m2/clojure-1.12.0.jar' -d '/proj/target/_uber'",
-                "uber_unzip_jar_cmd basic")
-        }
         spec.it("uber_copy_tree_cmd basic") callback {
             spec.assert_str_eq(
                 uber_copy_tree_cmd("/proj/src", "/proj/target/_uber"),

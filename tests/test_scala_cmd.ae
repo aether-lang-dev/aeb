@@ -3,7 +3,7 @@ import std.spec
 import std.map
 
 import scala(scalac_cmd, munit_cmd, _test_root_of, source_layout,
-    assembly_unzip_jar_cmd, assembly_copy_classes_cmd,
+    assembly_copy_classes_cmd,
     assembly_jar_cmd, _ends_with_jar,
     main_class, output_jar)
 
@@ -49,25 +49,11 @@ main() {
 
     // === scala.assembly pure command builders =========================
     //
-    // The fat-jar builder splits into three exec strings:
-    //   1. assembly_unzip_jar_cmd — unzip a classpath .jar into stage
-    //   2. assembly_copy_classes_cmd — copy a directory's contents
-    //   3. assembly_jar_cmd — `jar cfM` the staged tree
+    // The fat-jar builder's exec strings (jars are extracted in-process by
+    // bldr._unzip_to_dir, so there is no unzip command):
+    //   1. assembly_copy_classes_cmd — copy a directory's contents
+    //   2. assembly_jar_cmd — `jar cfM` the staged tree
     spec.describe(fw, "scala.assembly pure command builders") {
-        spec.it("assembly_unzip_jar_cmd basic") callback {
-            spec.assert_str_eq(
-                assembly_unzip_jar_cmd("/m2/scala3-library.jar", "/proj/target/_assembly"),
-                "unzip -qq -o '/m2/scala3-library.jar' -d '/proj/target/_assembly'",
-                "assembly_unzip_jar_cmd basic")
-        }
-
-        spec.it("assembly_unzip_jar_cmd spaces in paths") callback {
-            spec.assert_str_eq(
-                assembly_unzip_jar_cmd("/m2/with space/foo.jar", "/proj with space/_assembly"),
-                "unzip -qq -o '/m2/with space/foo.jar' -d '/proj with space/_assembly'",
-                "assembly_unzip_jar_cmd spaces in paths")
-        }
-
         spec.it("assembly_copy_classes_cmd basic") callback {
             spec.assert_str_eq(
                 assembly_copy_classes_cmd("/proj/target/classes", "/proj/target/_assembly"),

@@ -96,16 +96,6 @@ munit_cmd(classpath: string, class_names: string) {
     return "java -cp '${classpath}' org.junit.runner.JUnitCore ${class_names}"
 }
 
-// DEPRECATED (0.667.0+): the assembly builder now extracts via bldr._unzip_to_dir
-// (std.zip, no `unzip` binary). Kept only for tests/test_scala_cmd.ae's string
-// assertions; no builder calls it.
-// assembly_unzip_jar_cmd — unzip a single classpath .jar into the
-// staging directory so its `.class` files lay flat under stage_dir/.
-// `unzip -qq -o` is quiet + overwrite-without-prompt. Pure.
-assembly_unzip_jar_cmd(jar_src: string, stage_dir: string) {
-    return "unzip -qq -o '${jar_src}' -d '${stage_dir}'"
-}
-
 // assembly_copy_classes_cmd — mirror a compiled-classes directory's
 // contents into the staging dir. `cp -a` preserves attrs and is
 // recursive. The trailing `/.` form copies the directory's contents,
