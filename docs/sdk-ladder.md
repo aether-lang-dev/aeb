@@ -507,12 +507,12 @@ Grammar: pharo.sunit, pharo.test
 
 ### php
 
-Grammar: php.test (setters phpunit_phar, phpunit_phar_url, config, ini, env)
+Grammar: php.test (setters phpunit_phar, phpunit_phar_url, phpunit_phar_sha256, config, ini, env)
 
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
-| php | test | aeb | lib/php/module.ae:80 | `${runner}${config_part}` | php.test |
-| php | test | aeb | lib/php/module.ae:134 | `"phpunit"` | php.test (step() fallback) |
+| php | test | aeb | lib/php/module.ae:91 | `${runner}${config_part}` | php.test |
+| php | test | aeb | lib/php/module.ae:152 | `"phpunit"` | php.test (step() fallback) |
 
 ### pnpm
 

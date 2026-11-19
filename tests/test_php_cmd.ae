@@ -1,8 +1,9 @@
 // Tests for lib/php's pure command-string builders.
 import std.spec
-import php(phpunit_cmd, phar_runner, config_part, phar_fetch_cmd,
+import php(phpunit_cmd, phar_runner, config_part, phar_fetch_problem,
     ini, php_ini_part)
 import std.list
+import std.string
 import std.map
 
 main() {
@@ -30,12 +31,21 @@ main() {
                 "cd '/proj' && php 'phpunit.phar' --configuration 'phpunit.xml'",
                 "php phar with config")
         }
-        // Fetch command (curl) — runs only when Aether finds the phar missing.
-        spec.it("phar fetch") callback {
+        // A phar URL is only fetched with a pinned sha256.
+        spec.it("no url: nothing to refuse") callback {
+            spec.assert_str_eq(phar_fetch_problem("", ""), "", "no url")
+        }
+        spec.it("url with a 64-hex digest may proceed") callback {
             spec.assert_str_eq(
-                phar_fetch_cmd("/proj", "https://phar.phpunit.de/phpunit-11.phar", "phpunit.phar"),
-                "cd '/proj' && curl -fsSL 'https://phar.phpunit.de/phpunit-11.phar' -o 'phpunit.phar'",
-                "phar fetch")
+                phar_fetch_problem("https://phar.phpunit.de/phpunit-11.5.3.phar",
+                    "00674310d7d48db7fe105e02b17b43e6be8b65fd37195a39724bc71cc5aaa866"),
+                "", "pinned")
+        }
+        spec.it("url without a digest is refused") callback {
+            spec.assert_true(string.length(phar_fetch_problem("https://x/p.phar", "")) > 0, "no digest refused")
+        }
+        spec.it("short digest is refused") callback {
+            spec.assert_true(string.length(phar_fetch_problem("https://x/p.phar", "abc123")) > 0, "short digest refused")
         }
     }
 

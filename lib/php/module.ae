@@ -2,27 +2,30 @@
 //
 // Drives an existing PHP project as-is. `php.test` defaults to `phpunit`;
 // declare phpunit_phar(...) to run via `php <phar>` and phpunit_phar_url(...)
-// to download that phar once (if absent) — the SDK does the "fetch if
-// missing" check in Aether, so a binding never writes the shell conditional
-// `[ -f phar ] || curl …`. config("…") adds --configuration. Env injection
+// to download that phar, with phpunit_phar_sha256(...) pinning its digest: the
+// download and the sha256 check run in Aether (lib/fetch), a mismatch fails the
+// node, and a URL with no digest is refused. config("…") adds --configuration. Env injection
 // (a shared `.so` path read by an FFI binding) rides the shared env(...).
 //
 //   import bldr
 //   import php
 //   import bldr (env)
-//   import php (phpunit_phar, phpunit_phar_url, config)
+//   import php (phpunit_phar, phpunit_phar_url, phpunit_phar_sha256, config)
 //   php.test(b) {
 //       env("SERVIRTIUM_VCR_LIB", lib)
 //       phpunit_phar("phpunit.phar")
-//       phpunit_phar_url("https://phar.phpunit.de/phpunit-11.phar")
+//       phpunit_phar_url("https://phar.phpunit.de/phpunit-11.5.3.phar")
+//       phpunit_phar_sha256("00674310d7d48db7fe105e02b17b43e6be8b65fd37195a39724bc71cc5aaa866")
 //       config("phpunit.xml")
 //   }
 //
 // Setters: env(K,V) [lib/build], phpunit_phar("…"), phpunit_phar_url("…"),
+// phpunit_phar_sha256("…"),
 // config("…"), ini(K,V) [-d php.ini directive, e.g. ini("ffi.enable","1") for
 // an ext-ffi binding; requires the phar runner]. A binding that declares its
 // own step("…") still gets the generic _run_project path (back-compat).
 import bldr
+import fetch
 import std.string
 import std.os
 import std.io
@@ -43,13 +46,21 @@ phpunit_phar(_ctx: ptr, phar: string) {
     _e = map.put(_ctx, "phpunit_phar", phar)
 }
 
-// phpunit_phar_url("https://…/phpunit-11.phar") — run the suite via a phar
+// phpunit_phar_url("https://…/phpunit-11.5.3.phar") — run the suite via a phar
 // (rather than a bare `phpunit` on PATH) and download it to the local phar
-// path (default "phpunit.phar") if absent. The "fetch only when missing"
-// check runs in Aether (file.exists), so no shell `[ -f ] ||`. No-op when the
-// phar is already present. Scalar; last wins.
+// path (default "phpunit.phar") unless a copy with the pinned sha256 is already
+// there. Pin a versioned URL and declare phpunit_phar_sha256 with it. Scalar;
+// last wins.
 phpunit_phar_url(_ctx: ptr, url: string) {
     _e = map.put(_ctx, "phpunit_phar_url", url)
+}
+
+// phpunit_phar_sha256("<64 hex>") — the sha256 the phar at phpunit_phar_url
+// must have. Required with phpunit_phar_url. The phar is verified on every run
+// (a present copy that does not match is replaced, and a fresh download that
+// does not match fails the node and is deleted). Scalar; last wins.
+phpunit_phar_sha256(_ctx: ptr, hex: string) {
+    _e = map.put(_ctx, "phpunit_phar_sha256", hex)
 }
 
 // config("phpunit.xml") — `--configuration <file>`. Scalar; last wins.
@@ -110,11 +121,18 @@ config_part(cfg: string) {
     return ""
 }
 
-// phar_fetch_cmd(source_dir, url, phar) — `cd '<dir>' && curl -fsSL '<url>'
-// -o '<phar>'`. Pure. (curl is still a shell-out, but the *conditional* —
-// fetch only when missing — is decided in Aether, not by a shell `||`.)
-phar_fetch_cmd(source_dir: string, url: string, phar: string) {
-    return "cd '${source_dir}' && curl -fsSL '${url}' -o '${phar}'"
+// phar_fetch_problem(url, sha256) — why a phar download must not proceed, or ""
+// when it may. A phar is code that runs on the build host, so a URL without a
+// pinned sha256 is refused rather than fetched unverified. Pure.
+phar_fetch_problem(url: string, sha256: string) {
+    if string.length(url) == 0 { return "" }
+    if string.length(sha256) == 0 {
+        return "phpunit_phar_url needs phpunit_phar_sha256(\"<64 hex>\"): a downloaded phar is only run when its sha256 matches"
+    }
+    if string.length(sha256) != 64 {
+        return "phpunit_phar_sha256 must be 64 lowercase hex characters"
+    }
+    return ""
 }
 
 // --- Builders ---
@@ -156,25 +174,32 @@ builder test(): int {
     runner = "phpunit"
     phar = ""
     url = ""
+    sha256 = ""
     if _builder != null {
         if map.has(_builder, "phpunit_phar") == 1 { phar, _ = map.get_string(_builder, "phpunit_phar") }
         if map.has(_builder, "phpunit_phar_url") == 1 { url, _ = map.get_string(_builder, "phpunit_phar_url") }
+        if map.has(_builder, "phpunit_phar_sha256") == 1 { sha256, _ = map.get_string(_builder, "phpunit_phar_sha256") }
     }
     if string.length(phar) == 0 {
         if string.length(url) > 0 { phar = "phpunit.phar" }
     }
     if string.length(phar) > 0 {
-        // Fetch-if-missing — the conditional is HERE, in Aether, not a shell ||.
+        // Download + verify (lib/fetch): a present copy whose sha256 matches is
+        // used as is; otherwise it is fetched, and a mismatch fails the node.
         if string.length(url) > 0 {
+            problem = phar_fetch_problem(url, sha256)
+            if string.length(problem) > 0 {
+                println("${mod_dir}: ${problem}")
+                bldr.fail(ctx, problem)
+                return 1
+            }
             phar_abs = path.join(source_dir, phar)
-            if file.exists(phar_abs) == 0 {
-                println("${mod_dir}: fetching ${phar}")
-                fr = bldr._sh(phar_fetch_cmd(source_dir, url, phar))
-                if fr != 0 {
-                    println("${mod_dir}: phar download FAILED")
-                    bldr.fail(ctx, "phar download FAILED")
-                    return fr
-                }
+            println("${mod_dir}: fetching ${phar} (sha256 ${sha256})")
+            _fd, ferr = fetch._fetch_verified(url, sha256, phar_abs)
+            if string.length(ferr) > 0 {
+                println("${mod_dir}: phar download FAILED: ${ferr}")
+                bldr.fail(ctx, "phar download FAILED: ${ferr}")
+                return 1
             }
         }
         runner = phar_runner(phar, ini_part)
