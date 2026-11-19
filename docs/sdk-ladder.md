@@ -440,11 +440,11 @@ Grammar: kotlin.kotlinc, kotlin.kotlinc_test, kotlin.kotlin_test; setters jvm_ta
 
 ### lfe
 
-Grammar: lfe.test (header documents it as run_main; setters src, test_src, pa, run_main), lfe.generate_manifest
+Grammar: lfe.test (setters src, test_src, pa, run_main), lfe.generate_manifest
 
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
-| lfe | compile | aeb | lib/lfe/module.ae:163 | `lfec -o` | lfe.test |
+| lfe | compile | aeb | lib/lfe/module.ae:164 | `lfec -o` | lfe.test |
 | lfe | test | aeb | lib/lfe/module.ae:123 | `lfe -noshell` | lfe.test |
 
 ### lua

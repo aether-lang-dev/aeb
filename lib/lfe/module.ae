@@ -1,8 +1,8 @@
 // lfe — LFE (Lisp Flavoured Erlang) SDK for aeb.
 //
 // LFE compiles to BEAM, so an LFE binding to a native lib rides an existing
-// Erlang NIF (no second FFI) exactly as Elixir/Gleam do. This SDK's run_main
-// builder mirrors erlang.eunit's run_main: lfec-compile the declared src +
+// Erlang NIF (no second FFI) exactly as Elixir/Gleam do. This SDK's test
+// builder mirrors erlang.eunit's run_main(...) path: lfec-compile the declared src +
 // test .lfe files into target_dir, then run `lfe -noshell -pa <ebins> -eval
 // '<mod>:main([]), halt(0)'` with ERL_LIBS(env) + -pa code paths. For a
 // compile-then-run-main conformance suite (no rebar3/lfetool needed).
@@ -10,7 +10,7 @@
 //   import bldr
 //   import lfe
 //   import lfe (src, test_src, run_main, pa)
-//   lfe.run_main() {
+//   lfe.test() {
 //       env("ERL_LIBS", libs)
 //       src("src/selenium.lfe")
 //       test_src("test/ffi_test.lfe")
@@ -123,7 +123,8 @@ lfe_run_cmd(source_dir: string, pa_flags: string, rmod: string) {
     return "cd '${source_dir}' && lfe -noshell ${pa_flags} -eval '(${rmod}:main (list))' -eval '(halt 0)'"
 }
 
-// lfe.run_main() — compile src + test_src with lfec, then run mod:main([]).
+// lfe.test() — compile src + test_src with lfec, then run mod:main([]) (the
+// module named by the run_main("...") setter; it is required).
 builder test(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -151,7 +152,7 @@ builder test(): int {
         if map.has(_builder, "lfe_run_main") == 1 { rmod, _ = map.get_string(_builder, "lfe_run_main") }
     }
     if string.length(rmod) == 0 {
-        bldr.fail(ctx, "lfe.run_main: run_main(\"...\") is required")
+        bldr.fail(ctx, "lfe.test: run_main(\"...\") is required")
         return 1
     }
 
