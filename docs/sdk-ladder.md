@@ -383,19 +383,19 @@ Grammar: java.javac, java.javac_test, java.junit, java.junit5, java.java_main, j
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
 | java | compile | aeb | lib/java/module.ae:241 | `javac_bin = "javac"` | java.javac |
-| java | compile | aeb | lib/java/module.ae:1566 | `javac_cmd(` | java.javac_test |
+| java | compile | aeb | lib/java/module.ae:1582 | `javac_cmd(` | java.javac_test |
 | java | compile | delegated | lib/java/module.ae:854 | `"compile"` | java.mvn_project |
 | java | test | aeb | lib/java/module.ae:392 | `org.junit.runner.JUnitCore` | java.junit |
-| java | test | aeb | lib/java/module.ae:1860 | `org.junit.platform.console.ConsoleLauncher` | java.junit5 |
-| java | test | aeb | lib/java/module.ae:2002 | `-ea` | java.java_main |
+| java | test | aeb | lib/java/module.ae:1876 | `org.junit.platform.console.ConsoleLauncher` | java.junit5 |
+| java | test | aeb | lib/java/module.ae:2018 | `-ea` | java.java_main |
 | java | test | delegated | lib/java/module.ae:867 | `"test"` | java.mvn_project |
 | java | resolve | aeb | lib/java/module.ae:1113 | `maven.classpath(ctx)` | java.javac |
 | java | resolve | aeb | lib/java/module.ae:628 | `cryptography.sha256_file` | java.jar_pinned |
-| java | package | aeb | lib/java/module.ae:1487 | `jar --create` | java.package_jar |
-| java | package | aeb | lib/java/module.ae:2098 | `jar cfM` | java.shade |
-| java | package | aeb | lib/java/module.ae:2197 | `jar cfM` | java.thin_jar |
-| java | incremental | module-only | lib/java/module.ae:1206 | `cache.available()` | java.javac |
-| java | cache | yes | lib/java/module.ae:1216 | `cache.get(` | java.javac |
+| java | package | aeb | lib/java/module.ae:1495 | `jar --create` | java.package_jar |
+| java | package | aeb | lib/java/module.ae:2114 | `jar cfM` | java.shade |
+| java | package | aeb | lib/java/module.ae:2213 | `jar cfM` | java.thin_jar |
+| java | incremental | module-only | lib/java/module.ae:1214 | `cache.available()` | java.javac |
+| java | cache | yes | lib/java/module.ae:1224 | `cache.get(` | java.javac |
 
 ### javascript
 

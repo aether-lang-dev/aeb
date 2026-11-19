@@ -5693,6 +5693,15 @@ _maven_classpath(ctx: ptr, cp: string) {
     return out
 }
 
+// _maven_settled_jars(ctx) — the settled Maven jars of this node's
+// classpath, joined for a command line; "" when it has none. Valid after
+// _build_dep_classpath has run for the node.
+_maven_settled_jars(ctx: ptr) {
+    if map.has(ctx, "_maven_cp_add") == 0 { return string.concat("", "") }
+    add, _ = map.get_string(ctx, "_maven_cp_add")
+    return string.replace_all(add, "\n", _path_sep())
+}
+
 _build_dep_classpath(ctx: ptr) {
     _maven_coords_to_deps(ctx)
     deps, _ = map.get(ctx, "deps")

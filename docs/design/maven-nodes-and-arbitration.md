@@ -99,6 +99,10 @@ the artifact is left alone, whoever wrote it: change the pick on the line to
 decide differently. A locked build does not write the line; it fails and
 shows it.
 
+On spring-data-examples' `jpa/example` (Spring Boot's BOM, which manages
+about 1,500 artifacts) that came to ten lines, all written by aeb and none by
+hand, over 108 artifacts; its 45 tests pass as they do resolved the old way.
+
 Hand-written arbitrations for a whole project go in the same file. On jooby
 (7 BOMs, 99 artifacts for the core, guice, hikari, netty and kotlin modules)
 that was one line from a BOM and five by hand, among them slf4j-api 2.0.18

@@ -61,6 +61,7 @@ import rife.bld.dependencies.Dependency;
 import rife.bld.dependencies.DependencyResolver;
 import rife.bld.dependencies.DependencySet;
 import rife.bld.dependencies.Repository;
+import rife.bld.dependencies.RepositoryArtifact;
 import rife.bld.dependencies.Scope;
 import rife.bld.dependencies.Version;
 import rife.bld.dependencies.VersionResolution;
@@ -172,7 +173,9 @@ public class BldResolve {
 
         var props = new HierarchicalProperties();
         var vr = new VersionResolution(props);
-        var retriever = ArtifactRetriever.instance();
+        // The caching retriever: a pom is read once per run, and a pom that
+        // needs cleaning before bld can parse it can be put in (cleanPom).
+        var retriever = ArtifactRetriever.cachingInstance();
 
         // versionOverrides() is bld's LIVE backing map (verified by disassembly:
         // it returns the private versionOverrides_ field). Its key is
@@ -227,7 +230,15 @@ public class BldResolve {
                     // getAllDependencies applies overrideDependency to the root
                     // and every transitive dep, and pulls in each dep's own
                     // declared dependencyManagement/parent automatically.
-                    DependencySet closure = resolver.getAllDependencies(Scope.compile, Scope.runtime);
+                    DependencySet closure = null;
+                    for (int attempt = 0; closure == null; attempt++) {
+                        try {
+                            closure = resolver.getAllDependencies(Scope.compile, Scope.runtime);
+                        } catch (Exception e) {
+                            if (attempt > 50 || !cleanPom(e, retriever, repos)) throw e;
+                            resolver = new DependencyResolver(vr, retriever, repos, root);
+                        }
+                    }
                     all.addAll(closure);
                 } catch (Exception e) {
                     errors.add("cannot resolve " + coord + ": " + e.getMessage());
@@ -282,6 +293,47 @@ public class BldResolve {
 
         // Only the final result reaches the real stdout.
         if (!result.isEmpty()) System.out.println(result);
+    }
+
+    /**
+     * Some poms on Maven Central begin with a UTF-8 byte-order mark
+     * (dk.brics.automaton:automaton:1.11-8 is one). Maven reads them; bld's
+     * XML reader stops at "Content is not allowed in prolog", and the whole
+     * closure above that pom is lost. When `e` is that failure, fetch the pom
+     * named in it, drop everything before its first '<', and put the cleaned
+     * text into the retriever's cache so the next attempt parses it. True
+     * when something was cleaned and a retry is worth making.
+     */
+    private static boolean cleanPom(Exception e, ArtifactRetriever retriever, List<Repository> repos) {
+        String msg = String.valueOf(e.getMessage());
+        if (!msg.contains("Unable to parse artifact document")) return false;
+        Matcher m = Pattern.compile("from '([^']+\\.pom)'").matcher(msg);
+        if (!m.find()) return false;
+        String url = m.group(1);
+        try {
+            String xml;
+            if (url.startsWith("file:")) {
+                xml = new String(Files.readAllBytes(Paths.get(URI.create(url))), StandardCharsets.UTF_8);
+            } else if (url.startsWith("/")) {
+                xml = new String(Files.readAllBytes(Paths.get(url)), StandardCharsets.UTF_8);
+            } else {
+                HttpResponse<String> resp = HTTP.send(HttpRequest.newBuilder(URI.create(url)).GET().build(),
+                        HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                if (resp.statusCode() != 200) return false;
+                xml = resp.body();
+            }
+            int lt = xml.indexOf('<');
+            if (lt <= 0) return false;      // nothing in front of the document: not this problem
+            String cleaned = xml.substring(lt);
+            var cache = ArtifactRetriever.class.getDeclaredMethod("cache", RepositoryArtifact.class, String.class);
+            cache.setAccessible(true);
+            for (Repository r : repos) cache.invoke(retriever, new RepositoryArtifact(r, url), cleaned);
+            System.err.println("note: " + url + " begins with " + lt
+                    + " character(s) before its XML (a byte-order mark); read without them");
+            return true;
+        } catch (Exception ex) {
+            return false;
+        }
     }
 
     // ---- --output nodes ---------------------------------------------------
@@ -382,7 +434,15 @@ public class BldResolve {
                 Dependency base = new Dependency(d.groupId(), d.artifactId(), d.version(),
                         d.classifier(), d.type());
                 var resolver = new DependencyResolver(vr, retriever, repos, base);
-                DependencySet direct = resolver.getDirectDependencies(Scope.compile, Scope.runtime);
+                DependencySet direct = null;
+                for (int attempt = 0; direct == null; attempt++) {
+                    try {
+                        direct = resolver.getDirectDependencies(Scope.compile, Scope.runtime);
+                    } catch (Exception e) {
+                        if (attempt > 50 || !cleanPom(e, retriever, repos)) throw e;
+                        resolver = new DependencyResolver(vr, retriever, repos, base);
+                    }
+                }
 
                 String pomXml = fetchPom(d.groupId(), d.artifactId(), d.version().toString(), fetchUrls);
                 if (pomXml != null) {
@@ -437,6 +497,20 @@ public class BldResolve {
                                 : declaredVersion(pomXml, raw.groupId(), raw.artifactId());
                         String fixed = range == null ? null
                                 : versionInRange(range, raw.groupId(), raw.artifactId(), fetchUrls);
+                        if (range == null && pomXml != null) {
+                            // No <version> on the dependency: the pom's own
+                            // dependencyManagement supplies it, through its
+                            // parents and the BOMs they import (jaxb-runtime
+                            // and jaxb-core). That is the artifact's own
+                            // declaration, not a consumer's BOM.
+                            Map<String, Version> own = new LinkedHashMap<>();
+                            parsePomInto(pomXml, fetchUrls, own, new ArrayList<>());
+                            Version mv = own.get(raw.toArtifactString());
+                            if (mv != null) {
+                                fixed = mv.toString();
+                                range = "[" + fixed + "]";
+                            }
+                        }
                         if (fixed == null) {
                             errors.add(coord + " asks for " + dep.toArtifactString()
                                     + (range == null ? " with no version its pom supplies"
@@ -967,17 +1041,23 @@ public class BldResolve {
             try {
                 if (url.startsWith("file:")) {
                     Path p = Paths.get(URI.create(url));
-                    if (Files.exists(p)) return new String(Files.readAllBytes(p), StandardCharsets.UTF_8);
+                    if (Files.exists(p)) return fromFirstTag(new String(Files.readAllBytes(p), StandardCharsets.UTF_8));
                     continue;
                 }
                 HttpRequest req = HttpRequest.newBuilder(URI.create(url)).GET().build();
                 HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-                if (resp.statusCode() == 200) return resp.body();
+                if (resp.statusCode() == 200) return fromFirstTag(resp.body());
             } catch (Exception e) {
                 // try next repo
             }
         }
         return null;
+    }
+
+    /** A pom's text from its first '<': some are published with a byte-order mark in front. */
+    private static String fromFirstTag(String xml) {
+        int lt = xml.indexOf('<');
+        return lt > 0 ? xml.substring(lt) : xml;
     }
 
     // ---- Tiny DOM helpers -------------------------------------------------

@@ -103,6 +103,22 @@ cat > "$REPO/x/d/maven-metadata.xml" <<'META'
 <version>1.0</version><version>1.2</version><version>2.0-beta</version>
 </versions></versioning></metadata>
 META
+# h's pom begins with a UTF-8 byte-order mark, as some on Maven Central do.
+artifact h 1   "" x:e:1
+printf '\357\273\277' > "$REPO/x/h/1/h-1.pom.new"
+cat "$REPO/x/h/1/h-1.pom" >> "$REPO/x/h/1/h-1.pom.new"
+mv "$REPO/x/h/1/h-1.pom.new" "$REPO/x/h/1/h-1.pom"
+# i's dependency on d has no <version>; i's own dependencyManagement gives it.
+artifact i 1   ""
+cat > "$REPO/x/i/1/i-1.pom" <<'POM'
+<project><modelVersion>4.0.0</modelVersion>
+<groupId>x</groupId><artifactId>i</artifactId><version>1</version>
+<dependencyManagement><dependencies>
+<dependency><groupId>x</groupId><artifactId>d</artifactId><version>1.2</version></dependency>
+</dependencies></dependencyManagement>
+<dependencies><dependency><groupId>x</groupId><artifactId>d</artifactId></dependency></dependencies>
+</project>
+POM
 mkdir -p "$REPO/x/platform/1"
 cat > "$REPO/x/platform/1/platform-1.pom" <<'POM'
 <project><modelVersion>4.0.0</modelVersion>
@@ -302,6 +318,22 @@ if grep -q 'dep("third_party/java/x/d/1.2/.jar.ae")' "$PROJ/third_party/java/x/g
     pass "[1.0,1.5) is the highest published in it, 1.2, and the output says so"
 else
     fail "the range was not settled to 1.2 and reported"; cat "$TMP/range.log" | sed 's/^/        /' | head -5
+fi
+
+echo
+echo "8: poms as they are published"
+new_project
+( cd "$PROJ" && "$AEB_RUN" mvn add --repo "$BASE" x:h:1 x:i:1 ) > "$TMP/odd.log" 2> "$TMP/odd.err"
+rc=$?
+if [ "$rc" -eq 0 ] && grep -q 'dep("third_party/java/x/e/1/.jar.ae")' "$PROJ/third_party/java/x/h/1/.jar.ae" 2>/dev/null; then
+    pass "a pom that begins with a byte-order mark is read"
+else
+    fail "x:h, whose pom has a byte-order mark, did not resolve (rc=$rc)"; grep "^error" "$TMP/odd.err" | head -3 | sed 's/^/        /'
+fi
+if grep -q 'dep("third_party/java/x/d/1.2/.jar.ae")' "$PROJ/third_party/java/x/i/1/.jar.ae" 2>/dev/null; then
+    pass "a dependency with no version takes it from its own pom's dependencyManagement"
+else
+    fail "x:i's node has no edge to x:d:1.2"; grep "^error" "$TMP/odd.err" | head -3 | sed 's/^/        /'
 fi
 
 echo

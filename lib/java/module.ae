@@ -1174,6 +1174,14 @@ builder javac(): int {
             _e = map.put(_builder, "processor_path", maven_cp)
         }
     }
+    // The same when the Maven jars come from nodes kept in the tree: javac
+    // runs no annotation processor (Lombok) unless it is told where.
+    node_jars = bldr._maven_settled_jars(ctx)
+    if string.length(node_jars) > 0 {
+        if map.has(_builder, "processor_path") == 0 {
+            _e = map.put(_builder, "processor_path", node_jars)
+        }
+    }
 
     // Resolve the javac binary: select_jdk(...) picks among installed JDKs
     // (discover-select-or-fail); absent it, PATH's javac. "" means a
@@ -1560,6 +1568,14 @@ builder javac_test(): int {
     if string.length(maven_cp) > 0 {
         if map.has(_builder, "processor_path") == 0 {
             _e = map.put(_builder, "processor_path", maven_cp)
+        }
+    }
+    // The same when the Maven jars come from nodes kept in the tree: javac
+    // runs no annotation processor (Lombok) unless it is told where.
+    node_jars = bldr._maven_settled_jars(ctx)
+    if string.length(node_jars) > 0 {
+        if map.has(_builder, "processor_path") == 0 {
+            _e = map.put(_builder, "processor_path", node_jars)
         }
     }
 
