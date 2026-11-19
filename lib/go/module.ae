@@ -445,10 +445,14 @@ builder go_build(): int {
         } else {
             bldr._record_cache(ctx, "miss")
         }
-        bldr._sh("cd ${source_dir} && go mod tidy")
+        // No `go mod tidy` here: it reaches the network and rewrites go.mod /
+        // go.sum, so a build must not run it. `go build` runs in read-only
+        // module mode and fails when go.mod is out of date; tidying is the
+        // user's act.
         exit_code = bldr._sh(bld_cmd)
         if exit_code != 0 {
             println("${mod_dir}: go build failed")
+            println("${mod_dir}: if go.mod / go.sum are out of date, run `go mod tidy` in ${source_dir} (aeb does not rewrite them)")
             bldr.fail(ctx, "go build failed")
             return exit_code
         }
