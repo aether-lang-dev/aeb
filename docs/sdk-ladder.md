@@ -79,7 +79,7 @@ the other four with `ts`/`javascript`).
 | `lua` | aeb | aeb | none | none | none | none | no | none | `lua.c_extension` (cc), `lua.test` (busted), `lua.conformance` |
 | `maven` | n/a | delegated | aeb | delegated | none | delegated | yes | none | direct: `maven.resolve`; fallback: `maven.test`, `maven.install` (mvn) |
 | `moonbit` | delegated | delegated | delegated | none | none | delegated | no | none |  |
-| `nim` | delegated / aeb | aeb / delegated | delegated | delegated | none | delegated | no | none | direct: `nim.test` with test_file() (`nim c -r`); fallback: `nim.build`, default `nim.test` (nimble) |
+| `nim` | aeb / delegated | aeb / delegated | delegated | delegated | none | delegated | no | none | direct: `nim.build` and `nim.test` with test_file() (`nim c`, `nim c -r`); fallback: `nim.build` and `nim.test` without test_file (nimble) |
 | `pharo` | none | aeb / delegated | delegated | none | none | none | no | none | direct: `pharo.sunit`; fallback: `pharo.test` (project script) |
 | `php` | none | aeb | none | none | none | none | no | none |  |
 | `pnpm` | delegated | none | delegated / lockfile | none | none | none | no | none | `pnpm.resolve` (union add), `pnpm.install` (honours pnpm-lock.yaml), `pnpm.run` |
@@ -486,13 +486,14 @@ Grammar: nim.build, nim.test, nim.generate_manifest (emits .nimble), nim.consume
 
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
-| nim | compile | delegated | lib/nim/module.ae:171 | `nimble build` | nim.build |
-| nim | compile | aeb | lib/nim/module.ae:143 | `nim c -r ` | nim.test |
-| nim | test | delegated | lib/nim/module.ae:188 | `nimble test` | nim.test (no test_file) |
-| nim | test | aeb | lib/nim/module.ae:211 | `nim_c_run_cmd` | nim.test (test_file) |
-| nim | resolve | delegated | lib/nim/module.ae:171 | `nimble build` | nim.build |
-| nim | package | delegated | lib/nim/module.ae:171 | `nimble build` | nim.build |
-| nim | incremental | delegated | lib/nim/module.ae:171 | `nimble build` | nim.build |
+| nim | compile | aeb | lib/nim/module.ae:218 | `nim_c_cmd` | nim.build (test_file) |
+| nim | compile | aeb | lib/nim/module.ae:146 | `nim c -r ` | nim.test |
+| nim | compile | delegated | lib/nim/module.ae:199 | `nimble build` | nim.build (no test_file) |
+| nim | test | delegated | lib/nim/module.ae:246 | `nimble test` | nim.test (no test_file) |
+| nim | test | aeb | lib/nim/module.ae:269 | `nim_c_run_cmd` | nim.test (test_file) |
+| nim | resolve | delegated | lib/nim/module.ae:199 | `nimble build` | nim.build (no test_file) |
+| nim | package | delegated | lib/nim/module.ae:199 | `nimble build` | nim.build (no test_file) |
+| nim | incremental | delegated | lib/nim/module.ae:199 | `nimble build` | nim.build (no test_file) |
 
 ### pharo
 

@@ -1,14 +1,17 @@
 // nim — Nim SDK for aeb.
 //
 // Two shapes:
-//   * nim.build / nim.test with an empty block → `nimble build` / `nimble test`.
+//   * nim.build / nim.test with an empty block → `nimble build` / `nimble test`
+//     (the fallback: nimble does the whole step).
 //   * An FFI binding that compiles-and-runs explicit test files declares each
 //     with test_file(...) — one literal per file, greppable like bldr.dep —
 //     plus nim_flag(...) for compiler flags. nim.test then loops *in Aether*,
 //     running `nim c -r <flags> "<file>"` per file and reporting per-file
 //     pass/fail telemetry. No shell `for`-loop, no step("…") escape hatch:
 //     the iteration is aeb's (portable, no /bin/sh control-flow) and every
-//     input stays a literal a `grep` can see.
+//     input stays a literal a `grep` can see. nim.build with test_file(...)
+//     is the same loop without -r: `nim c <flags> "<file>"` per file, compile
+//     only.
 //
 //   import bldr
 //   import nim
@@ -49,7 +52,7 @@ test_file(_ctx: ptr, f: string) {
     _a = list.add(l, f)
 }
 
-// nim_flag(flag) — one compiler flag applied to every `nim c -r` (e.g.
+// nim_flag(flag) — one compiler flag applied to every `nim c` / `nim c -r` (e.g.
 // "--threads:on", "--path:src"). Repeat per flag. A pass-through, but each
 // flag is a greppable literal — structured, not a smuggled flag string.
 nim_flag(_ctx: ptr, flag: string) {
@@ -145,6 +148,15 @@ nim_c_run_cmd(file: string, flags: string) {
     return string.concat("nim c -r \"", string.concat(file, "\""))
 }
 
+// nim_c_cmd(file, flags) — `nim c <flags> "<file>"`: compile only, no run
+// (nim.build's direct form). Same quoting rules as nim_c_run_cmd.
+nim_c_cmd(file: string, flags: string) {
+    if string.length(flags) > 0 {
+        return string.concat("nim c ", string.concat(flags, string.concat(" \"", string.concat(file, "\""))))
+    }
+    return string.concat("nim c \"", string.concat(file, "\""))
+}
+
 // _join_flags(l) — space-join a flag list. Pure.
 _join_flags(l: ptr) {
     out = ""
@@ -161,14 +173,60 @@ _join_flags(l: ptr) {
 
 // --- Builders ---
 
-// nim.build(b) — `nimble build` (override with test_file/nim_flag for the
-// explicit `nim c …` shape, same as test).
+// nim.build(b) — direct form: when test_file(...) is declared, `nim c <flags>
+// "<file>"` for each file (compile only; nim_flag adds compiler flags), so aeb
+// drives the compiler itself. Without test_file it is the fallback, `nimble
+// build`. nim_flag without any test_file is an error: `nim c` needs a file and
+// there is no default one to guess.
 builder build(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
-    println("${mod_dir}: compiling (nim)")
-    return bldr._run_project(ctx, _builder, "nimble build", 0)
+
+    has_files = 0
+    has_flags = 0
+    if _builder != null {
+        if map.has(_builder, "nim_test_files") == 1 { has_files = 1 }
+        if map.has(_builder, "nim_flags") == 1 { has_flags = 1 }
+    }
+    if has_files == 0 {
+        if has_flags == 1 {
+            println("${mod_dir}: nim.build: nim_flag(...) needs at least one test_file(...) to compile")
+            bldr.fail(ctx, "nim.build: nim_flag without test_file")
+            return 1
+        }
+        println("${mod_dir}: compiling (nim)")
+        return bldr._run_project(ctx, _builder, "nimble build", 0)
+    }
+
+    files, _ = map.get(_builder, "nim_test_files")
+    flags = ""
+    if has_flags == 1 {
+        fl, _ = map.get(_builder, "nim_flags")
+        flags = _join_flags(fl)
+    }
+    source_dir = bldr._get(ctx, "source_dir")
+    target_dir = bldr._get(ctx, "target_dir")
+    bldr._mkdirs(target_dir)
+    env_prefix = bldr._env_export_prefix(_builder)
+
+    n = list.size(files)
+    println("${mod_dir}: compiling (nim c, ${n} file(s))")
+    i = 0
+    while i < n {
+        f, _ = list.get_string(files, i)
+        cc = nim_c_cmd(f, flags)
+        full = string.concat("cd \"", string.concat(source_dir, string.concat("\" && ", string.concat(env_prefix, cc))))
+        rc = bldr._sh(full)
+        if rc != 0 {
+            println("${mod_dir}: nim c failed on ${f}")
+            bldr.fail(ctx, "nim c failed: ${f}")
+            return rc
+        }
+        i = i + 1
+    }
+    _e = io.write_file(path.join(target_dir, ".timestamp"), "")
+    return 0
 }
 
 // nim.test(b) — if test_file(...) was declared, compile-and-run each file in
