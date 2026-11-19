@@ -38,7 +38,10 @@ load_bom_file(_ctx: ptr, rel_path: string) {
     source_dir = bldr._get(ctx, "source_dir")
     full_path = path.join(source_dir, rel_path)
     if file.exists(full_path) == 0 {
-        println("warning: BOM file not found: ${full_path}")
+        // The versions and repositories it would have supplied are missing
+        // from the resolve, so this is the node's failure, not a remark.
+        println("BOM file not found: ${full_path}")
+        bldr.fail(ctx, "BOM file not found: ${rel_path}")
         return 0
     }
 
@@ -365,10 +368,22 @@ resolve(ctx: ptr) {
     repos, _ = map.get(ctx, "repos")
     cmd = mvn_resolve_cmd(resolver_jar, bom_files, boms, repos, maven_deps)
 
-    // SLF4J warnings go to stderr, os.exec captures stdout only
-
+    // The resolver exits non-zero, with nothing on stdout, when anything it
+    // was asked for could not be had (a coordinate that does not resolve, a
+    // jar that does not download, a BOM it cannot read). os.exec does not
+    // report an exit status, so stdout goes to a file and the status comes
+    // from the shell. Its "error: ..." lines are on stderr, already in the log.
     println("${mod_dir}: resolving maven dependencies")
-    result_raw, _eerr = bldr._sh_capture(cmd)
+    cp_file = path.join(target_dir, "maven_resolve.out")
+    rc = bldr._sh("${cmd} > '${cp_file}'")
+    if rc != 0 {
+        _dr = fs.delete(cp_file)
+        bldr.fail(ctx, "maven dependencies did not resolve (see the error lines above)")
+        _ef = map.put(ctx, "_maven_resolved", "")
+        return ""
+    }
+    result_raw, _rerr = io.read_file(cp_file)
+    _dr2 = fs.delete(cp_file)
     result = string.trim(result_raw)
     if string.length(result) == 0 {
         println("${mod_dir}: warning: no maven jars resolved")

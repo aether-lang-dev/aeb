@@ -633,9 +633,12 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
 // jar_registry — declare a jar to fetch from Maven Central. Adds the coord
 // to maven_deps for later resolution. Use jar_registry_finalize(b) as the final builder
 // in a .jar.ae file to actually resolve and write the classpath artifact.
-jar_registry(ctx: ptr, coord: string) {
+jar_registry(_ctx: ptr, coord: string) {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
     maven_deps, _ = map.get(ctx, "maven_deps")
-    _e = list.add(maven_deps, coord)
+    _e = list.add(maven_deps, string.concat(coord, ""))
+    return 1
 }
 
 // jar_registry_finalize — resolve all previously-declared jar_registry coords and write

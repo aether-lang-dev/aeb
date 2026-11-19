@@ -74,7 +74,13 @@ main() {
             cmd = string.concat(cmd, string.concat(" '", string.concat(c, "'")))
             ci = ci + 1
         }
-        out, _e = bldr._sh_capture(cmd)
+        // The resolver's exit status says whether the closure is whole;
+        // os.exec does not report one, so the shell prints a marker.
+        out, _e = bldr._sh_capture(string.concat(cmd, " || echo __AEB_RESOLVE_FAILED__"))
+        if string.contains(out, "__AEB_RESOLVE_FAILED__") == 1 {
+            println("aeb-sbom: maven dependencies did not resolve (see the error lines above); no SBOM written.")
+            exit(4)
+        }
         _parse_lines_into(out, resolved, rseen)
     }
 

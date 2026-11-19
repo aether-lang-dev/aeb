@@ -26,6 +26,15 @@
  * all resolution/download we redirect System.out to System.err and only restore
  * it to print the final result line(s). Nothing but the result reaches stdout.
  *
+ * FAILURE: anything asked for that could not be had is an error, not a warning:
+ * an unknown option, a BOM or BOM file that cannot be read, a parent or imported
+ * POM that cannot be fetched, a coordinate with no version, a coordinate that
+ * does not resolve, a jar that does not download. Each is reported on stderr as
+ * "error: ...", every one of them rather than the first, and the exit status is
+ * 1 with NOTHING on stdout. A caller must never be handed part of a classpath:
+ * the compile that follows then fails on a missing class, or worse succeeds and
+ * the missing jar is found at run time.
+ *
  * Licensed under Apache-2.0.
  */
 package aeb.maven;
@@ -72,6 +81,9 @@ public class BldResolve {
         List<String> repoUrls = new ArrayList<>();
         List<String> deps = new ArrayList<>();
         String outputMode = "classpath";
+        // Everything that went wrong, in the order met. Non-empty at the end
+        // means exit 1 and an empty stdout.
+        List<String> errors = new ArrayList<>();
 
         // XDG Base Directory: downloaded Maven artifacts are reconstructible
         // but expensive, so they live in the data dir, not the cache dir.
@@ -90,10 +102,7 @@ public class BldResolve {
                 case "--cache":    cacheDir = args[++i]; break;
                 default:
                     if (args[i].startsWith("-")) {
-                        // Unknown option: warn and continue (match old behavior's
-                        // tolerance; old code exited, but the contract here asks
-                        // for warn-and-continue).
-                        System.err.println("warning: unknown option: " + args[i]);
+                        errors.add("unknown option: " + args[i]);
                     } else {
                         deps.add(args[i]);
                     }
@@ -123,8 +132,7 @@ public class BldResolve {
                     parseBomAeFile(bp, boms, repoUrls, deps);
                 }
             } catch (Exception e) {
-                System.err.println("warning: could not read BOM file " + bomFile
-                        + " \u2014 " + e.getMessage());
+                errors.add("could not read BOM file " + bomFile + ": " + e.getMessage());
             }
         }
         bomFiles = bomPomFiles;
@@ -165,16 +173,16 @@ public class BldResolve {
             // Load caller-supplied BOMs into the override map.
             for (String bom : boms) {
                 try {
-                    loadBomCoord(bom, fetchUrls, overrides);
+                    loadBomCoord(bom, fetchUrls, overrides, errors);
                 } catch (Exception e) {
-                    System.err.println("warning: could not load BOM " + bom + " — " + e.getMessage());
+                    errors.add("could not load BOM " + bom + ": " + e.getMessage());
                 }
             }
             for (String bomFile : bomFiles) {
                 try {
-                    loadBomFile(Paths.get(bomFile), fetchUrls, overrides);
+                    loadBomFile(Paths.get(bomFile), fetchUrls, overrides, errors);
                 } catch (Exception e) {
-                    System.err.println("warning: could not load BOM file " + bomFile + " — " + e.getMessage());
+                    errors.add("could not load BOM file " + bomFile + ": " + e.getMessage());
                 }
             }
 
@@ -188,10 +196,10 @@ public class BldResolve {
                 try {
                     Dependency root = Dependency.parse(coord);
                     // If version-less and no override provides one, bld would try
-                    // to resolve version 0.0.0 and fail; warn like the old shim.
+                    // to resolve version 0.0.0 and fail on that; say what is
+                    // actually missing.
                     if (isUnknownVersion(root.version()) && overrides.get(root.toArtifactString()) == null) {
-                        System.err.println("warning: skipping " + root.toArtifactString()
-                                + " — no version and no BOM provides one");
+                        errors.add(root.toArtifactString() + " has no version and no BOM provides one");
                         continue;
                     }
                     var resolver = new DependencyResolver(vr, retriever, repos, root);
@@ -201,7 +209,7 @@ public class BldResolve {
                     DependencySet closure = resolver.getAllDependencies(Scope.compile, Scope.runtime);
                     all.addAll(closure);
                 } catch (Exception e) {
-                    System.err.println("warning: cannot resolve " + coord + " — " + e.getMessage());
+                    errors.add("cannot resolve " + coord + ": " + e.getMessage());
                 }
             }
 
@@ -230,7 +238,7 @@ public class BldResolve {
                             }
                         }
                     } catch (Exception e) {
-                        System.err.println("warning: cannot download " + d + " — " + e.getMessage());
+                        errors.add("cannot download " + d + ": " + e.getMessage());
                     }
                 }
                 result = String.join(":", jarPaths);
@@ -239,12 +247,15 @@ public class BldResolve {
             System.setOut(realOut);
         }
 
-        // Only the final result reaches the real stdout.
-        if ("classpath".equals(outputMode)) {
-            if (!result.isEmpty()) System.out.println(result);
-        } else {
-            if (!result.isEmpty()) System.out.println(result);
+        if (!errors.isEmpty()) {
+            for (String e : errors) System.err.println("error: " + e);
+            System.err.println("aeb-resolve: " + errors.size()
+                    + (errors.size() == 1 ? " error" : " errors") + ", nothing resolved");
+            System.exit(1);
         }
+
+        // Only the final result reaches the real stdout.
+        if (!result.isEmpty()) System.out.println(result);
     }
 
     private static boolean isUnknownVersion(Version v) {
@@ -263,12 +274,13 @@ public class BldResolve {
      * pick up the BOM's version.
      */
     private static void loadBomCoord(String coord, List<String> repoUrls,
-                                     Map<String, Version> overrides) throws Exception {
+                                     Map<String, Version> overrides,
+                                     List<String> errors) throws Exception {
         String[] p = coord.split(":");
         if (p.length < 3) throw new IllegalArgumentException("BOM needs group:artifact:version");
         String xml = fetchPom(p[0], p[1], p[2], repoUrls);
         if (xml == null) throw new IllegalStateException("POM not found in any repository");
-        parsePomInto(xml, repoUrls, overrides);
+        parsePomInto(xml, repoUrls, overrides, errors);
     }
 
     /**
@@ -319,9 +331,10 @@ public class BldResolve {
     }
 
     private static void loadBomFile(Path path, List<String> repoUrls,
-                                    Map<String, Version> overrides) throws Exception {
+                                    Map<String, Version> overrides,
+                                    List<String> errors) throws Exception {
         String xml = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
-        parsePomInto(xml, repoUrls, overrides);
+        parsePomInto(xml, repoUrls, overrides, errors);
     }
 
     /**
@@ -338,7 +351,8 @@ public class BldResolve {
      * Exotic profile-activated or plugin-injected properties are not modelled.
      */
     private static void parsePomInto(String xml, List<String> repoUrls,
-                                     Map<String, Version> overrides) throws Exception {
+                                     Map<String, Version> overrides,
+                                     List<String> errors) throws Exception {
         // Accumulate properties across the parent chain, then interpolate.
         Map<String, String> properties = new LinkedHashMap<>();
         // Managed entries collected in "g:a" -> rawVersion form first, so later
@@ -346,7 +360,7 @@ public class BldResolve {
         Map<String, String> managed = new LinkedHashMap<>();
         List<String[]> imports = new ArrayList<>();   // [g,a,v] import-scope BOMs
 
-        collectPom(xml, repoUrls, properties, managed, imports, 0);
+        collectPom(xml, repoUrls, properties, managed, imports, errors, 0);
 
         // Recurse into imported BOMs (their managed versions are lower priority
         // than anything already collected in this POM chain).
@@ -354,11 +368,14 @@ public class BldResolve {
             try {
                 String impV = interpolate(imp[2], properties);
                 String impXml = fetchPom(imp[0], imp[1], impV, repoUrls);
-                if (impXml != null) {
+                if (impXml == null) {
+                    errors.add("imported BOM " + imp[0] + ":" + imp[1] + ":" + impV
+                            + " not found in any repository");
+                } else {
                     Map<String, String> impProps = new LinkedHashMap<>();
                     Map<String, String> impManaged = new LinkedHashMap<>();
                     List<String[]> impImports = new ArrayList<>();
-                    collectPom(impXml, repoUrls, impProps, impManaged, impImports, 0);
+                    collectPom(impXml, repoUrls, impProps, impManaged, impImports, errors, 0);
                     for (Map.Entry<String, String> e : impManaged.entrySet()) {
                         managed.putIfAbsent(e.getKey(), e.getValue());
                     }
@@ -368,8 +385,7 @@ public class BldResolve {
                     }
                 }
             } catch (Exception e) {
-                System.err.println("warning: could not import sub-BOM "
-                        + imp[0] + ":" + imp[1] + " — " + e.getMessage());
+                errors.add("could not import BOM " + imp[0] + ":" + imp[1] + ": " + e.getMessage());
             }
         }
 
@@ -393,6 +409,7 @@ public class BldResolve {
                                    Map<String, String> properties,
                                    Map<String, String> managed,
                                    List<String[]> imports,
+                                   List<String> errors,
                                    int depth) throws Exception {
         if (depth > 20) return; // guard against parent cycles
         Document doc = parseXml(xml);
@@ -459,12 +476,15 @@ public class BldResolve {
             try {
                 String pv = interpolate(parentVersion, properties);
                 String parentXml = fetchPom(parentGroup, parentArtifact, pv, repoUrls);
-                if (parentXml != null) {
-                    collectPom(parentXml, repoUrls, properties, managed, imports, depth + 1);
+                if (parentXml == null) {
+                    errors.add("parent POM " + parentGroup + ":" + parentArtifact + ":" + pv
+                            + " not found in any repository");
+                } else {
+                    collectPom(parentXml, repoUrls, properties, managed, imports, errors, depth + 1);
                 }
             } catch (Exception e) {
-                System.err.println("warning: could not read parent POM "
-                        + parentGroup + ":" + parentArtifact + " — " + e.getMessage());
+                errors.add("could not read parent POM "
+                        + parentGroup + ":" + parentArtifact + ": " + e.getMessage());
             }
         }
     }

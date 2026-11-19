@@ -209,5 +209,23 @@ jobs:
       # whatever its name; several is a refusal that names them.
       - name: directory shorthand has no preferred names
         run: itests/dir-shorthand.sh
+      # aeb's Maven resolver (tools/resolver, on bld). Built here because it is
+      # a release asset, not a file in the tree; the two tests below drive the
+      # jar this commit's source makes. Both serve their own repository on
+      # 127.0.0.1; only this build step reaches Maven Central (for bld's jar).
+      - name: Build the Maven resolver jar
+        run: |
+          set -eux
+          ./aeb tools/resolver/.dist.ae
+          test -s target/dist/tools/resolver/aeb-resolve.jar
+          echo "AEB_RESOLVE_JAR=$PWD/target/dist/tools/resolver/aeb-resolve.jar" >> "$GITHUB_ENV"
+      # --bom-file takes an aeb .bom.ae as well as a BOM POM.
+      - name: resolver reads a .bom.ae
+        run: itests/resolver-bom-ae.sh
+      # A coordinate that does not resolve, a jar that does not download or a
+      # BOM that cannot be read is exit 1 with nothing on stdout, and the aeb
+      # node fails; it was a warning and part of a classpath.
+      - name: a failed Maven resolve fails
+        run: itests/resolver-failure-fails.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh
