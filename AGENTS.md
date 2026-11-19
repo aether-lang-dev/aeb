@@ -397,7 +397,10 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   to `package`; under 0.178+ that collision would have failed the
   build immediately), Maven (resolver), pnpm/jest/webpack/angular,
   Container (OCI/LXC). Each SDK exposes `<lang>.<verb>() { ... }`
-  builders.
+  builders. `docs/sdk-ladder.md` grades each SDK by
+  build stage (compile, test, resolve, package, ...): `aeb` does it vs a
+  native build tool does it (`delegated`), with `file:line` evidence;
+  `tools/check-sdk-ladder.py` keeps it in step with `lib/`.
 - `lib/webhook/module.ae` — outbound webhook trigger SDK (core, not
   language-specific). `webhook.fire() { url(...) on(...) }` invokes
   a URL when a pipeline node is reached — aeb as the producer side

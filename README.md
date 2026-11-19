@@ -62,6 +62,8 @@ the two in step.)
 | Cross-compilation | ✗ TODO — roadmap. |
 | CI system integration | ✗ Deliberately CI-agnostic today. |
 
+The same truth by language, showing which build stages aeb does itself and which it hands to the language's own build tool: [docs/sdk-ladder.md](docs/sdk-ladder.md).
+
 ## Configuration precedence
 
 A setting expressible in more than one place has **one documented winner**.
