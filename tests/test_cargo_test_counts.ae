@@ -1,0 +1,41 @@
+// Tests for rust._parse_cargo_test_counts — per-test counts read from the
+// `test result:` lines cargo test prints (real output, cargo 1.99.1).
+import std.spec
+import rust(_parse_cargo_test_counts)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "_parse_cargo_test_counts") {
+        spec.it("sums the unit-test, integration-test and doc-test binaries") callback {
+            out = "running 4 tests\ntest tests::c ... ignored\n\ntest result: ok. 3 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n     Running tests/it.rs (target/debug/deps/it-e20f297105e9ddd3)\n\ntest result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\n   Doc-tests ct\n\ntest result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s\n"
+            p, f, g, n = _parse_cargo_test_counts(out)
+            spec.assert_eq(p, 5, "passed")
+            spec.assert_eq(f, 0, "failed")
+            spec.assert_eq(g, 1, "ignored")
+            spec.assert_eq(n, 3, "result lines")
+        }
+        spec.it("a failing binary: failed and passed both counted") callback {
+            out = "test tests::bad ... FAILED\n\ntest result: FAILED. 2 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s\n\nerror: test failed, to rerun pass `--lib`\n"
+            p, f, g, n = _parse_cargo_test_counts(out)
+            spec.assert_eq(p, 2, "passed")
+            spec.assert_eq(f, 1, "failed")
+            spec.assert_eq(g, 1, "ignored")
+            spec.assert_eq(n, 1, "result lines")
+        }
+        spec.it("a compile error has no result lines") callback {
+            p, f, g, n = _parse_cargo_test_counts("error[E0425]: cannot find value `x` in this scope\nerror: could not compile `ct`\n")
+            spec.assert_eq(n, 0, "no results")
+            spec.assert_eq(p, 0, "passed")
+            spec.assert_eq(f, 0, "failed")
+        }
+        spec.it("captured test output that mentions 'passed' is not a result line") callback {
+            out = "---- t stdout ----\n5 passed; 9 failed\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out\n"
+            p, f, g, n = _parse_cargo_test_counts(out)
+            spec.assert_eq(p, 1, "passed")
+            spec.assert_eq(f, 0, "failed")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

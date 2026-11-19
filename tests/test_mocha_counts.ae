@@ -1,0 +1,37 @@
+// Tests for ts._parse_mocha_counts — per-test counts read from the summary lines
+// of mocha's console reporters (real output, mocha 11, spec reporter).
+import std.spec
+import ts(_parse_mocha_counts)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "_parse_mocha_counts") {
+        spec.it("passing, pending and failing lines") callback {
+            out = "  x\n    ok a\n    1) c\n    - d\n\n\n  3 passing (4ms)\n  1 pending\n  1 failing\n\n  1) x\n       c:\n\n      AssertionError [ERR_ASSERTION]: 1 == 2\n"
+            p, f, g, found = _parse_mocha_counts(out)
+            spec.assert_eq(p, 3, "passed")
+            spec.assert_eq(f, 1, "failed")
+            spec.assert_eq(g, 1, "pending")
+            spec.assert_eq(found, 1, "found")
+        }
+        spec.it("clean run has no failing line") callback {
+            p, f, g, found = _parse_mocha_counts("\n\n  4 passing (3ms)\n  1 pending\n")
+            spec.assert_eq(p, 4, "passed")
+            spec.assert_eq(f, 0, "failed")
+            spec.assert_eq(g, 1, "pending")
+            spec.assert_eq(found, 1, "found")
+        }
+        spec.it("a title or stack line that mentions the words is not a summary") callback {
+            p, f, g, found = _parse_mocha_counts("    it reports 7 failing builds\n  at foo (9 passing.js:1:2)\n")
+            spec.assert_eq(found, 0, "nothing found")
+            spec.assert_eq(p, 0, "passed")
+        }
+        spec.it("a reporter without summary lines is not found") callback {
+            p, f, g, found = _parse_mocha_counts("{\"stats\":{\"passes\":3}}\n")
+            spec.assert_eq(found, 0, "json reporter")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

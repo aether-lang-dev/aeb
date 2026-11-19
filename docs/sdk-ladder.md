@@ -557,12 +557,12 @@ Grammar: rust.cargo_project, rust.cargo_project_existing, rust.cargo_build, rust
 |---|---|---|---|---|---|
 | rust | compile | delegated | lib/rust/module.ae:1343 | `cargo build` | rust.cargo_project |
 | rust | compile | delegated | lib/rust/module.ae:1231 | `cargo_build_cmd` | rust.cargo_project_existing |
-| rust | compile | delegated | lib/rust/module.ae:1635 | `cargo build -p` | rust.build_crate |
+| rust | compile | delegated | lib/rust/module.ae:1674 | `cargo build -p` | rust.build_crate |
 | rust | compile | delegated | lib/rust/module.ae:915 | `cargo check --workspace` | rust.check_workspace |
 | rust | compile | delegated | lib/rust/module.ae:1547 | `cargo check -p` | rust.check |
 | rust | test | delegated | lib/rust/module.ae:1278 | `cargo test` | rust.cargo_test_existing |
 | rust | test | delegated | lib/rust/module.ae:936 | `cargo test --workspace` | rust.test_workspace |
-| rust | test | delegated | lib/rust/module.ae:1590 | `cargo test -p` | rust.test |
+| rust | test | delegated | lib/rust/module.ae:1621 | `cargo test -p` | rust.test |
 | rust | resolve | delegated | lib/rust/module.ae:1003 | `rust_registry_deps_including_transitive` | rust.crate_registry |
 | rust | resolve | delegated | lib/rust/module.ae:1432 | `crates-io` | rust.cargo_project_existing |
 | rust | package | delegated | lib/rust/module.ae:1343 | `cargo build` | rust.cargo_project |
@@ -606,9 +606,9 @@ Grammar: ts.tsc, ts.tsc_files, ts.mocha, ts.generate_manifest, ts.npm_vendored, 
 | ts | compile | aeb | lib/ts/module.ae:84 | `-p '${tsconfig_path}'` | ts.tsc |
 | ts | compile | aeb | lib/ts/module.ae:103 | `tsc` | ts.tsc_files |
 | ts | test | aeb | lib/ts/module.ae:153 | `node ${mocha_bin}` | ts.mocha |
-| ts | resolve | delegated | lib/ts/module.ae:549 | `pnpm.resolve` | ts.tsc |
-| ts | cache | yes | lib/ts/module.ae:579 | `cache.available` | ts.tsc |
-| ts | cache | yes | lib/ts/module.ae:624 | `cache.put` | ts.tsc |
+| ts | resolve | delegated | lib/ts/module.ae:607 | `pnpm.resolve` | ts.tsc |
+| ts | cache | yes | lib/ts/module.ae:637 | `cache.available` | ts.tsc |
+| ts | cache | yes | lib/ts/module.ae:682 | `cache.put` | ts.tsc |
 
 ### webpack
 

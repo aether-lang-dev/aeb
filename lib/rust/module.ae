@@ -1587,6 +1587,37 @@ builder check(): int {
     return 0
 }
 
+// _parse_cargo_test_counts(output) — (passed, failed, ignored, results) summed
+// over every `test result: <ok|FAILED>. N passed; F failed; I ignored; ...` line
+// cargo test prints (one per test binary: unit tests, each integration test,
+// doc-tests). `results` is how many such lines were seen, 0 when the run never
+// reached a test binary (a compile error). Pure.
+_parse_cargo_test_counts(output: string) {
+    passed = 0
+    failed = 0
+    ignored = 0
+    results = 0
+    lines = string.split(output, "\n")
+    n = string.array_size(lines)
+    i = 0
+    while i < n {
+        line = string.trim(string.array_get(lines, i))
+        i = i + 1
+        if string.starts_with(line, "test result:") == 1 {
+            p = bldr._count_before_word(line, " passed")
+            f = bldr._count_before_word(line, " failed")
+            g = bldr._count_before_word(line, " ignored")
+            if p >= 0 {
+                results = results + 1
+                passed = passed + p
+                if f > 0 { failed = failed + f }
+                if g > 0 { ignored = ignored + g }
+            }
+        }
+    }
+    return passed, failed, ignored, results
+}
+
 // Run tests for a workspace crate via cargo test -p <name>.
 builder test(): int {
     ctx = builder_context()
@@ -1618,16 +1649,24 @@ builder test(): int {
         }
     }
 
-    exit_code = bldr._sh(cmd)
+    // Tee the output so the runner's own summary lines can be read; the rc
+    // comes from the rc file, not from tee (see bldr._sh_tee).
+    out_path = path.join(target_dir, "test_output.log")
+    rc_file = path.join(target_dir, "test_exit.rc")
+    exit_code = bldr._sh_tee(cmd, out_path, rc_file)
+    out_text, _orerr = fs.read(out_path)
+    cp, cf, ci, cn = _parse_cargo_test_counts(out_text)
     if exit_code != 0 {
-        // cargo test prints "test result: ok. N passed; F failed; ..."
-        // Coarse record for now; per-test parsing is a follow-up.
-        bldr._record_test_result(ctx, 0, 1)
+        // No result line, or a failing exit with no failed count (compile
+        // error, panic outside a test): still one failure, never 0.
+        if cf == 0 { cf = 1 }
+        bldr._record_test_result_skips(ctx, cp, cf, ci)
         println("${mod_dir}: tests FAILED")
+        bldr.fail(ctx, "cargo test FAILED")
         return exit_code
     }
-    bldr._record_test_result(ctx, 1, 0)
-    println("${mod_dir}: tests PASSED")
+    bldr._record_test_result_skips(ctx, cp, cf, ci)
+    println("${mod_dir}: tests PASSED (${cp} passed, ${ci} ignored)")
     _e = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
 }

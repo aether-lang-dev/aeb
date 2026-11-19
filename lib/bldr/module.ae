@@ -3211,6 +3211,35 @@ _dir_nonempty(d: string) {
     return found
 }
 
+// _count_before_word(line, word) — the integer written immediately before the
+// first `word` in `line` ("3 passed; 1 failed" with " failed" -> 1), or -1 when
+// `word` is absent or no digits precede it. Pure; for runners' summary lines.
+_count_before_word(line: string, word: string) {
+    idx = string.index_of(line, word)
+    result = -1
+    if idx > 0 {
+        start = idx
+        scanning = 1
+        while scanning == 1 {
+            if start <= 0 {
+                scanning = 0
+            } else {
+                c = string.substring(line, start - 1, start)
+                if string.index_of("0123456789", c) >= 0 {
+                    start = start - 1
+                } else {
+                    scanning = 0
+                }
+            }
+        }
+        if start < idx {
+            v, _e = string.to_int(string.substring(line, start, idx))
+            result = v
+        }
+    }
+    return result
+}
+
 // _record_test_result(ctx, passed, failed) — SDK test builders
 // call this at the end of a test run so the orchestrator can read
 // pass/fail counts post-build for telemetry. Marker format is

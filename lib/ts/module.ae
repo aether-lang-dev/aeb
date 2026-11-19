@@ -445,6 +445,46 @@ builder tsc_files(): int {
     return 0
 }
 
+// _parse_mocha_counts(output) — (passed, failed, pending, found) read from the
+// summary lines mocha's console reporters print: "  3 passing (12ms)",
+// "  1 failing", "  2 pending". Only lines that START with the count (after
+// indentation) are read, so a stack trace or test title containing the word is
+// ignored. `found` is 1 when a passing/failing/pending line was seen, 0 when
+// not (json/tap/xunit reporters, or mocha never started). Pure.
+_parse_mocha_counts(output: string) {
+    passed = 0
+    failed = 0
+    pending = 0
+    found = 0
+    lines = string.split(output, "\n")
+    n = string.array_size(lines)
+    i = 0
+    while i < n {
+        line = string.trim(string.array_get(lines, i))
+        i = i + 1
+        if string.length(line) > 0 {
+            if string.index_of("0123456789", string.substring(line, 0, 1)) >= 0 {
+                p = bldr._count_before_word(line, " passing")
+                f = bldr._count_before_word(line, " failing")
+                g = bldr._count_before_word(line, " pending")
+                if p >= 0 {
+                    passed = p
+                    found = 1
+                }
+                if f >= 0 {
+                    failed = f
+                    found = 1
+                }
+                if g >= 0 {
+                    pending = g
+                    found = 1
+                }
+            }
+        }
+    }
+    return passed, failed, pending, found
+}
+
 builder mocha(test_file: string): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -505,15 +545,33 @@ builder mocha(test_file: string): int {
         dyld_var = bldr._dyld_env_var()
     }
     run_cmd = mocha_cmd(node_path, ld_path, dyld_var, mocha_bin, _builder, test_file)
-    exit_code = bldr._sh(run_cmd)
+    // Tee the output so mocha's own summary can be read; the rc comes from the
+    // rc file, not from tee (see bldr._sh_tee).
+    bldr._mkdirs(target_dir)
+    out_path = path.join(target_dir, "mocha_output.log")
+    rc_file = path.join(target_dir, "mocha_exit.rc")
+    exit_code = bldr._sh_tee(run_cmd, out_path, rc_file)
+    out_text, _orerr = fs.read(out_path)
+    mp, mf, ms, found = _parse_mocha_counts(out_text)
+    if found == 1 {
+        if exit_code != 0 {
+            if mf == 0 { mf = 1 }
+        }
+        bldr._record_test_result_skips(ctx, mp, mf, ms)
+    } else {
+        // A reporter without summary lines (json, tap, ...): only the exit
+        // code is known, and it is recorded as such, not as a per-test count.
+        if exit_code != 0 {
+            bldr._record_test_result_exitcode(ctx, 0, 1)
+        } else {
+            bldr._record_test_result_exitcode(ctx, 1, 0)
+        }
+    }
     if exit_code != 0 {
-        // mocha summary parsing not yet wired; coarse record.
-        bldr._record_test_result(ctx, 0, 1)
         println("${mod_dir}: tests FAILED")
         bldr.fail(ctx, "tests FAILED")
         return exit_code
     }
-    bldr._record_test_result(ctx, 1, 0)
     println("${mod_dir}: tests PASSED")
     return 0
 }
