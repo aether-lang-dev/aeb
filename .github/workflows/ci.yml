@@ -56,6 +56,10 @@ jobs:
       - name: Lint workflow env wiring
         run: python3 tools/check-workflow-env.py .github/workflows/*.yml
 
+      # docs/sdk-ladder.md must match lib/ (rows, evidence file:line).
+      - name: Check SDK ladder doc
+        run: python3 tools/check-sdk-ladder.py
+
       # JDK so test_java_cache's _jdk_version() (`javac -version`) is
       # non-empty; harmless for every other test.
       - name: Set up JDK

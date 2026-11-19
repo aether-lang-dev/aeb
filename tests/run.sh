@@ -78,6 +78,23 @@ pad_name() {
     printf '%-*s' "$NAME_WIDTH" "$name"
 }
 
+# SDK-ladder doc check (docs/sdk-ladder.md vs lib/). Counted as one test.
+if [ -z "$PATTERN" ] || case "sdk_ladder" in *"$PATTERN"*) true ;; *) false ;; esac; then
+    total=$((total + 1))
+    printf '  %s ' "$(pad_name "sdk_ladder_doc")"
+    if command -v python3 >/dev/null 2>&1 \
+        && python3 "$REPO_ROOT/tools/check-sdk-ladder.py" "$REPO_ROOT" >"$TMPDIR_RUN/sdk_ladder.log" 2>&1; then
+        passed=$((passed + 1))
+        printf '%sRUN PASS%s    %s(docs/sdk-ladder.md)%s\n' "$C_GREEN" "$C_RESET" "$C_DIM" "$C_RESET"
+    else
+        run_failed=$((run_failed + 1))
+        printf '%sRUN FAIL%s    %s(see below)%s\n' "$C_RED" "$C_RESET" "$C_DIM" "$C_RESET"
+        sed 's/^/      /' "$TMPDIR_RUN/sdk_ladder.log"
+        failed_list="${failed_list}sdk_ladder_doc (run)
+"
+    fi
+fi
+
 # Discover tests — portable find, no -printf, no -maxdepth quirks
 test_files="$(find "$SCRIPT_DIR" -maxdepth 1 -type f -name 'test_*.ae' | sort)"
 
