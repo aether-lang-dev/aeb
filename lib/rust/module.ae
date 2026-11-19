@@ -1225,7 +1225,7 @@ builder cargo_project_existing(): int {
     cargo_dir = path.join(target_dir, ".cargo")
     bldr._mkdirs(cargo_dir)
     cargo_config = path.join(cargo_dir, "config.toml")
-    _write_cargo_config(cargo_config)
+    _write_cargo_config(cargo_config, target_dir, bldr._get(ctx, "root"))
 
     println("${mod_dir}: compiling prod code (cargo build, existing Cargo.toml)")
     cargo_cmd = cargo_build_cmd(source_dir, target_dir, _builder)
@@ -1376,19 +1376,67 @@ cargo_build_cmd(source_dir: string, target_dir: string, opts: ptr) {
 
 // --- Internal helpers ---
 
-_write_cargo_config(config_path: string) {
-    line1 = "[source.crates-io]"
-    line2 = "replace-with = 'local-registry'"
-    line3 = "[source.local-registry]"
-    line4 = "local-registry = '../../../libs/rust/registry'"
-    cfg = string.concat(line1, "\n")
-    cfg = string.concat(cfg, line2)
-    cfg = string.concat(cfg, "\n\n")
-    cfg = string.concat(cfg, line3)
-    cfg = string.concat(cfg, "\n")
-    cfg = string.concat(cfg, line4)
-    cfg = string.concat(cfg, "\n")
-    _e = io.write_file(config_path, cfg)
+// _relative_path(from_dir, to_dir) — the relative path that, resolved against
+// from_dir, names to_dir. Both must be absolute. Pure; "." when they are equal.
+_relative_path(from_dir: string, to_dir: string) {
+    fa = string.split(from_dir, "/")
+    ta = string.split(to_dir, "/")
+    fs_ = list.new()
+    ts_ = list.new()
+    i = 0
+    while i < string.array_size(fa) {
+        seg = string.array_get(fa, i)
+        if string.length(seg) > 0 { _a = list.add(fs_, seg) }
+        i = i + 1
+    }
+    i = 0
+    while i < string.array_size(ta) {
+        seg = string.array_get(ta, i)
+        if string.length(seg) > 0 { _b = list.add(ts_, seg) }
+        i = i + 1
+    }
+    common = 0
+    while common < list.size(fs_) {
+        if common >= list.size(ts_) { break }
+        x, _ = list.get_string(fs_, common)
+        y, _ = list.get_string(ts_, common)
+        if string.equals(x, y) == 0 { break }
+        common = common + 1
+    }
+    out = ""
+    i = common
+    while i < list.size(fs_) {
+        if string.length(out) > 0 { out = string.concat(out, "/") }
+        out = string.concat(out, "..")
+        i = i + 1
+    }
+    i = common
+    while i < list.size(ts_) {
+        seg, _ = list.get_string(ts_, i)
+        if string.length(out) > 0 { out = string.concat(out, "/") }
+        out = string.concat(out, seg)
+        i = i + 1
+    }
+    if string.length(out) == 0 { return "." }
+    return out
+}
+
+// cargo_config_content(target_dir, root) — the .cargo/config.toml aeb writes in
+// target_dir: crates.io replaced by the workspace's local registry at
+// <root>/libs/rust/registry. cargo resolves a local-registry path against the
+// directory that contains `.cargo` (target_dir), so the path is computed from
+// where the module really is, not assumed to sit at a fixed depth. Pure.
+cargo_config_content(target_dir: string, root: string) {
+    registry = path.join(root, "libs/rust/registry")
+    rel = _relative_path(target_dir, registry)
+    cfg = "[source.crates-io]\nreplace-with = 'local-registry'\n\n"
+    cfg = string.concat(cfg, "[source.local-registry]\n")
+    cfg = string.concat(cfg, "local-registry = '${rel}'\n")
+    return cfg
+}
+
+_write_cargo_config(config_path: string, target_dir: string, root: string) {
+    _e = io.write_file(config_path, cargo_config_content(target_dir, root))
 }
 
 // --- SDK functions ---
@@ -1427,7 +1475,7 @@ builder cargo_build(): int {
     bldr._mkdirs(cargo_dir)
     cargo_config = path.join(cargo_dir, "config.toml")
     bldr._sh("mkdir -p ${cargo_dir}")
-    _write_cargo_config(cargo_config)
+    _write_cargo_config(cargo_config, target_dir, bldr._get(ctx, "root"))
 
     cargo_cmd = cargo_build_cmd(source_dir, target_dir, _builder)
 

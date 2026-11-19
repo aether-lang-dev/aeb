@@ -1,0 +1,43 @@
+// Tests for lib/rust's .cargo/config.toml generation: the local-registry path
+// must be computed from where the module's target dir really is, relative to
+// the workspace root, not assumed to be three levels below it.
+import std.spec
+import rust(cargo_config_content, _relative_path)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "_relative_path") {
+        spec.it("descends below the common prefix") callback {
+            spec.assert_str_eq(_relative_path("/w/target/build/a", "/w/libs/rust/registry"),
+                "../../../libs/rust/registry", "three up")
+        }
+        spec.it("depth changes the number of ..") callback {
+            spec.assert_str_eq(_relative_path("/w/target/build/deep/er/mod", "/w/libs/rust/registry"),
+                "../../../../../libs/rust/registry", "five up")
+            spec.assert_str_eq(_relative_path("/w/target/m", "/w/libs/rust/registry"),
+                "../../libs/rust/registry", "two up")
+        }
+        spec.it("equal dirs and ancestors") callback {
+            spec.assert_str_eq(_relative_path("/w/a", "/w/a"), ".", "same")
+            spec.assert_str_eq(_relative_path("/w/a/b", "/w/a"), "..", "ancestor")
+            spec.assert_str_eq(_relative_path("/w/a", "/w/a/b/c"), "b/c", "descendant")
+        }
+        spec.it("trailing slashes do not matter") callback {
+            spec.assert_str_eq(_relative_path("/w/a/", "/w/b/"), "../b", "slashes")
+        }
+    }
+
+    spec.describe(fw, "cargo_config_content") {
+        spec.it("registry path follows the module's depth") callback {
+            spec.assert_str_eq(cargo_config_content("/w/target/build/a/b", "/w"),
+                "[source.crates-io]\nreplace-with = 'local-registry'\n\n[source.local-registry]\nlocal-registry = '../../../../libs/rust/registry'\n",
+                "four levels deep")
+            spec.assert_str_eq(cargo_config_content("/w/target/build/a", "/w"),
+                "[source.crates-io]\nreplace-with = 'local-registry'\n\n[source.local-registry]\nlocal-registry = '../../../libs/rust/registry'\n",
+                "the old fixed depth still yields the old string")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

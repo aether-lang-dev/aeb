@@ -557,18 +557,18 @@ Grammar: rust.cargo_project, rust.cargo_project_existing, rust.cargo_build, rust
 |---|---|---|---|---|---|
 | rust | compile | delegated | lib/rust/module.ae:1343 | `cargo build` | rust.cargo_project |
 | rust | compile | delegated | lib/rust/module.ae:1231 | `cargo_build_cmd` | rust.cargo_project_existing |
-| rust | compile | delegated | lib/rust/module.ae:1610 | `cargo build -p` | rust.build_crate |
+| rust | compile | delegated | lib/rust/module.ae:1635 | `cargo build -p` | rust.build_crate |
 | rust | compile | delegated | lib/rust/module.ae:915 | `cargo check --workspace` | rust.check_workspace |
-| rust | compile | delegated | lib/rust/module.ae:1524 | `cargo check -p` | rust.check |
+| rust | compile | delegated | lib/rust/module.ae:1547 | `cargo check -p` | rust.check |
 | rust | test | delegated | lib/rust/module.ae:1278 | `cargo test` | rust.cargo_test_existing |
 | rust | test | delegated | lib/rust/module.ae:936 | `cargo test --workspace` | rust.test_workspace |
-| rust | test | delegated | lib/rust/module.ae:1565 | `cargo test -p` | rust.test |
+| rust | test | delegated | lib/rust/module.ae:1590 | `cargo test -p` | rust.test |
 | rust | resolve | delegated | lib/rust/module.ae:1003 | `rust_registry_deps_including_transitive` | rust.crate_registry |
-| rust | resolve | delegated | lib/rust/module.ae:1380 | `crates-io` | rust.cargo_project_existing |
+| rust | resolve | delegated | lib/rust/module.ae:1432 | `crates-io` | rust.cargo_project_existing |
 | rust | package | delegated | lib/rust/module.ae:1343 | `cargo build` | rust.cargo_project |
 | rust | incremental | delegated | lib/rust/module.ae:818 | `cargo has its own` | rust.cargo_project |
 | rust | cache | yes | lib/rust/module.ae:1120 | `cache.available` | rust.cargo_project |
-| rust | cache | yes | lib/rust/module.ae:1458 | `cache.available` | rust.cargo_build |
+| rust | cache | yes | lib/rust/module.ae:1506 | `cache.available` | rust.cargo_build |
 
 ### scala
 
