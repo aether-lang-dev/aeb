@@ -1,0 +1,13 @@
+// org.springframework.boot:spring-boot-starter-jdbc:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot-starter/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/boot/spring-boot-jdbc/4.0.4/.jar.ae")
+        dep("third_party/java/com/zaxxer/HikariCP/7.0.2/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-starter-jdbc:4.0.4", "62f2e1811b003a0abe04bef5a9b59d35fcfafdd2df2989cb55da2fcd89cbf524")
+    }
+}

@@ -1,0 +1,11 @@
+// com.github.mifmif:generex:1.0.2, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/dk/brics/automaton/automaton/1.11-8/.jar.ae")
+        java.jar_maven("com.github.mifmif:generex:1.0.2", "8f8ce233c335e08e113a3f9579de1046fb19927e82468b1bbebcd6cba8760b81")
+    }
+}

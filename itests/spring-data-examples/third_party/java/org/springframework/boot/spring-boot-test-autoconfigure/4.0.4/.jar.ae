@@ -1,0 +1,11 @@
+// org.springframework.boot:spring-boot-test-autoconfigure:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot-test/4.0.4/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-test-autoconfigure:4.0.4", "d2a0b8e4d99b8636a4dd26fcce9ba2945c37ee29f094bf3e102e41084c12f742")
+    }
+}

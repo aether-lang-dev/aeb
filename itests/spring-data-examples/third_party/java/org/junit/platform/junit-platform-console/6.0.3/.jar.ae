@@ -1,0 +1,13 @@
+// org.junit.platform:junit-platform-console:6.0.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/junit/platform/junit-platform-reporting/6.0.3/.jar.ae")
+        dep("third_party/java/org/apiguardian/apiguardian-api/1.1.2/.jar.ae")
+        dep("third_party/java/org/jspecify/jspecify/1.0.0/.jar.ae")
+        java.jar_maven("org.junit.platform:junit-platform-console:6.0.3", "aee6094514f5761d15d469a187305c123a524153ee303473fcd836e0df7e1942")
+    }
+}

@@ -1,5 +1,5 @@
 import bldr
-import bldr (dep)
+import bldr (dep, maven_nodes)
 import maven (load_bom_file)
 import java
 import java (release, source_layout)
@@ -8,6 +8,10 @@ import java (release, source_layout)
 aeb(cap) {
     bldr.build() {
         dep("modules/jooby-hikari/.build.ae")
+        // Maven artifacts kept as build files, one per artifact with its sha256
+        // (docs/design/maven-nodes-and-arbitration.md). Other modules here still
+        // resolve at build time.
+        maven_nodes("third_party/java")
         load_bom_file("../../jooby.bom.ae")
         dep("com.zaxxer:HikariCP:7.1.0")
         dep("org.junit.jupiter:junit-jupiter-engine")

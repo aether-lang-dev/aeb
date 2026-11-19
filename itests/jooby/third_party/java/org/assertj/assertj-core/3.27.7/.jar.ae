@@ -1,0 +1,11 @@
+// org.assertj:assertj-core:3.27.7, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/net/bytebuddy/byte-buddy/1.18.3/.jar.ae")
+        java.jar_maven("org.assertj:assertj-core:3.27.7", "c4a445426c3c2861666863b842cc4ec7bbb1c4226fefd370b6d2fe83d6c4ff0f")
+    }
+}

@@ -1,0 +1,12 @@
+// ch.qos.logback:logback-classic:1.5.32, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/ch/qos/logback/logback-core/1.5.32/.jar.ae")
+        dep("third_party/java/org/slf4j/slf4j-api/2.0.17/.jar.ae")
+        java.jar_maven("ch.qos.logback:logback-classic:1.5.32", "2d4cf592db78be2de4d6140434c2fec170dcb16a09e8c8b7b207dbf5e31b848a")
+    }
+}

@@ -1,5 +1,5 @@
 import bldr
-import bldr (dep)
+import bldr (dep, maven_nodes)
 import maven (load_bom_file)
 import java
 import java (release, source_layout)
@@ -8,6 +8,10 @@ import java (release, source_layout)
 // from jooby/pom.xml; versions inline (jooby-pinned) or via jooby.bom.ae.
 aeb(cap) {
     bldr.build() {
+        // Maven artifacts kept as build files, one per artifact with its sha256
+        // (docs/design/maven-nodes-and-arbitration.md). Other modules here still
+        // resolve at build time.
+        maven_nodes("third_party/java")
         load_bom_file("../jooby.bom.ae")
         dep("org.jspecify:jspecify:1.0.0")
         dep("org.slf4j:slf4j-api:2.0.18")

@@ -5,6 +5,15 @@ is driven by `.build.ae` / `.tests.ae` files using the Java SDK + a
 shared Spring Boot BOM. No `pom.xml`, Surefire, or Maven plugins are
 invoked.
 
+## Maven artifacts kept as build files
+
+`jpa/example` declares `maven_nodes("third_party/java")`: its Maven artifacts
+are the 108 nodes under `third_party/java`, each with its jar's sha256, and
+it builds `--locked` (45/45, as resolved at build time). Every other example
+still resolves at build time. `spring-boot.bom.ae` carries ten picks, all
+written by aeb from what Spring Boot's BOM manages. See
+`docs/design/maven-nodes-and-arbitration.md`.
+
 ## `enable_preview()` removed (2026-09-22)
 
 Every `.build.ae` and `.tests.ae` here carried `enable_preview()` alongside

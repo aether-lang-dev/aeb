@@ -1,0 +1,14 @@
+// org.junit.jupiter:junit-jupiter-api:6.0.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/opentest4j/opentest4j/1.3.0/.jar.ae")
+        dep("third_party/java/org/junit/platform/junit-platform-commons/6.0.3/.jar.ae")
+        dep("third_party/java/org/apiguardian/apiguardian-api/1.1.2/.jar.ae")
+        dep("third_party/java/org/jspecify/jspecify/1.0.0/.jar.ae")
+        java.jar_maven("org.junit.jupiter:junit-jupiter-api:6.0.3", "d655d7e6f0c7ae07f10a2f3bbaaebb6d30e9b26204a068ad9e9b3950aa28792c")
+    }
+}

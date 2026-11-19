@@ -1,0 +1,9 @@
+// com.sun.istack:istack-commons-runtime:4.1.2, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("com.sun.istack:istack-commons-runtime:4.1.2", "7fd6792361f4dd00f8c56af4a20cecc0066deea4a8f3dec38348af23fc2296ee")
+    }
+}

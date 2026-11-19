@@ -1,0 +1,11 @@
+// org.springframework:spring-test:7.0.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/spring-core/7.0.6/.jar.ae")
+        java.jar_maven("org.springframework:spring-test:7.0.6", "aa099cb666d430b665d52a2546ddf040a8d96a2fa06551f4f45a851d96fb6e37")
+    }
+}

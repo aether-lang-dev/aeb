@@ -1,0 +1,9 @@
+// org.ow2.asm:asm:9.7.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.ow2.asm:asm:9.7.1", "8cadd43ac5eb6d09de05faecca38b917a040bb9139c7edeb4cc81c740b713281")
+    }
+}

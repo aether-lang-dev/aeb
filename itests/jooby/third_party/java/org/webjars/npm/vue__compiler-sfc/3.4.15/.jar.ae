@@ -1,0 +1,19 @@
+// org.webjars.npm:vue__compiler-sfc:3.4.15, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/webjars/npm/magic-string/0.30.21/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__compiler-core/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/postcss/8.5.33/.jar.ae")
+        dep("third_party/java/org/webjars/npm/babel__parser/7.29.14/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__compiler-ssr/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/source-map-js/1.2.2/.jar.ae")
+        dep("third_party/java/org/webjars/npm/estree-walker/2.0.2/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__compiler-dom/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__shared/3.4.15/.jar.ae")
+        java.jar_maven("org.webjars.npm:vue__compiler-sfc:3.4.15", "870eb75b3cae4b93cb9a037e6dc1bce71b7b0baac2b5754bbf0760c60758bb93")
+    }
+}

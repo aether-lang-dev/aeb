@@ -1,0 +1,9 @@
+// org.webjars.npm:jridgewell__sourcemap-codec:1.6.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:jridgewell__sourcemap-codec:1.6.0", "f5c5056de54fef8ff990c47952ea8e35980a9f84b34df329be66172ff7b419fa")
+    }
+}

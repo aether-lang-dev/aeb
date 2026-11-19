@@ -1,0 +1,12 @@
+// com.squareup.okhttp3:okhttp-jvm:5.4.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/jetbrains/kotlin/kotlin-stdlib/2.1.21/.jar.ae")
+        dep("third_party/java/com/squareup/okio/okio-jvm/3.17.0/.jar.ae")
+        java.jar_maven("com.squareup.okhttp3:okhttp-jvm:5.4.0", "b15e605ca0a4b12c62ea7f657dad413c236c947e875854767349cdbe20df473c")
+    }
+}

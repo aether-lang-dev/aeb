@@ -33,9 +33,16 @@
 // it is built first. A line already there for the artifact, whoever wrote it,
 // is left alone: change the pick in that line to decide differently.
 //
-// The project keeps its artifacts in $AEB_MVN_DIR, or third_party/java when
-// that directory exists. With neither, mvn_dir() is "" and a coordinate is
-// resolved at build time as before (lib/maven), recorded nowhere.
+// Keeping artifacts this way is a choice a team declares, in .ae like every
+// other intent:
+//
+//     maven_nodes("third_party/java")
+//
+// in the build file, or in a .bom.ae it loads (so everything that loads the
+// file shares the choice). The directory is theirs to name. A build file
+// with no such line in reach is untouched: its coordinates resolve at build
+// time as before (lib/maven), recorded nowhere. Parts of one repository can
+// choose differently.
 
 import std.string
 import std.file
@@ -45,16 +52,7 @@ import std.os
 import std.list
 import mvngraph
 
-exports(mvn_dir, locked, edges)
-
-// mvn_dir() — where this project keeps its Maven nodes, relative to the
-// project root (the working directory); "" when it does not keep any.
-mvn_dir() {
-    e = os.getenv("AEB_MVN_DIR")
-    if string.length(e) > 0 { return string.concat(e, "") }
-    if dir.exists("third_party/java") == 1 { return string.concat("third_party/java", "") }
-    return string.concat("", "")
-}
+exports(locked, edges)
 
 // locked() — 1 when nothing may be generated or written into the tree.
 locked() {
@@ -189,8 +187,9 @@ _managed_by(into: string, boms: string, ga: string) {
 //   space-separated; generating and writing as described at the top.
 //   ("", "") when the project keeps no Maven nodes or the file names none.
 edges(build_file: string, content: string, base_dir: string) {
-    into = mvn_dir()
-    if string.length(into) == 0 { return "", "" }
+    // Where this build file keeps its Maven nodes: its own maven_nodes("...")
+    // line, else the first one in a .bom.ae it loads (found below).
+    into = _nth(mvngraph.calls_in(content, "maven_nodes"), "\n", 0)
 
     // --- what the build file asks for: its own dep()s and its .bom.ae's ---
     coords = ""
@@ -227,6 +226,9 @@ edges(build_file: string, content: string, base_dir: string) {
             btxt = _read(bp)
             if string.length(btxt) > 0 {
                 bom_files = _add_line(bom_files, bp)
+                if string.length(into) == 0 {
+                    into = _nth(mvngraph.calls_in(btxt, "maven_nodes"), "\n", 0)
+                }
                 boms = mvngraph.merge(boms, mvngraph.calls_in(btxt, "maven_bom"))
                 repos = mvngraph.merge(repos, mvngraph.calls_in(btxt, "maven_repo"))
                 bd = string.split(mvngraph.calls_in(btxt, "dep"), "\n")
@@ -252,6 +254,7 @@ edges(build_file: string, content: string, base_dir: string) {
         li = li + 1
     }
     string.array_free(lf)
+    if string.length(into) == 0 { return "", "" }
     if string.length(coords) == 0 { return "", "" }
     rargs = _repo_args(repos)
 

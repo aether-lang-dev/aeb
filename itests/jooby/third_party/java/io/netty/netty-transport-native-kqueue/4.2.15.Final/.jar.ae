@@ -1,0 +1,15 @@
+// io.netty:netty-transport-native-kqueue:4.2.15.Final, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/io/netty/netty-common/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-buffer/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-transport/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-transport-native-unix-common/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-transport-classes-kqueue/4.2.15.Final/.jar.ae")
+        java.jar_maven("io.netty:netty-transport-native-kqueue:4.2.15.Final", "3e4b1492418ab0ea9dbaf6ca1560c39ff6aec8446b5b623f7f0bdf1a808d5506")
+    }
+}

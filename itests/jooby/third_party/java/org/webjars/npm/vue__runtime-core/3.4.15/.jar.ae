@@ -1,0 +1,12 @@
+// org.webjars.npm:vue__runtime-core:3.4.15, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/webjars/npm/vue__shared/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__reactivity/3.4.15/.jar.ae")
+        java.jar_maven("org.webjars.npm:vue__runtime-core:3.4.15", "3b17546be6b65a1fa709f044372caf37126c7be3c39bccc344b2b9fc0259c3be")
+    }
+}

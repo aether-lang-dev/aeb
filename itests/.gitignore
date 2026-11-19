@@ -37,6 +37,12 @@ selenium/**
 !**/.dist.ae
 !**/.codegen.ae
 !**/*.bom.ae
+# Maven artifacts kept as build files (maven_nodes): generated, and ours. The
+# directory has to be un-ignored before anything in it can be.
+!jooby/third_party/
+!jooby/third_party/**
+!spring-data-examples/third_party/
+!spring-data-examples/third_party/**
 !**/*.deps.ae
 !**/*.config.ae
 !**/*.whl.ae

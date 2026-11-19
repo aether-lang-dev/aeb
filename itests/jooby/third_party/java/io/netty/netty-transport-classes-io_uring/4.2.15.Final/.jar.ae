@@ -1,0 +1,14 @@
+// io.netty:netty-transport-classes-io_uring:4.2.15.Final, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/io/netty/netty-common/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-buffer/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-transport/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-transport-native-unix-common/4.2.15.Final/.jar.ae")
+        java.jar_maven("io.netty:netty-transport-classes-io_uring:4.2.15.Final", "dcfb9c578e47aed5d05045b4b80a5d05c7b4d0cfbe63eb4310a0951cbdf7e89b")
+    }
+}

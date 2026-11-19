@@ -1,0 +1,9 @@
+// commons-logging:commons-logging:1.3.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("commons-logging:commons-logging:1.3.6", "f8ead8943401081dea0aa824b5b1ba40a0e4ed297a572a0f02258150a0b62357")
+    }
+}

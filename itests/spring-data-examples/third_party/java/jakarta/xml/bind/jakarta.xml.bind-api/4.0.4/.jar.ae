@@ -1,0 +1,11 @@
+// jakarta.xml.bind:jakarta.xml.bind-api:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/jakarta/activation/jakarta.activation-api/2.1.4/.jar.ae")
+        java.jar_maven("jakarta.xml.bind:jakarta.xml.bind-api:4.0.4", "c507ca69a8c6dd11bf4afeec9e0d412c4fa3933fffb0a84680ea5727e8472124")
+    }
+}

@@ -1,0 +1,12 @@
+// org.springframework:spring-aop:7.0.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/spring-beans/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-core/7.0.6/.jar.ae")
+        java.jar_maven("org.springframework:spring-aop:7.0.6", "d02a9e1e30a9b85b02c5e54b0e86745a657011b1dd124028b9bc387ee9f43a65")
+    }
+}

@@ -1,0 +1,11 @@
+// com.zaxxer:HikariCP:7.0.2, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/slf4j/slf4j-api/2.0.17/.jar.ae")
+        java.jar_maven("com.zaxxer:HikariCP:7.0.2", "f1e612fa27345be3107a85431e8a8aeb205c15364ab2f2d411e40a9d7bb08095")
+    }
+}

@@ -1,0 +1,9 @@
+// org.slf4j:slf4j-api:2.0.17, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.slf4j:slf4j-api:2.0.17", "7b751d952061954d5abfed7181c1f645d336091b679891591d63329c622eb832")
+    }
+}

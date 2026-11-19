@@ -1712,12 +1712,17 @@ was asked for fails the node; it never hands back part of a classpath.
 ### Maven artifacts as hashed nodes
 
 By default `dep("group:artifact:version")` resolves at build time and records
-nothing. A project with a `third_party/java` directory keeps its artifacts
-instead: the poms are read once and what they said is build files, one per
+nothing. A team that wants its artifacts kept says so, in a build file or in
+the `.bom.ae` its build files load:
+
+```aether
+maven_nodes("third_party/java")      // the directory is yours to name
+```
+
+From then the poms are read once and what they said is build files, one per
 artifact, each with its jar's sha256.
 
 ```sh
-mkdir -p third_party/java
 aeb app/.build.ae        # first use: dep("org.hibernate:hibernate-core:5.4.32.Final")
                          # writes third_party/java/<group dirs>/<artifact>/<version>/.jar.ae,
                          # 20 of them; review and commit

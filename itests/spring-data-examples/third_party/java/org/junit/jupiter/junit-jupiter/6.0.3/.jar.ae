@@ -1,0 +1,13 @@
+// org.junit.jupiter:junit-jupiter:6.0.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/junit/jupiter/junit-jupiter-api/6.0.3/.jar.ae")
+        dep("third_party/java/org/junit/jupiter/junit-jupiter-params/6.0.3/.jar.ae")
+        dep("third_party/java/org/junit/jupiter/junit-jupiter-engine/6.0.3/.jar.ae")
+        java.jar_maven("org.junit.jupiter:junit-jupiter:6.0.3", "784b65815f479a0c99a9d3a573b142e2a525efb6025d97f751b19e72f90aeda3")
+    }
+}

@@ -1,0 +1,9 @@
+// com.fasterxml:classmate:1.7.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("com.fasterxml:classmate:1.7.1", "cc3299e5df4fc24180e69477c890d07d38db79dd2decc0ef20e74a986897c0a1")
+    }
+}

@@ -1,0 +1,11 @@
+// org.skyscreamer:jsonassert:1.5.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/com/vaadin/external/google/android-json/0.0.20131108.vaadin1/.jar.ae")
+        java.jar_maven("org.skyscreamer:jsonassert:1.5.3", "719095c07d4203961320da593441d8b3b643c18eb1d81aa98ea933bb7eb351ba")
+    }
+}

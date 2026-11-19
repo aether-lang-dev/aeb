@@ -1,0 +1,9 @@
+// org.webjars.npm:entities:4.5.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:entities:4.5.0", "f130f7e70995d57f72d61316f049d689c5becacfddda11fb8eac1bdca716bf4b")
+    }
+}

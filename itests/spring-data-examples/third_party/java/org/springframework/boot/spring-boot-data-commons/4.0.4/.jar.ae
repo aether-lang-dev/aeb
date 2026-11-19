@@ -1,0 +1,13 @@
+// org.springframework.boot:spring-boot-data-commons:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/boot/spring-boot-persistence/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/data/spring-data-commons/4.0.4/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-data-commons:4.0.4", "87b17b5eb1f89c8a28ec13b432cbecde940013be373988c568bf8fb7fe9a0a64")
+    }
+}

@@ -1,0 +1,15 @@
+// com.google.guava:guava:33.6.0-jre, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/com/google/guava/failureaccess/1.0.3/.jar.ae")
+        dep("third_party/java/com/google/guava/listenablefuture/9999.0-empty-to-avoid-conflict-with-guava/.jar.ae")
+        dep("third_party/java/org/jspecify/jspecify/1.0.0/.jar.ae")
+        dep("third_party/java/com/google/errorprone/error_prone_annotations/2.47.0/.jar.ae")
+        dep("third_party/java/com/google/j2objc/j2objc-annotations/3.1/.jar.ae")
+        java.jar_maven("com.google.guava:guava:33.6.0-jre", "dc573e1fca4fd5454f4a5fd3d7da2df03002876a4175bafc14a95980dd7713b3")
+    }
+}

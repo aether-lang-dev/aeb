@@ -1,0 +1,9 @@
+// org.antlr:antlr4-runtime:4.13.2, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.antlr:antlr4-runtime:4.13.2", "dd3e8a13a2d669bf84fb8d834de35ce4875f27157698d206241ec8488aadcaf7")
+    }
+}

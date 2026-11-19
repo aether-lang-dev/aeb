@@ -1,0 +1,9 @@
+// org.aspectj:aspectjweaver:1.9.25, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.aspectj:aspectjweaver:1.9.25", "a7ec6d1f7dd819d743e3a20f95609ec91e41f0b7b4e542b2ff62cfa0eb69b67e")
+    }
+}

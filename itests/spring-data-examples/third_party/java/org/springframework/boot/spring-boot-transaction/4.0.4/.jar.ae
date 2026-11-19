@@ -1,0 +1,13 @@
+// org.springframework.boot:spring-boot-transaction:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/boot/spring-boot-persistence/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/spring-tx/7.0.6/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-transaction:4.0.4", "e4fa44d38764ecd49c6397c5e987e7eed8b59bc849f48ec96a0eccf4917894f5")
+    }
+}

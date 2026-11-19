@@ -1,0 +1,9 @@
+// org.webjars.npm:source-map-js:1.2.2, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:source-map-js:1.2.2", "4f7c8310960c5cef111f780e57a89e2bb9e0a8546c896aa699b4632359f2141a")
+    }
+}

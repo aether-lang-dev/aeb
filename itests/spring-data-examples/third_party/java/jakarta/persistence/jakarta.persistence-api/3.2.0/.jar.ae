@@ -1,0 +1,9 @@
+// jakarta.persistence:jakarta.persistence-api:3.2.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("jakarta.persistence:jakarta.persistence-api:3.2.0", "be8a26b0e75c84c1b7600f759256fbc68d60333d89ec0ce3f784fc3ffa09aa8c")
+    }
+}

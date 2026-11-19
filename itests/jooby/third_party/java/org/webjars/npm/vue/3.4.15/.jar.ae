@@ -1,0 +1,15 @@
+// org.webjars.npm:vue:3.4.15, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/webjars/npm/vue__runtime-dom/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__server-renderer/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__compiler-sfc/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__shared/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__compiler-dom/3.4.15/.jar.ae")
+        java.jar_maven("org.webjars.npm:vue:3.4.15", "d2328dada5822e4c61bca5dd1765c54e769df05b53f1aa928e10f0838184400e")
+    }
+}

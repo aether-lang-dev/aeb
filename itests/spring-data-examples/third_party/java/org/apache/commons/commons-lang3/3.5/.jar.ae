@@ -1,0 +1,9 @@
+// org.apache.commons:commons-lang3:3.5, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.apache.commons:commons-lang3:3.5", "8ac96fc686512d777fca85e144f196cd7cfe0c0aec23127229497d1a38ff651c")
+    }
+}

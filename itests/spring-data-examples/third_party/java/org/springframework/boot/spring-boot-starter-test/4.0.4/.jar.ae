@@ -1,0 +1,26 @@
+// org.springframework.boot:spring-boot-starter-test:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot-starter/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/boot/spring-boot-test/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/boot/spring-boot-test-autoconfigure/4.0.4/.jar.ae")
+        dep("third_party/java/com/jayway/jsonpath/json-path/2.10.0/.jar.ae")
+        dep("third_party/java/jakarta/xml/bind/jakarta.xml.bind-api/4.0.4/.jar.ae")
+        dep("third_party/java/net/minidev/json-smart/2.6.0/.jar.ae")
+        dep("third_party/java/org/assertj/assertj-core/3.27.7/.jar.ae")
+        dep("third_party/java/org/awaitility/awaitility/4.3.0/.jar.ae")
+        dep("third_party/java/org/hamcrest/hamcrest/3.0/.jar.ae")
+        dep("third_party/java/org/junit/jupiter/junit-jupiter/6.0.3/.jar.ae")
+        dep("third_party/java/org/mockito/mockito-core/5.20.0/.jar.ae")
+        dep("third_party/java/org/mockito/mockito-junit-jupiter/5.20.0/.jar.ae")
+        dep("third_party/java/org/skyscreamer/jsonassert/1.5.3/.jar.ae")
+        dep("third_party/java/org/springframework/spring-core/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-test/7.0.6/.jar.ae")
+        dep("third_party/java/org/xmlunit/xmlunit-core/2.10.4/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-starter-test:4.0.4", "0d3802dcbfd0a5d5602b11ccd44e35bfb9a304529c6839c6cc0c231262541bd2")
+    }
+}

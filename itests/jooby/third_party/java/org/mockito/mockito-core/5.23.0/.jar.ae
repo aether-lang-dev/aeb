@@ -1,0 +1,13 @@
+// org.mockito:mockito-core:5.23.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/net/bytebuddy/byte-buddy/1.17.7/.jar.ae")
+        dep("third_party/java/net/bytebuddy/byte-buddy-agent/1.17.7/.jar.ae")
+        dep("third_party/java/org/objenesis/objenesis/3.3/.jar.ae")
+        java.jar_maven("org.mockito:mockito-core:5.23.0", "ae295bebd5d11fab97ab297815dc7617188b86003cbce3dfd5c0d5c3a6cc4a0c")
+    }
+}

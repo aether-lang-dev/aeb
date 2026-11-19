@@ -1,0 +1,14 @@
+// org.junit.platform:junit-platform-reporting:6.1.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/junit/platform/junit-platform-launcher/6.1.1/.jar.ae")
+        dep("third_party/java/org/apiguardian/apiguardian-api/1.1.2/.jar.ae")
+        dep("third_party/java/org/jspecify/jspecify/1.0.0/.jar.ae")
+        dep("third_party/java/org/opentest4j/reporting/open-test-reporting-tooling-spi/0.2.5/.jar.ae")
+        java.jar_maven("org.junit.platform:junit-platform-reporting:6.1.1", "3bf450549afde36f05cf83d871f0da4347d616db36790ae3b8b16f880373cdea")
+    }
+}

@@ -6,6 +6,16 @@ poms, JDK 21, mixed Java + Kotlin — migrated aeb-native (deps re-declared in
 `.build.ae`, not delegated to `mvn`). This is a **proving ground**: driving it
 through aeb surfaced (and got fixed) several real aeb gaps.
 
+## Maven artifacts kept as build files
+
+The core, jooby-guice, jooby-hikari and jooby-netty build files declare
+`maven_nodes("third_party/java")`: their Maven artifacts are the 86 nodes
+under `third_party/java`, each with its jar's sha256, and they build
+`--locked` (core 1303/1303, guice 9/9, hikari 15/15 on upstream 89370b8). The
+other modules still resolve at build time. `jooby.bom.ae` carries the picks:
+one aeb wrote from the junit BOM, three by hand where two poms, or jooby and
+a pom, ask differently. See `docs/design/maven-nodes-and-arbitration.md`.
+
 ## Not a test of record
 
 A fringe experiment against a large real codebase, not part of aeb's canonical

@@ -1,0 +1,14 @@
+// org.springframework.boot:spring-boot-starter:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot-starter-logging/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/boot/spring-boot-autoconfigure/4.0.4/.jar.ae")
+        dep("third_party/java/jakarta/annotation/jakarta.annotation-api/3.0.0/.jar.ae")
+        dep("third_party/java/org/yaml/snakeyaml/2.5/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-starter:4.0.4", "2163c359a7a3d280d276eacd54dd22d723d1bd29592b3d06804cb75e4b1c9f28")
+    }
+}

@@ -1,0 +1,18 @@
+// What org.junit:junit-bom:6.1.1 manages.
+// Written by `aeb mvn add`; run that again rather than edit this.
+managed("org.junit.jupiter:junit-jupiter", "6.1.1")
+managed("org.junit.jupiter:junit-jupiter-api", "6.1.1")
+managed("org.junit.jupiter:junit-jupiter-engine", "6.1.1")
+managed("org.junit.jupiter:junit-jupiter-migrationsupport", "6.1.1")
+managed("org.junit.jupiter:junit-jupiter-params", "6.1.1")
+managed("org.junit.platform:junit-platform-commons", "6.1.1")
+managed("org.junit.platform:junit-platform-console", "6.1.1")
+managed("org.junit.platform:junit-platform-engine", "6.1.1")
+managed("org.junit.platform:junit-platform-launcher", "6.1.1")
+managed("org.junit.platform:junit-platform-reporting", "6.1.1")
+managed("org.junit.platform:junit-platform-suite", "6.1.1")
+managed("org.junit.platform:junit-platform-suite-api", "6.1.1")
+managed("org.junit.platform:junit-platform-suite-engine", "6.1.1")
+managed("org.junit.platform:junit-platform-testkit", "6.1.1")
+managed("org.junit.vintage:junit-vintage-engine", "6.1.1")
+managed("org.junit:junit-start", "6.1.1")

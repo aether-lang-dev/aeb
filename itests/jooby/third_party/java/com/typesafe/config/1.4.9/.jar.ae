@@ -1,0 +1,9 @@
+// com.typesafe:config:1.4.9, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("com.typesafe:config:1.4.9", "47d13e3196c84f2a8ccd014ae563738c3da5b7406b38e03505ec0601a2f4fc37")
+    }
+}

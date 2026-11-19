@@ -1,0 +1,11 @@
+// org.jetbrains.kotlin:kotlin-stdlib:2.1.21, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/jetbrains/annotations/13.0/.jar.ae")
+        java.jar_maven("org.jetbrains.kotlin:kotlin-stdlib:2.1.21", "263bdc679e1f62012db7b091796279b6d71cf36f4797a98ff1ace05835f201c8")
+    }
+}

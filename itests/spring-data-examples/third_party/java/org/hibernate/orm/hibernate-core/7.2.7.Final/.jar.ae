@@ -1,0 +1,32 @@
+// org.hibernate.orm:hibernate-core:7.2.7.Final, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+import java (excluding)
+main() {
+    bldr.build() {
+        dep("third_party/java/jakarta/persistence/jakarta.persistence-api/3.2.0/.jar.ae")
+        dep("third_party/java/jakarta/transaction/jakarta.transaction-api/2.0.1/.jar.ae")
+        dep("third_party/java/org/jboss/logging/jboss-logging/3.6.1.Final/.jar.ae")
+        dep("third_party/java/org/hibernate/models/hibernate-models/1.0.1/.jar.ae")
+        dep("third_party/java/com/fasterxml/classmate/1.7.1/.jar.ae")
+        dep("third_party/java/net/bytebuddy/byte-buddy/1.17.8/.jar.ae")
+        dep("third_party/java/jakarta/xml/bind/jakarta.xml.bind-api/4.0.4/.jar.ae")
+        dep("third_party/java/org/glassfish/jaxb/jaxb-runtime/4.0.6/.jar.ae")
+        dep("third_party/java/jakarta/inject/jakarta.inject-api/2.0.1/.jar.ae")
+        dep("third_party/java/org/antlr/antlr4-runtime/4.13.2/.jar.ae")
+        java.jar_maven("org.hibernate.orm:hibernate-core:7.2.7.Final", "7c44d8aee753c4c98b2190f8bf8d965d7898779a70a99cbe99767ba9e1690115") {
+            excluding("jakarta.persistence:jakarta.persistence-api", "xml-apis:xml-apis")
+            excluding("jakarta.transaction:jakarta.transaction-api", "xml-apis:xml-apis")
+            excluding("org.jboss.logging:jboss-logging", "xml-apis:xml-apis")
+            excluding("org.hibernate.models:hibernate-models", "xml-apis:xml-apis")
+            excluding("com.fasterxml:classmate", "xml-apis:xml-apis")
+            excluding("net.bytebuddy:byte-buddy", "xml-apis:xml-apis")
+            excluding("jakarta.xml.bind:jakarta.xml.bind-api", "xml-apis:xml-apis")
+            excluding("org.glassfish.jaxb:jaxb-runtime", "xml-apis:xml-apis")
+            excluding("jakarta.inject:jakarta.inject-api", "xml-apis:xml-apis")
+            excluding("org.antlr:antlr4-runtime", "xml-apis:xml-apis")
+        }
+    }
+}

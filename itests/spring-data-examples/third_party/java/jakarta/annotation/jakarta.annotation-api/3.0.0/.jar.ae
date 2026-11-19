@@ -1,0 +1,9 @@
+// jakarta.annotation:jakarta.annotation-api:3.0.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("jakarta.annotation:jakarta.annotation-api:3.0.0", "b01f55552284cfb149411e64eabca75e942d26d2e1786b32914250e4330afaa2")
+    }
+}

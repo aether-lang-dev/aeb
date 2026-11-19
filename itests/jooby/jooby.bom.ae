@@ -8,3 +8,12 @@ maven_bom("org.junit:junit-bom:6.1.1")
 maven_bom("com.fasterxml.jackson:jackson-bom:2.22.0")
 maven_bom("tools.jackson:jackson-bom:3.2.0")
 maven_bom("io.modelcontextprotocol.sdk:mcp-bom:2.0.0")
+
+// Picked by hand: where two poms, or jooby and a pom, ask differently.
+dep_arbitration("net.bytebuddy:byte-buddy", "1.18.3", and_not("1.17.7"))
+dep_arbitration("org.slf4j:slf4j-api", "2.0.18", and_not("2.0.17, 1.6.0"))
+dep_arbitration("jakarta.inject:jakarta.inject-api", "2.0.1.MR", and_not("2.0.1"))
+
+// Where a BOM here manages a version and a pom asks for another. Written by aeb
+// as builds meet them; change the pick on a line to decide differently.
+dep_arbitration("org.junit.jupiter:junit-jupiter-api", "6.1.1", and_not("5.13.4"))

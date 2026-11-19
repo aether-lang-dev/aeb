@@ -1,0 +1,14 @@
+// org.springframework.boot:spring-boot-jdbc:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/boot/spring-boot-sql/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/boot/spring-boot-transaction/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/spring-jdbc/7.0.6/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-jdbc:4.0.4", "5ac5b374c075c135db97f4e1f8dcc6150e063cc15242b501763e47bdd8467816")
+    }
+}

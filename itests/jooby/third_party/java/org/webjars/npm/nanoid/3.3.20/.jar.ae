@@ -1,0 +1,9 @@
+// org.webjars.npm:nanoid:3.3.20, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:nanoid:3.3.20", "eecc6fdf1a235409569d14308d6a3c950b7d5e4cd1672e2d909eb5e43f27e004")
+    }
+}

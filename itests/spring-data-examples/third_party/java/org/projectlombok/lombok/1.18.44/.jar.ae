@@ -1,0 +1,9 @@
+// org.projectlombok:lombok:1.18.44, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.projectlombok:lombok:1.18.44", "c6e91bfdc358bb1efb25ee185e95aaf9b600043e5f81d03bd76aefc01035bf86")
+    }
+}

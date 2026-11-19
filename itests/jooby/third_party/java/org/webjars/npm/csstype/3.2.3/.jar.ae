@@ -1,0 +1,9 @@
+// org.webjars.npm:csstype:3.2.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:csstype:3.2.3", "c9f646494f87da2440066d50d25f231eca76e00cebb3d08eaf686daf15d37f8c")
+    }
+}

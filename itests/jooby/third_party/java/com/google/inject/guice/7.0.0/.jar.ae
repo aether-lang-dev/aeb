@@ -1,0 +1,13 @@
+// com.google.inject:guice:7.0.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/jakarta/inject/jakarta.inject-api/2.0.1/.jar.ae")
+        dep("third_party/java/aopalliance/aopalliance/1.0/.jar.ae")
+        dep("third_party/java/com/google/guava/guava/31.0.1-jre/.jar.ae")
+        java.jar_maven("com.google.inject:guice:7.0.0", "de5b0e359bd7b03ca42806b368846efd95484380fe05ae2a4ea71bc338c59c00")
+    }
+}

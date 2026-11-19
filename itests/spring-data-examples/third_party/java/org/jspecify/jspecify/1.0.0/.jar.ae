@@ -1,0 +1,9 @@
+// org.jspecify:jspecify:1.0.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.jspecify:jspecify:1.0.0", "1fad6e6be7557781e4d33729d49ae1cdc8fdda6fe477bb0cc68ce351eafdfbab")
+    }
+}

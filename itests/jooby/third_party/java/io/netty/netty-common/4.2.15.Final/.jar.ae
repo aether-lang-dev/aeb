@@ -1,0 +1,9 @@
+// io.netty:netty-common:4.2.15.Final, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("io.netty:netty-common:4.2.15.Final", "78206aa7f6d197caa926291408c01889b6b910ca0f74017d3fcbdaccf9562959")
+    }
+}

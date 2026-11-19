@@ -1,0 +1,11 @@
+// org.webjars.npm:magic-string:0.30.21, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/webjars/npm/jridgewell__sourcemap-codec/1.6.0/.jar.ae")
+        java.jar_maven("org.webjars.npm:magic-string:0.30.21", "40e21ab2ad537217bd766ccfcbaafbcc762e8a2091650da11d3b9d3d17b288d7")
+    }
+}

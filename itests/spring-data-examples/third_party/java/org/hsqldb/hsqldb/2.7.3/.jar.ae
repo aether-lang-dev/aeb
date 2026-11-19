@@ -1,0 +1,9 @@
+// org.hsqldb:hsqldb:2.7.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.hsqldb:hsqldb:2.7.3", "6f2f77eedbe75cfbe26bf30d73b13de0cc57fb7cdb27a92ed8c1a012f0e2363a")
+    }
+}

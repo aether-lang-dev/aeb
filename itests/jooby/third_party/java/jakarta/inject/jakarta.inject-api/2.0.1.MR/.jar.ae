@@ -1,0 +1,9 @@
+// jakarta.inject:jakarta.inject-api:2.0.1.MR, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("jakarta.inject:jakarta.inject-api:2.0.1.MR", "c6020d26574f3c5eca0a4f28861408d947b663b977450987ec4e265dfaf168a2")
+    }
+}

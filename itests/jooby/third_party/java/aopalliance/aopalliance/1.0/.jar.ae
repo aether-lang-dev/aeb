@@ -1,0 +1,9 @@
+// aopalliance:aopalliance:1.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("aopalliance:aopalliance:1.0", "0addec670fedcd3f113c5c8091d783280d23f75e3acb841b61a9cdb079376a08")
+    }
+}

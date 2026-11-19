@@ -1,0 +1,12 @@
+// org.springframework.boot:spring-boot-test:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/spring-test/7.0.6/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-test:4.0.4", "99564f33d5968927b7a050cb7658a2bec8f1e305aa9e25e6ef71a0f05db0cbc7")
+    }
+}

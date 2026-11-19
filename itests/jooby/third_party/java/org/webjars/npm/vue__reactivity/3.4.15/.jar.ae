@@ -1,0 +1,11 @@
+// org.webjars.npm:vue__reactivity:3.4.15, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/webjars/npm/vue__shared/3.4.15/.jar.ae")
+        java.jar_maven("org.webjars.npm:vue__reactivity:3.4.15", "c813f5198d1aea0c1b8f396ce2ac882cf693246d351a80b6d2e6fd08b6e8df02")
+    }
+}

@@ -1,0 +1,15 @@
+// org.glassfish.jaxb:jaxb-core:4.0.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/jakarta/xml/bind/jakarta.xml.bind-api/4.0.4/.jar.ae")
+        dep("third_party/java/jakarta/activation/jakarta.activation-api/2.1.4/.jar.ae")
+        dep("third_party/java/org/glassfish/jaxb/txw2/4.0.6/.jar.ae")
+        dep("third_party/java/com/sun/istack/istack-commons-runtime/4.1.2/.jar.ae")
+        dep("third_party/java/org/eclipse/angus/angus-activation/2.0.3/.jar.ae")
+        java.jar_maven("org.glassfish.jaxb:jaxb-core:4.0.6", "ebbd274207b4860d0dc6e2d44d6dbdb5945cede01222d2e50661d45f5d46c0f7")
+    }
+}

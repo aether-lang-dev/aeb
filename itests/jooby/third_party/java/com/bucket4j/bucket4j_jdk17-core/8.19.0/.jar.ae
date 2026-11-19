@@ -1,0 +1,9 @@
+// com.bucket4j:bucket4j_jdk17-core:8.19.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("com.bucket4j:bucket4j_jdk17-core:8.19.0", "603885663799e203f7e17394315fdbdc584fe021643614d8a34b49b53e618c74")
+    }
+}

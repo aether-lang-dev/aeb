@@ -1,0 +1,9 @@
+// org.glassfish.jaxb:txw2:4.0.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.glassfish.jaxb:txw2:4.0.6", "fcc749785412ef3806fde1ce70f93ef5a0065dcc47fe449bc871db0795cb11af")
+    }
+}

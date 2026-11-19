@@ -1,0 +1,12 @@
+// com.jayway.jsonpath:json-path:2.10.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/net/minidev/json-smart/2.6.0/.jar.ae")
+        dep("third_party/java/org/slf4j/slf4j-api/2.0.17/.jar.ae")
+        java.jar_maven("com.jayway.jsonpath:json-path:2.10.0", "890daa95dd3892d34d9fabc27cd5153656e6f369358625c88f4dc7b79cbd6c5a")
+    }
+}

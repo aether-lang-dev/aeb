@@ -1,0 +1,9 @@
+// org.xmlunit:xmlunit-core:2.10.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.xmlunit:xmlunit-core:2.10.4", "208e0cee82aedd9183937e4b9ae44b83884179f724a706bef5795477acfcca91")
+    }
+}

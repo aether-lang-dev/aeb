@@ -5506,18 +5506,16 @@ _root_relative(root: string, p: string) {
     return out
 }
 
-// _mvn_dir(ctx) — where this project keeps its Maven artifacts as build
-// files, relative to the root: $AEB_MVN_DIR, or third_party/java when that
-// directory exists. "" when it keeps none; a coordinate is then resolved at
-// build time by lib/maven, as before. tools/aebmvn has the same rule for the
-// graph; the two must agree.
-_mvn_dir(ctx: ptr) {
-    e = os.getenv("AEB_MVN_DIR")
-    if string.length(e) > 0 { return string.concat(e, "") }
-    if dir.exists(path.join(_get(ctx, "root"), "third_party/java")) == 1 {
-        return string.concat("third_party/java", "")
-    }
-    return string.concat("", "")
+// maven_nodes("third_party/java") — this node keeps its Maven artifacts as
+// build files under that directory (relative to the project root), one per
+// artifact with its jar's sha256: a dep("group:artifact:version") is that
+// artifact's node. The same line in a .bom.ae says it for every node that
+// loads the file. With no such line a coordinate is resolved at build time
+// by lib/maven, as before. tools/aebmvn reads the same line for the graph.
+maven_nodes(_ctx: ptr, d: string): int {
+    if _ctx == 0 { return 0 }
+    _e = map.put(_ctx, "_mvn_dir", string.concat(d, ""))
+    return 0
 }
 
 // _maven_coords_to_deps(ctx) — once per node, in a project that keeps Maven
@@ -5530,7 +5528,30 @@ _mvn_dir(ctx: ptr) {
 _maven_coords_to_deps(ctx: ptr) {
     if map.has(ctx, "_maven_coords_done") == 1 { return 0 }
     _e0 = map.put(ctx, "_maven_coords_done", "1")
-    into = _mvn_dir(ctx)
+    // Its own maven_nodes(...) line, else the first in a .bom.ae it loaded.
+    into = ""
+    if map.has(ctx, "_mvn_dir") == 1 {
+        iv, _ = map.get_string(ctx, "_mvn_dir")
+        into = string.concat(iv, "")
+    }
+    if string.length(into) == 0 && map.has(ctx, "_bom_files") == 1 {
+        bfs0, _ = map.get(ctx, "_bom_files")
+        b0n = list.size(bfs0)
+        b0i = 0
+        while b0i < b0n {
+            bf0, _ = list.get_string(bfs0, b0i)
+            if string.length(into) == 0 {
+                btxt0, berr0 = io.read_file(bf0)
+                if string.length(berr0) == 0 {
+                    c0s = mvngraph.calls_in(btxt0, "maven_nodes")
+                    nl0 = string.index_of(c0s, "\n")
+                    if nl0 >= 0 { c0s = string.substring(c0s, 0, nl0) }
+                    into = string.concat(c0s, "")
+                }
+            }
+            b0i = b0i + 1
+        }
+    }
     if string.length(into) == 0 { return 0 }
     root = _get(ctx, "root")
     md = _get(ctx, "module_dir")

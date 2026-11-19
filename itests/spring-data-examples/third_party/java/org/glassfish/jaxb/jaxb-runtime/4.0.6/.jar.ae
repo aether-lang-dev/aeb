@@ -1,0 +1,11 @@
+// org.glassfish.jaxb:jaxb-runtime:4.0.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/glassfish/jaxb/jaxb-core/4.0.6/.jar.ae")
+        java.jar_maven("org.glassfish.jaxb:jaxb-runtime:4.0.6", "1c0d57f8c25f9605d5a2f7ad0a87581893776ac85b00b101b2651258edaa9118")
+    }
+}

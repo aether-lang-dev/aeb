@@ -1,0 +1,9 @@
+// com.google.j2objc:j2objc-annotations:3.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("com.google.j2objc:j2objc-annotations:3.1", "84d3a150518485f8140ea99b8a985656749629f6433c92b80c75b36aba3b099b")
+    }
+}

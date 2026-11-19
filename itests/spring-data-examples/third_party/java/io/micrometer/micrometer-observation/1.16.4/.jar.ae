@@ -1,0 +1,12 @@
+// io.micrometer:micrometer-observation:1.16.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/jspecify/jspecify/1.0.0/.jar.ae")
+        dep("third_party/java/io/micrometer/micrometer-commons/1.16.4/.jar.ae")
+        java.jar_maven("io.micrometer:micrometer-observation:1.16.4", "dd410c6a4225731a3466e56b81ff097d14cd092dbc9b97384fd96feec1cc36af")
+    }
+}

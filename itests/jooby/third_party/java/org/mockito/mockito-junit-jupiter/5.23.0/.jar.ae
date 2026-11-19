@@ -1,0 +1,12 @@
+// org.mockito:mockito-junit-jupiter:5.23.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/mockito/mockito-core/5.23.0/.jar.ae")
+        dep("third_party/java/org/junit/jupiter/junit-jupiter-api/5.13.4/.jar.ae")
+        java.jar_maven("org.mockito:mockito-junit-jupiter:5.23.0", "65938526fdc311bb3a1c0015eb1c8a0be81515aa998f22b9f4e92f1b668e4f63")
+    }
+}

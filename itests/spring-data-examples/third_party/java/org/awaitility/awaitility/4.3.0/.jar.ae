@@ -1,0 +1,11 @@
+// org.awaitility:awaitility:4.3.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/hamcrest/hamcrest/2.1/.jar.ae")
+        java.jar_maven("org.awaitility:awaitility:4.3.0", "ee58568ea5945dcf988551501655183dc184e23e45a8e013fdfd9036194e6f7b")
+    }
+}

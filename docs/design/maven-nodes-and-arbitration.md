@@ -54,16 +54,27 @@ A consumer depends on a node like any other:
 
 ## dep("group:artifact:version") is the node, written on first use
 
-In a project that keeps its Maven artifacts this way, the coordinate form is
-shorthand for the path:
+Keeping artifacts this way is a team's choice, and like every other intent
+it is declared in `.ae`:
+
+```aether
+maven_nodes("third_party/java")
+```
+
+The line goes in a build file, or in a `.bom.ae` it loads, which says it for
+everything that loads that file. The directory is the team's to name;
+nothing in aeb looks for `third_party`. Where the line is in reach, the
+coordinate form is shorthand for the path:
 
 ```aether
 dep("org.hibernate:hibernate-core:5.4.32.Final")
 ```
 
-A project keeps them when `third_party/java` exists at its root, or
-`AEB_MVN_DIR` names another directory. Without either, a coordinate resolves
-at build time as it always did (`lib/maven`), recorded nowhere.
+A build file with no such line in reach is untouched: its coordinates
+resolve at build time as they always did (`lib/maven`), recorded nowhere.
+Existing repositories do not change, parts of one repository can choose
+differently, and another strategy (vendored jars, a different layout) would
+be another declaration beside this one.
 
 While the graph is being read, before anything builds (`tools/aebmvn`, the
 same place a `git:` dep is fetched):
@@ -172,9 +183,10 @@ aeb says so (`note: lib has x:d 1.0 on its own classpath; here it runs with
 
 ## What is not done
 
-- In a project with no `third_party/java`, `dep("group:artifact:version")`
-  still resolves at build time through `aeb-resolve.jar`, unhashed, with
-  versions mediated by the resolver.
+- Where no `maven_nodes` line is in reach, `dep("group:artifact:version")`
+  resolves at build time through `aeb-resolve.jar`, unhashed, with versions
+  mediated by the resolver. That is deliberate: existing repositories keep
+  working.
 - `java.jar_registry` resolves that way everywhere.
 - Only `jar` and `pom` typed dependencies.
 - The walk that finds what a BOM manages differently does not apply pom

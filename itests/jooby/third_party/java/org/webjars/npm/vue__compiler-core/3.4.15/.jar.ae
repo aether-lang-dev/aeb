@@ -1,0 +1,15 @@
+// org.webjars.npm:vue__compiler-core:3.4.15, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/webjars/npm/estree-walker/2.0.2/.jar.ae")
+        dep("third_party/java/org/webjars/npm/vue__shared/3.4.15/.jar.ae")
+        dep("third_party/java/org/webjars/npm/entities/4.5.0/.jar.ae")
+        dep("third_party/java/org/webjars/npm/babel__parser/7.29.14/.jar.ae")
+        dep("third_party/java/org/webjars/npm/source-map-js/1.2.2/.jar.ae")
+        java.jar_maven("org.webjars.npm:vue__compiler-core:3.4.15", "903a91fa3ae555b6e6eb36eaab727cbe2ee387fd4bd7cfa5af3e2c1ecc4387bb")
+    }
+}

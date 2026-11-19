@@ -1,0 +1,9 @@
+// org.apache.logging.log4j:log4j-api:2.25.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.apache.logging.log4j:log4j-api:2.25.3", "e886682920fa0fb9d6eb6395dcb4de088443f8646c89c5e5846e168e327f406f")
+    }
+}

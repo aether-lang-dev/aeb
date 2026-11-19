@@ -1,0 +1,11 @@
+// org.webjars.npm:babel__parser:7.29.14, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/webjars/npm/babel__types/7.29.14/.jar.ae")
+        java.jar_maven("org.webjars.npm:babel__parser:7.29.14", "c325e550f90de8e255fe0906ec8f8c97141c621be7f2b085d65baeb1171e023e")
+    }
+}

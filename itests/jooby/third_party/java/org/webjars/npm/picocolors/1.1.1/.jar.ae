@@ -1,0 +1,9 @@
+// org.webjars.npm:picocolors:1.1.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:picocolors:1.1.1", "9cc8453b99724608d8cffc65c4bd934cf8e16c33aee9d47355122fe442889c67")
+    }
+}

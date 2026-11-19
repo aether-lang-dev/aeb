@@ -1,0 +1,9 @@
+// org.jboss.logging:jboss-logging:3.6.1.Final, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.jboss.logging:jboss-logging:3.6.1.Final", "5e08a4b092dc85b337f0910a740571d8720cfa565fabd880a8caf94a657ca416")
+    }
+}

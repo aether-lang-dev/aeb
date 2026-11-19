@@ -1,0 +1,11 @@
+// org.springframework:spring-expression:7.0.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/spring-core/7.0.6/.jar.ae")
+        java.jar_maven("org.springframework:spring-expression:7.0.6", "14b11a2948cee1367ef661b56d753dc705119b6bb53babf704a2221d37eed427")
+    }
+}

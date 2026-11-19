@@ -1,0 +1,9 @@
+// jakarta.activation:jakarta.activation-api:2.1.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("jakarta.activation:jakarta.activation-api:2.1.4", "c9db52100ce6c8aac95cc39075f95720d2e561b11f8051b81c121ad4effd7004")
+    }
+}

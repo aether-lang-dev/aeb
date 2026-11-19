@@ -1,0 +1,9 @@
+// org.webjars.npm:babel__helper-validator-identifier:7.29.7, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:babel__helper-validator-identifier:7.29.7", "7a603f60fc73462981a52a146ff4f02b56d74b173597e595741483502ccacad0")
+    }
+}

@@ -1,5 +1,5 @@
 import bldr
-import bldr (dep)
+import bldr (dep, maven_nodes)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, no_module_info)
@@ -8,6 +8,10 @@ import java (release, source_layout, no_module_info)
 aeb(cap) {
     bldr.build() {
         dep("jooby/.build.ae")
+        // Maven artifacts kept as build files, one per artifact with its sha256
+        // (docs/design/maven-nodes-and-arbitration.md). Other modules here still
+        // resolve at build time.
+        maven_nodes("third_party/java")
         load_bom_file("../../jooby.bom.ae")
         dep("com.google.inject:guice:7.0.0")
         java.javac() { release("21")  source_layout("maven idiomatic")  no_module_info() }

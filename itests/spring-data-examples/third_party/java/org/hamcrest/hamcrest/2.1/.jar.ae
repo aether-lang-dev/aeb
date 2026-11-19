@@ -1,0 +1,9 @@
+// org.hamcrest:hamcrest:2.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.hamcrest:hamcrest:2.1", "ba93b2e3a562322ba432f0a1b53addcc55cb188253319a020ed77f824e692050")
+    }
+}

@@ -1,0 +1,9 @@
+// org.objenesis:objenesis:3.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.objenesis:objenesis:3.3", "02dfd0b0439a5591e35b708ed2f5474eb0948f53abf74637e959b8e4ef69bfeb")
+    }
+}

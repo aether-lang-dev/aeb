@@ -1,5 +1,5 @@
 import bldr
-import bldr (dep)
+import bldr (dep, maven_nodes)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, test_timeout, parameters)
@@ -7,6 +7,10 @@ import java (release, source_layout, test_timeout, parameters)
 main() {
     bldr.build() {
         dep("jpa/example/.build.ae")
+        // Maven artifacts kept as build files, one per artifact with its sha256
+        // (docs/design/maven-nodes-and-arbitration.md). Other modules here still
+        // resolve at build time.
+        maven_nodes("third_party/java")
         load_bom_file("../../spring-boot.bom.ae")
         dep("org.springframework.boot:spring-boot-starter-test")
         dep("org.springframework.boot:spring-boot-data-jpa-test")

@@ -1,0 +1,16 @@
+// io.netty:netty-handler:4.2.15.Final, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/io/netty/netty-common/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-resolver/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-buffer/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-transport/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-transport-native-unix-common/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-codec-base/4.2.15.Final/.jar.ae")
+        java.jar_maven("io.netty:netty-handler:4.2.15.Final", "99b59e4bea72220d2aed52df8baf37d97431b06ade0b135226cdf73168975eab")
+    }
+}

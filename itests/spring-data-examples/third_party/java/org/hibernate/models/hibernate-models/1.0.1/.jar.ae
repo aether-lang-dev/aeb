@@ -1,0 +1,11 @@
+// org.hibernate.models:hibernate-models:1.0.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/jboss/logging/jboss-logging/3.5.0.Final/.jar.ae")
+        java.jar_maven("org.hibernate.models:hibernate-models:1.0.1", "bdb42c4979001742ebc098f3b206dd1057dc93be55c50a31c3f027d3eed06412")
+    }
+}

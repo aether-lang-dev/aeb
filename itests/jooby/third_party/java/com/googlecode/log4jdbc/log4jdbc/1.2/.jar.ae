@@ -1,0 +1,11 @@
+// com.googlecode.log4jdbc:log4jdbc:1.2, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/slf4j/slf4j-api/1.6.0/.jar.ae")
+        java.jar_maven("com.googlecode.log4jdbc:log4jdbc:1.2", "b3136d528a138f7cc60125163d7a84c8a51b730aa9727501cdfc9c864b8aa889")
+    }
+}

@@ -1,0 +1,11 @@
+// org.springframework:spring-aspects:7.0.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/aspectj/aspectjweaver/1.9.25/.jar.ae")
+        java.jar_maven("org.springframework:spring-aspects:7.0.6", "a1a6a6af6ae3f0a8bcc1db94025542233f43fc9b3daec8a21b01ae4fe001c850")
+    }
+}

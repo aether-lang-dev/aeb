@@ -1,0 +1,20 @@
+// org.springframework.data:spring-data-jpa:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/slf4j/slf4j-api/2.0.17/.jar.ae")
+        dep("third_party/java/org/springframework/data/spring-data-commons/4.0.4/.jar.ae")
+        dep("third_party/java/org/springframework/spring-orm/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-context/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-aop/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-tx/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-beans/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-core/7.0.6/.jar.ae")
+        dep("third_party/java/org/antlr/antlr4-runtime/4.13.2/.jar.ae")
+        dep("third_party/java/jakarta/annotation/jakarta.annotation-api/2.0.0/.jar.ae")
+        java.jar_maven("org.springframework.data:spring-data-jpa:4.0.4", "bbd485c2b8edc67e81dfb8107ba232d8ede900e78b0e98fa1b2367d79c5d3ddf")
+    }
+}

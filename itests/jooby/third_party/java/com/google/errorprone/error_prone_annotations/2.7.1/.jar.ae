@@ -1,0 +1,9 @@
+// com.google.errorprone:error_prone_annotations:2.7.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("com.google.errorprone:error_prone_annotations:2.7.1", "cd5257c08a246cf8628817ae71cb822be192ef91f6881ca4a3fcff4f1de1cff3")
+    }
+}

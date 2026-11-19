@@ -1,0 +1,9 @@
+// dk.brics.automaton:automaton:1.11-8, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("dk.brics.automaton:automaton:1.11-8", "a24475f6ccfe1cc7a4fe9e34e05ce687b0ce0c6e8cb781e0eced3b186482c61e")
+    }
+}

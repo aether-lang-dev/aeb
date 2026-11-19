@@ -1,0 +1,11 @@
+// net.minidev:accessors-smart:2.6.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/ow2/asm/asm/9.7.1/.jar.ae")
+        java.jar_maven("net.minidev:accessors-smart:2.6.0", "222c9f547bb20a99fc486403a398352d1306fb671b38abd7ecab6401df170e61")
+    }
+}

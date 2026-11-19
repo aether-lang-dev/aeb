@@ -1,0 +1,11 @@
+// org.eclipse.angus:angus-activation:2.0.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/jakarta/activation/jakarta.activation-api/2.1.4/.jar.ae")
+        java.jar_maven("org.eclipse.angus:angus-activation:2.0.3", "a6bd35c538cf90fff941ad6258c40c08fca0b5c9c3f536c657114f27ce0527a7")
+    }
+}

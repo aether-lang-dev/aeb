@@ -1,0 +1,11 @@
+// net.minidev:json-smart:2.6.0, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/net/minidev/accessors-smart/2.6.0/.jar.ae")
+        java.jar_maven("net.minidev:json-smart:2.6.0", "1ae4b561458afb540be8ec5c6dbb4f2e715a319a7ae64854998aaf924770d61b")
+    }
+}

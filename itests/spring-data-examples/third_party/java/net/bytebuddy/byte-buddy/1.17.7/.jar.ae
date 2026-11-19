@@ -1,0 +1,9 @@
+// net.bytebuddy:byte-buddy:1.17.7, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("net.bytebuddy:byte-buddy:1.17.7", "3575dcb8a98faf943d3c1595c47a16047c4fce8a83ebbb26262f1a2f67546357")
+    }
+}

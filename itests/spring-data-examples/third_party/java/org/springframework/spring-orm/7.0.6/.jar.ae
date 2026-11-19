@@ -1,0 +1,14 @@
+// org.springframework:spring-orm:7.0.6, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/spring-beans/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-core/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-jdbc/7.0.6/.jar.ae")
+        dep("third_party/java/org/springframework/spring-tx/7.0.6/.jar.ae")
+        java.jar_maven("org.springframework:spring-orm:7.0.6", "457c48837e1b607e88aba6b4056f3dda298157cec584e2ae6daf24051e07c7a8")
+    }
+}

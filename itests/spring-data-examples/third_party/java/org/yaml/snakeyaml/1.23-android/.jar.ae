@@ -1,0 +1,9 @@
+// org.yaml:snakeyaml:1.23:android, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.yaml:snakeyaml:1.23:android", "c0f7a90628172970d3ff6d7eaa7a04f73b57290b3b8dba916c8281a76f2214ca")
+    }
+}

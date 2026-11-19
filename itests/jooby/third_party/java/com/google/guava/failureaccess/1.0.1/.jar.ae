@@ -1,0 +1,9 @@
+// com.google.guava:failureaccess:1.0.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("com.google.guava:failureaccess:1.0.1", "a171ee4c734dd2da837e4b16be9df4661afab72a41adaf31eb84dfdaf936ca26")
+    }
+}

@@ -1,0 +1,13 @@
+// org.springframework.boot:spring-boot-hibernate:4.0.4, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/springframework/boot/spring-boot-jpa/4.0.4/.jar.ae")
+        dep("third_party/java/org/hibernate/orm/hibernate-core/7.2.7.Final/.jar.ae")
+        dep("third_party/java/org/springframework/spring-orm/7.0.6/.jar.ae")
+        java.jar_maven("org.springframework.boot:spring-boot-hibernate:4.0.4", "f32b77c73b143195a1875257e058e7254e651abfd8b1305b2d7676303f667ab4")
+    }
+}

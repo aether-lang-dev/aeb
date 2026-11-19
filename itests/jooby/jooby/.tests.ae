@@ -1,5 +1,5 @@
 import bldr
-import bldr (dep)
+import bldr (dep, maven_nodes)
 import maven (load_bom_file)
 import java
 import java (release, source_layout, parameters)
@@ -7,6 +7,10 @@ import java (release, source_layout, parameters)
 aeb(cap) {
     bldr.build() {
         dep("jooby/.build.ae")
+        // Maven artifacts kept as build files, one per artifact with its sha256
+        // (docs/design/maven-nodes-and-arbitration.md). Other modules here still
+        // resolve at build time.
+        maven_nodes("third_party/java")
         load_bom_file("../jooby.bom.ae")
         dep("org.junit.jupiter:junit-jupiter-engine")
         dep("org.junit.jupiter:junit-jupiter-params")

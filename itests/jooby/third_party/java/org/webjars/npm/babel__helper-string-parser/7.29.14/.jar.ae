@@ -1,0 +1,9 @@
+// org.webjars.npm:babel__helper-string-parser:7.29.14, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:babel__helper-string-parser:7.29.14", "50ac8ae6ac5252b0fcd279488ab1537a80771db13c7ced8e9637fcaae716677f")
+    }
+}

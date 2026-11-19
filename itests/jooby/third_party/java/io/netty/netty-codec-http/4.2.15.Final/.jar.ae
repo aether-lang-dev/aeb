@@ -1,0 +1,16 @@
+// io.netty:netty-codec-http:4.2.15.Final, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/io/netty/netty-common/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-buffer/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-transport/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-codec-base/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-codec-compression/4.2.15.Final/.jar.ae")
+        dep("third_party/java/io/netty/netty-handler/4.2.15.Final/.jar.ae")
+        java.jar_maven("io.netty:netty-codec-http:4.2.15.Final", "76ae57e87af37b3c4107140f50b9244b1456163a6a225510838f7c5a4458ec22")
+    }
+}

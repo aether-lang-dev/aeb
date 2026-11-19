@@ -1,0 +1,9 @@
+// org.webjars.npm:vue__shared:3.4.15, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("org.webjars.npm:vue__shared:3.4.15", "6ee0a701851e296bc7e06a6cc612ab6f5993753cb80932d471345030b7854c32")
+    }
+}

@@ -1,0 +1,9 @@
+// jakarta.transaction:jakarta.transaction-api:2.0.1, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import java
+main() {
+    bldr.build() {
+        java.jar_maven("jakarta.transaction:jakarta.transaction-api:2.0.1", "50c0a7c760c13ae6c042acf182b28f0047413db95b4636fb8879bcffab5ba875")
+    }
+}

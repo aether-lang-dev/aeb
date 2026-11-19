@@ -1,0 +1,12 @@
+// org.apache.logging.log4j:log4j-to-slf4j:2.25.3, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/apache/logging/log4j/log4j-api/2.25.3/.jar.ae")
+        dep("third_party/java/org/slf4j/slf4j-api/2.0.17/.jar.ae")
+        java.jar_maven("org.apache.logging.log4j:log4j-to-slf4j:2.25.3", "90a09280390c54a28ac1514ded7c5293f3fe62f4448bf371b4e2415272e67a3d")
+    }
+}

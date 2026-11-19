@@ -1,0 +1,13 @@
+// com.github.javafaker:javafaker:1.0.2, as its pom declares it.
+// Written by `aeb mvn add`; run that again rather than edit this.
+import bldr
+import bldr (dep)
+import java
+main() {
+    bldr.build() {
+        dep("third_party/java/org/apache/commons/commons-lang3/3.5/.jar.ae")
+        dep("third_party/java/org/yaml/snakeyaml/1.23-android/.jar.ae")
+        dep("third_party/java/com/github/mifmif/generex/1.0.2/.jar.ae")
+        java.jar_maven("com.github.javafaker:javafaker:1.0.2", "ef95ae468097f378880be69a8c6756f8d15180e0f07547fb0a99617ff421b2ac")
+    }
+}

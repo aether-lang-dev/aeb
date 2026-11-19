@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# itests/mvn-first-use.sh — in a project that keeps its Maven artifacts as
-# build files, dep("group:artifact:version") is its node, written on first
+# itests/mvn-first-use.sh — where a team declares maven_nodes("<dir>"),
+# dep("group:artifact:version") is the artifact's node there, written on first
 # use; a locked build refuses to write; a BOM's managed versions are written
 # down as arbitrations.
 #
@@ -17,8 +17,11 @@
 #   4. Locked (--locked, and CI set): a coordinate with no node is an error
 #      naming it and the command; nothing is written.
 #   5. A person changes the pick on the line: the build follows it.
-#   6. A project with no third_party/java is as before: the coordinate
+#   6. A build file with no maven_nodes line in reach is as before (a
+#      third_party/java directory existing declares nothing): the coordinate
 #      resolves at build time and nothing is written into the tree.
+#   9. The line can be in the build file itself, and the directory is the
+#      team's to name.
 #
 # Usage:  ./mvn-first-use.sh
 # Exit:   0 all assertions pass, 1 otherwise.
@@ -157,6 +160,7 @@ AEB_RUN="$HOME_COPY/aeb"
 
 # --- the project ------------------------------------------------------------
 PROJ="$TMP/proj"
+# new_project [keeps]: with "keeps", the .bom.ae declares maven_nodes(...).
 new_project() {
     rm -rf "$PROJ"
     mkdir -p "$PROJ/.aeb" "$PROJ/app"
@@ -164,6 +168,7 @@ new_project() {
 maven_repo("$BASE")
 maven_bom("x:platform:1")
 BOM
+    if [ "${1:-}" = keeps ]; then echo 'maven_nodes("third_party/java")' >> "$PROJ/local.bom.ae"; fi
     cat > "$PROJ/app/Main.java" <<'JAVA'
 public class Main {
     public static void main(String[] a) {
@@ -178,7 +183,7 @@ JAVA
 app_node() {
     {
         echo 'import bldr'
-        echo 'import bldr (dep)'
+        echo 'import bldr (dep, maven_nodes)'
         echo 'import maven (load_bom_file)'
         echo 'import java'
         echo 'main() {'
@@ -207,12 +212,11 @@ ran_with() {    # ran_with <log> <expected output line> <what>
     fi
 }
 tree_sum() { ( cd "$PROJ" && find third_party local.bom.ae -type f 2>/dev/null | LC_ALL=C sort | xargs cat | cksum ); }
-unset CI AEB_LOCKED AEB_MVN_DIR
+unset CI AEB_LOCKED
 
 echo
 echo "1: first use"
-new_project
-mkdir -p "$PROJ/third_party/java"
+new_project keeps
 app_node '        dep("x:b:1")
         dep("x:c")'
 build_app "$TMP/b1.log"
@@ -244,16 +248,14 @@ ran_with "$TMP/b2l.log" "D=1.2 E=present" "and it builds locked"
 
 echo
 echo "3: the BOM's version replaces a lone request"
-new_project
-mkdir -p "$PROJ/third_party/java"
+new_project keeps
 app_node '        dep("x:b:1")'
 build_app "$TMP/b3.log"
 ran_with "$TMP/b3.log" "D=1.2 E=present" "b alone asks d:1.0; with the BOM loaded it runs with 1.2"
 
 echo
 echo "4: locked"
-new_project
-mkdir -p "$PROJ/third_party/java"
+new_project keeps
 app_node '        dep("x:b:1")
         dep("x:c")'
 build_app "$TMP/b4.log" --locked
@@ -262,7 +264,7 @@ if [ "$RC" -ne 0 ] && grep -q "this build is locked" "$TMP/b4.log" && grep -q "a
 else
     fail "--locked did not refuse (rc=$RC)"; grep "aeb: " "$TMP/b4.log" | head -4 | sed 's/^/        /'
 fi
-if [ -z "$(find "$PROJ/third_party/java" -type f 2>/dev/null)" ] && ! grep -q dep_arbitration "$PROJ/local.bom.ae"; then
+if [ ! -e "$PROJ/third_party" ] && ! grep -q dep_arbitration "$PROJ/local.bom.ae"; then
     pass "--locked: nothing was written"
 else
     fail "--locked wrote into the tree"
@@ -292,15 +294,16 @@ else
 fi
 
 echo
-echo "6: a project that keeps no Maven nodes"
+echo "6: a build file with no maven_nodes line in reach"
 new_project
+mkdir -p "$PROJ/third_party/java"   # the directory alone declares nothing
 app_node '        dep("x:b:1")
         dep("x:c")'
 build_app "$TMP/b6.log"
-if [ "$RC" -eq 0 ] && [ ! -e "$PROJ/third_party" ] && ! grep -q dep_arbitration "$PROJ/local.bom.ae"; then
+if [ "$RC" -eq 0 ] && [ -z "$(find "$PROJ/third_party" -type f)" ] && ! grep -q dep_arbitration "$PROJ/local.bom.ae"; then
     pass "resolves at build time as before; nothing written into the tree"
 else
-    fail "a project with no third_party/java changed behaviour (rc=$RC)"
+    fail "a build file that declares nothing changed behaviour (rc=$RC)"
     grep -rh "FAILED\|aeb: \|error" "$TMP/b6.log" | head -5 | sed 's/^/        /'
 fi
 
@@ -334,6 +337,20 @@ if grep -q 'dep("third_party/java/x/d/1.2/.jar.ae")' "$PROJ/third_party/java/x/i
     pass "a dependency with no version takes it from its own pom's dependencyManagement"
 else
     fail "x:i's node has no edge to x:d:1.2"; grep "^error" "$TMP/odd.err" | head -3 | sed 's/^/        /'
+fi
+
+echo
+echo "9: declared in the build file, in a directory of the team's naming"
+new_project
+app_node '        maven_nodes("deps/maven")
+        dep("x:b:1")
+        dep("x:c")'
+build_app "$TMP/b9.log"
+ran_with "$TMP/b9.log" "D=1.2 E=present" "the app builds from nodes under deps/maven"
+if [ -f "$PROJ/deps/maven/x/b/1/.jar.ae" ] && [ ! -e "$PROJ/third_party" ]; then
+    pass "the nodes are where the line says, and nowhere else"
+else
+    fail "nodes were not written under deps/maven"
 fi
 
 echo
