@@ -104,9 +104,10 @@ run_test_cmd(dmd: string, source_dir: string, flags: string, sources: string, fi
 
 // --- builders ---
 
-// test() — compile-and-run each test_file() with dmd, in order. Fail-fast: a
-// non-zero exit reddens the build. Records pass/fail counts per the runner's
-// output when it prints them, else 1/0 (or 0/1 on failure) per file.
+// test() — compile-and-run each test_file() with dmd, in order. Every file
+// runs, whatever an earlier one did; each has its own result (exit marker
+// test_exit_<n>.rc and log), counted as 1 passed or 1 failed. The build is
+// red when any file failed, and returns the first failing file's exit code.
 builder test(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
@@ -130,6 +131,7 @@ builder test(): int {
 
     total_pass = 0
     total_fail = 0
+    first_rc = 0
     fi = 0
     while fi < nf {
         f, _ = list.get_string(files, fi)
@@ -137,20 +139,25 @@ builder test(): int {
         cmd = string.concat(envp, run_test_cmd(dmd, source_dir, flags, sources, f))
         out_path = path.join(target_dir, string.concat("test_output_", string.concat(bldr._basename(f), ".log")))
         // Real exit code, not tee's — see bldr._sh_tee. A bare `cmd | tee log`
-        // reports tee's 0 and turns a failing suite green.
-        rc_file = path.join(target_dir, "test_exit.rc")
+        // reports tee's 0 and turns a failing suite green. One rc file per
+        // file, so no run can read another's verdict.
+        rc_file = path.join(target_dir, "test_exit_${fi}.rc")
         exit_code = bldr._sh_tee(cmd, out_path, rc_file)
         if exit_code != 0 {
             total_fail = total_fail + 1
-            bldr._record_test_result(ctx, total_pass, total_fail)
             println("${mod_dir}: ${f} FAILED")
-            bldr.fail(ctx, "d.test: a test failed")
-            return exit_code
+            if first_rc == 0 { first_rc = exit_code }
+        } else {
+            total_pass = total_pass + 1
         }
-        total_pass = total_pass + 1
         fi = fi + 1
     }
     bldr._record_test_result(ctx, total_pass, total_fail)
+    if total_fail > 0 {
+        println("${mod_dir}: tests FAILED (${total_pass}/${nf} passed)")
+        bldr.fail(ctx, "d.test: ${total_fail} of ${nf} test file(s) failed")
+        return first_rc
+    }
     println("${mod_dir}: tests PASSED (${total_pass} file(s))")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0

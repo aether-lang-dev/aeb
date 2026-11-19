@@ -258,7 +258,7 @@ Grammar: d.test, d.consumer_example (no standalone build/package builder)
 |---|---|---|---|---|---|
 | d | compile | aeb | lib/d/module.ae:102 | `-run` | d.test |
 | d | test | aeb | lib/d/module.ae:67 | `"dmd"` | d.test |
-| d | test | aeb | lib/d/module.ae:137 | `run_test_cmd` | d.test |
+| d | test | aeb | lib/d/module.ae:139 | `run_test_cmd` | d.test |
 
 ### dart
 
