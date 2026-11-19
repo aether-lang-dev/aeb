@@ -170,6 +170,9 @@ builder build(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
+    // step(...) replaces the SDK's own command, and link_dir()/target() feed
+    // it; declared together they would be dropped silently, so refuse.
+    if bldr._fail_steps_conflict(ctx, _builder, "haskell.build", "hs_link_dirs=link_dir,hs_target=target") == 1 { return 1 }
     flags = _hs_lib_flags(_builder)
     tgt = _hs_target_suffix(_builder)
     if string.length(flags) == 0 {
@@ -192,6 +195,9 @@ builder test(): int {
     ctx = builder_context()
     if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
+    // step(...) replaces the SDK's own command, and link_dir()/target() feed
+    // it; declared together they would be dropped silently, so refuse.
+    if bldr._fail_steps_conflict(ctx, _builder, "haskell.test", "hs_link_dirs=link_dir,hs_target=target") == 1 { return 1 }
     flags = _hs_lib_flags(_builder)
     tgt = _hs_target_suffix(_builder)
     if string.length(flags) == 0 {

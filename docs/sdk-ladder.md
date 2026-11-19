@@ -308,8 +308,8 @@ Grammar: erlang.nif, erlang.compile, erlang.eunit, erlang.generate_manifest
 | erlang | compile | aeb | lib/erlang/module.ae:328 | `${cc} -O2 -fPIC` | erlang.nif |
 | erlang | compile | aeb | lib/erlang/module.ae:350 | `erlc -o` | erlang.nif |
 | erlang | compile | delegated | lib/erlang/module.ae:395 | `rebar3 compile` | erlang.compile |
-| erlang | test | delegated | lib/erlang/module.ae:409 | `rebar3 eunit` | erlang.eunit |
-| erlang | test | aeb | lib/erlang/module.ae:459 | `erl -noshell` | erlang.eunit (test module form) |
+| erlang | test | delegated | lib/erlang/module.ae:412 | `rebar3 eunit` | erlang.eunit |
+| erlang | test | aeb | lib/erlang/module.ae:462 | `erl -noshell` | erlang.eunit (test module form) |
 | erlang | test | aeb | lib/erlang/module.ae:162 | `escript` | erlang.eunit (escript form) |
 
 ### gleam
@@ -358,10 +358,10 @@ Grammar: haskell.build, haskell.test, haskell.generate_manifest
 
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
-| haskell | compile | delegated | lib/haskell/module.ae:181 | `cabal build` | haskell.build |
+| haskell | compile | delegated | lib/haskell/module.ae:180 | `cabal build` | haskell.build |
 | haskell | test | delegated | lib/haskell/module.ae:205 | `cabal test` | haskell.test |
-| haskell | resolve | delegated | lib/haskell/module.ae:181 | `cabal build` | haskell.build |
-| haskell | incremental | delegated | lib/haskell/module.ae:181 | `cabal build` | haskell.build |
+| haskell | resolve | delegated | lib/haskell/module.ae:180 | `cabal build` | haskell.build |
+| haskell | incremental | delegated | lib/haskell/module.ae:180 | `cabal build` | haskell.build |
 
 ### janet
 
@@ -403,10 +403,10 @@ Grammar: javascript.build, javascript.test, javascript.pack, javascript.consumer
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
 | javascript | compile | delegated | lib/javascript/module.ae:156 | `npm install` | javascript.build |
-| javascript | test | delegated | lib/javascript/module.ae:171 | `npm test` | javascript.test |
+| javascript | test | delegated | lib/javascript/module.ae:173 | `npm test` | javascript.test |
 | javascript | test | delegated | lib/javascript/module.ae:138 | `npx jest` | javascript.test (jest_on) |
 | javascript | resolve | delegated | lib/javascript/module.ae:130 | `npm install` | javascript.test/pack npm_install |
-| javascript | package | delegated | lib/javascript/module.ae:251 | `npm pack` | javascript.pack |
+| javascript | package | delegated | lib/javascript/module.ae:253 | `npm pack` | javascript.pack |
 
 ### jest
 
@@ -512,7 +512,7 @@ Grammar: php.test (setters phpunit_phar, phpunit_phar_url, phpunit_phar_sha256, 
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
 | php | test | aeb | lib/php/module.ae:91 | `${runner}${config_part}` | php.test |
-| php | test | aeb | lib/php/module.ae:152 | `"phpunit"` | php.test (step() fallback) |
+| php | test | aeb | lib/php/module.ae:155 | `"phpunit"` | php.test (step() fallback) |
 
 ### pnpm
 

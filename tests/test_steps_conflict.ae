@@ -1,0 +1,40 @@
+// Tests for bldr._steps_conflict — step(...) declared next to an SDK setter that
+// the generic step() path would silently drop.
+import std.spec
+import std.map
+import std.list
+import bldr(_steps_conflict)
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "_steps_conflict") {
+        spec.it("no step(): never a conflict") callback {
+            bm = map.new()
+            map.put(bm, "escript_path", "t.escript")
+            spec.assert_str_eq(_steps_conflict(bm, "escript_path=escript,erl_pa=pa"), "", "setter alone")
+        }
+        spec.it("step() alone: no conflict") callback {
+            bm = map.new()
+            l = list.new()
+            list.add(l, "make test")
+            map.put(bm, "proc_steps", l)
+            spec.assert_str_eq(_steps_conflict(bm, "escript_path=escript,erl_pa=pa"), "", "step alone")
+        }
+        spec.it("step() plus a listed setter names that setter") callback {
+            bm = map.new()
+            l = list.new()
+            list.add(l, "make test")
+            map.put(bm, "proc_steps", l)
+            map.put(bm, "erl_pa", "x")
+            spec.assert_str_eq(_steps_conflict(bm, "escript_path=escript,erl_pa=pa"), "pa", "second pair matches")
+            map.put(bm, "escript_path", "t.escript")
+            spec.assert_str_eq(_steps_conflict(bm, "escript_path=escript,erl_pa=pa"), "escript", "first pair wins")
+        }
+        spec.it("null builder map is no conflict") callback {
+            spec.assert_str_eq(_steps_conflict(null, "a=b"), "", "null map")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

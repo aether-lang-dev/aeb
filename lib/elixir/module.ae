@@ -223,7 +223,10 @@ builder test(): int {
     if ctx == 0 { return 0 }
     mod_dir = bldr._get(ctx, "module_dir")
 
-    // Back-compat: a binding that wrote step("…") keeps the generic path.
+    // A binding that wrote step("…") takes the generic path, which runs only
+    // those steps; an SDK setter declared next to step() would be dropped, so
+    // that combination is refused.
+    if bldr._fail_steps_conflict(ctx, _builder, "elixir.test", "elixir_deps_get=deps_get_first,mix_test_flags=mix_test_flag") == 1 { return 1 }
     if _builder != null {
         if map.has(_builder, "proc_steps") == 1 {
             println("${mod_dir}: running tests (mix test)")

@@ -3025,6 +3025,49 @@ _run_project_cmd(source_dir: string, root: string, bmap: ptr, default_step: stri
     return _project_run_cmd(absdir, env_pairs, steps)
 }
 
+// _steps_conflict(bmap, pairs) — `pairs` is a comma-separated list of
+// "<builder-map key>=<setter name>". Returns the setter name of the first key
+// that is declared in bmap while step(...) is too, or "" when there is no such
+// pair. A builder that takes the generic step() path runs ONLY the declared
+// steps, so an SDK setter declared next to step() would otherwise be dropped
+// without a word. Pure.
+_steps_conflict(bmap: ptr, pairs: string) {
+    found = ""
+    if bmap != null {
+        if map.has(bmap, "proc_steps") == 1 {
+            items = string.split(pairs, ",")
+            n = string.array_size(items)
+            i = 0
+            while i < n {
+                item = string.array_get(items, i)
+                i = i + 1
+                eq = string.index_of(item, "=")
+                if eq > 0 {
+                    if string.length(found) == 0 {
+                        if map.has(bmap, string.substring(item, 0, eq)) == 1 {
+                            found = string.substring(item, eq + 1, string.length(item))
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return found
+}
+
+// _fail_steps_conflict(ctx, bmap, what, pairs) — 1 when step(...) is declared
+// together with a setter from `pairs` (see _steps_conflict): the node is failed
+// with a message naming both and the caller returns 1. 0 otherwise.
+_fail_steps_conflict(ctx: ptr, bmap: ptr, what: string, pairs: string) {
+    setter = _steps_conflict(bmap, pairs)
+    if string.length(setter) == 0 { return 0 }
+    mod_dir = _get(ctx, "module_dir")
+    msg = "${what}: step(...) cannot be combined with ${setter}(...) — step() replaces the SDK's own command, so ${setter}() would be ignored. Use one or the other."
+    println("${mod_dir}: ${msg}")
+    fail(ctx, msg)
+    return 1
+}
+
 _run_project(ctx: ptr, bmap: ptr, default_step: string, is_test: int) {
     source_dir = _get(ctx, "source_dir")
     target_dir = _get(ctx, "target_dir")
