@@ -12,7 +12,17 @@
  *        --output classpath|sbom [--bom G:A:V]... [--bom-file <path>]... \
  *        [--repo <url>]... [--cache <dir>] <coord> <coord>...
  *
- *   --output   classpath (default) | sbom
+ *   --output   classpath (default) | sbom | nodes
+ *              nodes: write one aeb build file per artifact of the closure,
+ *              each with its jar's sha256 and a dep() on what ITS pom asks
+ *              for, at the version the pom declares. No version is mediated:
+ *              two versions of one artifact are both written and reported,
+ *              and a person picks (dep_arbitration; --pick writes a default).
+ *   --into     <dir>     nodes: where (default third_party/java), laid out
+ *                        <dir>/<group dirs>/<artifact>/<version>/.jar.ae
+ *   --pick     G:A=V     nodes: write <dir>/<group dirs>/<artifact>/.jar.ae,
+ *                        the default for G:A: V, and not the other versions
+ *                        this run found (may repeat)
  *   --bom      G:A:V     import an external BOM's managed versions (may repeat)
  *   --bom-file <path>    import a local BOM: either an aeb `.bom.ae` (scanned
  *                        as text for maven_bom()/maven_repo()/dep() lines) or
@@ -84,6 +94,8 @@ public class BldResolve {
         // Everything that went wrong, in the order met. Non-empty at the end
         // means exit 1 and an empty stdout.
         List<String> errors = new ArrayList<>();
+        String into = "third_party/java";
+        List<String> picks = new ArrayList<>();
 
         // XDG Base Directory: downloaded Maven artifacts are reconstructible
         // but expensive, so they live in the data dir, not the cache dir.
@@ -100,6 +112,8 @@ public class BldResolve {
                 case "--repo":     repoUrls.add(args[++i]); break;
                 case "--output":   outputMode = args[++i]; break;
                 case "--cache":    cacheDir = args[++i]; break;
+                case "--into":     into = args[++i]; break;
+                case "--pick":     picks.add(args[++i]); break;
                 default:
                     if (args[i].startsWith("-")) {
                         errors.add("unknown option: " + args[i]);
@@ -192,7 +206,7 @@ public class BldResolve {
             // Resolve the transitive closure (compile + runtime) of every
             // positional coord, honouring the seeded version overrides.
             DependencySet all = new DependencySet();
-            for (String coord : deps) {
+            for (String coord : "nodes".equals(outputMode) ? new ArrayList<String>() : deps) {
                 try {
                     Dependency root = Dependency.parse(coord);
                     // If version-less and no override provides one, bld would try
@@ -213,7 +227,10 @@ public class BldResolve {
                 }
             }
 
-            if ("sbom".equals(outputMode)) {
+            if ("nodes".equals(outputMode)) {
+                result = writeNodes(deps, into, picks, repoUrls, vr, retriever, repos,
+                        fetchUrls, overrides, out, errors);
+            } else if ("sbom".equals(outputMode)) {
                 // Sorted + de-duped coordinate closure, one "g:a:v" per line.
                 TreeSet<String> coords = new TreeSet<>();
                 for (Dependency d : all) {
@@ -256,6 +273,262 @@ public class BldResolve {
 
         // Only the final result reaches the real stdout.
         if (!result.isEmpty()) System.out.println(result);
+    }
+
+    // ---- --output nodes ---------------------------------------------------
+
+    /** group:artifact:version, with :classifier when there is one. */
+    private static String coordOf(Dependency d) {
+        String c = d.groupId() + ":" + d.artifactId() + ":" + d.version();
+        String cl = d.classifier();
+        return (cl == null || cl.isEmpty()) ? c : c + ":" + cl;
+    }
+
+    /** <into>/<group dirs>/<artifact>, the directory holding the version directories. */
+    private static String artifactDir(String into, Dependency d) {
+        return into + "/" + d.groupId().replace('.', '/') + "/" + d.artifactId();
+    }
+
+    /** <into>/<group dirs>/<artifact>/<version>[-<classifier>], one version's node. */
+    private static String nodeDir(String into, Dependency d) {
+        String cl = d.classifier();
+        return artifactDir(into, d) + "/" + d.version()
+                + ((cl == null || cl.isEmpty()) ? "" : "-" + cl);
+    }
+
+    private static String sha256(Path p) throws Exception {
+        var md = java.security.MessageDigest.getInstance("SHA-256");
+        byte[] h = md.digest(Files.readAllBytes(p));
+        StringBuilder sb = new StringBuilder();
+        for (byte b : h) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
+    /** Write `content` to `file` unless it already holds exactly that. True when written. */
+    private static boolean writeIfChanged(Path file, String content) throws Exception {
+        if (Files.exists(file)
+                && new String(Files.readAllBytes(file), StandardCharsets.UTF_8).equals(content)) {
+            return false;
+        }
+        Files.createDirectories(file.getParent());
+        Files.write(file, content.getBytes(StandardCharsets.UTF_8));
+        return true;
+    }
+
+    /**
+     * Walk the closure of `roots` as the poms declare it and write a node per
+     * artifact. Returns the report for stdout. Every failure goes to `errors`;
+     * the caller prints them and exits 1, and nodes already written stay (each
+     * is whole and correct on its own).
+     */
+    private static String writeNodes(List<String> roots, String into, List<String> picks,
+                                     List<String> repoUrls, VersionResolution vr,
+                                     ArtifactRetriever retriever, List<Repository> repos,
+                                     List<String> fetchUrls, Map<String, Version> overrides,
+                                     File cache, List<String> errors) {
+        String home = System.getProperty("user.home");
+        Path jarStore = Paths.get(home, ".cache", "aeb", "jars");
+        Map<String, Dependency> seen = new LinkedHashMap<>();          // coord -> artifact
+        Map<String, List<String>> askedBy = new LinkedHashMap<>();     // coord -> who asked
+        java.util.ArrayDeque<Dependency> queue = new java.util.ArrayDeque<>();
+        int written = 0, unchanged = 0;
+
+        for (String coord : roots) {
+            try {
+                Dependency root = Dependency.parse(coord);
+                if (isUnknownVersion(root.version()) && overrides.get(root.toArtifactString()) == null) {
+                    errors.add(root.toArtifactString() + " has no version and no BOM provides one");
+                    continue;
+                }
+                root = vr.overrideDependency(root);
+                queue.add(root);
+                askedBy.computeIfAbsent(coordOf(root), k -> new ArrayList<>()).add("you");
+            } catch (Exception e) {
+                errors.add("cannot read coordinate " + coord + ": " + e.getMessage());
+            }
+        }
+
+        while (!queue.isEmpty()) {
+            Dependency d = queue.poll();
+            String coord = coordOf(d);
+            if (seen.containsKey(coord)) continue;
+            seen.put(coord, d);
+            try {
+                String type = d.type();
+                boolean pomOnly = "pom".equals(type);
+                if (type != null && !type.isEmpty() && !"jar".equals(type) && !pomOnly) {
+                    errors.add(coord + " is of type '" + type + "', asked for by "
+                            + String.join(", ", askedBy.get(coord)) + ": only jar and pom are handled");
+                    continue;
+                }
+                // The dependency without its asker's exclusions: this node is
+                // the artifact as its own pom has it. Exclusions are recorded
+                // on the edge of whoever declared them.
+                Dependency base = new Dependency(d.groupId(), d.artifactId(), d.version(),
+                        d.classifier(), d.type());
+                var resolver = new DependencyResolver(vr, retriever, repos, base);
+                DependencySet direct = resolver.getDirectDependencies(Scope.compile, Scope.runtime);
+
+                String pomXml = fetchPom(d.groupId(), d.artifactId(), d.version().toString(), fetchUrls);
+                if (pomXml != null) {
+                    String packaging = childText(parseXml(pomXml).getDocumentElement(), "packaging");
+                    if ("pom".equals(packaging)) pomOnly = true;
+                }
+
+                String sha = "";
+                if (!pomOnly) {
+                    resolver.transferIntoDirectory(cache);
+                    File jar = null;
+                    for (String loc : resolver.getTransferLocations()) {
+                        File f = new File(cache, new File(loc).getName());
+                        if (f.getName().endsWith(".jar")) jar = f;
+                    }
+                    if (jar == null || !jar.isFile()) {
+                        errors.add(coord + " has no jar in any repository");
+                        continue;
+                    }
+                    sha = sha256(jar.toPath());
+                    // Where java.jar_maven looks first, so the build that
+                    // follows fetches nothing.
+                    Path stored = jarStore.resolve(sha + ".jar");
+                    if (!Files.exists(stored)) {
+                        Files.createDirectories(jarStore);
+                        Files.copy(jar.toPath(), stored);
+                    }
+                }
+
+                StringBuilder n = new StringBuilder();
+                n.append("// ").append(coord).append(", as its pom declares it.\n");
+                n.append("// Written by `aeb mvn add`; run that again rather than edit this.\n");
+                n.append("import bldr\n");
+                if (!direct.isEmpty()) n.append("import bldr (dep)\n");
+                n.append("import java\n");
+                List<String> setters = new ArrayList<>();
+                StringBuilder block = new StringBuilder();
+                if (!pomOnly && !repoUrls.isEmpty()) {
+                    setters.add("central");
+                    setters.add("repo");
+                    block.append("            central()\n");
+                    for (String u : repoUrls) block.append("            repo(\"").append(u).append("\")\n");
+                }
+                StringBuilder depLines = new StringBuilder();
+                for (Dependency raw : direct) {
+                    Dependency dep = vr.overrideDependency(raw);
+                    if (isUnknownVersion(dep.version())) {
+                        errors.add(coord + " asks for " + dep.toArtifactString()
+                                + " with no version its pom or a BOM supplies");
+                        continue;
+                    }
+                    String dc = coordOf(dep);
+                    depLines.append("        dep(\"").append(nodeDir(into, dep)).append("/.jar.ae\")\n");
+                    for (var ex : raw.exclusions()) {
+                        if (!setters.contains("excluding")) setters.add("excluding");
+                        block.append("            excluding(\"").append(dep.toArtifactString())
+                                .append("\", \"").append(ex.groupId()).append(":")
+                                .append(ex.artifactId()).append("\")\n");
+                    }
+                    askedBy.computeIfAbsent(dc, k -> new ArrayList<>()).add(coord);
+                    queue.add(dep);
+                }
+                if (!setters.isEmpty()) {
+                    n.append("import java (").append(String.join(", ", setters)).append(")\n");
+                }
+                n.append("main() {\n    bldr.build() {\n").append(depLines);
+                String call = pomOnly
+                        ? "java.pom_maven(\"" + coord + "\")"
+                        : "java.jar_maven(\"" + coord + "\", \"" + sha + "\")";
+                if (block.length() > 0) {
+                    n.append("        ").append(call).append(" {\n").append(block).append("        }\n");
+                } else {
+                    n.append("        ").append(call).append("\n");
+                }
+                n.append("    }\n}\n");
+                if (writeIfChanged(Paths.get(nodeDir(into, d), ".jar.ae"), n.toString())) written++;
+                else unchanged++;
+            } catch (Exception e) {
+                errors.add("cannot resolve " + coord + " (asked for by "
+                        + String.join(", ", askedBy.get(coord)) + "): " + e.getMessage());
+            }
+        }
+
+        // Artifacts met at more than one version: the diamonds a classpath
+        // holding all of this would have.
+        Map<String, List<Dependency>> byGa = new LinkedHashMap<>();
+        for (Dependency d : seen.values()) {
+            String cl = d.classifier();
+            String ga = d.toArtifactString() + ((cl == null || cl.isEmpty()) ? "" : ":" + cl);
+            byGa.computeIfAbsent(ga, k -> new ArrayList<>()).add(d);
+        }
+
+        StringBuilder report = new StringBuilder();
+        for (String pick : picks) {
+            int eq = pick.indexOf('=');
+            if (eq < 0) { errors.add("--pick wants group:artifact=version, got " + pick); continue; }
+            String ga = pick.substring(0, eq), v = pick.substring(eq + 1);
+            List<Dependency> vs = byGa.get(ga);
+            Dependency chosen = null;
+            List<String> others = new ArrayList<>();
+            if (vs != null) for (Dependency d : vs) {
+                if (d.version().toString().equals(v)) chosen = d; else others.add(d.version().toString());
+            }
+            if (chosen == null) {
+                errors.add("--pick " + pick + ": this closure does not hold " + ga + " at " + v);
+                continue;
+            }
+            if (others.isEmpty()) {
+                errors.add("--pick " + pick + ": " + ga + " is at one version here; there is nothing to pick between");
+                continue;
+            }
+            String body = "// The default for " + ga + " wherever a classpath would hold more than one\n"
+                    + "// version of it and no node closer to the leaf says otherwise.\n"
+                    + "import bldr\nimport bldr (dep, dep_arbitration, and_not)\nimport java\n"
+                    + "main() {\n    bldr.build() {\n"
+                    + "        dep_arbitration(\"" + ga + "\", \"" + v + "\", and_not(\""
+                    + String.join(", ", others) + "\"))\n"
+                    + "        dep(\"" + nodeDir(into, chosen) + "/.jar.ae\")\n"
+                    + "        java.jar_bundle()\n    }\n}\n";
+            try {
+                Path f = Paths.get(artifactDir(into, chosen), ".jar.ae");
+                writeIfChanged(f, body);
+                report.append("default: ").append(ga).append(" is ").append(v).append(", and not ")
+                        .append(String.join(", ", others)).append("  (").append(f).append(")\n");
+            } catch (Exception e) {
+                errors.add("cannot write the default for " + ga + ": " + e.getMessage());
+            }
+        }
+
+        for (var e : byGa.entrySet()) {
+            List<Dependency> vs = e.getValue();
+            if (vs.size() < 2) continue;
+            String ga = e.getKey();
+            Path adir = Paths.get(artifactDir(into, vs.get(0)));
+            boolean hasDefault = false;
+            try (var files = Files.list(adir)) {
+                for (Path f : (Iterable<Path>) files::iterator) {
+                    String name = f.getFileName().toString();
+                    if (Files.isRegularFile(f) && name.startsWith(".") && name.endsWith(".ae")
+                            && new String(Files.readAllBytes(f), StandardCharsets.UTF_8)
+                                .contains("dep_arbitration(\"" + ga + "\"")) hasDefault = true;
+                }
+            } catch (Exception ignore) {
+                // no directory, no default
+            }
+            Dependency highest = vs.get(0);
+            for (Dependency d : vs) if (d.version().compareTo(highest.version()) > 0) highest = d;
+            report.append("diamond: ").append(ga).append(hasDefault ? "  (a default is written)\n" : "\n");
+            for (Dependency d : vs) {
+                report.append("    ").append(d.version()).append("  asked for by ")
+                        .append(String.join(", ", askedBy.get(coordOf(d)))).append("\n");
+            }
+            if (!hasDefault) {
+                report.append("    a classpath holding both stops until someone picks: in the build file that\n")
+                      .append("    meets it, or as the default with  --pick ").append(ga).append("=")
+                      .append(highest.version()).append("  (the highest; a suggestion)\n");
+            }
+        }
+        report.append(written).append(" node").append(written == 1 ? "" : "s").append(" written, ")
+              .append(unchanged).append(" unchanged, under ").append(into);
+        return report.toString();
     }
 
     private static boolean isUnknownVersion(Version v) {

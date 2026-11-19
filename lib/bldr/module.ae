@@ -26,6 +26,7 @@ import std.dir
 import std.zip
 import std.strarr
 import std.strbuilder
+import mvngraph
 
 // --- Session (shared across all modules in one build) ---
 
@@ -5117,6 +5118,365 @@ _collect_file_list_recursive(root: string, ext: string) -> string {
     return string.replace_all(t, "\n", " ")
 }
 
+// ---- Maven artifacts on a classpath: one version each, picked by people ----
+//
+// See lib/mvngraph for the record and the rules. This is the half that
+// reads the records the deps wrote, finds the arbitrations, reports, and
+// writes this node's own record for whatever depends on it.
+
+// and_not("1.0, 1.1") — the versions an arbitration turns down. It only
+// returns its argument; it is there so the line reads as the decision it is.
+and_not(versions: string) {
+    return string.concat(versions, "")
+}
+
+// dep_arbitration("group:artifact", "<pick>", and_not("<v>, <v>")) — on this
+// node's classpath, and on the classpath of whatever depends on it, the
+// artifact is at <pick>, and not at the versions listed. It covers exactly
+// those versions: one that turns up later and is not named stops the build
+// again. A node's own arbitration is the last word over one it inherits and
+// over the default written beside the artifact's version directories.
+dep_arbitration(_ctx: ptr, ga: string, pick: string, nots: string): int {
+    if _ctx == 0 { return 0 }
+    ctx = _ctx
+    md = _get(ctx, "module_dir")
+    parts = string.split(ga, ":")
+    np = string.array_size(parts)
+    string.array_free(parts)
+    if np < 2 || np > 3 || string.length(pick) == 0 {
+        println("${md}: dep_arbitration(\"${ga}\", \"${pick}\", ...): wants \"group:artifact\" and the version picked")
+        fail(ctx, "dep_arbitration: malformed")
+        return 1
+    }
+    if string.length(string.trim(nots)) == 0 {
+        println("${md}: dep_arbitration(\"${ga}\", \"${pick}\"): name the versions turned down, and_not(\"<v>, <v>\")")
+        println("${md}:   a pick with no list would stand for any version, including one nobody has looked at")
+        fail(ctx, "dep_arbitration: no and_not list")
+        return 1
+    }
+    if map.has(ctx, "_arbitrations") == 0 {
+        _e0 = map.put(ctx, "_arbitrations", list.new())
+    }
+    al, _ = map.get(ctx, "_arbitrations")
+    _a = list.add(al, mvngraph.arb_line("own", ga, pick, nots, _label_dir(md)))
+    return 0
+}
+
+// _maven_default_arb(root, node_dir, ga) -> an arbitration line of tier
+// "default", or "". node_dir is the directory of one version's node
+// (.../<artifact>/<version>); the default is written in a build file one
+// level up, beside the version directories.
+_maven_default_arb(root: string, node_dir: string, ga: string) {
+    slash = _last_slash(node_dir)
+    if slash <= 0 { return string.concat("", "") }
+    adir = string.substring(node_dir, 0, slash)
+    full = path.join(root, adir)
+    l, err = dir.list(full)
+    if err != "" { return string.concat("", "") }
+    out = ""
+    n = dir.list_count(l)
+    i = 0
+    while i < n {
+        name = string.concat(dir.list_get(l, i), "")
+        if string.starts_with(name, ".") == 1 && string.ends_with(name, ".ae") == 1 && dir.list_kind(l, i) != 2 {
+            if string.length(out) == 0 {
+                src, rerr = io.read_file(path.join(full, name))
+                if string.length(rerr) == 0 {
+                    pick, nots = mvngraph.arbitration_in(src, ga)
+                    if string.length(pick) > 0 {
+                        out = mvngraph.arb_line("default", ga, pick, nots, path.join(adir, name))
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    dir.list_free(l)
+    return out
+}
+
+// _maven_settle(ctx, text) -> (settled, ok)
+//   Settle one classpath's record. Gathers the arbitrations (this node's
+//   own, those of its deps, defaults beside the artifacts), prints what was
+//   applied and any problem in full, writes this node's maven_coords and
+//   maven_arbitrations artifacts, and fails the node when a diamond is left.
+_maven_settle(ctx: ptr, text: string) {
+    md = _get(ctx, "module_dir")
+    root = _get(ctx, "root")
+    arbs = ""
+    if map.has(ctx, "_arbitrations") == 1 {
+        al, _ = map.get(ctx, "_arbitrations")
+        an = list.size(al)
+        ai = 0
+        while ai < an {
+            a, _ = list.get_string(al, ai)
+            if string.length(arbs) > 0 { arbs = string.concat(arbs, "\n") }
+            arbs = string.concat(arbs, a)
+            ai = ai + 1
+        }
+    }
+    own_arbs = string.concat(arbs, "")
+    deps, _ = map.get(ctx, "deps")
+    count = list.size(deps)
+    i = 0
+    while i < count {
+        dp, _ = list.get_string(deps, i)
+        inh = _read_dep_artifact(ctx, _strip_lang(dp), "maven_arbitrations")
+        ils = string.split(inh, "\n")
+        iln = string.array_size(ils)
+        ili = 0
+        while ili < iln {
+            il = string.array_get(ils, ili)
+            if string.length(il) > 0 {
+                if string.length(arbs) > 0 { arbs = string.concat(arbs, "\n") }
+                arbs = string.concat(arbs, string.concat("inherited|", il))
+            }
+            ili = ili + 1
+        }
+        string.array_free(ils)
+        i = i + 1
+    }
+    // A default for every artifact the record holds: cheap, and settle only
+    // consults one when nothing above it speaks.
+    cs = string.split(mvngraph.coords_of(text), "\n")
+    cn = string.array_size(cs)
+    seen_ga = ""
+    ci = 0
+    while ci < cn {
+        c = string.array_get(cs, ci)
+        if string.length(c) > 0 {
+            ga = mvngraph.coord_ga(c)
+            if mvngraph.csv_has(seen_ga, ga) == 0 {
+                seen_ga = string.concat(string.concat(seen_ga, ","), ga)
+            } else {
+                // Second version of this artifact in the record: only now is
+                // a default worth a directory read.
+                d = _maven_default_arb(root, mvngraph.art_field(text, c, 3), ga)
+                if string.length(d) > 0 {
+                    if string.contains(arbs, d) == 0 {
+                        if string.length(arbs) > 0 { arbs = string.concat(arbs, "\n") }
+                        arbs = string.concat(arbs, d)
+                    }
+                }
+            }
+        }
+        ci = ci + 1
+    }
+    string.array_free(cs)
+
+    settled, applied, problems = mvngraph.settle(text, arbs)
+
+    if string.length(problems) > 0 {
+        ps = string.split(problems, "\n")
+        pn = string.array_size(ps)
+        pi = 0
+        while pi < pn {
+            pl = string.array_get(ps, pi)
+            if string.length(pl) > 0 {
+                _maven_explain(md, text, pl)
+            }
+            pi = pi + 1
+        }
+        string.array_free(ps)
+        fail(ctx, "Maven artifacts at more than one version on this classpath (see above)")
+        return string.concat("", ""), 0
+    }
+
+    out_arbs = ""
+    aps = string.split(applied, "\n")
+    apn = string.array_size(aps)
+    api = 0
+    while api < apn {
+        ap = string.array_get(aps, api)
+        if string.length(ap) > 0 {
+            f = string.split(ap, "|")
+            ga = string.concat(string.array_get(f, 0), "")
+            pick = string.concat(string.array_get(f, 1), "")
+            nots = string.concat(string.array_get(f, 2), "")
+            wh = string.concat(string.array_get(f, 3), "")
+            lost = string.concat(string.array_get(f, 4), "")
+            string.array_free(f)
+            println("${md}: ${ga} is ${pick}, and not ${lost} (arbitrated in ${wh})")
+            line = string.concat(string.concat(ga, "|"), pick)
+            line = string.concat(string.concat(line, "|"), nots)
+            line = string.concat(string.concat(line, "|"), wh)
+            if string.length(out_arbs) > 0 { out_arbs = string.concat(out_arbs, "\n") }
+            out_arbs = string.concat(out_arbs, line)
+            // Which deps were built against a version that lost.
+            j = 0
+            while j < count {
+                dp2, _ = list.get_string(deps, j)
+                drec = _read_dep_artifact(ctx, _strip_lang(dp2), "maven_coords")
+                lv = string.split(lost, ",")
+                ln = string.array_size(lv)
+                li = 0
+                while li < ln {
+                    v = string.array_get(lv, li)
+                    probe = string.concat(string.concat("art ", _maven_coord_at(ga, v)), "|")
+                    if string.contains(drec, probe) == 1 {
+                        if string.length(mvngraph.jars_of(drec)) > 0 {
+                            println("${md}:   note: ${dp2} has ${ga} ${v} on its own classpath; here it runs with ${pick}")
+                        }
+                    }
+                    li = li + 1
+                }
+                string.array_free(lv)
+                j = j + 1
+            }
+        }
+        api = api + 1
+    }
+    string.array_free(aps)
+
+    // An arbitration of this node's own that settled nothing is out of date.
+    ols = string.split(own_arbs, "\n")
+    oln = string.array_size(ols)
+    oli = 0
+    while oli < oln {
+        ol = string.array_get(ols, oli)
+        if string.length(ol) > 0 {
+            f2 = string.split(ol, "|")
+            oga = string.concat(string.array_get(f2, 1), "")
+            string.array_free(f2)
+            if string.contains(string.concat("\n", applied), string.concat(string.concat("\n", oga), "|")) == 0 {
+                println("${md}: warning: dep_arbitration(\"${oga}\", ...) settles nothing here: this classpath asks for one version of it. Remove it.")
+            }
+        }
+        oli = oli + 1
+    }
+    string.array_free(ols)
+
+    td = _get(ctx, "target_dir")
+    _mkdirs(td)
+    _write_artifact(ctx, "maven_coords", settled)
+    _write_artifact(ctx, "maven_arbitrations", out_arbs)
+    return settled, 1
+}
+
+// _maven_coord_at(ga, v) — ga is "g:a" or "g:a:classifier"; the coord at v.
+_maven_coord_at(ga: string, v: string) {
+    parts = string.split(ga, ":")
+    out = string.concat(string.concat(string.array_get(parts, 0), ":"), string.array_get(parts, 1))
+    out = string.concat(string.concat(out, ":"), v)
+    if string.array_size(parts) >= 3 {
+        out = string.concat(string.concat(out, ":"), string.array_get(parts, 2))
+    }
+    string.array_free(parts)
+    return out
+}
+
+// _maven_explain(md, text, problem) — one problem line from mvngraph.settle,
+// said in full: the versions, who asked for each, and the line to write.
+_maven_explain(md: string, text: string, problem: string) {
+    f = string.split(problem, "|")
+    ga = string.concat(string.array_get(f, 0), "")
+    kind = string.concat(string.array_get(f, 1), "")
+    vs = string.concat(string.array_get(f, 2), "")
+    detail = string.concat(string.array_get(f, 3), "")
+    string.array_free(f)
+    if string.equals(kind, "missing") == 1 {
+        c = _maven_coord_at(ga, vs)
+        println("${md}: ${c} is asked for by ${mvngraph.askers(text, c)}, and no node on this classpath provides it")
+        println("${md}:   generate it: aeb mvn add ${c}")
+        return 0
+    }
+    println("${md}: ${ga} is on this classpath at more than one version:")
+    vl = string.split(vs, ",")
+    vn = string.array_size(vl)
+    first = ""
+    rest = ""
+    vi = 0
+    while vi < vn {
+        v = string.array_get(vl, vi)
+        c = _maven_coord_at(ga, v)
+        println("${md}:   ${v}  asked for by ${mvngraph.askers(text, c)}")
+        if vi == vn - 1 {
+            first = string.concat(v, "")
+        } else {
+            if string.length(rest) > 0 { rest = string.concat(rest, ", ") }
+            rest = string.concat(rest, v)
+        }
+        vi = vi + 1
+    }
+    string.array_free(vl)
+    if string.equals(kind, "none") == 1 {
+        println("${md}: pick one, here or in a build file beside the artifact's version directories:")
+        println("${md}:   dep_arbitration(\"${ga}\", \"${first}\", and_not(\"${rest}\"))")
+    }
+    if string.equals(kind, "disagree") == 1 {
+        println("${md}: nodes below pick differently (${detail}); this node has to say:")
+        println("${md}:   dep_arbitration(\"${ga}\", \"${first}\", and_not(\"${rest}\"))")
+    }
+    if string.equals(kind, "uncovered") == 1 {
+        println("${md}: the arbitration for it does not name ${detail}. It covers only the versions it lists;")
+        println("${md}:   look at ${detail}, then add it to the and_not list or pick it.")
+    }
+    if string.equals(kind, "nopick") == 1 {
+        c2 = _maven_coord_at(ga, detail)
+        println("${md}: the arbitration picks ${detail}, which nothing on this classpath provides.")
+        println("${md}:   add a dep on its node (generate it with: aeb mvn add ${c2})")
+    }
+    return 0
+}
+
+// _maven_dep_record(ctx) — the maven_coords records of this node's deps,
+// merged. "" when no dep carries one (nothing Maven-generated below).
+_maven_dep_record(ctx: ptr) {
+    deps, _ = map.get(ctx, "deps")
+    count = list.size(deps)
+    text = ""
+    i = 0
+    while i < count {
+        dp, _ = list.get_string(deps, i)
+        rec = _read_dep_artifact(ctx, _strip_lang(dp), "maven_coords")
+        if string.length(rec) > 0 { text = mvngraph.merge(text, rec) }
+        i = i + 1
+    }
+    return text
+}
+
+// _maven_lost_jars(ctx) — settle this node's classpath once, and return the
+// jars of the versions turned down (newline-joined) so they can be taken off
+// a classpath assembled from the deps' own lists. "" when there is nothing
+// to settle or nothing lost. On an unsettled diamond the node is failed.
+_maven_lost_jars(ctx: ptr) {
+    if map.has(ctx, "_maven_lost") == 1 {
+        v, _ = map.get_string(ctx, "_maven_lost")
+        return string.concat(v, "")
+    }
+    text = _maven_dep_record(ctx)
+    lost = ""
+    if string.length(text) > 0 {
+        settled, ok = _maven_settle(ctx, text)
+        if ok == 1 { lost = mvngraph.lost_jars(text, settled) }
+    }
+    _e = map.put(ctx, "_maven_lost", string.concat(lost, ""))
+    return lost
+}
+
+// _cp_without(cp, lost) — a colon-joined classpath with the newline-joined
+// entries of `lost` taken out.
+_cp_without(cp: string, lost: string) {
+    if string.length(lost) == 0 { return string.concat(cp, "") }
+    hay = string.concat(string.concat("\n", lost), "\n")
+    parts = string.split(cp, _path_sep())
+    n = string.array_size(parts)
+    out = ""
+    i = 0
+    while i < n {
+        p = string.array_get(parts, i)
+        if string.length(p) > 0 {
+            if string.contains(hay, string.concat(string.concat("\n", p), "\n")) == 0 {
+                if string.length(out) > 0 { out = string.concat(out, _path_sep()) }
+                out = string.concat(out, p)
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(parts)
+    return out
+}
+
 _build_dep_classpath(ctx: ptr) {
     deps, _ = map.get(ctx, "deps")
     cp = ""
@@ -5137,7 +5497,9 @@ _build_dep_classpath(ctx: ptr) {
         }
         i = i + 1
     }
-    return cp
+    // One version of each Maven artifact: take off the jars an arbitration
+    // turned down (and fail the node on a diamond nobody has settled).
+    return _cp_without(cp, _maven_lost_jars(ctx))
 }
 
 _build_lib_classpath(ctx: ptr) {

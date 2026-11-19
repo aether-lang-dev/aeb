@@ -353,6 +353,21 @@ if [[ "${1:-}" == "gcheckout" ]]; then
     exec "$GCHECKOUT_BIN" "$@"
 fi
 
+# --- mvn: write a build file per Maven artifact, with its hash ---
+# Routes `aeb mvn add <g:a:v>...` to tools/aeb-mvn (see its header).
+if [[ "${1:-}" == "mvn" ]]; then
+    MVN_BIN="$AEB_HOME/tools/aeb-mvn"
+    if [[ ! -x "$MVN_BIN" ]]; then
+        "$AETHER" build "$AEB_HOME/tools/aeb-mvn.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$MVN_BIN" 2>/dev/null
+    fi
+    if [[ ! -x "$MVN_BIN" ]]; then
+        echo "aeb: could not build tools/aeb-mvn (run: $AETHER build $AEB_HOME/tools/aeb-mvn.ae --lib $AEB_HOME/lib)" >&2
+        exit 1
+    fi
+    shift
+    exec "$MVN_BIN" "$AEB_HOME" "$@"
+fi
+
 # Note: the remote-aeb build agent is a SEPARATE binary `aeb-agent`
 # (installed at $PREFIX/bin/aeb-agent), NOT an `aeb agent` subcommand —
 # so a sysop probes "does this machine have the agent capability" by

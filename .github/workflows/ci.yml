@@ -227,5 +227,10 @@ jobs:
       # node fails; it was a warning and part of a classpath.
       - name: a failed Maven resolve fails
         run: itests/resolver-failure-fails.sh
+      # `aeb mvn add` writes a hashed node per Maven artifact, edges as each
+      # pom declares; a classpath with one artifact at two versions stops
+      # until a dep_arbitration names the pick and what it is not.
+      - name: Maven nodes and dep_arbitration
+        run: itests/mvn-nodes-arbitration.sh
       - name: Run aeb unit test suite
         run: ./tests/run.sh

@@ -1,0 +1,806 @@
+// mvngraph — which Maven artifacts a classpath holds, and which version of
+// each, decided by people.
+//
+// Every node generated for a Maven artifact (java.jar_maven) records the
+// artifact, the sha256 of its jar and the artifacts its own pom asks for, AS
+// THE POM DECLARES THEM. Nothing is mediated when the node is written: if
+// B's pom wants D:1.0 and C's wants D:1.2, the graph says so. A classpath
+// that would hold both is a diamond, and aeb does not pick. A person does,
+// in a build file:
+//
+//     dep_arbitration("com.example:d", "1.2", and_not("1.0"))
+//
+// "1.2, and not 1.0": the pick covers exactly the versions it names. A
+// version nobody named, turning up later, is not covered and stops the build
+// again. That is the whole reason for the list.
+//
+// This module is the pure half: text in, text out, no files, no processes,
+// so it is unit-tested directly (tests/test_mvngraph.ae). lib/bldr does the
+// reading and writing around it.
+//
+// THE RECORD (a node's `maven_coords` artifact), one line each:
+//
+//     root <coord>
+//     art <coord>|<sha256>|<jar path>|<node dir>|<dep>;<dep>|<edge>
+//
+//   <coord>  group:artifact:version, or group:artifact:version:classifier
+//   <dep>    a coord this artifact's pom asks for (compile and runtime scope)
+//   <edge>   <ga>><excluded ga>,<excluded ga>;...  the pom's <exclusions> on
+//            its dependency on <ga>; they hold for everything reached
+//            through that edge, as in Maven
+//   root     what the node itself asked for; the classpath is what is
+//            reachable from the roots
+//
+// ARBITRATIONS, one line each:  <tier>|<ga>|<pick>|<not>,<not>|<where>
+//   tier  own        written in the node being built: the last word
+//         inherited  written in a node this one depends on
+//         default    written beside the artifact's version directories
+
+import std.string
+import std.list
+
+exports(coord_ga, coord_version, merge, settle, jars_of, coords_of, roots_of,
+        art_field, arb_line, effective_arb, lost_jars, csv_has, askers,
+        arts_only, arbitration_in)
+
+// ---- small text helpers -------------------------------------------------
+
+// _nth(s, sep, n) — the n-th (0-based) `sep`-separated field of s, "" if
+// there is none. An owned copy.
+_nth(s: string, sep: string, n: int) {
+    parts = string.split(s, sep)
+    out = ""
+    if n < string.array_size(parts) {
+        out = string.concat(string.array_get(parts, n), "")
+    }
+    string.array_free(parts)
+    return out
+}
+
+// _has_line(text, line) — 1 when `line` is one of text's lines.
+_has_line(text: string, line: string) {
+    if string.length(text) == 0 { return 0 }
+    hay = string.concat(string.concat("\n", text), "\n")
+    needle = string.concat(string.concat("\n", line), "\n")
+    return string.contains(hay, needle)
+}
+
+// _add_line(text, line) — text with `line` appended unless already there.
+_add_line(text: string, line: string) {
+    if string.length(line) == 0 { return string.concat(text, "") }
+    if _has_line(text, line) == 1 { return string.concat(text, "") }
+    if string.length(text) == 0 { return string.concat(line, "") }
+    return string.concat(string.concat(text, "\n"), line)
+}
+
+// csv_has(csv, item) — 1 when `item` is in a comma-separated list (spaces
+// around items ignored).
+csv_has(csv: string, item: string) {
+    parts = string.split(csv, ",")
+    n = string.array_size(parts)
+    found = 0
+    i = 0
+    while i < n {
+        if string.equals(string.trim(string.array_get(parts, i)), item) == 1 { found = 1 }
+        i = i + 1
+    }
+    string.array_free(parts)
+    return found
+}
+
+// _csv_add_sorted(csv, item) — a sorted, de-duplicated comma list with
+// `item` in it. Sorted so two paths that collect the same exclusions in a
+// different order are the same state.
+_csv_add_sorted(csv: string, item: string) {
+    if string.length(item) == 0 { return string.concat(csv, "") }
+    if string.length(csv) == 0 { return string.concat(item, "") }
+    if csv_has(csv, item) == 1 { return string.concat(csv, "") }
+    parts = string.split(csv, ",")
+    n = string.array_size(parts)
+    out = ""
+    placed = 0
+    i = 0
+    while i < n {
+        cur = string.array_get(parts, i)
+        if placed == 0 {
+            if string.compare(item, cur) < 0 {
+                if string.length(out) > 0 { out = string.concat(out, ",") }
+                out = string.concat(out, item)
+                placed = 1
+            }
+        }
+        if string.length(out) > 0 { out = string.concat(out, ",") }
+        out = string.concat(out, cur)
+        i = i + 1
+    }
+    string.array_free(parts)
+    if placed == 0 { out = string.concat(string.concat(out, ","), item) }
+    return out
+}
+
+_csv_union(a: string, b: string) {
+    out = string.concat(a, "")
+    parts = string.split(b, ",")
+    n = string.array_size(parts)
+    i = 0
+    while i < n {
+        it = string.trim(string.array_get(parts, i))
+        if string.length(it) > 0 { out = _csv_add_sorted(out, it) }
+        i = i + 1
+    }
+    string.array_free(parts)
+    return out
+}
+
+// ---- coordinates --------------------------------------------------------
+
+// coord_ga("g:a:v") -> "g:a"; with a classifier, "g:a:v:c" -> "g:a:c". Two
+// classifiers of one artifact are two different jars, so they do not
+// conflict with each other.
+coord_ga(coord: string) {
+    parts = string.split(coord, ":")
+    n = string.array_size(parts)
+    out = ""
+    if n >= 2 {
+        out = string.concat(string.concat(string.array_get(parts, 0), ":"), string.array_get(parts, 1))
+    }
+    if n >= 4 {
+        out = string.concat(string.concat(out, ":"), string.array_get(parts, 3))
+    }
+    string.array_free(parts)
+    return out
+}
+
+coord_version(coord: string) {
+    return _nth(coord, ":", 2)
+}
+
+// _with_version(coord, v) — the same artifact at version v.
+_with_version(coord: string, v: string) {
+    parts = string.split(coord, ":")
+    n = string.array_size(parts)
+    out = ""
+    if n >= 2 {
+        out = string.concat(string.concat(string.array_get(parts, 0), ":"), string.array_get(parts, 1))
+        out = string.concat(string.concat(out, ":"), v)
+    }
+    if n >= 4 {
+        out = string.concat(string.concat(out, ":"), string.array_get(parts, 3))
+    }
+    string.array_free(parts)
+    return out
+}
+
+// ---- the record ---------------------------------------------------------
+
+// _art_line(text, coord) — the whole `art` line for coord, "" if none.
+_art_line(text: string, coord: string) {
+    want = string.concat(string.concat("art ", coord), "|")
+    lines = string.split(text, "\n")
+    n = string.array_size(lines)
+    out = ""
+    i = 0
+    while i < n {
+        if string.length(out) == 0 {
+            l = string.array_get(lines, i)
+            if string.starts_with(l, want) == 1 { out = string.concat(l, "") }
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// art_field(text, coord, n) — field n of coord's art line: 1 sha256, 2 jar,
+// 3 node dir, 4 deps (";"-separated), 5 edge exclusions.
+art_field(text: string, coord: string, n: int) {
+    l = _art_line(text, coord)
+    if string.length(l) == 0 { return string.concat("", "") }
+    return _nth(l, "|", n)
+}
+
+// _lines_with(text, prefix) — the rest of each line that starts with prefix,
+// newline-joined, in order, de-duplicated.
+_lines_with(text: string, prefix: string) {
+    lines = string.split(text, "\n")
+    n = string.array_size(lines)
+    plen = string.length(prefix)
+    out = ""
+    i = 0
+    while i < n {
+        l = string.array_get(lines, i)
+        if string.starts_with(l, prefix) == 1 {
+            out = _add_line(out, string.substring(l, plen, string.length(l)))
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// roots_of(text) — the root coords, newline-joined.
+roots_of(text: string) {
+    return _lines_with(text, "root ")
+}
+
+// coords_of(text) — every coord with an art line, newline-joined, in order.
+coords_of(text: string) {
+    arts = _lines_with(text, "art ")
+    lines = string.split(arts, "\n")
+    n = string.array_size(lines)
+    out = ""
+    i = 0
+    while i < n {
+        l = string.array_get(lines, i)
+        if string.length(l) > 0 { out = _add_line(out, _nth(l, "|", 0)) }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// jars_of(text) — the jar of every art line that has one, newline-joined, in
+// order.
+jars_of(text: string) {
+    arts = _lines_with(text, "art ")
+    lines = string.split(arts, "\n")
+    n = string.array_size(lines)
+    out = ""
+    i = 0
+    while i < n {
+        l = string.array_get(lines, i)
+        if string.length(l) > 0 { out = _add_line(out, _nth(l, "|", 2)) }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// merge(a, b) — the lines of both records, each once.
+merge(a: string, b: string) {
+    out = string.concat(a, "")
+    lines = string.split(b, "\n")
+    n = string.array_size(lines)
+    i = 0
+    while i < n {
+        out = _add_line(out, string.array_get(lines, i))
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// lost_jars(before, after) — jars `before` holds that `after` does not: the
+// versions an arbitration turned down, to be taken off a classpath that was
+// assembled before it was applied.
+lost_jars(before: string, after: string) {
+    b = jars_of(before)
+    a = jars_of(after)
+    lines = string.split(b, "\n")
+    n = string.array_size(lines)
+    out = ""
+    i = 0
+    while i < n {
+        l = string.array_get(lines, i)
+        if string.length(l) > 0 {
+            if _has_line(a, l) == 0 { out = _add_line(out, l) }
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// ---- exclusions ---------------------------------------------------------
+
+// _excluded(excl, ga) — 1 when a comma list of exclusions covers ga. An
+// entry is "g:a", or has "*" for either half, as Maven allows.
+_excluded(excl: string, ga: string) {
+    if string.length(excl) == 0 { return 0 }
+    g = _nth(ga, ":", 0)
+    a = _nth(ga, ":", 1)
+    hit = 0
+    if csv_has(excl, string.concat(string.concat(g, ":"), a)) == 1 { hit = 1 }
+    if csv_has(excl, string.concat(g, ":*")) == 1 { hit = 1 }
+    if csv_has(excl, string.concat("*:", a)) == 1 { hit = 1 }
+    if csv_has(excl, "*:*") == 1 { hit = 1 }
+    if csv_has(excl, "*") == 1 { hit = 1 }
+    return hit
+}
+
+// _edge_excl(edges, ga) — the exclusions an artifact's pom puts on its
+// dependency on ga (ga without a classifier), as a comma list.
+_edge_excl(edges: string, ga: string) {
+    parts = string.split(edges, ";")
+    n = string.array_size(parts)
+    want = string.concat(ga, ">")
+    out = ""
+    i = 0
+    while i < n {
+        p = string.array_get(parts, i)
+        if string.starts_with(p, want) == 1 {
+            out = _csv_union(out, string.substring(p, string.length(want), string.length(p)))
+        }
+        i = i + 1
+    }
+    string.array_free(parts)
+    return out
+}
+
+// ---- arbitrations -------------------------------------------------------
+
+// arb_line(tier, ga, pick, nots, where_) — one arbitration line.
+arb_line(tier: string, ga: string, pick: string, nots: string, where_: string) {
+    out = string.concat(string.concat(tier, "|"), ga)
+    out = string.concat(string.concat(out, "|"), pick)
+    out = string.concat(string.concat(out, "|"), nots)
+    out = string.concat(string.concat(out, "|"), where_)
+    return out
+}
+
+// effective_arb(arbs, ga) -> (pick, nots, where, err)
+//   own beats inherited beats default. Several inherited that pick the same
+//   version are one arbitration whose "and not" list is all of theirs;
+//   several that pick differently are a disagreement only this node can
+//   settle, by writing its own. err: "" | "none" | "disagree".
+effective_arb(arbs: string, ga: string) {
+    lines = string.split(arbs, "\n")
+    n = string.array_size(lines)
+    own_pick = ""
+    own_nots = ""
+    own_where = ""
+    inh_pick = ""
+    inh_nots = ""
+    inh_where = ""
+    inh_clash = 0
+    def_pick = ""
+    def_nots = ""
+    def_where = ""
+    i = 0
+    while i < n {
+        l = string.array_get(lines, i)
+        if string.equals(_nth(l, "|", 1), ga) == 1 {
+            tier = _nth(l, "|", 0)
+            pick = _nth(l, "|", 2)
+            nots = _nth(l, "|", 3)
+            wh = _nth(l, "|", 4)
+            if string.equals(tier, "own") == 1 {
+                if string.length(own_pick) == 0 {
+                    own_pick = pick
+                    own_nots = nots
+                    own_where = wh
+                }
+            }
+            if string.equals(tier, "inherited") == 1 {
+                if string.length(inh_pick) == 0 {
+                    inh_pick = pick
+                    inh_nots = nots
+                    inh_where = wh
+                } else {
+                    if string.equals(inh_pick, pick) == 1 {
+                        inh_nots = _csv_union(inh_nots, nots)
+                    } else {
+                        inh_clash = 1
+                        inh_where = string.concat(string.concat(inh_where, " and "), wh)
+                    }
+                }
+            }
+            if string.equals(tier, "default") == 1 {
+                if string.length(def_pick) == 0 {
+                    def_pick = pick
+                    def_nots = nots
+                    def_where = wh
+                }
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    if string.length(own_pick) > 0 { return own_pick, own_nots, own_where, "" }
+    if inh_clash == 1 { return "", "", inh_where, "disagree" }
+    if string.length(inh_pick) > 0 { return inh_pick, inh_nots, inh_where, "" }
+    if string.length(def_pick) > 0 { return def_pick, def_nots, def_where, "" }
+    return "", "", "", "none"
+}
+
+// ---- reachability -------------------------------------------------------
+
+// _redirect(coord, picks) — coord at the version picked for its artifact, or
+// coord itself. picks: lines "<ga>|<version>".
+_redirect(coord: string, picks: string) {
+    ga = coord_ga(coord)
+    want = string.concat(ga, "|")
+    lines = string.split(picks, "\n")
+    n = string.array_size(lines)
+    out = string.concat(coord, "")
+    i = 0
+    while i < n {
+        l = string.array_get(lines, i)
+        if string.starts_with(l, want) == 1 {
+            out = _with_version(coord, string.substring(l, string.length(want), string.length(l)))
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// _reach(text, picks) -> (got, asked, missing)
+//   got      the coords on the classpath, breadth-first from the roots, with
+//            every edge to an arbitrated artifact followed to its pick
+//   asked    every coord any root or pom asked for, before picks: what the
+//            "and not" lists have to cover
+//   missing  coords something asked for that no node records
+// Exclusions travel down the path that declared them. An artifact reached
+// by two paths is walked once per distinct set of exclusions, so it is
+// excluded only where every path to it excludes it.
+_reach(text: string, picks: string) {
+    got = ""
+    asked = ""
+    missing = ""
+    seen = ""
+    queue = list.new()
+    roots = string.split(roots_of(text), "\n")
+    rn = string.array_size(roots)
+    ri = 0
+    while ri < rn {
+        r = string.array_get(roots, ri)
+        if string.length(r) > 0 {
+            _q = list.add(queue, string.concat(r, "#"))
+        }
+        ri = ri + 1
+    }
+    string.array_free(roots)
+
+    head = 0
+    while head < list.size(queue) {
+        entry, _ = list.get_string(queue, head)
+        head = head + 1
+        hash = string.index_of(entry, "#")
+        as_asked = string.substring(entry, 0, hash)
+        excl = string.substring(entry, hash + 1, string.length(entry))
+        asked = _add_line(asked, as_asked)
+        coord = _redirect(as_asked, picks)
+        state = string.concat(string.concat(coord, "#"), excl)
+        if _has_line(seen, state) == 0 {
+            seen = _add_line(seen, state)
+            line = _art_line(text, coord)
+            if string.length(line) == 0 {
+                missing = _add_line(missing, coord)
+            } else {
+                got = _add_line(got, coord)
+                deps = string.split(_nth(line, "|", 4), ";")
+                edges = _nth(line, "|", 5)
+                dn = string.array_size(deps)
+                di = 0
+                while di < dn {
+                    d = string.array_get(deps, di)
+                    if string.length(d) > 0 {
+                        dga = coord_ga(d)
+                        // Exclusions name group:artifact, never a classifier.
+                        dga2 = string.concat(string.concat(_nth(d, ":", 0), ":"), _nth(d, ":", 1))
+                        if _excluded(excl, dga2) == 0 {
+                            nexcl = _csv_union(excl, _edge_excl(edges, dga2))
+                            _q2 = list.add(queue, string.concat(string.concat(d, "#"), nexcl))
+                        }
+                    }
+                    di = di + 1
+                }
+                string.array_free(deps)
+            }
+        }
+    }
+    return got, asked, missing
+}
+
+// _versions(coords, ga) — the versions of ga among newline-joined coords, as
+// a comma list in the order met.
+_versions(coords: string, ga: string) {
+    lines = string.split(coords, "\n")
+    n = string.array_size(lines)
+    out = ""
+    i = 0
+    while i < n {
+        c = string.array_get(lines, i)
+        if string.length(c) > 0 {
+            if string.equals(coord_ga(c), ga) == 1 {
+                v = coord_version(c)
+                if csv_has(out, v) == 0 {
+                    if string.length(out) > 0 { out = string.concat(out, ",") }
+                    out = string.concat(out, v)
+                }
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// _gas(coords) — each distinct ga among newline-joined coords.
+_gas(coords: string) {
+    lines = string.split(coords, "\n")
+    n = string.array_size(lines)
+    out = ""
+    i = 0
+    while i < n {
+        c = string.array_get(lines, i)
+        if string.length(c) > 0 { out = _add_line(out, coord_ga(c)) }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// _uncovered(versions, pick, nots) — the versions (comma list) that are
+// neither the pick nor in the "and not" list, as a comma list.
+_uncovered(versions: string, pick: string, nots: string) {
+    parts = string.split(versions, ",")
+    n = string.array_size(parts)
+    out = ""
+    i = 0
+    while i < n {
+        v = string.array_get(parts, i)
+        if string.length(v) > 0 {
+            if string.equals(v, pick) == 0 {
+                if csv_has(nots, v) == 0 {
+                    if string.length(out) > 0 { out = string.concat(out, ",") }
+                    out = string.concat(out, v)
+                }
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(parts)
+    return out
+}
+
+// ---- settle -------------------------------------------------------------
+
+// settle(text, arbs) -> (settled, applied, problems)
+//
+//   settled   the record for this classpath: the same roots at their picked
+//             versions, and an art line for exactly what is reachable, in
+//             classpath order. Each art line keeps the deps its pom
+//             declares, so a node further up still sees what was asked for.
+//   applied   one line per arbitration used:
+//             <ga>|<pick>|<and-not list>|<where>|<versions turned down here>
+//   problems  one line per artifact that could not be settled; empty means
+//             settled is good. <ga>|<kind>|<versions asked for>|<detail>
+//               none       several versions, no arbitration
+//               disagree   two nodes below pick differently
+//               uncovered  an arbitration exists but does not name <detail>
+//               nopick     the pick, <detail>, is not on this classpath
+//               missing    <ga> is asked for and no node records it
+//
+// Arbitrating one artifact can change what is reachable (the pick's own
+// dependencies replace the loser's), so this repeats until nothing changes.
+settle(text: string, arbs: string) {
+    picks = ""
+    problems = ""
+    done = 0
+    rounds = 0
+    got = ""
+    asked = ""
+    while done == 0 {
+        rounds = rounds + 1
+        problems = ""
+        g, a, m = _reach(text, picks)
+        got = g
+        asked = a
+        // What is asked for and recorded nowhere. A node below that settled
+        // a diamond hands up only the version it picked, while the poms
+        // under it still name the one turned down; its arbitration comes up
+        // with the record, and says where that request goes.
+        progressed = 0
+        ms = string.split(m, "\n")
+        mn = string.array_size(ms)
+        mi = 0
+        while mi < mn {
+            mc = string.array_get(ms, mi)
+            if string.length(mc) > 0 {
+                mga = coord_ga(mc)
+                mv = coord_version(mc)
+                mpick, mnots, _mwh, merr = effective_arb(arbs, mga)
+                moved = 0
+                if string.length(merr) == 0 {
+                    if csv_has(mnots, mv) == 1 {
+                        if string.length(_art_line(text, _with_version(mc, mpick))) > 0 {
+                            picks = _add_line(picks, string.concat(string.concat(mga, "|"), mpick))
+                            progressed = 1
+                            moved = 1
+                        }
+                    }
+                }
+                if moved == 0 {
+                    pl = string.concat(string.concat(mga, "|missing|"), mv)
+                    problems = _add_line(problems, string.concat(pl, "|"))
+                }
+            }
+            mi = mi + 1
+        }
+        string.array_free(ms)
+
+        gas = string.split(_gas(got), "\n")
+        gn = string.array_size(gas)
+        gi = 0
+        while gi < gn {
+            ga = string.array_get(gas, gi)
+            if string.length(ga) > 0 {
+                vs = _versions(got, ga)
+                if string.contains(vs, ",") == 1 {
+                    pick, nots, wh, err = effective_arb(arbs, ga)
+                    all_vs = _versions(asked, ga)
+                    if string.length(err) > 0 {
+                        pl = string.concat(string.concat(ga, "|"), err)
+                        pl = string.concat(string.concat(pl, "|"), all_vs)
+                        problems = _add_line(problems, string.concat(string.concat(pl, "|"), wh))
+                    } else {
+                        unc = _uncovered(all_vs, pick, nots)
+                        // ga is g:a or g:a:classifier; the coord is g:a:v[:classifier].
+                        gparts = string.split(ga, ":")
+                        probe = string.concat(string.concat(string.array_get(gparts, 0), ":"), string.array_get(gparts, 1))
+                        probe = string.concat(string.concat(probe, ":"), pick)
+                        if string.array_size(gparts) >= 3 {
+                            probe = string.concat(string.concat(probe, ":"), string.array_get(gparts, 2))
+                        }
+                        string.array_free(gparts)
+                        have_pick = string.length(_art_line(text, probe))
+                        if string.length(unc) > 0 {
+                            pl = string.concat(string.concat(ga, "|uncovered|"), all_vs)
+                            problems = _add_line(problems, string.concat(string.concat(pl, "|"), unc))
+                        } else {
+                            if have_pick == 0 {
+                                pl = string.concat(string.concat(ga, "|nopick|"), all_vs)
+                                problems = _add_line(problems, string.concat(string.concat(pl, "|"), pick))
+                            } else {
+                                picks = _add_line(picks, string.concat(string.concat(ga, "|"), pick))
+                                progressed = 1
+                            }
+                        }
+                    }
+                }
+            }
+            gi = gi + 1
+        }
+        string.array_free(gas)
+        if progressed == 0 { done = 1 }
+        if rounds > 200 { done = 1 }
+    }
+
+    // A pick made early covered what was reachable then. Check it against
+    // everything asked for in the final walk: a version that only came into
+    // view through another artifact's pick must be named too.
+    applied = ""
+    pls = string.split(picks, "\n")
+    pn = string.array_size(pls)
+    pi = 0
+    while pi < pn {
+        pl0 = string.array_get(pls, pi)
+        if string.length(pl0) > 0 {
+            bar = string.index_of(pl0, "|")
+            ga = string.substring(pl0, 0, bar)
+            pick, nots, wh, _err = effective_arb(arbs, ga)
+            all_vs = _versions(asked, ga)
+            unc = _uncovered(all_vs, pick, nots)
+            if string.length(unc) > 0 {
+                pl = string.concat(string.concat(ga, "|uncovered|"), all_vs)
+                problems = _add_line(problems, string.concat(string.concat(pl, "|"), unc))
+            }
+            lost = _uncovered(all_vs, pick, "")
+            al = string.concat(string.concat(ga, "|"), pick)
+            al = string.concat(string.concat(al, "|"), nots)
+            al = string.concat(string.concat(al, "|"), wh)
+            applied = _add_line(applied, string.concat(string.concat(al, "|"), lost))
+        }
+        pi = pi + 1
+    }
+    string.array_free(pls)
+
+    settled = ""
+    rs = string.split(roots_of(text), "\n")
+    rn = string.array_size(rs)
+    ri = 0
+    while ri < rn {
+        r = string.array_get(rs, ri)
+        if string.length(r) > 0 {
+            settled = _add_line(settled, string.concat("root ", _redirect(r, picks)))
+        }
+        ri = ri + 1
+    }
+    string.array_free(rs)
+    gs = string.split(got, "\n")
+    gn2 = string.array_size(gs)
+    gi2 = 0
+    while gi2 < gn2 {
+        c = string.array_get(gs, gi2)
+        if string.length(c) > 0 { settled = _add_line(settled, _art_line(text, c)) }
+        gi2 = gi2 + 1
+    }
+    string.array_free(gs)
+    return settled, applied, problems
+}
+
+// askers(text, coord) — who asked for coord: the coords whose poms name it,
+// and "this node" when it is a root. A comma-and-space list for a message.
+askers(text: string, coord: string) {
+    out = ""
+    if _has_line(roots_of(text), coord) == 1 { out = "this node's own deps" }
+    cs = string.split(coords_of(text), "\n")
+    n = string.array_size(cs)
+    i = 0
+    while i < n {
+        c = string.array_get(cs, i)
+        if string.length(c) > 0 {
+            deps = string.concat(string.concat(";", art_field(text, c, 4)), ";")
+            if string.contains(deps, string.concat(string.concat(";", coord), ";")) == 1 {
+                if string.length(out) > 0 { out = string.concat(out, ", ") }
+                out = string.concat(out, c)
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(cs)
+    return out
+}
+
+// arts_only(text) — the record without its root lines: what a node that
+// puts its own root on top (a jar's own node) takes from its deps.
+arts_only(text: string) {
+    lines = string.split(text, "\n")
+    n = string.array_size(lines)
+    out = ""
+    i = 0
+    while i < n {
+        l = string.array_get(lines, i)
+        if string.starts_with(l, "art ") == 1 { out = _add_line(out, l) }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return out
+}
+
+// _quoted(line) — the double-quoted strings on a line, newline-joined, in
+// order. No escapes: a coordinate or a version has none.
+_quoted(line: string) {
+    out = ""
+    parts = string.split(line, "\"")
+    n = string.array_size(parts)
+    i = 1
+    while i < n {
+        if string.length(out) > 0 { out = string.concat(out, "\n") }
+        out = string.concat(out, string.array_get(parts, i))
+        i = i + 2
+    }
+    string.array_free(parts)
+    return out
+}
+
+// arbitration_in(source, ga) -> (pick, nots)
+//   The dep_arbitration("<ga>", "<pick>", and_not("<a>, <b>")) written in a
+//   build file's text, read as text the way aeb reads dep(): one statement on
+//   one line, not in a // comment. ("", "") when the file has none for ga.
+arbitration_in(source: string, ga: string) {
+    lines = string.split(source, "\n")
+    n = string.array_size(lines)
+    pick = ""
+    nots = ""
+    i = 0
+    while i < n {
+        l = string.trim(string.array_get(lines, i))
+        if string.length(pick) == 0 {
+            if string.starts_with(l, "//") == 0 {
+                if string.contains(l, "dep_arbitration(") == 1 {
+                    q = _quoted(l)
+                    if string.equals(_nth(q, "\n", 0), ga) == 1 {
+                        pick = _nth(q, "\n", 1)
+                        nots = _nth(q, "\n", 2)
+                    }
+                }
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return pick, nots
+}

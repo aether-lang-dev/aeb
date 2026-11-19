@@ -14,14 +14,22 @@ added, renamed or rewritten and nobody touches the doc. This check fails when
   4. an appendix row cites a file:line that does not exist, or whose line
      does not contain the quoted tool string, or names an unknown SDK.
 
-Usage: python3 tools/check-sdk-ladder.py [repo-root]
+--fix moves an appendix row's line number when the quoted tool string is
+still in the file but on another line (code added above it): it takes the
+nearest line that contains the string, rewrites the row, and then checks as
+usual. It changes line numbers only; a string that is gone is still a problem
+for a person.
+
+Usage: python3 tools/check-sdk-ladder.py [--fix] [repo-root]
 Exit 0 = consistent, 1 = problems (listed), 2 = doc unparsable.
 """
 import os
 import re
 import sys
 
-root = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+args = [a for a in sys.argv[1:] if a != "--fix"]
+FIX = "--fix" in sys.argv[1:]
+root = args[0] if args else os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
 root = os.path.abspath(root)
 doc_path = os.path.join(root, "docs", "sdk-ladder.md")
 RUNGS = ["compile", "test", "resolve", "package", "publish", "incremental", "cache", "coverage"]
@@ -83,6 +91,30 @@ for sdk, cellmap in rows.items():
         words = {w.strip() for w in re.split(r"[/,]", text)}
         if words & CLAIMS and (sdk, rung) not in have:
             problems.append(f"{sdk}/{rung} is '{text}' but the appendix has no evidence row for it")
+
+if FIX:
+    moved = 0
+    for n, sdk, rung, grade, loc, tool in evidence:
+        path, _, ln = loc.rpartition(":")
+        try:
+            src = open(os.path.join(root, path), encoding="utf-8", errors="replace").read().splitlines()
+        except OSError:
+            continue
+        ln = int(ln)
+        if 1 <= ln <= len(src) and tool in src[ln - 1]:
+            continue
+        hits = [i + 1 for i, text in enumerate(src) if tool in text]
+        if not hits:
+            continue
+        new = min(hits, key=lambda h: abs(h - ln))
+        lines[n - 1] = lines[n - 1].replace(f"{path}:{ln} |", f"{path}:{new} |", 1)
+        moved += 1
+    if moved:
+        with open(doc_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        print(f"sdk-ladder: moved {moved} line number(s)")
+        sys.stdout.flush()
+        os.execv(sys.executable, [sys.executable, os.path.abspath(__file__)] + args)
 
 for n, sdk, rung, grade, loc, tool in evidence:
     where = f"docs/sdk-ladder.md:{n}"

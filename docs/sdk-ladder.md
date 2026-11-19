@@ -94,7 +94,8 @@ the other four with `ts`/`javascript`).
 
 Not languages (no row): `agent`, `approval`, `bldr` (the core API every SDK
 uses), `brew`, `cache`, `container`, `copy`, `fetch`, `meta`,
-`provision`, `sandbox`, `veto`, `veto_trace_os`, `webhook`.
+`mvngraph` (which Maven artifacts a classpath holds), `provision`,
+`sandbox`, `veto`, `veto_trace_os`, `webhook`.
 
 ## Summary
 
@@ -381,20 +382,20 @@ Grammar: java.javac, java.javac_test, java.junit, java.junit5, java.java_main, j
 
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
-| java | compile | aeb | lib/java/module.ae:240 | `javac_bin = "javac"` | java.javac |
-| java | compile | aeb | lib/java/module.ae:1418 | `javac_cmd(` | java.javac_test |
-| java | compile | delegated | lib/java/module.ae:708 | `"compile"` | java.mvn_project |
-| java | test | aeb | lib/java/module.ae:391 | `org.junit.runner.JUnitCore` | java.junit |
-| java | test | aeb | lib/java/module.ae:1712 | `org.junit.platform.console.ConsoleLauncher` | java.junit5 |
-| java | test | aeb | lib/java/module.ae:1854 | `-ea` | java.java_main |
-| java | test | delegated | lib/java/module.ae:721 | `"test"` | java.mvn_project |
-| java | resolve | aeb | lib/java/module.ae:967 | `maven.classpath(ctx)` | java.javac |
-| java | resolve | aeb | lib/java/module.ae:624 | `cryptography.sha256_file` | java.jar_pinned |
-| java | package | aeb | lib/java/module.ae:1339 | `jar --create` | java.package_jar |
-| java | package | aeb | lib/java/module.ae:2049 | `jar cfM` | java.shade |
-| java | package | aeb | lib/java/module.ae:2163 | `jar cfM` | java.thin_jar |
-| java | incremental | module-only | lib/java/module.ae:1058 | `cache.available()` | java.javac |
-| java | cache | yes | lib/java/module.ae:1068 | `cache.get(` | java.javac |
+| java | compile | aeb | lib/java/module.ae:241 | `javac_bin = "javac"` | java.javac |
+| java | compile | aeb | lib/java/module.ae:1552 | `javac_cmd(` | java.javac_test |
+| java | compile | delegated | lib/java/module.ae:840 | `"compile"` | java.mvn_project |
+| java | test | aeb | lib/java/module.ae:392 | `org.junit.runner.JUnitCore` | java.junit |
+| java | test | aeb | lib/java/module.ae:1846 | `org.junit.platform.console.ConsoleLauncher` | java.junit5 |
+| java | test | aeb | lib/java/module.ae:1988 | `-ea` | java.java_main |
+| java | test | delegated | lib/java/module.ae:853 | `"test"` | java.mvn_project |
+| java | resolve | aeb | lib/java/module.ae:1099 | `maven.classpath(ctx)` | java.javac |
+| java | resolve | aeb | lib/java/module.ae:628 | `cryptography.sha256_file` | java.jar_pinned |
+| java | package | aeb | lib/java/module.ae:1473 | `jar --create` | java.package_jar |
+| java | package | aeb | lib/java/module.ae:2084 | `jar cfM` | java.shade |
+| java | package | aeb | lib/java/module.ae:2183 | `jar cfM` | java.thin_jar |
+| java | incremental | module-only | lib/java/module.ae:1192 | `cache.available()` | java.javac |
+| java | cache | yes | lib/java/module.ae:1202 | `cache.get(` | java.javac |
 
 ### javascript
 

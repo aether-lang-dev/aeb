@@ -49,7 +49,7 @@ the two in step.)
 | Cross-language FFI artifacts | ✓ JNI / cdylib / shared-lib handoff wired (Java→Rust, Java→Go, C#→Rust, Python→Rust, …). |
 | Local incremental cache | ✓ Content-addressed (sha256), whole-module. Wired into `aether`, `java`, `kotlin`, `scala`, `groovy`, `clojure` (only `compile` with `main_ns`), `maven`, `go`, `rust` (only the single cdylib), `dotnet` (not test projects) and `ts` (`ts.tsc` and `ts.tsc_files`, not `mocha`). The other SDKs (`c`, `cpp`, `zig`, `swift`, `nim`, `d`, `crystal`, `javascript`, `pnpm`, `jest`, `webpack`, `angular`, ...) do not use it; see the [ladder](docs/sdk-ladder.md). |
 | Affected-target detection | ✓ `aeb --since <ref>` builds only impacted targets; `--print-affected` lists them. |
-| Dependency resolution (transitive) | ◐ aeb's own resolver covers Maven only (`lib/maven`, a bundled Eclipse Aether jar); the JVM SDKs use it. npm/pnpm, NuGet, Cargo and Python are delegated to `pnpm`/`npm`, `dotnet build` restore, `cargo` and `pip install`; `rust.crate_registry` only records an artifact. See the [ladder](docs/sdk-ladder.md). |
+| Dependency resolution (transitive) | ◐ aeb's own resolver covers Maven only (`lib/maven` and `aeb mvn add`, on `aeb-resolve.jar`); the JVM SDKs use it. npm/pnpm, NuGet, Cargo and Python are delegated to `pnpm`/`npm`, `dotnet build` restore, `cargo` and `pip install`; `rust.crate_registry` only records an artifact. See the [ladder](docs/sdk-ladder.md). |
 | Build graph visualisation | ✓ `aeb --graph` (DOT / Mermaid). |
 | Build report / bottleneck | ✓ `aeb --report` (timing, critical path, cache) + `--report=<tier>` verbosity. |
 | Watch mode | ✓ `aeb --watch` (inotify / fswatch → narrowed rebuild). |
@@ -1704,9 +1704,38 @@ maven_bom("org.springframework.boot:spring-boot-dependencies:4.0.4")
 
 Modules load it via `load_bom_file("../../spring-boot.bom.ae")`, then
 use `dep("group:artifact")` with version omitted — the BOM
-supplies it. Resolution is performed by `tools/aeb-resolve.jar`, which
-wraps the Maven Resolver API and caches to `~/.local/share/aeb/repo`
-(XDG data dir; `$XDG_DATA_HOME/aeb/repo` when set).
+supplies it. Resolution is performed by `tools/aeb-resolve.jar` (aeb's own,
+on bld's resolver), which caches to `~/.local/share/aeb/repo` (XDG data dir;
+`$XDG_DATA_HOME/aeb/repo` when set). A resolve that cannot get everything it
+was asked for fails the node; it never hands back part of a classpath.
+
+### Maven artifacts as hashed nodes
+
+`dep("group:artifact:version")` resolves at build time and records nothing.
+The other way is to read the poms once and keep what they said as build
+files, one per artifact, each with its jar's sha256:
+
+```sh
+aeb mvn add org.hibernate:hibernate-core:5.4.32.Final
+# writes third_party/java/<group dirs>/<artifact>/<version>/.jar.ae, 20 of them
+```
+
+```aether
+dep("third_party/java/org/hibernate/hibernate-core/5.4.32.Final/.jar.ae")
+```
+
+Each node depends on what its own pom asks for, at the version the pom
+declares. Where that puts one artifact on a classpath at two versions, aeb
+does not pick: the build stops, names the versions and who asked for each,
+and a person writes the decision, in the node that meets it or as a default
+beside the artifact (`aeb mvn add --pick <g:a>=<v>`):
+
+```aether
+dep_arbitration("org.jboss.logging:jboss-logging", "3.4.1.Final", and_not("3.3.2.Final"))
+```
+
+It covers the versions it names and no others. See
+[docs/design/maven-nodes-and-arbitration.md](docs/design/maven-nodes-and-arbitration.md).
 
 ## Cross-language dependencies
 
@@ -1817,7 +1846,7 @@ aeb/
 │   ├── mvn-to-aeb.ae          # pom.xml → .build.ae migration helper
 │   ├── cargo-to-deps-ae.sh    # Cargo.toml → .crate.ae dep files (migration)
 │   ├── cargo-crate-to-ae.sh   # one crate → .crate.ae (migration)
-│   └── resolver/              # Maven Resolver wrapper (→ aeb-resolve.jar)
+│   └── resolver/              # Maven resolver on bld (→ aeb-resolve.jar)
 ├── tools/container/           # aeb-ctr (compile-in-container/execute-on-host) + image
 ├── itests/                    # integration tests (real open-source projects)
 ├── README.md

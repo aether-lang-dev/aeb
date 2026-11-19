@@ -1,0 +1,164 @@
+// mvngraph.settle: which versions a classpath holds, and that a diamond is
+// settled only by an arbitration that names every version in contention.
+import std.spec
+import std.string
+import mvngraph
+
+// app -> b:1 -> d:1.0 ; app -> c:1 -> d:1.2 -> e:1
+_diamond() {
+    t = "root x:b:1\nroot x:c:1\n"
+    t = string.concat(t, "art x:b:1|sb|/j/b-1.jar|tp/x/b/1|x:d:1.0|\n")
+    t = string.concat(t, "art x:c:1|sc|/j/c-1.jar|tp/x/c/1|x:d:1.2|\n")
+    t = string.concat(t, "art x:d:1.0|sd0|/j/d-1.0.jar|tp/x/d/1.0||\n")
+    t = string.concat(t, "art x:d:1.2|sd2|/j/d-1.2.jar|tp/x/d/1.2|x:e:1|\n")
+    t = string.concat(t, "art x:e:1|se|/j/e-1.jar|tp/x/e/1||")
+    return t
+}
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "coordinates") {
+        spec.it("ga and version, with and without a classifier") callback {
+            spec.assert_str_eq(mvngraph.coord_ga("g.h:a:1.2"), "g.h:a", "ga")
+            spec.assert_str_eq(mvngraph.coord_version("g.h:a:1.2"), "1.2", "version")
+            spec.assert_str_eq(mvngraph.coord_ga("g:a:1.2:linux"), "g:a:linux", "classifier is part of the artifact")
+        }
+    }
+
+    spec.describe(fw, "settle") {
+        spec.it("no diamond: everything reachable, in breadth-first order") callback {
+            t = "root x:b:1\nart x:b:1|sb|/j/b.jar|n|x:d:1.0|\nart x:d:1.0|sd|/j/d.jar|n||"
+            s, applied, problems = mvngraph.settle(t, "")
+            spec.assert_str_eq(problems, "", "no problems")
+            spec.assert_str_eq(applied, "", "nothing arbitrated")
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b.jar\n/j/d.jar", "jars")
+        }
+        spec.it("a diamond with no arbitration is a problem that names both versions") callback {
+            s, applied, problems = mvngraph.settle(_diamond(), "")
+            spec.assert_str_eq(problems, "x:d|none|1.0,1.2|", "the problem")
+        }
+        spec.it("an arbitration settles it, and the pick's own deps come with it") callback {
+            arbs = mvngraph.arb_line("own", "x:d", "1.2", "1.0", "app")
+            s, applied, problems = mvngraph.settle(_diamond(), arbs)
+            spec.assert_str_eq(problems, "", "no problems")
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b-1.jar\n/j/c-1.jar\n/j/d-1.2.jar\n/j/e-1.jar", "1.2 and e, not 1.0")
+            spec.assert_str_eq(applied, "x:d|1.2|1.0|app|1.0", "what was applied and what lost")
+            spec.assert_str_eq(mvngraph.lost_jars(_diamond(), s), "/j/d-1.0.jar", "the jar to take off the classpath")
+        }
+        spec.it("picking the older version drops what only the newer one needed") callback {
+            arbs = mvngraph.arb_line("own", "x:d", "1.0", "1.2", "app")
+            s, applied, problems = mvngraph.settle(_diamond(), arbs)
+            spec.assert_str_eq(problems, "", "no problems")
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b-1.jar\n/j/c-1.jar\n/j/d-1.0.jar", "no e")
+        }
+        spec.it("an arbitration that does not name a version in contention does not cover it") callback {
+            arbs = mvngraph.arb_line("own", "x:d", "1.2", "0.9", "app")
+            s, applied, problems = mvngraph.settle(_diamond(), arbs)
+            spec.assert_str_eq(problems, "x:d|uncovered|1.0,1.2|1.0", "1.0 was never named")
+        }
+        spec.it("a pick that is not on the classpath is a problem") callback {
+            arbs = mvngraph.arb_line("own", "x:d", "2.0", "1.0, 1.2", "app")
+            s, applied, problems = mvngraph.settle(_diamond(), arbs)
+            spec.assert_str_eq(problems, "x:d|nopick|1.0,1.2|2.0", "2.0 has no node here")
+        }
+        spec.it("a root at a losing version is moved to the pick") callback {
+            t = string.concat(_diamond(), "\nroot x:d:1.0")
+            arbs = mvngraph.arb_line("own", "x:d", "1.2", "1.0", "app")
+            s, applied, problems = mvngraph.settle(t, arbs)
+            spec.assert_str_eq(problems, "", "no problems")
+            spec.assert_str_eq(mvngraph.roots_of(s), "x:b:1\nx:c:1\nx:d:1.2", "roots")
+        }
+        spec.it("a settled record from below, and the arbitration that settled it") callback {
+            // What a node that picked 1.2 hands up: b's pom still names d:1.0,
+            // and d:1.0 has no line. The inherited arbitration says where it went.
+            t = "root x:b:1\nroot x:c:1\nart x:b:1|sb|/j/b-1.jar|n|x:d:1.0|\nart x:c:1|sc|/j/c-1.jar|n|x:d:1.2|\nart x:d:1.2|sd2|/j/d-1.2.jar|n||"
+            s0, a0, p0 = mvngraph.settle(t, "")
+            spec.assert_str_eq(p0, "x:d|missing|1.0|", "without it, 1.0 is just missing")
+            arbs = mvngraph.arb_line("inherited", "x:d", "1.2", "1.0", "lib")
+            s, applied, problems = mvngraph.settle(t, arbs)
+            spec.assert_str_eq(problems, "", "no problems")
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b-1.jar\n/j/c-1.jar\n/j/d-1.2.jar", "jars")
+            spec.assert_str_eq(applied, "x:d|1.2|1.0|lib|1.0", "the arbitration is carried on up")
+        }
+        spec.it("something asked for that no node records is a problem") callback {
+            t = "root x:b:1\nart x:b:1|sb|/j/b.jar|n|x:d:1.0|"
+            s, applied, problems = mvngraph.settle(t, "")
+            spec.assert_str_eq(problems, "x:d|missing|1.0|", "missing")
+        }
+    }
+
+    spec.describe(fw, "whose arbitration") {
+        spec.it("own beats inherited beats default") callback {
+            arbs = mvngraph.arb_line("default", "x:d", "1.0", "1.2", "tp/x/d")
+            arbs = string.concat(string.concat(arbs, "\n"), mvngraph.arb_line("inherited", "x:d", "1.2", "1.0", "lib"))
+            pick, nots, wh, err = mvngraph.effective_arb(arbs, "x:d")
+            spec.assert_str_eq(pick, "1.2", "inherited over default")
+            arbs = string.concat(string.concat(arbs, "\n"), mvngraph.arb_line("own", "x:d", "1.0", "1.2", "app"))
+            pick2, nots2, wh2, err2 = mvngraph.effective_arb(arbs, "x:d")
+            spec.assert_str_eq(pick2, "1.0", "own over inherited")
+            spec.assert_str_eq(wh2, "app", "where")
+        }
+        spec.it("two inherited that agree are one, with both and-not lists") callback {
+            arbs = mvngraph.arb_line("inherited", "x:d", "1.2", "1.0", "l1")
+            arbs = string.concat(string.concat(arbs, "\n"), mvngraph.arb_line("inherited", "x:d", "1.2", "1.1", "l2"))
+            pick, nots, wh, err = mvngraph.effective_arb(arbs, "x:d")
+            spec.assert_str_eq(err, "", "no error")
+            spec.assert_str_eq(nots, "1.0,1.1", "union")
+        }
+        spec.it("two inherited that pick differently are a disagreement") callback {
+            arbs = mvngraph.arb_line("inherited", "x:d", "1.2", "1.0", "l1")
+            arbs = string.concat(string.concat(arbs, "\n"), mvngraph.arb_line("inherited", "x:d", "1.0", "1.2", "l2"))
+            s, applied, problems = mvngraph.settle(_diamond(), arbs)
+            spec.assert_str_eq(problems, "x:d|disagree|1.0,1.2|l1 and l2", "names both")
+        }
+    }
+
+    spec.describe(fw, "an arbitration read from a build file's text") {
+        spec.it("the statement for the artifact asked about") callback {
+            src = "main() {\n    bldr.build() {\n        dep_arbitration(\"x:d\", \"1.2\", and_not(\"1.0, 1.1\"))\n        dep_arbitration(\"x:e\", \"3\", and_not(\"2\"))\n    }\n}\n"
+            pick, nots = mvngraph.arbitration_in(src, "x:d")
+            spec.assert_str_eq(pick, "1.2", "pick")
+            spec.assert_str_eq(nots, "1.0, 1.1", "and not")
+            pick2, nots2 = mvngraph.arbitration_in(src, "x:e")
+            spec.assert_str_eq(pick2, "3", "the other artifact's")
+        }
+        spec.it("none for another artifact, and none in a comment") callback {
+            src = "    // dep_arbitration(\"x:d\", \"9\", and_not(\"8\"))\n    dep(\"x/d/1.0/.jar.ae\")\n"
+            pick, nots = mvngraph.arbitration_in(src, "x:d")
+            spec.assert_str_eq(pick, "", "a commented-out line is not a decision")
+        }
+    }
+
+    spec.describe(fw, "exclusions") {
+        spec.it("an exclusion on an edge holds for everything reached through it") callback {
+            // b -> c excluding x:e ; c -> d -> e
+            t = "root x:b:1\nart x:b:1|s|/j/b.jar|n|x:c:1|x:c>x:e\n"
+            t = string.concat(t, "art x:c:1|s|/j/c.jar|n|x:d:1|\nart x:d:1|s|/j/d.jar|n|x:e:1|\nart x:e:1|s|/j/e.jar|n||")
+            s, applied, problems = mvngraph.settle(t, "")
+            spec.assert_str_eq(problems, "", "no problems")
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b.jar\n/j/c.jar\n/j/d.jar", "no e")
+        }
+        spec.it("reached by another path that does not exclude it, it stays") callback {
+            t = "root x:b:1\nroot x:d:1\nart x:b:1|s|/j/b.jar|n|x:c:1|x:c>x:e\n"
+            t = string.concat(t, "art x:c:1|s|/j/c.jar|n|x:d:1|\nart x:d:1|s|/j/d.jar|n|x:e:1|\nart x:e:1|s|/j/e.jar|n||")
+            s, applied, problems = mvngraph.settle(t, "")
+            spec.assert_contains(mvngraph.jars_of(s), "/j/e.jar", "e via the root d")
+        }
+        spec.it("an excluded version does not make a diamond") callback {
+            // b -> d:1.0 ; c -> f excluding x:d ; f -> d:1.2
+            t = "root x:b:1\nroot x:c:1\nart x:b:1|s|/j/b.jar|n|x:d:1.0|\nart x:c:1|s|/j/c.jar|n|x:f:1|x:f>x:d\n"
+            t = string.concat(t, "art x:f:1|s|/j/f.jar|n|x:d:1.2|\nart x:d:1.0|s|/j/d0.jar|n||\nart x:d:1.2|s|/j/d2.jar|n||")
+            s, applied, problems = mvngraph.settle(t, "")
+            spec.assert_str_eq(problems, "", "no diamond")
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b.jar\n/j/c.jar\n/j/d0.jar\n/j/f.jar", "only 1.0")
+        }
+        spec.it("a group wildcard") callback {
+            t = "root x:b:1\nart x:b:1|s|/j/b.jar|n|x:c:1;y:z:1|x:c>*:*\nart x:c:1|s|/j/c.jar|n|x:d:1|\nart x:d:1|s|/j/d.jar|n||\nart y:z:1|s|/j/z.jar|n||"
+            s, applied, problems = mvngraph.settle(t, "")
+            spec.assert_str_eq(mvngraph.jars_of(s), "/j/b.jar\n/j/c.jar\n/j/z.jar", "c's whole subtree, not z")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

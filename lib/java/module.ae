@@ -23,6 +23,7 @@
 import bldr
 import cache
 import maven
+import mvngraph
 import std.string
 import std.io
 import std.os
@@ -575,9 +576,12 @@ _pinned_relpath(coord: string) {
     g = string.concat(string.array_get(parts, 0), "")
     a = string.concat(string.array_get(parts, 1), "")
     v = string.concat(string.array_get(parts, 2), "")
+    // A fourth part is a classifier: <a>-<v>-<classifier>.jar.
+    c = ""
+    if string.array_size(parts) >= 4 { c = string.concat("-", string.array_get(parts, 3)) }
     string.array_free(parts)
     gp = _dots_to_slashes(g)
-    return "${gp}/${a}/${v}/${a}-${v}.jar"
+    return "${gp}/${a}/${v}/${a}-${v}${c}.jar"
 }
 
 _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
@@ -628,6 +632,134 @@ _resolve_pinned_jar(coord: string, sha256: string, repos_nl: string) {
     }
     _mv = bldr._sh("mv '${tmp}' '${cached}'")
     return cached
+}
+
+// ---- Generated Maven nodes: one artifact, one node, one hash ----
+//
+//   third_party/java/<group dirs>/<artifact>/<version>/.jar.ae   (aeb --mvn-add writes these)
+//
+//       dep("third_party/java/com/example/d/1.2/.jar.ae")     one per dependency
+//       java.jar_maven("com.example:b:1.0", "<sha256>") {      the pom declares,
+//           excluding("com.example:d", "com.example:e")        AT THE VERSION IT
+//       }                                                      DECLARES
+//
+// The node's jar is fetched like jar_pinned's (cache, ~/.m2, then the repos)
+// and checked against the sha256. Its classpath is the jar and everything
+// reachable through its deps, one version of each artifact: a diamond below
+// it is a failure until a dep_arbitration settles it (lib/mvngraph). Nothing
+// here resolves a pom at build time; the poms were read once, by the
+// generator, and what they said is these files.
+
+// excluding("<group:artifact of a dependency>", "<group:artifact left out>")
+// — the pom's <exclusions> on that dependency. Either half of the second
+// argument may be "*".
+excluding(_ctx: ptr, edge_ga: string, excluded_ga: string) {
+    if map.has(_ctx, "mvn_excluding") == 0 { _e = map.put(_ctx, "mvn_excluding", list.new()) }
+    el, _ = map.get(_ctx, "mvn_excluding")
+    _a = list.add(el, string.concat(string.concat(edge_ga, ">"), excluded_ga))
+}
+
+// _maven_node_record(ctx, coord, sha256, jar, edges) — the record of a node
+// that IS one artifact: its deps' art lines, its own art line naming their
+// roots as what its pom asks for, and itself as the only root.
+_maven_node_record(ctx: ptr, coord: string, sha256: string, jar: string, edges: string) {
+    below = bldr._maven_dep_record(ctx)
+    wants = string.replace_all(mvngraph.roots_of(below), "\n", ";")
+    line = string.concat(string.concat("art ", coord), "|")
+    line = string.concat(string.concat(line, sha256), "|")
+    line = string.concat(string.concat(line, jar), "|")
+    line = string.concat(string.concat(line, bldr._label_dir(bldr._get(ctx, "module_dir"))), "|")
+    line = string.concat(string.concat(line, wants), "|")
+    line = string.concat(line, edges)
+    text = string.concat(string.concat("root ", coord), "\n")
+    text = string.concat(text, line)
+    arts = mvngraph.arts_only(below)
+    if string.length(arts) > 0 { text = string.concat(string.concat(text, "\n"), arts) }
+    return text
+}
+
+_maven_edges(builder_map: ptr) {
+    edges = ""
+    if builder_map == null { return edges }
+    if map.has(builder_map, "mvn_excluding") == 0 { return edges }
+    el, _ = map.get(builder_map, "mvn_excluding")
+    n = list.size(el)
+    i = 0
+    while i < n {
+        e, _ = list.get_string(el, i)
+        if string.length(edges) > 0 { edges = string.concat(edges, ";") }
+        edges = string.concat(edges, e)
+        i = i + 1
+    }
+    return edges
+}
+
+_maven_repos_nl(builder_map: ptr) {
+    repos_nl = ""
+    if builder_map == null { return repos_nl }
+    if map.has(builder_map, "mvn_repos") == 0 { return repos_nl }
+    rl, _ = map.get(builder_map, "mvn_repos")
+    nr = list.size(rl)
+    j = 0
+    while j < nr {
+        u, _ = list.get_string(rl, j)
+        if j == 0 { repos_nl = u } else { repos_nl = string.concat(string.concat(repos_nl, "\n"), u) }
+        j = j + 1
+    }
+    return repos_nl
+}
+
+// _maven_publish(ctx, text) — settle the record and write the node's
+// classpath from it. 1 on failure (an unsettled diamond; already reported).
+_maven_publish(ctx: ptr, text: string) {
+    settled, ok = bldr._maven_settle(ctx, text)
+    if ok == 0 { return 1 }
+    bldr._write_artifact(ctx, "jvm_classpath_deps_including_transitive", mvngraph.jars_of(settled))
+    return 0
+}
+
+// jar_maven("g:a:v", "<sha256>") — this node is that artifact. See above.
+// Setters in the block: excluding(...), and repo(...)/central() when the jar
+// is not on Maven Central.
+builder jar_maven(coord: string, sha256: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(bldr._get(ctx, "target_dir"))
+    jar = _resolve_pinned_jar(coord, sha256, _maven_repos_nl(_builder))
+    if string.length(jar) == 0 {
+        println("${mod_dir}: jar_maven: ${coord} unresolved (sha256 mismatch, or not in ~/.m2 and not fetched from any repo)")
+        bldr.fail(ctx, "jar_maven: ${coord} unresolved")
+        return 1
+    }
+    return _maven_publish(ctx, _maven_node_record(ctx, coord, sha256, jar, _maven_edges(_builder)))
+}
+
+// pom_maven("g:a:v") — an artifact with no jar of its own (packaging pom):
+// it stands for its dependencies.
+builder pom_maven(coord: string): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    bldr._mkdirs(bldr._get(ctx, "target_dir"))
+    return _maven_publish(ctx, _maven_node_record(ctx, coord, "", "", _maven_edges(_builder)))
+}
+
+// jar_bundle() — this node is its deps' jars and nothing of its own: a name
+// for a set (junit with hamcrest), or the default beside an artifact's
+// version directories, which deps on the picked version and carries the
+// dep_arbitration.
+builder jar_bundle(): int {
+    ctx = builder_context()
+    if ctx == 0 { return 0 }
+    mod_dir = bldr._get(ctx, "module_dir")
+    bldr._mkdirs(bldr._get(ctx, "target_dir"))
+    text = bldr._maven_dep_record(ctx)
+    if string.length(text) == 0 {
+        println("${mod_dir}: jar_bundle: none of this node's deps is a Maven artifact node")
+        bldr.fail(ctx, "jar_bundle: nothing to bundle")
+        return 1
+    }
+    return _maven_publish(ctx, text)
 }
 
 // jar_registry — declare a jar to fetch from Maven Central. Adds the coord
@@ -1007,8 +1139,10 @@ builder javac(): int {
     // module's `requires` won't resolve. Auto-detect so build files needn't
     // opt in. no_module_info() opts out: drop module-info.java and compile
     // classpath-mode. (Modifies argfile before the cache key hashes it.)
-    mi_cnt_raw, _emi = bldr._sh_capture("grep -c 'module-info\\.java' '${argfile}' 2>/dev/null || echo 0")
-    if string.equals(string.trim(mi_cnt_raw), "0") == 0 {
+    // Read from the list just written, not `grep -c ... || echo 0`: grep -c
+    // prints 0 AND exits 1 on no match, so that gave "0\n0" and every
+    // compile, modular or not, was taken for a modular one.
+    if string.contains(argfile_content, "module-info.java") == 1 {
         if map.has(_builder, "no_module_info") == 1 {
             println("${mod_dir}: no_module_info — compiling module-info-less (classpath mode)")
             bldr._sh("grep -v 'module-info\\.java' '${argfile}' > '${argfile}.tmp' && mv '${argfile}.tmp' '${argfile}'")

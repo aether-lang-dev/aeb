@@ -21,6 +21,12 @@ main() {
     }
 
     spec.describe(fw, "_pinned_relpath") {
+        spec.it("a fourth part is a classifier") callback {
+            spec.assert_str_eq(
+                _pinned_relpath("io.netty:netty-transport-native-epoll:4.1.100.Final:linux-x86_64"),
+                "io/netty/netty-transport-native-epoll/4.1.100.Final/netty-transport-native-epoll-4.1.100.Final-linux-x86_64.jar",
+                "classifier in the file name")
+        }
         // "g:a:v" → "<g/path>/<a>/<v>/<a>-<v>.jar"
         spec.it("junit-jupiter") callback {
             spec.assert_str_eq(

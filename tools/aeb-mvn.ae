@@ -1,0 +1,72 @@
+// aeb-mvn — `aeb mvn add <group:artifact:version>...`
+//
+// Writes one build file per artifact of the coordinates' closure, under
+// third_party/java (or --into <dir>), each carrying its jar's sha256 and a
+// dep() on what its own pom asks for, at the version the pom declares:
+//
+//     third_party/java/<group dirs>/<artifact>/<version>/.jar.ae
+//
+// The poms are read here, once. A build then reads only those files; it
+// resolves nothing and trusts no jar whose hash is not in one of them. Where
+// the closure holds an artifact at two versions, both are written and the
+// diamond is reported: a classpath that would hold both stops until a
+// dep_arbitration picks (see lib/mvngraph). `--pick g:a=v` writes that pick
+// as the default beside the artifact's version directories.
+//
+// The work is done by aeb-resolve.jar (tools/resolver, --output nodes); this
+// finds the jar and passes the arguments on. Run it from the project root:
+// the dep() paths it writes are relative to where it runs.
+//
+// Usage (via the trampoline):
+//   aeb mvn add [--into <dir>] [--repo <url>]... [--bom <g:a:v>]...
+//               [--bom-file <path>]... [--pick <g:a>=<v>]... <g:a:v>...
+// Exit: 0 written; 1 something could not be resolved (reported, and nothing
+//       is left half-written: each file is whole or absent); 2 usage.
+
+import bldr
+import std.string
+
+extern aether_args_count() -> int
+extern aether_args_get(i: int) -> string
+
+_usage() {
+    println("usage: aeb mvn add [--into <dir>] [--repo <url>]... [--bom <g:a:v>]...")
+    println("                   [--bom-file <path>]... [--pick <g:a>=<v>]... <g:a:v>...")
+    println("  writes third_party/java/<group dirs>/<artifact>/<version>/.jar.ae for each")
+    println("  artifact of the closure, with its sha256; run it from the project root")
+}
+
+main() {
+    n = aether_args_count()
+    if n < 4 {
+        _usage()
+        exit(2)
+    }
+    aeb_home = aether_args_get(1)
+    verb = aether_args_get(2)
+    if string.equals(verb, "add") == 0 {
+        println("aeb mvn: unknown verb '${verb}'")
+        _usage()
+        exit(2)
+    }
+    jar = bldr._ensure_resolver_jar(aeb_home)
+    if string.length(jar) == 0 {
+        println("aeb mvn: aeb-resolve.jar not found and could not be fetched.")
+        println("  Build it: aeb tools/resolver/.dist.ae (needs a JDK), or install a release build.")
+        exit(3)
+    }
+    cmd = "java -jar '${jar}' --output nodes"
+    i = 3
+    while i < n {
+        a = aether_args_get(i)
+        if string.contains(a, "'") == 1 {
+            println("aeb mvn: an argument with a single quote in it: ${a}")
+            exit(2)
+        }
+        cmd = string.concat(cmd, string.concat(" '", string.concat(a, "'")))
+        i = i + 1
+    }
+    rc = bldr._sh(cmd)
+    if rc != 0 { exit(1) }
+    exit(0)
+}
