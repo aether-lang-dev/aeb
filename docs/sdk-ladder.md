@@ -8,8 +8,7 @@ truth by language: which rungs of the build ladder aeb climbs itself, and which
 it hands to the language's own build tool.
 
 Every cell below was graded from the SDK's code (`lib/<sdk>/module.ae`), not
-from the README. Where the two disagree the code wins and the disagreement is
-listed under "README disagrees". The [appendix](#appendix-evidence) gives, for
+from the README. The [appendix](#appendix-evidence) gives, for
 every non-`none` cell, the line where the tool is invoked and the grammar entry
 that reaches it. `tools/check-sdk-ladder.py` fails if the table, the appendix
 and `lib/` drift apart.
@@ -163,18 +162,6 @@ Brief and factual; this is a map, not a design.
 | `angular` | `ng build` | `ngc` already exists as the direct form; the app build (bundling, `angular.json` configuration) has no direct form. |
 | `crystal` | `crystal spec` | `crystal build` on a computed entry file; `shard.lock` as lockfile; macros run at compile time. |
 | `java` (fallback) | `mvn` via `mvn_project` | Already replaced by `javac` + `lib/maven`; annotation processors run inside `javac`. |
-
-## README disagrees
-
-Where the code and the README (or AGENTS.md) differ, the code won.
-
-| Claim | Where | What the code does |
-|---|---|---|
-| Dependency resolution "Maven, npm (pnpm), NuGet, Cargo, Python wheels" are done | README.md:45, AGENTS.md:229 | Only Maven is resolved by aeb (`lib/maven`, resolver jar). npm/pnpm, NuGet (via `dotnet build` restore), Cargo (`cargo` fetches; `rust.crate_registry` only records an artifact) and Python (`pip install`) are delegated. |
-| Cache "wired into every artifact-producing JVM/native/TS/... SDK" | README.md:43, AGENTS.md:225 | `c`, `cpp`, `zig`, `swift`, `nim`, `d`, `crystal`, `javascript`, `pnpm`, `jest`, `webpack`, `angular` do not use `lib/cache`. `ts` caches `ts.tsc` only (not `tsc_files` or `mocha`); `clojure` caches `compile` with `main_ns` only; `rust` caches only the single cdylib; `dotnet` does not cache test projects. `groovy` is cached but missing from the AGENTS.md list. |
-| `dotnet.csproj()` and `dotnet.build()` | README.md:1480-1483 | Neither exists. The builders are `build_project`, `build_project_existing`, `test`, `test_existing`, `pack`. |
-| `lib/maven` resolves "against `~/.m2`"; the Java SDK "doesn't try to replace Maven's resolver" | AGENTS.md:185-189 | `maven.resolve` runs aeb's own bundled resolver jar (Eclipse Aether) against remote repositories. It is a replacement for Maven's resolver, not a reader of `~/.m2`. |
-| SDK lists ("20+ SDKs (Java, Kotlin, ...)") | README.md:41, AGENTS.md:223, AGENTS.md:387 | `groovy` and others in the table (`lua`, `php`, `haskell`, `elixir`, `erlang`, `crystal`, `d`, `nim`, `zig`, `swift`, `julia`, `lfe`, `pharo`, `cpp`) are not in those lists. |
 
 ## Appendix: evidence
 

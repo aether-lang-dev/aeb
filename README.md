@@ -7,6 +7,13 @@ Makefiles, `pom.xml`, `package.json` scripts, `deps.edn`, `Cargo.toml`,
 `.csproj`, and `pyproject.toml` — and replace them consistently across
 languages. Convention does the work; you declare the intent.
 
+aeb aims to replace other build tools outright: a terse grammar for every
+major language, driving the compilers (`javac`, `kotlinc`, `tsc`, `dmd`, `cc`,
+`erlc`, ...) directly. Handing a whole step to Maven, Cargo, Gradle or MSBuild
+is a fallback the user chooses, not the default. The
+[SDK ladder](docs/sdk-ladder.md) shows, language by language, where that stands
+today.
+
 (`aeb` was originally short for "Aether Build" — the runner is written
 in Aether and was the project's first non-trivial Aether application.)
 
@@ -38,11 +45,11 @@ the two in step.)
 | Dimension | aeb status |
 |-----------|------------|
 | Build-graph topology | ✓ File-based DAG via `dep("path")`, scanned without compilation. |
-| Multi-language polyglot | ✓ 20+ SDKs (Java, Kotlin, Go, Rust, TS, Scala, Clojure, .NET, Python, Dart, MoonBit, Gleam, Janet, Ruby, Aether, Bash, Container, …). |
+| Multi-language polyglot | ✓ One SDK per language under `lib/`; the full list, and which steps each one does itself versus hands to the language's own build tool, is in the [SDK ladder](docs/sdk-ladder.md). |
 | Cross-language FFI artifacts | ✓ JNI / cdylib / shared-lib handoff wired (Java→Rust, Java→Go, C#→Rust, Python→Rust, …). |
-| Local incremental cache | ✓ Content-addressed (sha256), wired into every artifact-producing JVM/native/TS/… SDK. |
+| Local incremental cache | ✓ Content-addressed (sha256), whole-module. Wired into `aether`, `java`, `kotlin`, `scala`, `groovy`, `clojure` (only `compile` with `main_ns`), `maven`, `go`, `rust` (only the single cdylib), `dotnet` (not test projects) and `ts` (only `ts.tsc`). The other SDKs (`c`, `cpp`, `zig`, `swift`, `nim`, `d`, `crystal`, `javascript`, `pnpm`, `jest`, `webpack`, `angular`, ...) do not use it; see the [ladder](docs/sdk-ladder.md). |
 | Affected-target detection | ✓ `aeb --since <ref>` builds only impacted targets; `--print-affected` lists them. |
-| Dependency resolution (transitive) | ✓ Maven, npm (pnpm), NuGet, Cargo, Python wheels. |
+| Dependency resolution (transitive) | ◐ aeb's own resolver covers Maven only (`lib/maven`, a bundled Eclipse Aether jar); the JVM SDKs use it. npm/pnpm, NuGet, Cargo and Python are delegated to `pnpm`/`npm`, `dotnet build` restore, `cargo` and `pip install`; `rust.crate_registry` only records an artifact. See the [ladder](docs/sdk-ladder.md). |
 | Build graph visualisation | ✓ `aeb --graph` (DOT / Mermaid). |
 | Build report / bottleneck | ✓ `aeb --report` (timing, critical path, cache) + `--report=<tier>` verbosity. |
 | Watch mode | ✓ `aeb --watch` (inotify / fswatch → narrowed rebuild). |
@@ -1007,17 +1014,19 @@ Storage:
 - Content-addressed via sha256; entries are zlib-compressed.
 - No size cap or eviction yet; users prune manually if needed.
 
-Wired into every artifact-producing SDK (`lib/python` reports `[n/a]`
-by design — a venv isn't portably cacheable):
+Wired into the SDKs listed below, not every artifact-producing one (`lib/python`
+reports `[n/a]` by design — a venv isn't portably cacheable; `c`, `cpp`,
+`zig`, `swift`, `nim`, `d`, `crystal`, `javascript`, `pnpm`, `jest`, `webpack`
+and `angular` do not use it at all; see the [SDK ladder](docs/sdk-ladder.md)):
 
 - **`lib/aether`** — manual-path link binary
-- **`lib/java`** / **`lib/kotlin`** / **`lib/scala`** — `classes/` and
+- **`lib/java`** / **`lib/kotlin`** / **`lib/scala`** / **`lib/groovy`** — `classes/` and
   `test-classes/` trees (tar+zlib)
 - **`lib/maven`** — resolved classpath (separate cache from per-target)
-- **`lib/ts`** — tsc out-dir tree (excludes `*.tsbuildinfo`)
+- **`lib/ts`** — `ts.tsc` out-dir tree (excludes `*.tsbuildinfo`); `tsc_files` and `mocha` are not cached
 - **`lib/dotnet`** — `bin/<config>` (never `obj/`; test projects not cached)
-- **`lib/go`** / **`lib/rust`** — the output binary/.so (single-file)
-- **`lib/clojure`** — AOT `classes/` tree
+- **`lib/go`** / **`lib/rust`** — the output binary/.so (single-file; for rust only the single cdylib)
+- **`lib/clojure`** — AOT `classes/` tree (only `compile` with `main_ns`)
 
 When you run `aeb` twice in a row with no source changes, the
 second run is mostly `[hit]` lines. When you change a single
@@ -1072,9 +1081,8 @@ AEB_REMOTE_CACHE_URL=file:///mnt/ci-cache AEB_REMOTE_CACHE_MODE=read aeb ...
 
 ### Coverage (`aeb --coverage`)
 
-Cross-cutting build flag — every SDK that knows what coverage
-means for its language honors it; SDKs that don't (e.g. `bash.test`)
-ignore it.
+Cross-cutting build flag. Today only the `aether` SDK acts on it (it passes
+`--coverage` to `ae build`); every other SDK ignores it.
 
 ```bash
 aeb --coverage                        # build everything with coverage
@@ -1480,8 +1488,7 @@ clojure.test()
 
 ```aether
 import dotnet
-dotnet.csproj() { … }      // generates .{name}.generated.csproj
-dotnet.build()
+dotnet.build_project() { … }   // generates .{name}.generated.csproj, then builds it
 dotnet.test()
 ```
 

@@ -183,10 +183,12 @@ shipped — verify in aeb-driver.ae before repeating that claim.)
   the SDK is hand-written Aether under `lib/<lang>/module.ae`, not
   starlark.
 - **NOT Maven/Gradle** — but it can read `aether.toml [[bin]]` for
-  Aether targets (the shell-out path), and `lib/maven/` resolves
-  Maven coordinates against `~/.m2` for Java targets. Maven config
-  still travels in `pom.xml` for projects that have it; aeb's
-  Java SDK doesn't try to replace Maven's resolver.
+  Aether targets (the shell-out path). `lib/maven/` runs aeb's own
+  bundled resolver jar (Eclipse Aether, `tools/aeb-resolve.jar`)
+  against remote Maven repositories and builds the classpath itself;
+  it replaces Maven's resolver rather than reading `~/.m2`. Projects
+  that already have a `pom.xml` can still use `java.mvn_project` as the
+  chosen fallback.
 - **NOT Nix** — and the overlap is shallower than it looks. Nix is
   whole-system: it packages a derivation closure (compiler, libc,
   every transitive dep) and is hermetic by construction (sandbox,
@@ -220,13 +222,13 @@ in step when a dimension's status changes.)
 | Dimension                          | What "good" looks like                                          | aeb status                                                                                              |
 |------------------------------------|-----------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
 | Build-graph topology               | Real DAG, statically extractable, greppable                     | ✓ Done. File-based DAG via `dep("path")` lines, scanned without compilation.            |
-| Multi-language polyglot            | First-class for >=5 languages, real cross-language deps         | ✓ Done. 20+ SDKs (Java, Kotlin, Go, Rust, TS, Scala, Clojure, .NET, Python, Dart, MoonBit, Gleam, Ruby, Aether, Bash, Container, …).   |
+| Multi-language polyglot            | First-class for >=5 languages, real cross-language deps         | ✓ Done. One SDK per language under `lib/`; the full list and each SDK's own-versus-delegated steps are in `docs/sdk-ladder.md`.   |
 | Cross-language FFI artifacts       | JNI / cdylib / shared-library handoff between SDKs              | ✓ Done. Java→Rust (JNI), Java→Kotlin, Java→Go (.so), TS→Go, C#→Rust, Python→Rust (ctypes) all wired.    |
-| Local incremental cache            | Skip work when inputs unchanged                                 | ✓ Content-addressed cache (`lib/cache`, sha256+zlib) wired into every artifact-producing SDK: maven, aether, java, kotlin, scala, ts, dotnet, go, rust, clojure. `lib/python` is n/a by design (venv non-portable). Shared helpers in `lib/bldr`; per-SDK `_cache_key_for_*` tested by `tests/test_*_cache.ae`. Remote cache still TODO. |
+| Local incremental cache            | Skip work when inputs unchanged                                 | ✓ Content-addressed cache (`lib/cache`, sha256+zlib) wired into: maven, aether, java, kotlin, scala, groovy, ts (`ts.tsc` only), dotnet (not test projects), go, rust (the single cdylib only), clojure (`compile` with `main_ns` only). Not wired into c, cpp, zig, swift, nim, d, crystal, javascript, pnpm, jest, webpack, angular or the rest; see `docs/sdk-ladder.md`. `lib/python` is n/a by design (venv non-portable). Shared helpers in `lib/bldr`; per-SDK `_cache_key_for_*` tested by `tests/test_*_cache.ae`. Remote cache still TODO. |
 | Remote build cache                 | Share artifacts across machines (Bazel, Gradle, Turborepo)      | ✗ TODO. Roadmap entry; `target/<module>/` artifact metadata files are the natural cache units.         |
 | Affected-target detection          | `git diff` → reverse-dep walk → only-build-changed              | ✓ Done. `aeb --since <ref>` builds only targets impacted by changes; `aeb --print-affected <ref>` lists them. Source-to-target ownership: nearest enclosing dir with a build file. |
 | Hermetic toolchains                | Pinned compiler/runtime per build, downloaded if missing        | ✗ Uses whatever's on `PATH` (selects, never provisions). Deliberate divergence — see `docs/comparisons/aeb-vs-bazel.md` (hermeticity tier) + `docs/design/toolchain-selection-and-locks.md`. |
-| Dependency resolution (transitive) | Maven / npm / Cargo / NuGet closures resolved + classpath built | ✓ Done for Maven (via `tools/aeb-resolve.jar`), npm (pnpm), NuGet, Cargo, Python wheels.                 |
+| Dependency resolution (transitive) | Maven / npm / Cargo / NuGet closures resolved + classpath built | ◐ Maven only is aeb's own resolver (`tools/aeb-resolve.jar`). npm/pnpm, NuGet, Cargo and Python wheels are delegated to `pnpm`/`npm`, `dotnet build` restore, `cargo`, `pip install`; `rust.crate_registry` only records an artifact. See `docs/sdk-ladder.md`. |
 | Lockfiles for reproducibility      | Pin every transitive dep to exact version + hash                | ✗ TODO. Resolver computes the closure but doesn't write/check a lockfile.                                |
 | Test orchestration                 | Discover, run, report, parallelise, isolate                     | ◐ Partial. `bash.test` (jobs/pre/post hooks), `*.junit5` etc. exist; per-target pass/fail counts feed `[telemetry]` block (`14/14 PASS` / `28/30 FAIL`). Structured XML reports TODO. |
 | Artifact publishing                | Push to npm / Maven Central / NuGet feed / OCI registry         | ✗ TODO. `shade()` builds fat jars; no `.dist`-side publish step yet.                                    |
@@ -384,9 +386,8 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   builder map and call these helpers to lower them into shell
   statements. The shell-quoting traps are nontrivial — read the
   docstrings before adding a new caller.
-- `lib/<lang>/module.ae` — language SDKs. Java, Kotlin, Go, Rust,
-  TypeScript, Scala, Clojure, .NET, Python, Aether (native programs),
-  Bash (test runner — note the builder is `bash.run`, not
+- `lib/<lang>/module.ae` — language SDKs (the full list, with what
+  each does itself versus delegates, is `docs/sdk-ladder.md`). Bash (test runner — note the builder is `bash.run`, not
   `bash.script`: a builder must not share a name with a function in
   its module — both mangle to `<module>_<name>` and collide. As of
   **aether 0.178.0 this is a compile error** (`duplicate definition
