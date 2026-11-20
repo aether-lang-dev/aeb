@@ -341,11 +341,50 @@ if [[ "${1:-}" == "--init" ]]; then
     exit 0
 fi
 
+# --- A helper older than what it is built from is rebuilt ---
+# Each helper below is built the first time it is needed and kept beside its
+# source. In a checkout that is pulled into, "the binary exists" is not "the
+# binary is current": a helper from before a change goes on doing what it did,
+# silently. aeb_fresh BIN SRC removes BIN when SRC, or any aeb module in SRC's
+# import closure (tools/<m>/module.ae, lib/<m>/module.ae), is newer than it, so
+# the `! -x` test that follows rebuilds it. tools/aebfresh/module.ae is the
+# same rule for the helpers the Aether tools build; keep the two in step.
+aeb_tool_inputs() {
+    local todo="$1" seen=$'\n' f m c
+    while [[ -n "$todo" ]]; do
+        f="${todo%%$'\n'*}"
+        if [[ "$todo" == *$'\n'* ]]; then todo="${todo#*$'\n'}"; else todo=""; fi
+        case "$seen" in *$'\n'"$f"$'\n'*) continue ;; esac
+        seen="$seen$f"$'\n'
+        printf '%s\n' "$f"
+        [[ -f "$f" ]] || continue
+        while IFS= read -r m; do
+            for c in "$AEB_HOME/tools/$m/module.ae" "$AEB_HOME/lib/$m/module.ae"; do
+                [[ -f "$c" ]] && todo="$todo${todo:+$'\n'}$c"
+            done
+        done < <(sed -n 's/^import \([A-Za-z_][A-Za-z0-9_]*\).*/\1/p' "$f" | sort -u)
+    done
+}
+aeb_fresh() {
+    local bin="$1" src="$2" f
+    [[ -e "$bin" ]] || return 0
+    while IFS= read -r f; do
+        if [[ "$f" -nt "$bin" ]]; then
+            # A tree that cannot be written to (an install under a system
+            # prefix) keeps what it has; there the binaries were built with it.
+            rm -f "$bin" 2>/dev/null || true
+            return 0
+        fi
+    done < <(aeb_tool_inputs "$src")
+    return 0
+}
+
 # --- gcheckout: lazy-build and exec the sparse-checkout tool ---
 # Routes `aeb gcheckout ...` to tools/gcheckout, which walks the .ae-file
 # DAG and adds each visited module's directory to git sparse-checkout.
 if [[ "${1:-}" == "gcheckout" ]]; then
     GCHECKOUT_BIN="$AEB_HOME/tools/gcheckout"
+    aeb_fresh "$GCHECKOUT_BIN" "$AEB_HOME/tools/gcheckout.ae"
     if [[ ! -x "$GCHECKOUT_BIN" ]]; then
         "$AETHER" build "$AEB_HOME/tools/gcheckout.ae" --lib "$AEB_HOME/tools" -o "$GCHECKOUT_BIN" 2>/dev/null
     fi
@@ -357,6 +396,7 @@ fi
 # Routes `aeb mvn add <g:a:v>...` to tools/aeb-mvn (see its header).
 if [[ "${1:-}" == "mvn" ]]; then
     MVN_BIN="$AEB_HOME/tools/aeb-mvn"
+    aeb_fresh "$MVN_BIN" "$AEB_HOME/tools/aeb-mvn.ae"
     if [[ ! -x "$MVN_BIN" ]]; then
         "$AETHER" build "$AEB_HOME/tools/aeb-mvn.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$MVN_BIN" 2>/dev/null
     fi
@@ -766,6 +806,7 @@ if [[ -n "${AEB_RESOLVE_ONLY:-}" ]]; then
         exit 2
     fi
     AEB_SBOM_BIN="$AEB_HOME/tools/aeb-sbom"
+    aeb_fresh "$AEB_SBOM_BIN" "$AEB_HOME/tools/aeb-sbom.ae"
     if [[ ! -x "$AEB_SBOM_BIN" ]]; then
         "$AETHER" build "$AEB_HOME/tools/aeb-sbom.ae" --lib "$AEB_HOME/lib" -o "$AEB_SBOM_BIN" 2>/dev/null
     fi
@@ -798,6 +839,7 @@ if [[ -n "${AEB_TRACE_INTENT:-}" ]]; then
         exit 2
     fi
     AEB_TRACE_BIN="$AEB_HOME/tools/aeb-trace"
+    aeb_fresh "$AEB_TRACE_BIN" "$AEB_HOME/tools/aeb-trace.ae"
     if [[ ! -x "$AEB_TRACE_BIN" ]]; then
         "$AETHER" build "$AEB_HOME/tools/aeb-trace.ae" --lib "$AEB_HOME/lib" -o "$AEB_TRACE_BIN" 2>/dev/null
     fi
@@ -823,6 +865,7 @@ fi
 # remote verdict (exiting with the remote build's pass/fail).
 if [[ -n "${AEB_USE_REMOTE_AGENTS:-}" ]]; then
     AEB_REMOTE_BIN="$AEB_HOME/tools/aeb-remote"
+    aeb_fresh "$AEB_REMOTE_BIN" "$AEB_HOME/tools/aeb-remote.ae"
     if [[ ! -x "$AEB_REMOTE_BIN" ]]; then
         "$AETHER" build "$AEB_HOME/tools/aeb-remote.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$AEB_REMOTE_BIN" 2>/dev/null
     fi
@@ -876,6 +919,7 @@ if [[ -n "${AEB_VET:-}" ]]; then
     fi
 
     AEB_VET_BIN="$AEB_HOME/tools/aeb-vet"
+    aeb_fresh "$AEB_VET_BIN" "$AEB_HOME/tools/aeb-vet.ae"
     if [[ ! -x "$AEB_VET_BIN" ]]; then
         "$AETHER" build "$AEB_HOME/tools/aeb-vet.ae" --lib "$AEB_HOME/lib" -o "$AEB_VET_BIN" 2>/dev/null
     fi
@@ -884,6 +928,7 @@ if [[ -n "${AEB_VET:-}" ]]; then
         # Scan mode: discover the tree, filter by the glob's basename
         # (bash fnmatch == string.glob_match semantics: * ? [abc]).
         AEB_SCAN_BIN="$AEB_HOME/tools/scan-ae-files"
+        aeb_fresh "$AEB_SCAN_BIN" "$AEB_HOME/tools/scan-ae-files.ae"
         if [[ ! -x "$AEB_SCAN_BIN" ]]; then
             "$AETHER" build "$AEB_HOME/tools/scan-ae-files.ae" -o "$AEB_SCAN_BIN" 2>/dev/null
         fi
@@ -975,6 +1020,7 @@ fi
 
 # --- Normal build: lazy-build the main tool ---
 AEB_MAIN_BIN="$AEB_HOME/tools/aeb-main"
+aeb_fresh "$AEB_MAIN_BIN" "$AEB_HOME/tools/aeb-main.ae"
 if [[ ! -x "$AEB_MAIN_BIN" ]]; then
     # COLD BOOTSTRAP: no prebuilt aeb-main (a source-only ship, or a tree
     # where `make install` never ran). Two details are load-bearing and
@@ -1022,6 +1068,7 @@ fi
 AEB_LAUNCH=("$AEB_MAIN_BIN")
 if [[ -n "${AEB_SANDBOX:-}" ]]; then
     AEB_SANDBOX_BIN="$AEB_HOME/tools/aeb-sandbox"
+    aeb_fresh "$AEB_SANDBOX_BIN" "$AEB_HOME/tools/aeb-sandbox.ae"
     if [[ ! -x "$AEB_SANDBOX_BIN" ]]; then
         "$AETHER" build "$AEB_HOME/tools/aeb-sandbox.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$AEB_SANDBOX_BIN" 2>/dev/null
     fi

@@ -1,0 +1,115 @@
+// aebfresh — is a lazily built helper tool older than what it is built from?
+//
+// aeb builds its helper tools (tools/<name>.ae) the first time each is
+// needed and keeps the binary beside the source. In a checkout that is
+// worked in and pulled into, the sources move on and the binary does not:
+// the helper goes on doing what it did before the change, with nothing to
+// say so (2026-11-19: a new rule in tools/extract-deps.ae did not apply on
+// three machines until the old binary was deleted by hand).
+//
+// A helper is built from its own source and from every aeb module it
+// imports, directly or through another: tools/<m>/module.ae and
+// lib/<m>/module.ae. stale() is 1 when the binary is missing or any of those
+// is newer than it. The imports are read from the text (`import <m>` at the
+// start of a line), the way aeb reads dep(); std.* and contrib.* come from
+// the toolchain and are not files here.
+//
+// The trampoline (`aeb`) has the same rule in bash for the helpers it builds
+// before any Aether tool exists; keep the two in step.
+
+import std.string
+import std.file
+import std.fs
+import std.io
+
+exports(inputs, stale)
+
+_has_line(text: string, line: string) {
+    if string.length(text) == 0 { return 0 }
+    hay = string.concat(string.concat("\n", text), "\n")
+    return string.contains(hay, string.concat(string.concat("\n", line), "\n"))
+}
+
+// _first_name(rest) — the leading identifier of `rest` (the text after
+// "import "), "" if it does not start with one.
+_first_name(rest: string) {
+    n = string.length(rest)
+    i = 0
+    ok = 1
+    while i < n && ok == 1 {
+        c = string.substring(rest, i, i + 1)
+        word = 0
+        if string.compare(c, "a") >= 0 { if string.compare(c, "z") <= 0 { word = 1 } }
+        if string.compare(c, "A") >= 0 { if string.compare(c, "Z") <= 0 { word = 1 } }
+        if string.compare(c, "0") >= 0 { if string.compare(c, "9") <= 0 { word = 1 } }
+        if string.equals(c, "_") == 1 { word = 1 }
+        if word == 1 { i = i + 1 } else { ok = 0 }
+    }
+    return string.substring(rest, 0, i)
+}
+
+// inputs(aebhome, src) — src and every aeb module file in its import
+// closure, newline-joined, each once.
+inputs(aebhome: string, src: string) {
+    out = string.concat(src, "")
+    todo = string.concat(src, "")
+    while string.length(todo) > 0 {
+        nl = string.index_of(todo, "\n")
+        f = todo
+        if nl >= 0 {
+            f = string.substring(todo, 0, nl)
+            todo = string.substring(todo, nl + 1, string.length(todo))
+        } else {
+            todo = ""
+        }
+        text, err = io.read_file(f)
+        if string.length(err) == 0 {
+            lines = string.split(text, "\n")
+            n = string.array_size(lines)
+            i = 0
+            while i < n {
+                l = string.array_get(lines, i)
+                if string.starts_with(l, "import ") == 1 {
+                    m = _first_name(string.substring(l, 7, string.length(l)))
+                    if string.length(m) > 0 {
+                        c1 = "${aebhome}/tools/${m}/module.ae"
+                        c2 = "${aebhome}/lib/${m}/module.ae"
+                        if file.exists(c1) == 1 && _has_line(out, c1) == 0 {
+                            out = string.concat(string.concat(out, "\n"), c1)
+                            if string.length(todo) > 0 { todo = string.concat(todo, "\n") }
+                            todo = string.concat(todo, c1)
+                        }
+                        if file.exists(c2) == 1 && _has_line(out, c2) == 0 {
+                            out = string.concat(string.concat(out, "\n"), c2)
+                            if string.length(todo) > 0 { todo = string.concat(todo, "\n") }
+                            todo = string.concat(todo, c2)
+                        }
+                    }
+                }
+                i = i + 1
+            }
+            string.array_free(lines)
+        }
+    }
+    return out
+}
+
+// stale(aebhome, bin, src) — 1 when the helper `bin`, built from `src`,
+// needs building: it is not there, or one of its inputs is newer than it.
+stale(aebhome: string, bin: string, src: string) {
+    if file.exists(bin) == 0 { return 1 }
+    bin_mt = fs.file_mtime(bin)
+    ins = string.split(inputs(aebhome, src), "\n")
+    n = string.array_size(ins)
+    old = 0
+    i = 0
+    while i < n {
+        f = string.array_get(ins, i)
+        if string.length(f) > 0 && file.exists(f) == 1 {
+            if fs.file_mtime(f) > bin_mt { old = 1 }
+        }
+        i = i + 1
+    }
+    string.array_free(ins)
+    return old
+}

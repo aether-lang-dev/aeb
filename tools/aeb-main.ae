@@ -19,6 +19,7 @@
 // chdir to <root> before calling.
 
 import bldr
+import aebfresh
 import provision
 import aebnode(dir_node, dir_nodes)
 import std.string
@@ -217,7 +218,12 @@ _toolbin(aebhome: string, name: string) {
 // surfaced as "topo-sort produced no build order" with nothing pointing here.
 _lazy_tool(aebhome: string, aether_bin: string, name: string, extra: string) {
     bin = _toolbin(aebhome, name)
-    if file.exists(bin) == 1 { return bin }
+    // Not there, or older than its source or a module it imports
+    // (tools/aebfresh): build it. "It exists" alone kept a helper from before
+    // a pull doing what it did before the pull.
+    if aebfresh.stale(aebhome, bin, "${aebhome}/tools/${name}.ae") == 0 { return bin }
+    // Gone first: a build that fails must not leave the old one to be used.
+    if file.exists(bin) == 1 { _d = fs.delete(bin) }
     cmd = "${aether_bin} build ${aebhome}/tools/${name}.ae -o ${_toolbase(aebhome, name)}${extra} 2>&1"
     out, _err = bldr._sh_capture(cmd)
     if file.exists(bin) == 0 {

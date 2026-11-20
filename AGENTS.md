@@ -376,6 +376,13 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   commands in `aeb-main`/`aeb-link`) so the import resolves. This was
   three drifting copies until the multi-`--lib` (aether 0.150)
   consolidation — see `TODO.md` § Three-copy `file_to_label`.
+- `tools/aebfresh/module.ae` — when a lazily built helper is out of date:
+  missing, or older than its own source or any aeb module in its import
+  closure (`tools/<m>/module.ae`, `lib/<m>/module.ae`, read from `import`
+  lines as text). `aeb-main`'s `_lazy_tool` and `aeb-link` use it; the
+  launcher has the same rule in bash (`aeb_fresh`) for the helpers it builds
+  before any Aether tool exists. Keep the two in step. A new helper needs no
+  list of what it imports. `itests/stale-helper-rebuilt.sh` holds it.
 - `lib/bldr/module.ae` — the core API: `bldr.build()`,
   `bldr.begin()`, `dep()`, `bldr._get()`, artifact helpers.
   Every language SDK depends on this. Also hosts shared **fixture

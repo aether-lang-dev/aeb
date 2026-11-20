@@ -209,6 +209,10 @@ jobs:
       # whatever its name; several is a refusal that names them.
       - name: directory shorthand has no preferred names
         run: itests/dir-shorthand.sh
+      # A helper tool older than its source, or than an aeb module it imports,
+      # is rebuilt; "the binary exists" kept one from before a pull in use.
+      - name: stale helper tools are rebuilt
+        run: itests/stale-helper-rebuilt.sh
       # aeb's Maven resolver (tools/resolver, on bld). Built here because it is
       # a release asset, not a file in the tree; the two tests below drive the
       # jar this commit's source makes. Both serve their own repository on
