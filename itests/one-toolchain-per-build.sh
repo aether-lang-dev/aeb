@@ -11,9 +11,13 @@
 # the NEWER stdlib, which was then linked against 0.898.0's libaether.a:
 #   undefined reference to `dir_list_error'
 #
-# Two real releases are used: OLD is AETHER_FETCH (aeb's private copy), NEW is
-# a newer release ($AEB_ITEST_NEW_AETHER, default 0.927.0), both installed with
-# aeb's own get.sh. So the test does not hang on which symbols a given pair of
+# Two real releases are used: OLD is aeb's private copy, NEW is a newer release
+# ($AEB_ITEST_NEW_AETHER, default 0.931.0), both installed with aeb's own get.sh.
+# OLD is the floor, AETHER_PIN (the oldest release aeb supports), not
+# AETHER_FETCH: the fetched copy is normally the latest release, and the test
+# needs a private copy OLDER than the one on PATH. The aeb copy the test builds
+# gets AETHER_FETCH set to OLD, so the pinned toolchain is OLD there.
+# So the test does not hang on which symbols a given pair of
 # releases happens to differ by, NEW is staged with one addition: a stdlib
 # module std.aebitest whose function calls a C symbol that only NEW's
 # libaether.a defines. A build file and a program both call it. Built with NEW
@@ -37,7 +41,7 @@
 # Usage: ./itests/one-toolchain-per-build.sh
 #   AEB_TREE=<aeb checkout>        the aeb to test (default: this one; it is
 #                                  copied, so its own helpers are not touched)
-#   AEB_ITEST_NEW_AETHER=<x.y.z>   the newer release (default 0.927.0)
+#   AEB_ITEST_NEW_AETHER=<x.y.z>   the newer release (default 0.931.0)
 #   AEB_ITEST_TOOLCHAINS=<dir>     keep the downloaded releases here between
 #                                  runs (<dir>/<version>/bin/ae)
 # Exit: 0 if every assertion passed or the test was skipped (no network, a
@@ -47,12 +51,12 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 AEB_TREE="${AEB_TREE:-$REPO_ROOT}"
-NEW_V="${AEB_ITEST_NEW_AETHER:-0.927.0}"
-OLD_V="$(grep -v '^#' "$AEB_TREE/AETHER_FETCH" 2>/dev/null | tr -d '[:space:]')"
+NEW_V="${AEB_ITEST_NEW_AETHER:-0.931.0}"
+OLD_V="$(grep -v '^#' "$AEB_TREE/AETHER_PIN" 2>/dev/null | tr -d '[:space:]')"
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) echo "  SKIP: Windows"; exit 0 ;; esac
-[ -n "$OLD_V" ] || { echo "error: cannot read $AEB_TREE/AETHER_FETCH" >&2; exit 1; }
+[ -n "$OLD_V" ] || { echo "error: cannot read $AEB_TREE/AETHER_PIN" >&2; exit 1; }
 if [ "$OLD_V" = "$NEW_V" ]; then
-    echo "  SKIP: AETHER_FETCH is $OLD_V, the same as the newer release asked for; set AEB_ITEST_NEW_AETHER"
+    echo "  SKIP: AETHER_PIN is $OLD_V, the same as the newer release asked for; set AEB_ITEST_NEW_AETHER"
     exit 0
 fi
 
@@ -65,7 +69,7 @@ trap '[ -n "${KEEP:-}" ] || rm -rf "$WORK"' EXIT INT TERM
 TCS="${AEB_ITEST_TOOLCHAINS:-$WORK/tc}"
 mkdir -p "$TCS"
 
-echo "[one-toolchain-per-build] OLD $OLD_V (AETHER_FETCH), NEW $NEW_V"
+echo "[one-toolchain-per-build] OLD $OLD_V (AETHER_PIN), NEW $NEW_V"
 
 # --- the two releases, from aeb's own get.sh ---------------------------------
 install_ae() {
@@ -112,9 +116,11 @@ cp -R "$AEB_TREE/lib" "$HOME_COPY/lib"
     else case "$e" in *.ae|*.sh|*.py) cp "$e" "$HOME_COPY/tools/$e" ;; esac
     fi
   done )
-for f in AETHER_PIN AETHER_FETCH VERSION; do
+for f in AETHER_PIN VERSION; do
     [ -f "$AEB_TREE/$f" ] && cp "$AEB_TREE/$f" "$HOME_COPY/$f"
 done
+# the private (pinned) toolchain of this copy is OLD, whatever AETHER_FETCH says
+printf '%s\n' "$OLD_V" > "$HOME_COPY/AETHER_FETCH"
 AEB="$HOME_COPY/aeb"
 T="$HOME_COPY/tools"
 

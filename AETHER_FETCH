@@ -292,4 +292,10 @@
 # older Aether fails there at its first os.system (aether#3624). Raising the
 # floor makes a source install rebuild with the fixed runtime, and the fetch
 # makes the release binaries carry it.
-0.898.0
+# 0.931.0 (2026-11-20): fetch only, tracking-only bump, no new primitive needed;
+# the floor stays 0.898.0 (AETHER_PIN). Fetch is now the latest release, so
+# itests/one-toolchain-per-build.sh no longer reads it for its older copy (it
+# uses the floor). 0.931.0's runtime no longer references libfyaml (`ae cflags
+# --libs` has no -lfyaml), so a bootstrap against the fetched copy needs no
+# libfyaml-dev; the floor copy, 0.898.0, still does.
+0.931.0

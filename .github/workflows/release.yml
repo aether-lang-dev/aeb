@@ -223,7 +223,9 @@ jobs:
       # it looks official and fails on the user's node.
       # The released Aether's libaether.a references libfyaml (fy_* symbols)
       # and `ae cflags --libs` names -lfyaml, so anything aeb links against it
-      # needs the library present. Aether 0.860.0 did not; 0.897.0+ does. The
+      # needs the library present. Aether 0.860.0 did not; 0.897.0+ did, and 0.931.0
+      # no longer does (checked: `ae cflags --libs` has no -lfyaml), so this
+      # step can go once a release has been cut without it. The
       # stock ubuntu-22.04 image lacks it, which failed the v0.344 cut at the
       # bootstrap link ("cannot find -lfyaml").
       - name: Install the link deps the fetched Aether names
