@@ -1112,11 +1112,11 @@ builder javac(): int {
     dep_cp = bldr._build_dep_classpath(ctx)
     maven_cp = maven.classpath(ctx)
     file_cp = _read_classpath_files(_builder, source_dir)
-    own_cp = ""
-    own_body, own_err = fs.read(path.join(target_dir, "jvm_classpath_deps_including_transitive"))
-    if string.length(own_err) == 0 {
-        own_cp = bldr._nl_to_colon(own_body)
-    }
+    // This run's own jars, from the in-memory list jar_pinned/jar_vendored fill,
+    // never from this node's artifact file (its previous OUTPUT: reading it
+    // back made the artifact grow on every re-run). See _own_jars_colon.
+    own_cp = _own_jars_colon(ctx)
+    // (line count kept: docs/sdk-ladder.md cites lib/java line numbers)
     classpath = classes_dir
     classpath = bldr._cp_append(classpath, dep_cp)
     classpath = bldr._cp_append(classpath, maven_cp)
@@ -2458,4 +2458,24 @@ builder consumer_example(): int {
     println("${mod_dir}: PASS — consumer compiled+ran against the jar's bundled asset from clean")
     _ew = io.write_file(path.join(target_dir, ".timestamp"), "")
     return 0
+}
+
+// _own_jars_colon(ctx) — the jars this node's jar_pinned/jar_vendored calls
+// declared in THIS run, colon-joined ("" when none). Read from the in-memory
+// per-build list, never from the node's own artifact file: that file is this
+// node's previous OUTPUT (it holds the classes dir javac adds), and feeding it
+// back in made the artifact grow by one copy of the classes dir on every re-run
+// in the same target/ (asks/REPLY-java-classpath-artifact-grows-on-rerun.md).
+_own_jars_colon(ctx: ptr) {
+    if map.has(ctx, "_vendored_jars") == 0 { return "" }
+    vj, _ = map.get(ctx, "_vendored_jars")
+    out = ""
+    n = list.size(vj)
+    k = 0
+    while k < n {
+        jp, _ = list.get_string(vj, k)
+        if k == 0 { out = jp } else { out = string.concat(string.concat(out, ":"), jp) }
+        k = k + 1
+    }
+    return out
 }
