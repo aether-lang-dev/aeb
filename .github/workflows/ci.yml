@@ -213,6 +213,11 @@ jobs:
       # is rebuilt; "the binary exists" kept one from before a pull in use.
       - name: stale helper tools are rebuilt
         run: itests/stale-helper-rebuilt.sh
+      # One aeb invocation builds with one Aether toolchain: AETHER_FETCH and a
+      # newer release (both from get.sh) never meet in one compile and link,
+      # whatever AETHER_HOME says, and helpers are rebuilt per toolchain.
+      - name: one toolchain per build
+        run: itests/one-toolchain-per-build.sh
       # aeb's Maven resolver (tools/resolver, on bld). Built here because it is
       # a release asset, not a file in the tree; the two tests below drive the
       # jar this commit's source makes. Both serve their own repository on

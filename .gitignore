@@ -5,7 +5,9 @@ tools/resolver/target
 /*.c
 tools/*.c
 
-# Built tool binaries (rebuilt lazily by aeb on first run)
+# Built tool binaries (rebuilt lazily by aeb on first run), and the toolchain
+# stamp beside each (tools/aebfresh)
+tools/*.toolchain
 tools/aeb-init
 tools/aeb-agent
 tools/aeb-remote

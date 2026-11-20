@@ -25,6 +25,16 @@ INSTALL_TOOLS := tools/aeb-main tools/aeb-link tools/aeb-graph tools/affected-ta
 # get both, matching what the install loop's per-tool case already does.
 AEFLAGS ?= --lib tools --lib lib
 
+# The toolchain the tools are built with, as aeb itself resolves it for a
+# build (`aeb --toolchain`): its identity is stamped beside each tool
+# (tools/<name>.toolchain), and aeb rebuilds a tool whose stamp names another
+# toolchain (tools/aebfresh, the trampoline's aeb_fresh). Built with its root
+# as AETHER_HOME, as aeb's own builds are, so an inherited AETHER_HOME naming
+# another install cannot lend these builds its stdlib.
+TC_ID   := $(shell AETHER='$(AETHER)' bash ./aeb --toolchain 2>/dev/null | sed -n 's/^id  *//p')
+TC_ROOT := $(shell AETHER='$(AETHER)' bash ./aeb --toolchain 2>/dev/null | sed -n 's/^root  *//p')
+AE_ENV  := $(if $(filter-out unknown,$(TC_ROOT)),AETHER_HOME='$(TC_ROOT)')
+
 # Source-content hash of the aeb tree — a stable identity surfaced by
 # `aeb --version` (AEB_STAMP) and the stale-install check. `git
 # ls-files` covers every tracked source under aeb/lib/tools and
@@ -47,7 +57,8 @@ build: $(TOOLS)
 # One pattern rule for every tool — each tools/<name> is built from
 # tools/<name>.ae. Replaces six near-identical explicit rules.
 tools/%: tools/%.ae
-	$(AETHER) build $< -o $@ $(AEFLAGS)
+	$(AE_ENV) $(AETHER) build $< -o $@ $(AEFLAGS)
+	printf '%s\n' '$(TC_ID)' > $@.toolchain
 
 # install — copy the runtime tree to $(SHAREDIR) and drop a wrapper
 # at $(BINDIR)/aeb that pins AEB_HOME at the installed copy. The
@@ -99,7 +110,8 @@ install: $(INSTALL_TOOLS)
 	    extra=""; \
 	    case "$$src" in tools/aeb-main.ae|tools/aeb-cli.ae|tools/aeb-driver.ae|tools/aeb-remote.ae|tools/aeb-vet.ae|tools/aeb-sandbox.ae|tools/aeb-sbom.ae|tools/aeb-mvn.ae|tools/aeb-trace.ae) extra="--lib lib";; esac; \
 	    echo "  rebuild $$bin"; \
-	    $(AETHER) build "$$src" -o "$$bin" $(AEFLAGS) $$extra >/dev/null || { echo "install: failed to build $$src" >&2; exit 1; }; \
+	    $(AE_ENV) $(AETHER) build "$$src" -o "$$bin" $(AEFLAGS) $$extra >/dev/null || { echo "install: failed to build $$src" >&2; exit 1; }; \
+	    printf '%s\n' '$(TC_ID)' > "$$bin.toolchain"; \
 	done
 	rm -f $(BINDIR)/aeb
 	@# tools/*.jar are OUT-OF-BAND artifacts: aeb-resolve.jar and its co-located
@@ -188,7 +200,7 @@ uninstall:
 	rm -rf $(SHAREDIR)
 
 clean:
-	rm -f $(TOOLS)
+	rm -f $(TOOLS) $(addsuffix .toolchain,$(TOOLS))
 
 # check-install — is the installed aeb current with this source tree?
 # Compares the dev tree's source-content hash against the installed

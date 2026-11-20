@@ -1782,13 +1782,88 @@ _aether_dev_root(root: string) {
     return ""
 }
 
-// Directory containing the `ae`/`aetherc` binary (honours $AETHER).
-_resolve_aether_dir() {
+// _ae_bin() — THE Aether toolchain this build uses, as the path of its `ae`.
+// The aeb trampoline chooses it once per invocation (AETHER, else the `ae` on
+// PATH, else aeb's pinned copy) and hands it down as AETHER, with its root as
+// AETHER_HOME; this is the one place a build reads it back, so every compile,
+// link and cache key in the build agrees. Bare `ae` only for a build run
+// without the trampoline.
+_ae_bin() {
     ae = os.getenv("AETHER")
-    if string.length(ae) == 0 {
-        ae = "ae"
+    if string.length(ae) == 0 { return "ae" }
+    return ae
+}
+
+// Directory containing the toolchain's `aetherc` (and, beside or under it,
+// its libaether.a and headers).
+_resolve_aether_dir() {
+    return _aether_dir_of(_ae_bin())
+}
+
+// _ae_version_report(bin) — (ae version, aetherc path, aetherc version) from
+// `bin --version`, which names the aetherc that `ae` itself resolves in this
+// environment ("aetherc:  <path> (<version>)"): honouring AETHER_HOME, a dev
+// tree's build/, or the install the binary sits in, in ae's own order. Empty
+// strings where `ae` does not say (a toolchain older than the line, or no such
+// command).
+_ae_version_report(bin: string) {
+    raw, _e = _sh_capture("'${bin}' --version 2>/dev/null")
+    aever = ""
+    tcpath = ""
+    tcver = ""
+    first = string.trim(_first_line(raw))
+    if string.starts_with(first, "ae ") == 1 {
+        rest = string.substring(first, 3, string.length(first))
+        sp = string.index_of(rest, " ")
+        if sp < 0 { aever = string.copy(rest) } else { aever = string.substring(rest, 0, sp) }
     }
-    return _aether_dir_of(ae)
+    lines = string.split(raw, "\n")
+    n = string.array_size(lines)
+    i = 0
+    while i < n {
+        l = string.trim(string.array_get(lines, i))
+        if string.starts_with(l, "aetherc:") == 1 && string.length(tcpath) == 0 {
+            v = string.trim(string.substring(l, 8, string.length(l)))
+            op = _last_index_of(v, "(")
+            if op > 1 && string.ends_with(v, ")") == 1 {
+                tcpath = string.trim(string.substring(v, 0, op))
+                tcver = string.substring(v, op + 1, string.length(v) - 1)
+            } else {
+                tcpath = string.copy(v)
+            }
+        }
+        i = i + 1
+    }
+    string.array_free(lines)
+    return aever, tcpath, tcver
+}
+
+// _toolchain_id(bin) — the identity of the toolchain `bin` resolves: its
+// aetherc's path and version as `ae --version` reports them ("<path>
+// (<version>)"), else "ae <version>" for a toolchain too old to name its
+// aetherc. Helper tools aeb builds for itself are stamped with it (the
+// aebfresh module; the trampoline's aeb_fresh writes the same string).
+_toolchain_id(bin: string) {
+    aever, tcpath, tcver = _ae_version_report(bin)
+    if string.length(tcpath) > 0 {
+        if string.length(tcver) > 0 { return "${tcpath} (${tcver})" }
+        return tcpath
+    }
+    if string.length(aever) == 0 { return "ae unknown" }
+    return "ae ${aever}"
+}
+
+// _toolchain_mix(bin) — "" when `bin` and the aetherc it resolves are one
+// release; otherwise a message naming both versions. `ae` takes its aetherc,
+// runtime and stdlib from AETHER_HOME ahead of its own install, so an `ae` of
+// one release can be steered to another's compiler; aeb builds with one
+// toolchain and refuses to go on when it finds two.
+_toolchain_mix(bin: string) {
+    aever, tcpath, tcver = _ae_version_report(bin)
+    if string.length(aever) == 0 || string.length(tcver) == 0 { return "" }
+    if string.equals(aever, tcver) == 1 { return "" }
+    ah = os.getenv("AETHER_HOME")
+    return "two Aether toolchains in one build: ae ${aever} (${bin}) would compile with aetherc ${tcver} (${tcpath}), through AETHER_HOME=${ah}. Unset AETHER_HOME, or set AETHER to the ae of the release you want."
 }
 
 // _aether_dir_of(bin) — the directory of the install `bin` (a name looked up
@@ -1815,6 +1890,21 @@ _aether_dir_of(bin: string) {
     raw, _eerr = _sh_capture("command -v ${bin} 2>/dev/null || true")
     found = string.trim(raw)
     if string.length(found) == 0 { return "" }
+    // The aetherc `ae` itself resolves, when it says (every release since
+    // before AETHER_PIN does): the dir that compiler sits in is the toolchain
+    // dir, whatever AETHER_HOME or a dev tree's build/ made `ae` choose. Taking
+    // the dir of the `ae` binary instead linked an AETHER_HOME-chosen
+    // compiler's output against the `ae` install's own runtime.
+    _av, tcpath, _tv = _ae_version_report(found)
+    if string.length(tcpath) > 0 {
+        if _is_windows() == 0 {
+            trp, tkind, _tmsg = fs.realpath(tcpath)
+            if tkind == 0 {
+                if string.length(trp) > 0 { tcpath = trp }
+            }
+        }
+        if file.exists(tcpath) == 1 { return _to_native_path(_dirname(tcpath)) }
+    }
     if _is_windows() == 0 {
         // fs.realpath: (resolved, kind, message); kind 0 is KIND_OK.
         rp, rkind, _rmsg = fs.realpath(found)

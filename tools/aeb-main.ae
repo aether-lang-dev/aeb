@@ -210,18 +210,19 @@ _toolbin(aebhome: string, name: string) {
     return string.concat(_toolbase(aebhome, name), bldr._exe_suffix())
 }
 
-// _lazy_tool(aebhome, aether_bin, name, extra) — the helper's path, building
-// it from tools/<name>.ae first if it is not there. `extra` is appended to the
-// `ae build` line (e.g. " --lib <dir>"). If the build leaves no binary, print
-// the compiler's output and exit: the usual cause is an `ae` resolving another
-// toolchain's compiler or stdlib (an inherited AETHER_HOME), and unreported it
-// surfaced as "topo-sort produced no build order" with nothing pointing here.
-_lazy_tool(aebhome: string, aether_bin: string, name: string, extra: string) {
+// _lazy_tool(aebhome, aether_bin, toolchain, name, extra) — the helper's path,
+// building it from tools/<name>.ae first if it is not there, is stale, or was
+// built by another toolchain than `toolchain` (bldr._toolchain_id of
+// aether_bin). `extra` is appended to the `ae build` line (e.g. " --lib
+// <dir>"). If the build leaves no binary, print the compiler's output and
+// exit: unreported, a failed helper build surfaced as "topo-sort produced no
+// build order" with nothing pointing here.
+_lazy_tool(aebhome: string, aether_bin: string, toolchain: string, name: string, extra: string) {
     bin = _toolbin(aebhome, name)
-    // Not there, or older than its source or a module it imports
-    // (tools/aebfresh): build it. "It exists" alone kept a helper from before
-    // a pull doing what it did before the pull.
-    if aebfresh.stale(aebhome, bin, "${aebhome}/tools/${name}.ae") == 0 { return bin }
+    // Not there, older than its source or a module it imports, or another
+    // toolchain's (tools/aebfresh): build it. "It exists" alone kept a helper
+    // from before a pull doing what it did before the pull.
+    if aebfresh.stale(aebhome, bin, "${aebhome}/tools/${name}.ae", toolchain) == 0 { return bin }
     // Gone first: a build that fails must not leave the old one to be used.
     if file.exists(bin) == 1 { _d = fs.delete(bin) }
     cmd = "${aether_bin} build ${aebhome}/tools/${name}.ae -o ${_toolbase(aebhome, name)}${extra} 2>&1"
@@ -229,10 +230,9 @@ _lazy_tool(aebhome: string, aether_bin: string, name: string, extra: string) {
     if file.exists(bin) == 0 {
         println("aeb: could not build its helper tool '${name}' with ${aether_bin}:")
         println(out)
-        ah = os.getenv("AETHER_HOME")
-        println("aeb: AETHER_HOME=${ah}; if that is another Aether install than ${aether_bin}'s, unset it or point it there.")
         exit(1)
     }
+    _m = aebfresh.mark(bin, toolchain)
     return bin
 }
 
@@ -380,6 +380,17 @@ main() {
     aether_bin = aether_args_get(1)
     aebhome = aether_args_get(2)
     root = aether_args_get(3)
+    // One toolchain per build. The trampoline has already refused an `ae`
+    // steered by AETHER_HOME to another release's aetherc; this is the same
+    // check for any other way aeb-main is started.
+    mix = bldr._toolchain_mix(aether_bin)
+    if string.length(mix) > 0 {
+        println("aeb: ${mix}")
+        exit(2)
+    }
+    // Its identity, stamped on every helper this build builds (aebfresh) and
+    // handed to aeb-link for the ones it builds.
+    toolchain = bldr._toolchain_id(aether_bin)
 
     // argv[4] is either a target path (compile this and its deps), a
     // query subcommand (`query`, `owners`, `path`, `why`), or
@@ -487,18 +498,18 @@ main() {
     // `ae` aeb was handed. _lazy_tool stops with the compiler's own errors when
     // a build fails, rather than leaving a missing binary to surface later as
     // a misleading error from the step that runs it.
-    extract_deps_bin = _lazy_tool(aebhome, aether_bin, "extract-deps", string.concat(string.concat(" --lib ", string.concat(aebhome, "/tools")), string.concat(" --lib ", string.concat(aebhome, "/lib"))))
-    scan_ae_files_bin = _lazy_tool(aebhome, aether_bin, "scan-ae-files", "")
-    topo_sort_bin = _lazy_tool(aebhome, aether_bin, "topo-sort", "")
+    extract_deps_bin = _lazy_tool(aebhome, aether_bin, toolchain, "extract-deps", string.concat(string.concat(" --lib ", string.concat(aebhome, "/tools")), string.concat(" --lib ", string.concat(aebhome, "/lib"))))
+    scan_ae_files_bin = _lazy_tool(aebhome, aether_bin, toolchain, "scan-ae-files", "")
+    topo_sort_bin = _lazy_tool(aebhome, aether_bin, toolchain, "topo-sort", "")
     // --lib <aebhome>/tools resolves aeb-link's `import aeblabel`.
-    aeb_link_bin = _lazy_tool(aebhome, aether_bin, "aeb-link", string.concat(" --lib ", string.concat(aebhome, "/tools")))
-    aeb_graph_bin = _lazy_tool(aebhome, aether_bin, "aeb-graph", "")
+    aeb_link_bin = _lazy_tool(aebhome, aether_bin, toolchain, "aeb-link", string.concat(" --lib ", string.concat(aebhome, "/tools")))
+    aeb_graph_bin = _lazy_tool(aebhome, aether_bin, toolchain, "aeb-graph", "")
     // aeb-report: the render-from-artifacts timing/critical-path view (aeb#12),
     // the read-only sibling of aeb-graph. --lib tools + lib so its
     // aeblabel + bldr imports resolve.
-    aeb_report_bin = _lazy_tool(aebhome, aether_bin, "aeb-report", " --lib ${aebhome}/tools --lib ${aebhome}/lib")
-    aeb_query_bin = _lazy_tool(aebhome, aether_bin, "aeb-query", "")
-    affected_bin = _lazy_tool(aebhome, aether_bin, "affected-targets", "")
+    aeb_report_bin = _lazy_tool(aebhome, aether_bin, toolchain, "aeb-report", " --lib ${aebhome}/tools --lib ${aebhome}/lib")
+    aeb_query_bin = _lazy_tool(aebhome, aether_bin, toolchain, "aeb-query", "")
+    affected_bin = _lazy_tool(aebhome, aether_bin, toolchain, "affected-targets", "")
 
     // --- Discover the file set ---
     files = list.new()
@@ -1558,6 +1569,7 @@ main() {
     cmd = string.concat(cmd, out_bin)
     cmd = string.concat(cmd, " ")
     cmd = string.concat(cmd, root)
+    cmd = string.concat(cmd, " '${toolchain}'")
     rc = bldr._sh(cmd)
     exit(rc)
 }

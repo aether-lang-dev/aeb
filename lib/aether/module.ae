@@ -560,16 +560,14 @@ _expand_source_globs(builder_map: ptr, source_dir: string) {
     return 0
 }
 
-// _ae_bin() — THE Aether compiler aeb builds with: $AETHER if set, else bare
-// `ae` from PATH. This is the two-Aether split's authoritative resolution (the
-// toolchain that compiles .ae, distinct from the program's own ae). Every site
-// that shells out to the compiler MUST resolve through here so they all agree —
-// _shell_out_ae_build and _toolchain_version in particular, or the cache key
-// would record a different toolchain's version than the one that did the build.
+// _ae_bin() — THE Aether toolchain this build uses (bldr._ae_bin: the one the
+// trampoline chose for the whole invocation, the same one that built the
+// orchestrator). Every site that shells out to the compiler MUST resolve
+// through here so they all agree — _shell_out_ae_build and _toolchain_version
+// in particular, or the cache key would record a different toolchain's version
+// than the one that did the build.
 _ae_bin() {
-    ab = os.getenv("AETHER")
-    if string.length(ab) == 0 { return "ae" }
-    return ab
+    return bldr._ae_bin()
 }
 
 // _toolchain_version() — first line of `<ae> --version`, where <ae> is the

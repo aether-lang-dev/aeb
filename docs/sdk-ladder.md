@@ -177,16 +177,16 @@ Grammar: aether.program, aether.program_test, aether.driver_test, aether.csrc, a
 
 | sdk | rung | grade | evidence | tool string | grammar entry |
 |---|---|---|---|---|---|
-| aether | compile | delegated | lib/aether/module.ae:1759 | `${ae_bin} build` | aether.program (default shell-out) |
-| aether | compile | aeb | lib/aether/module.ae:2778 | `${aetherc}` | aether.program (manual aetherc+gcc path) |
-| aether | compile | aeb | lib/aether/module.ae:1975 | `${_link_cc()}` | aether.program (manual link) |
-| aether | compile | aeb | lib/aether/module.ae:1857 | `${aetherc} --emit=lib` | aether regen (manual path) |
-| aether | test | aeb | lib/aether/module.ae:3745 | `test_run_cmd` | aether.program_test |
-| aether | package | aeb | lib/aether/module.ae:3638 | `cryptography.sha256_file` | aether.emit_binary_package |
-| aether | coverage | delegated | lib/aether/module.ae:1692 | `AEB_COVERAGE` | aether.program (ae build --coverage) |
-| aether | incremental | delegated | lib/aether/module.ae:1759 | `${ae_bin} build` | aether.program (default shell-out) |
-| aether | cache | yes | lib/aether/module.ae:2699 | `cache.available` | aether.program (manual path) |
-| aether | cache | yes | lib/aether/module.ae:2979 | `cache.put` | aether.program (manual path) |
+| aether | compile | delegated | lib/aether/module.ae:1757 | `${ae_bin} build` | aether.program (default shell-out) |
+| aether | compile | aeb | lib/aether/module.ae:2776 | `${aetherc}` | aether.program (manual aetherc+gcc path) |
+| aether | compile | aeb | lib/aether/module.ae:1973 | `${_link_cc()}` | aether.program (manual link) |
+| aether | compile | aeb | lib/aether/module.ae:1855 | `${aetherc} --emit=lib` | aether regen (manual path) |
+| aether | test | aeb | lib/aether/module.ae:3743 | `test_run_cmd` | aether.program_test |
+| aether | package | aeb | lib/aether/module.ae:3636 | `cryptography.sha256_file` | aether.emit_binary_package |
+| aether | coverage | delegated | lib/aether/module.ae:1690 | `AEB_COVERAGE` | aether.program (ae build --coverage) |
+| aether | incremental | delegated | lib/aether/module.ae:1757 | `${ae_bin} build` | aether.program (default shell-out) |
+| aether | cache | yes | lib/aether/module.ae:2697 | `cache.available` | aether.program (manual path) |
+| aether | cache | yes | lib/aether/module.ae:2977 | `cache.put` | aether.program (manual path) |
 
 ### angular
 

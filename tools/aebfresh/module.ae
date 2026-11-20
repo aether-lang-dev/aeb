@@ -14,6 +14,15 @@
 // start of a line), the way aeb reads dep(); std.* and contrib.* come from
 // the toolchain and are not files here.
 //
+// A helper is also built BY something: the Aether toolchain of the aeb
+// invocation that built it. Switching toolchains (an `ae upgrade`, AETHER set
+// to another install, AEB_TOOLCHAIN=pinned) must not keep running helpers
+// another toolchain built, so each build stamps `<bin>.toolchain` with the
+// toolchain's identity (bldr._toolchain_id: the aetherc it resolves, "<path>
+// (<version>)"), and a helper whose stamp is missing or names another
+// toolchain, or whose aetherc is newer than it (a dev tree rebuilt at the same
+// version), is stale too.
+//
 // The trampoline (`aeb`) has the same rule in bash for the helpers it builds
 // before any Aether tool exists; keep the two in step.
 
@@ -22,7 +31,7 @@ import std.file
 import std.fs
 import std.io
 
-exports(inputs, stale)
+exports(inputs, stale, mark)
 
 _has_line(text: string, line: string) {
     if string.length(text) == 0 { return 0 }
@@ -94,11 +103,39 @@ inputs(aebhome: string, src: string) {
     return out
 }
 
-// stale(aebhome, bin, src) — 1 when the helper `bin`, built from `src`,
-// needs building: it is not there, or one of its inputs is newer than it.
-stale(aebhome: string, bin: string, src: string) {
+// _stamp(bin) — where the toolchain identity `bin` was built by is kept.
+_stamp(bin: string) {
+    return string.concat(bin, ".toolchain")
+}
+
+// _compiler_of(toolchain) — the aetherc path in a "<path> (<version>)"
+// identity, "" when it names none.
+_compiler_of(toolchain: string) {
+    n = string.length(toolchain)
+    i = n - 1
+    while i > 0 {
+        if string.equals(string.substring(toolchain, i, i + 1), "(") == 1 {
+            return string.trim(string.substring(toolchain, 0, i))
+        }
+        i = i - 1
+    }
+    return ""
+}
+
+// stale(aebhome, bin, src, toolchain) — 1 when the helper `bin`, built from
+// `src`, needs building: it is not there, it was built by another toolchain
+// than `toolchain` (or no stamp says which), its aetherc is newer than it, or
+// one of its inputs is newer than it.
+stale(aebhome: string, bin: string, src: string, toolchain: string) {
     if file.exists(bin) == 0 { return 1 }
+    stamp, serr = io.read_file(_stamp(bin))
+    if string.length(serr) > 0 { return 1 }
+    if string.equals(string.trim(stamp), toolchain) == 0 { return 1 }
     bin_mt = fs.file_mtime(bin)
+    cc = _compiler_of(toolchain)
+    if string.length(cc) > 0 && file.exists(cc) == 1 {
+        if fs.file_mtime(cc) > bin_mt { return 1 }
+    }
     ins = string.split(inputs(aebhome, src), "\n")
     n = string.array_size(ins)
     old = 0
@@ -112,4 +149,12 @@ stale(aebhome: string, bin: string, src: string) {
     }
     string.array_free(ins)
     return old
+}
+
+// mark(bin, toolchain) — record that `bin` was just built by `toolchain`.
+// A tree that cannot be written to keeps no stamp, and its helper is then
+// rebuilt or kept as the caller's build of it decides.
+mark(bin: string, toolchain: string) {
+    _w = io.write_file(_stamp(bin), string.concat(toolchain, "\n"))
+    return 0
 }

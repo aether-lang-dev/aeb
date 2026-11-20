@@ -18,7 +18,7 @@ set -eo pipefail
 # so testing it afterwards can never distinguish the two (it can't; asked and
 # answered by a confused trace).
 _aeb_user_pinned_aether=0
-if [ -n "${AETHER+x}" ]; then _aeb_user_pinned_aether=1; fi
+if [ -n "${AETHER:-}" ]; then _aeb_user_pinned_aether=1; fi
 AETHER="${AETHER:-ae}"
 AEB_HOME="$(cd "$(dirname "$0")" && pwd)"
 export AEB_HOME
@@ -69,29 +69,36 @@ case "$(uname -s 2>/dev/null)" in
         ;;
 esac
 
-# --- aeb's OWN Aether: pinned, private, never the user's ------------------
+# --- ONE Aether toolchain per aeb invocation --------------------------------
 #
-# TWO Aethers, deliberately (asks/two-aethers-pinned-toolchain-vs-declared-dep.md):
+# Whatever `ae`/`aetherc` compiles a program, that program's runtime
+# (libaether.a), stdlib (.ae modules) and headers must come from the SAME
+# install. aeb compiles two kinds of program — the orchestrator built from the
+# project's .ae build files (aeb-link) and the project's own programs
+# (aether.program and friends, inside the orchestrator) — and both use the one
+# toolchain chosen here, in this order:
 #
-#   1. THIS one compiles `.foo.ae` build files into aeb's orchestrator. It is
-#      an implementation detail of the aeb release — like the gcc that built
-#      your `make` binary — so aeb pins it (AETHER_PIN) and will fetch it into
-#      its own cache if what is on PATH is too old.
-#   2. The user's `ae` compiles the USER's program, inside aether.program().
-#      Untouched. Never shadowed, never upgraded, never on aeb's conscience.
-#      `which ae` answers the same before and after aeb runs.
+#   AETHER=<path to ae>    explicit — you chose, aeb obeys, no floor check
+#   AEB_TOOLCHAIN=pinned   aeb's private copy of AETHER_FETCH (fetched into
+#                          its cache on first use), for a build that does not
+#                          depend on what is installed
+#   (default)              the `ae` on PATH, when it is at least AETHER_PIN;
+#                          otherwise aeb's private copy, fetched if needed
 #
-# The failure this removes: aeb-driver calls os.spawn_proc (aether 0.442+).
-# On a box with 0.413 that surfaced as `E0301: Undefined function
-# 'os.spawn_proc'` inside a GENERATED file the user never wrote — followed by
-# a human bisecting Aether versions. Now aeb just fetches what it needs.
+# Off switches for the fetch: AEB_NO_FETCH=1 never downloads (a missing
+# toolchain is then an error); AEB_FETCH_SOURCE=1 skips the prebuilt tarball
+# and builds from source. The private copy lives in aeb's cache
+# ($AEB_CACHE_DIR, else $XDG_CACHE_HOME/aeb, else ~/.cache/aeb), never on PATH:
+# `which ae` answers the same before and after aeb runs.
 #
-# Off switches, in precedence order:
-#   AETHER=<path>          explicit — you chose, aeb obeys, no pin check
-#   AEB_NO_FETCH=1         never download; assert the floor and explain
-#   AEB_FETCH_SOURCE=1     skip the prebuilt tarball, build from source.
-#                          For reproducing a source-only node, or when you
-#                          do not want to trust an unchecksummed download.
+# The chosen toolchain is handed down explicitly: AETHER becomes the absolute
+# path of its `ae` and AETHER_HOME its root, exported for every process this
+# build starts. AETHER_HOME is part of the choice because `ae` and `aetherc`
+# both read it ahead of their own location: an inherited AETHER_HOME naming
+# another install made aeb's private 0.898.0 aetherc compile that install's
+# newer stdlib and then link 0.898.0's libaether.a (`undefined reference to
+# dir_list_error`, 2026-11-20). When the `ae` you chose would itself be steered
+# by AETHER_HOME to an aetherc of another version, aeb stops and names both.
 _aeb_pin_file="$AEB_HOME/AETHER_PIN"
 _aeb_pin=""
 if [ -f "$_aeb_pin_file" ]; then
@@ -112,178 +119,279 @@ _aeb_vnum() {
     printf '%s' "$(( _vmaj * 1000 + _vmin ))"
 }
 
-# Only when the user has NOT pinned $AETHER themselves and we know our floor.
-if [ -n "$_aeb_pin" ] && [ "$_aeb_user_pinned_aether" = "0" ]; then
-    _aeb_cache="${AEB_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/aeb}"
-    # WHICH release to fetch is a separate question from the FLOOR.
-    # AETHER_PIN is the oldest Aether that can compile aeb's sources;
-    # AETHER_FETCH (optional) names a known-good release to download. They
-    # differ over glibc: releases built on ubuntu-latest carry a GLIBC_2.38
-    # floor whose `aetherc` dies on Debian 12 (2.36), while `ae --version`
-    # still succeeds — so a version-only probe calls it healthy. Aether's
-    # release.yml now pins ubuntu-22.04 (glibc 2.35).
+_aeb_cache="${AEB_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/aeb}"
+# WHICH release to fetch is a separate question from the FLOOR. AETHER_PIN is
+# the oldest Aether that can compile aeb's sources; AETHER_FETCH (optional)
+# names a known-good release to download. They differ over glibc: releases
+# built on ubuntu-latest carry a GLIBC_2.38 floor whose `aetherc` dies on
+# Debian 12 (2.36), while `ae --version` still succeeds — so a version-only
+# probe calls it healthy. Aether's release.yml now pins ubuntu-22.04.
+#
+# The cache dir is keyed on the FETCH version, not the floor: keying it on the
+# floor made a bumped AETHER_FETCH silently reuse the older tree (seen:
+# "fetching 0.452.0" landing in .../aether-0.447.0).
+_aeb_fetch_ver="$_aeb_pin"
+if [ -f "$AEB_HOME/AETHER_FETCH" ]; then
+    _aeb_fv=$(grep -v '^#' "$AEB_HOME/AETHER_FETCH" 2>/dev/null | tr -d '[:space:]')
+    if [ -n "$_aeb_fv" ]; then _aeb_fetch_ver="$_aeb_fv"; fi
+fi
+_aeb_priv="$_aeb_cache/toolchain/aether-$_aeb_fetch_ver"
+
+# _aeb_fetch_private — put AETHER_FETCH into $_aeb_priv. 0 when
+# $_aeb_priv/bin/ae is usable afterwards.
+_aeb_fetch_private() {
+    mkdir -p "$_aeb_cache/toolchain"
+    _aeb_ok=0
+    # The log lives OUTSIDE $_aeb_priv on purpose: the prebuilt path rm -rf's
+    # that dir to swap in the staged tree, which would take an inside-log with
+    # it — and the failure message points users at this file precisely when
+    # things went wrong.
+    _aeb_log="$_aeb_cache/toolchain/fetch-$_aeb_fetch_ver.log"
+    : >"$_aeb_log" 2>/dev/null || true
+
+    # --- Attempt 1: the PREBUILT release tarball ---------------------------
     #
-    # The cache dir is keyed on the FETCH version, not the floor: keying it
-    # on the floor made a bumped AETHER_FETCH silently reuse the older tree
-    # (seen: "fetching 0.452.0" landing in .../aether-0.447.0).
-    _aeb_fetch_ver="$_aeb_pin"
-    if [ -f "$AEB_HOME/AETHER_FETCH" ]; then
-        _aeb_fv=$(grep -v '^#' "$AEB_HOME/AETHER_FETCH" 2>/dev/null | tr -d '[:space:]')
-        if [ -n "$_aeb_fv" ]; then _aeb_fetch_ver="$_aeb_fv"; fi
+    # Measured on one box, v0.472.0: prebuilt = under 1 s; source build via
+    # get.sh = 69 s AND needs a C compiler + GNU make on the node. Upstream
+    # publishes linux-x86_64, macos-arm64, macos-x86_64, windows-x86_64 and
+    # (since 0.472.0) freebsd-x86_64.
+    #
+    # This is attempt ONE, not the only path, because the asset set varies by
+    # release and by platform: there is no linux-arm64 asset at all (a Pi or a
+    # Graviton node has nothing to download). Anything unmapped or unpublished
+    # falls through to the source build below, which is why that path stays.
+    #
+    # NOT VERIFIED AGAINST A PUBLISHED CHECKSUM — upstream ships no .sha256
+    # alongside these assets (checked). So the integrity gate here is the
+    # COMPILE PROBE below, not a hash. This trusts TLS + GitHub, the same
+    # trust the source path already places in the tarball it downloads.
+    _aeb_os=""
+    _aeb_ext="tar.gz"
+    case "$(uname -s)" in
+        Linux)   _aeb_os="linux" ;;
+        Darwin)  _aeb_os="macos" ;;
+        FreeBSD) _aeb_os="freebsd" ;;
+        # MSYS/MinGW/Cygwin all report a compound name here.
+        MINGW*|MSYS*|CYGWIN*) _aeb_os="windows"; _aeb_ext="zip" ;;
+    esac
+    _aeb_arch=""
+    case "$(uname -m)" in
+        x86_64|amd64)  _aeb_arch="x86_64" ;;
+        arm64|aarch64) _aeb_arch="arm64" ;;
+    esac
+    # macos-arm64 exists; linux-arm64 does not. Only ask for a combination
+    # upstream actually publishes — a 404 costs a round-trip and muddies the
+    # fetch log for no gain.
+    _aeb_asset=""
+    if [ -n "$_aeb_os" ] && [ -n "$_aeb_arch" ]; then
+        case "$_aeb_os-$_aeb_arch" in
+            linux-x86_64|macos-arm64|macos-x86_64|windows-x86_64|freebsd-x86_64)
+                _aeb_asset="aether-$_aeb_fetch_ver-$_aeb_os-$_aeb_arch.$_aeb_ext" ;;
+        esac
     fi
-    _aeb_priv="$_aeb_cache/toolchain/aether-$_aeb_fetch_ver"
-    if [ -x "$_aeb_priv/bin/ae" ]; then
-        # Already fetched on a previous run. Silent from here on.
-        AETHER="$_aeb_priv/bin/ae"
-    else
-        _aeb_have=$(command -v ae >/dev/null 2>&1 && ae --version 2>/dev/null | head -1 | sed -e 's/^ae //' -e 's/ .*$//' || printf '')
-        if [ "$(_aeb_vnum "$_aeb_have")" -lt "$(_aeb_vnum "$_aeb_pin")" ]; then
-            if [ "${AEB_NO_FETCH:-}" = "1" ]; then
-                echo "aeb: this aeb needs aether >= $_aeb_pin to compile its own build files" >&2
-                echo "aeb:   found ${_aeb_have:-none} on PATH; AEB_NO_FETCH=1 so nothing was fetched." >&2
-                echo "aeb:   install it, or unset AEB_NO_FETCH to let aeb fetch a private copy," >&2
-                echo "aeb:   or set AETHER=/path/to/ae to choose one explicitly." >&2
-                exit 2
-            fi
-            echo "aeb: fetching aether $_aeb_fetch_ver for aeb's own use (one-time, $_aeb_priv)" >&2
-            echo "aeb:   your own \`ae\` (${_aeb_have:-none}) is left alone." >&2
-            mkdir -p "$_aeb_cache/toolchain"
-            _aeb_ok=0
-            # The log lives OUTSIDE $_aeb_priv on purpose: the prebuilt path
-            # rm -rf's that dir to swap in the staged tree, which would take
-            # an inside-log with it — and the failure message below points
-            # users at this file precisely when things went wrong.
-            _aeb_log="$_aeb_cache/toolchain/fetch-$_aeb_fetch_ver.log"
-            : >"$_aeb_log" 2>/dev/null || true
 
-            # --- Attempt 1: the PREBUILT release tarball -------------------
-            #
-            # Measured on one box, v0.472.0: prebuilt = under 1 s; source
-            # build via get.sh = 69 s AND needs a C compiler + GNU make on
-            # the node. Upstream publishes linux-x86_64, macos-arm64,
-            # macos-x86_64, windows-x86_64 and (since 0.472.0) freebsd-x86_64.
-            #
-            # This is attempt ONE, not the only path, because the asset set
-            # varies by release and by platform: freebsd appeared only in
-            # 0.472.0, and there is no linux-arm64 asset at all (a Pi or a
-            # Graviton node has nothing to download). Anything unmapped or
-            # unpublished falls through to the source build below, which is
-            # why that path stays.
-            #
-            # NOT VERIFIED AGAINST A PUBLISHED CHECKSUM — upstream ships no
-            # .sha256 alongside these assets (checked). So the integrity gate
-            # here is the COMPILE PROBE below, not a hash. Stated plainly
-            # rather than implied: this trusts TLS + GitHub, the same trust
-            # the source path already places in the tarball it downloads.
-            _aeb_os=""
-            _aeb_ext="tar.gz"
-            case "$(uname -s)" in
-                Linux)   _aeb_os="linux" ;;
-                Darwin)  _aeb_os="macos" ;;
-                FreeBSD) _aeb_os="freebsd" ;;
-                # MSYS/MinGW/Cygwin all report a compound name here.
-                MINGW*|MSYS*|CYGWIN*) _aeb_os="windows"; _aeb_ext="zip" ;;
-            esac
-            _aeb_arch=""
-            case "$(uname -m)" in
-                x86_64|amd64)  _aeb_arch="x86_64" ;;
-                arm64|aarch64) _aeb_arch="arm64" ;;
-            esac
-            # macos-arm64 exists; linux-arm64 does not. Only ask for a
-            # combination upstream actually publishes — a 404 costs a
-            # round-trip and muddies the fetch log for no gain.
-            _aeb_asset=""
-            if [ -n "$_aeb_os" ] && [ -n "$_aeb_arch" ]; then
-                case "$_aeb_os-$_aeb_arch" in
-                    linux-x86_64|macos-arm64|macos-x86_64|windows-x86_64|freebsd-x86_64)
-                        _aeb_asset="aether-$_aeb_fetch_ver-$_aeb_os-$_aeb_arch.$_aeb_ext" ;;
-                esac
-            fi
-
-            if [ -n "$_aeb_asset" ] && [ "${AEB_FETCH_SOURCE:-}" != "1" ]; then
-                _aeb_tmp="$_aeb_cache/toolchain/.dl-$_aeb_fetch_ver.$$"
-                rm -rf "$_aeb_tmp"; mkdir -p "$_aeb_tmp"
-                printf 'trying prebuilt asset: %s\n' "$_aeb_asset" >>"$_aeb_log" 2>&1
-                # Plain release URL first, then the REST API (tools/gh-release-fetch.sh):
-                # the download endpoint can fail alone, as it did on 2026-11-09.
-                if _aeb_gh_fetch aether-lang-dev/aether "v$_aeb_fetch_ver" "$_aeb_asset" \
-                     "$_aeb_tmp/$_aeb_asset" >>"$_aeb_log" 2>&1; then
-                    # NO --strip-components: these archives have no wrapper
-                    # dir, they extract bin/ include/ lib/ share/ directly.
-                    # Stripping a level flattens bin/ae to ./ae and the probe
-                    # below then fails — this exact bug hit release.yml's
-                    # verify step on its first CI run.
-                    if [ "$_aeb_ext" = "zip" ]; then
-                        ( cd "$_aeb_tmp" && unzip -q "$_aeb_asset" ) >>"$_aeb_log" 2>&1 || true
-                    else
-                        tar xzf "$_aeb_tmp/$_aeb_asset" -C "$_aeb_tmp" >>"$_aeb_log" 2>&1 || true
-                    fi
-                    # PROBE BY COMPILING, not by `--version`. A prebuilt can
-                    # pass the version banner and still be unable to compile:
-                    # v0.449.0's aetherc needed GLIBC_2.38 and died on Debian
-                    # 12 (glibc 2.36) while `ae --version` answered happily.
-                    # A version-only check would install that and hand the
-                    # user a toolchain that fails at first build. Since there
-                    # is no published checksum, this probe is ALSO the only
-                    # integrity signal we get — so it is not optional.
-                    if [ -x "$_aeb_tmp/bin/ae" ]; then
-                        printf 'main() { println("aeb_probe_ok") \n return 0 }\n' \
-                            > "$_aeb_tmp/_probe.ae"
-                        if "$_aeb_tmp/bin/ae" run "$_aeb_tmp/_probe.ae" 2>>"$_aeb_log" \
-                             | grep -q aeb_probe_ok; then
-                            rm -f "$_aeb_tmp/_probe.ae" "$_aeb_tmp/$_aeb_asset"
-                            # Populate the real dir only after the probe
-                            # passes, so a half-extracted or broken toolchain
-                            # never becomes the cached one a later run trusts
-                            # (the `-x $_aeb_priv/bin/ae` short-circuit above
-                            # would happily reuse it forever).
-                            rm -rf "$_aeb_priv"
-                            if mv "$_aeb_tmp" "$_aeb_priv" 2>>"$_aeb_log"; then
-                                AETHER="$_aeb_priv/bin/ae"
-                                _aeb_ok=1
-                                echo "aeb: aether $_aeb_fetch_ver ready (prebuilt $_aeb_os-$_aeb_arch)." >&2
-                            fi
-                        fi
-                    fi
-                fi
-                rm -rf "$_aeb_tmp"
-                if [ "$_aeb_ok" = "0" ]; then
-                    echo "aeb:   no usable prebuilt for $_aeb_os-$_aeb_arch; building from source (~1-2 min)." >&2
-                fi
-            elif [ "${AEB_FETCH_SOURCE:-}" = "1" ]; then
-                echo "aeb:   AEB_FETCH_SOURCE=1 — skipping the prebuilt, building from source." >&2
+    if [ -n "$_aeb_asset" ] && [ "${AEB_FETCH_SOURCE:-}" != "1" ]; then
+        _aeb_tmp="$_aeb_cache/toolchain/.dl-$_aeb_fetch_ver.$$"
+        rm -rf "${_aeb_tmp:?}"; mkdir -p "$_aeb_tmp"
+        printf 'trying prebuilt asset: %s\n' "$_aeb_asset" >>"$_aeb_log" 2>&1
+        # Plain release URL first, then the REST API (tools/gh-release-fetch.sh):
+        # the download endpoint can fail alone, as it did on 2026-11-09.
+        if _aeb_gh_fetch aether-lang-dev/aether "v$_aeb_fetch_ver" "$_aeb_asset" \
+             "$_aeb_tmp/$_aeb_asset" >>"$_aeb_log" 2>&1; then
+            # NO --strip-components: these archives have no wrapper dir, they
+            # extract bin/ include/ lib/ share/ directly. Stripping a level
+            # flattens bin/ae to ./ae and the probe below then fails.
+            if [ "$_aeb_ext" = "zip" ]; then
+                ( cd "$_aeb_tmp" && unzip -q "$_aeb_asset" ) >>"$_aeb_log" 2>&1 || true
             else
-                echo "aeb:   no prebuilt published for $(uname -s)/$(uname -m); building from source (~1-2 min)." >&2
+                tar xzf "$_aeb_tmp/$_aeb_asset" -C "$_aeb_tmp" >>"$_aeb_log" 2>&1 || true
             fi
-
-            # --- Attempt 2: build from source via upstream's get.sh --------
-            #
-            # The fallback that makes the above safe to try: it works on any
-            # platform upstream has no asset for (linux-arm64 today), and on
-            # any release whose asset set is incomplete. Costs ~69 s and a C
-            # compiler, which is the price of not being locked to the five
-            # published targets.
-            if [ "$_aeb_ok" = "0" ]; then
-                mkdir -p "$_aeb_priv"
-                _aeb_get="$_aeb_cache/toolchain/get-$_aeb_fetch_ver.sh"
-                if curl -sSL -o "$_aeb_get" \
-                     "https://raw.githubusercontent.com/aether-lang-dev/aether/v$_aeb_fetch_ver/get.sh" 2>/dev/null \
-                   && AETHER_REF="v$_aeb_fetch_ver" PREFIX="$_aeb_priv" sh "$_aeb_get" >>"$_aeb_log" 2>&1 \
-                   && [ -x "$_aeb_priv/bin/ae" ]; then
-                    AETHER="$_aeb_priv/bin/ae"
-                    _aeb_ok=1
-                    echo "aeb: aether $_aeb_fetch_ver ready (built from source)." >&2
+            # PROBE BY COMPILING, not by `--version`. A prebuilt can pass the
+            # version banner and still be unable to compile: v0.449.0's aetherc
+            # needed GLIBC_2.38 and died on Debian 12 while `ae --version`
+            # answered happily. Since there is no published checksum, this
+            # probe is ALSO the only integrity signal we get. It runs with
+            # AETHER_HOME naming the staged tree, so it compiles with that
+            # tree and not with whatever an inherited AETHER_HOME names.
+            if [ -x "$_aeb_tmp/bin/ae" ]; then
+                printf 'main() { println("aeb_probe_ok") \n return 0 }\n' \
+                    > "$_aeb_tmp/_probe.ae"
+                if AETHER_HOME="$_aeb_tmp" "$_aeb_tmp/bin/ae" run "$_aeb_tmp/_probe.ae" 2>>"$_aeb_log" \
+                     | grep -q aeb_probe_ok; then
+                    rm -f "${_aeb_tmp:?}/_probe.ae" "${_aeb_tmp:?}/${_aeb_asset:?}"
+                    # Populate the real dir only after the probe passes, so a
+                    # half-extracted or broken toolchain never becomes the
+                    # cached one a later run trusts.
+                    rm -rf "${_aeb_priv:?}"
+                    if mv "$_aeb_tmp" "$_aeb_priv" 2>>"$_aeb_log"; then
+                        _aeb_ok=1
+                        echo "aeb: aether $_aeb_fetch_ver ready (prebuilt $_aeb_os-$_aeb_arch)." >&2
+                    fi
                 fi
-            fi
-
-            if [ "$_aeb_ok" = "0" ]; then
-                echo "aeb: could not fetch aether $_aeb_fetch_ver (see $_aeb_log)." >&2
-                echo "aeb:   falling back to ${_aeb_have:-ae} on PATH — the build may fail with" >&2
-                echo "aeb:   'E0301: Undefined function' if it lacks a primitive aeb needs." >&2
             fi
         fi
+        rm -rf "${_aeb_tmp:?}"
+        if [ "$_aeb_ok" = "0" ]; then
+            echo "aeb:   no usable prebuilt for $_aeb_os-$_aeb_arch; building from source (~1-2 min)." >&2
+        fi
+    elif [ "${AEB_FETCH_SOURCE:-}" = "1" ]; then
+        echo "aeb:   AEB_FETCH_SOURCE=1 — skipping the prebuilt, building from source." >&2
+    else
+        echo "aeb:   no prebuilt published for $(uname -s)/$(uname -m); building from source (~1-2 min)." >&2
+    fi
+
+    # --- Attempt 2: build from source via upstream's get.sh ----------------
+    #
+    # The fallback that makes the above safe to try: it works on any platform
+    # upstream has no asset for (linux-arm64 today), and on any release whose
+    # asset set is incomplete. Costs ~69 s and a C compiler.
+    if [ "$_aeb_ok" = "0" ]; then
+        mkdir -p "$_aeb_priv"
+        _aeb_get="$_aeb_cache/toolchain/get-$_aeb_fetch_ver.sh"
+        if curl -sSL -o "$_aeb_get" \
+             "https://raw.githubusercontent.com/aether-lang-dev/aether/v$_aeb_fetch_ver/get.sh" 2>/dev/null \
+           && env -u AETHER_HOME AETHER_REF="v$_aeb_fetch_ver" PREFIX="$_aeb_priv" sh "$_aeb_get" >>"$_aeb_log" 2>&1 \
+           && [ -x "$_aeb_priv/bin/ae" ]; then
+            _aeb_ok=1
+            echo "aeb: aether $_aeb_fetch_ver ready (built from source)." >&2
+        fi
+    fi
+
+    if [ "$_aeb_ok" = "0" ]; then
+        echo "aeb: could not fetch aether $_aeb_fetch_ver (see $_aeb_log)." >&2
+        return 1
+    fi
+    return 0
+}
+
+# _aeb_ae_version AE — the version `AE --version` reports, "" if none.
+_aeb_ae_version() {
+    command -v "$1" >/dev/null 2>&1 || return 0
+    { "$1" --version 2>/dev/null || true; } | sed -n -e '1s/^ae \([^ ]*\).*$/\1/p' || true
+}
+
+# Which toolchain: _aeb_tc_kind is "user" (AETHER), "pinned" (aeb's private
+# copy) or "path" (the `ae` on PATH).
+case "${AEB_TOOLCHAIN:-}" in
+    ""|pinned) ;;
+    *) echo "aeb: AEB_TOOLCHAIN='${AEB_TOOLCHAIN}' is not understood; the one value is 'pinned'" >&2
+       echo "aeb:   (leave it unset to build with the ae on PATH, or set AETHER=/path/to/ae)." >&2
+       exit 2 ;;
+esac
+_aeb_tc_kind=""
+if [ "$_aeb_user_pinned_aether" = "1" ]; then
+    if [ "${AEB_TOOLCHAIN:-}" = "pinned" ]; then
+        echo "aeb: AETHER=$AETHER and AEB_TOOLCHAIN=pinned both choose a toolchain; set one of them." >&2
+        exit 2
+    fi
+    _aeb_tc_kind="user"
+elif [ "${AEB_TOOLCHAIN:-}" = "pinned" ]; then
+    if [ -z "$_aeb_fetch_ver" ]; then
+        echo "aeb: AEB_TOOLCHAIN=pinned, but this aeb has no AETHER_PIN/AETHER_FETCH to pin to." >&2
+        exit 2
+    fi
+    if [ ! -x "$_aeb_priv/bin/ae" ]; then
+        if [ "${AEB_NO_FETCH:-}" = "1" ]; then
+            echo "aeb: AEB_TOOLCHAIN=pinned needs aether $_aeb_fetch_ver in $_aeb_priv," >&2
+            echo "aeb:   and AEB_NO_FETCH=1 so nothing was fetched." >&2
+            exit 2
+        fi
+        echo "aeb: fetching aether $_aeb_fetch_ver (AEB_TOOLCHAIN=pinned; one-time, $_aeb_priv)" >&2
+        _aeb_fetch_private || exit 2
+    fi
+    AETHER="$_aeb_priv/bin/ae"
+    _aeb_tc_kind="pinned"
+else
+    _aeb_have=$(_aeb_ae_version ae)
+    if [ -n "$_aeb_pin" ] && [ "$(_aeb_vnum "$_aeb_have")" -lt "$(_aeb_vnum "$_aeb_pin")" ]; then
+        if [ -x "$_aeb_priv/bin/ae" ]; then
+            AETHER="$_aeb_priv/bin/ae"
+            _aeb_tc_kind="pinned"
+        elif [ "${AEB_NO_FETCH:-}" = "1" ]; then
+            echo "aeb: this aeb needs aether >= $_aeb_pin" >&2
+            echo "aeb:   found ${_aeb_have:-none} on PATH; AEB_NO_FETCH=1 so nothing was fetched." >&2
+            echo "aeb:   install it, or unset AEB_NO_FETCH to let aeb fetch a private copy," >&2
+            echo "aeb:   or set AETHER=/path/to/ae to choose one explicitly." >&2
+            exit 2
+        else
+            echo "aeb: the ae on PATH (${_aeb_have:-none}) is older than this aeb needs (>= $_aeb_pin);" >&2
+            echo "aeb:   fetching aether $_aeb_fetch_ver into aeb's cache and building with it (one-time, $_aeb_priv)." >&2
+            echo "aeb:   your own \`ae\` is left alone." >&2
+            if _aeb_fetch_private; then
+                AETHER="$_aeb_priv/bin/ae"
+                _aeb_tc_kind="pinned"
+            else
+                echo "aeb:   falling back to ${_aeb_have:-ae} on PATH — the build may fail with" >&2
+                echo "aeb:   'E0301: Undefined function' if it lacks a primitive aeb needs." >&2
+                _aeb_tc_kind="path"
+            fi
+        fi
+    else
+        _aeb_tc_kind="path"
     fi
 fi
+
+# --- The chosen toolchain's root, and the one handed down -------------------
+#
+# `ae --version` names the aetherc that `ae` itself resolves in this
+# environment ("aetherc:  <path> (<version>)"): that is the authority on where
+# its compiler, runtime and stdlib come from. The private copy is asked with
+# AETHER_HOME naming it: the user's AETHER_HOME is about their own `ae`, not
+# aeb's. The root found is exported as AETHER_HOME and asked again, because an
+# AETHER_HOME with a current/ inside makes `ae` look there first; the answer
+# is settled when asking again names the same aetherc.
+_aeb_ae_abs="$AETHER"
+case "$_aeb_ae_abs" in
+    */*) if [ -x "$_aeb_ae_abs" ]; then
+             _aeb_ae_abs="$(cd "$(dirname "$_aeb_ae_abs")" && pwd)/$(basename "$_aeb_ae_abs")"
+         fi ;;
+    *)   _aeb_ae_abs="$(command -v "$_aeb_ae_abs" 2>/dev/null || printf '%s' "$_aeb_ae_abs")" ;;
+esac
+if [ "$_aeb_tc_kind" = "pinned" ]; then
+    AETHER_HOME="$_aeb_priv"
+    export AETHER_HOME
+fi
+_aeb_tc_ver=$(_aeb_ae_version "$_aeb_ae_abs")
+_aeb_tc_line=""
+_aeb_tc_path=""
+_aeb_tc_root=""
+_aeb_i=0
+while [ "$_aeb_i" -lt 3 ]; do
+    _aeb_i=$((_aeb_i + 1))
+    _aeb_l=$({ "$_aeb_ae_abs" --version 2>/dev/null || true; } | sed -n 's/^aetherc:[[:space:]]*//p' | sed -n 1p || true)
+    [ -n "$_aeb_l" ] || break
+    _aeb_lp="${_aeb_l% (*}"
+    _aeb_lv="${_aeb_l##* (}"; _aeb_lv="${_aeb_lv%)}"
+    if [ -n "$_aeb_tc_ver" ] && [ -n "$_aeb_lv" ] && [ "$_aeb_lv" != "$_aeb_tc_ver" ]; then
+        echo "aeb: refusing to mix two Aether toolchains in one build:" >&2
+        echo "aeb:   ae       $_aeb_tc_ver  $_aeb_ae_abs" >&2
+        echo "aeb:   aetherc  $_aeb_lv  $_aeb_lp" >&2
+        echo "aeb:   that ae takes its aetherc, runtime and stdlib from AETHER_HOME=${AETHER_HOME:-}." >&2
+        echo "aeb:   unset AETHER_HOME, or set AETHER=$(dirname "$_aeb_lp")/ae to build with $_aeb_lv." >&2
+        exit 2
+    fi
+    if [ "$_aeb_l" = "$_aeb_tc_line" ]; then break; fi
+    _aeb_tc_line="$_aeb_l"
+    _aeb_tc_path="$_aeb_lp"
+    case "$_aeb_lp" in
+        */*) _aeb_tc_root="$(cd "$(dirname "$_aeb_lp")/.." 2>/dev/null && pwd)" ;;
+        *)   _aeb_tc_root="" ;;
+    esac
+    [ -n "$_aeb_tc_root" ] || break
+    AETHER_HOME="$_aeb_tc_root"
+    export AETHER_HOME
+done
+AETHER="$_aeb_ae_abs"
+export AETHER
+# The identity of this toolchain, which the helper tools aeb builds for itself
+# are stamped with (aeb_fresh below, tools/aebfresh): the aetherc it resolves,
+# else (an ae too old to say) its own version line.
+_aeb_tc_id="$_aeb_tc_line"
+[ -n "$_aeb_tc_id" ] || _aeb_tc_id="ae ${_aeb_tc_ver:-unknown}"
+# A memo a parent aeb build left in the environment names the parent's
+# toolchain; this build asks its own.
+unset _AEB_AETHER_VERSION_CACHE
+
 # Absolute path to THIS trampoline, so a tool that needs to re-invoke aeb
 # (e.g. aeb-remote running `aeb --prereqs <target>` to derive a toolchain
 # image, ladder Rung 3) hits the same aeb, not a different one on PATH.
@@ -324,6 +432,25 @@ if [[ "${1:-}" == "--version" ]]; then
     exit 0
 fi
 
+# --- --toolchain: which Aether this aeb builds with, and why ---
+# The one toolchain chosen above, as every compile and link of this build
+# would use it. `make install` reads the aetherc line to stamp the helpers it
+# prebuilds (see aeb_fresh).
+if [[ "${1:-}" == "--toolchain" ]]; then
+    case "$_aeb_tc_kind" in
+        user)   _aeb_why="AETHER" ;;
+        path)   _aeb_why="the ae on PATH" ;;
+        pinned) if [[ "${AEB_TOOLCHAIN:-}" == "pinned" ]]; then _aeb_why="AEB_TOOLCHAIN=pinned"
+                else _aeb_why="aeb's pinned copy (the ae on PATH is older than AETHER_PIN $_aeb_pin, or absent)"; fi ;;
+    esac
+    echo "aeb toolchain: ${_aeb_why}"
+    echo "ae       $AETHER (${_aeb_tc_ver:-unknown})"
+    echo "aetherc  ${_aeb_tc_line:-unknown}"
+    echo "root     ${_aeb_tc_root:-unknown}"
+    echo "id       $_aeb_tc_id"
+    exit 0
+fi
+
 # Auto-detect podman socket for TestContainers
 if [[ -z "${DOCKER_HOST:-}" ]] && [[ -S "/run/user/$(id -u)/podman/podman.sock" ]]; then
     export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
@@ -341,14 +468,19 @@ if [[ "${1:-}" == "--init" ]]; then
     exit 0
 fi
 
-# --- A helper older than what it is built from is rebuilt ---
+# --- A helper older than what it is built from, or built by another
+# --- toolchain, is rebuilt ---
 # Each helper below is built the first time it is needed and kept beside its
 # source. In a checkout that is pulled into, "the binary exists" is not "the
 # binary is current": a helper from before a change goes on doing what it did,
 # silently. aeb_fresh BIN SRC removes BIN when SRC, or any aeb module in SRC's
 # import closure (tools/<m>/module.ae, lib/<m>/module.ae), is newer than it, so
-# the `! -x` test that follows rebuilds it. tools/aebfresh/module.ae is the
-# same rule for the helpers the Aether tools build; keep the two in step.
+# the `! -x` test that follows rebuilds it. The same goes for a helper built
+# by another toolchain than this build's: each build writes BIN.toolchain
+# holding the toolchain identity ($_aeb_tc_id, the aetherc that built it), and
+# a helper whose stamp is missing or names another, or whose aetherc has been
+# rebuilt since, is rebuilt. tools/aebfresh/module.ae is the same rule for the
+# helpers the Aether tools build; keep the two in step.
 aeb_tool_inputs() {
     local todo="$1" seen=$'\n' f m c
     while [[ -n "$todo" ]]; do
@@ -366,16 +498,38 @@ aeb_tool_inputs() {
     done
 }
 aeb_fresh() {
-    local bin="$1" src="$2" f
+    local bin="$1" src="$2" f stamp=""
     [[ -e "$bin" ]] || return 0
+    # A tree that cannot be written to (an install under a system prefix)
+    # keeps what it has: the rm below fails there and the binary stays.
+    [[ -f "$bin.toolchain" ]] && stamp="$(cat "$bin.toolchain" 2>/dev/null || true)"
+    if [[ "$stamp" != "$_aeb_tc_id" ]] \
+       || { [[ -n "$_aeb_tc_path" ]] && [[ "$_aeb_tc_path" -nt "$bin" ]]; }; then
+        rm -f "$bin" 2>/dev/null || true
+        return 0
+    fi
     while IFS= read -r f; do
         if [[ "$f" -nt "$bin" ]]; then
-            # A tree that cannot be written to (an install under a system
-            # prefix) keeps what it has; there the binaries were built with it.
             rm -f "$bin" 2>/dev/null || true
             return 0
         fi
     done < <(aeb_tool_inputs "$src")
+    return 0
+}
+# aeb_mark BIN — stamp BIN as built by this build's toolchain.
+aeb_mark() {
+    printf '%s\n' "$_aeb_tc_id" > "$1.toolchain" 2>/dev/null || true
+}
+# aeb_tool BIN SRC [ae build flags...] — BIN, fresh: rebuilt from SRC (and
+# stamped) when aeb_fresh finds it missing, stale or another toolchain's.
+aeb_tool() {
+    local bin="$1" src="$2"
+    shift 2
+    aeb_fresh "$bin" "$src"
+    if [[ ! -x "$bin" ]]; then
+        "$AETHER" build "$src" "$@" -o "$bin" 2>/dev/null || true
+        if [[ -x "$bin" ]]; then aeb_mark "$bin"; fi
+    fi
     return 0
 }
 
@@ -384,10 +538,7 @@ aeb_fresh() {
 # DAG and adds each visited module's directory to git sparse-checkout.
 if [[ "${1:-}" == "gcheckout" ]]; then
     GCHECKOUT_BIN="$AEB_HOME/tools/gcheckout"
-    aeb_fresh "$GCHECKOUT_BIN" "$AEB_HOME/tools/gcheckout.ae"
-    if [[ ! -x "$GCHECKOUT_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/gcheckout.ae" --lib "$AEB_HOME/tools" -o "$GCHECKOUT_BIN" 2>/dev/null
-    fi
+    aeb_tool "$GCHECKOUT_BIN" "$AEB_HOME/tools/gcheckout.ae" --lib "$AEB_HOME/tools"
     shift
     exec "$GCHECKOUT_BIN" "$@"
 fi
@@ -396,10 +547,7 @@ fi
 # Routes `aeb mvn add <g:a:v>...` to tools/aeb-mvn (see its header).
 if [[ "${1:-}" == "mvn" ]]; then
     MVN_BIN="$AEB_HOME/tools/aeb-mvn"
-    aeb_fresh "$MVN_BIN" "$AEB_HOME/tools/aeb-mvn.ae"
-    if [[ ! -x "$MVN_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/aeb-mvn.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$MVN_BIN" 2>/dev/null
-    fi
+    aeb_tool "$MVN_BIN" "$AEB_HOME/tools/aeb-mvn.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools"
     if [[ ! -x "$MVN_BIN" ]]; then
         echo "aeb: could not build tools/aeb-mvn (run: $AETHER build $AEB_HOME/tools/aeb-mvn.ae --lib $AEB_HOME/lib)" >&2
         exit 1
@@ -806,10 +954,7 @@ if [[ -n "${AEB_RESOLVE_ONLY:-}" ]]; then
         exit 2
     fi
     AEB_SBOM_BIN="$AEB_HOME/tools/aeb-sbom"
-    aeb_fresh "$AEB_SBOM_BIN" "$AEB_HOME/tools/aeb-sbom.ae"
-    if [[ ! -x "$AEB_SBOM_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/aeb-sbom.ae" --lib "$AEB_HOME/lib" -o "$AEB_SBOM_BIN" 2>/dev/null
-    fi
+    aeb_tool "$AEB_SBOM_BIN" "$AEB_HOME/tools/aeb-sbom.ae" --lib "$AEB_HOME/lib"
     _sbom_out="$("$AEB_SBOM_BIN" "$AEB_HOME" "${_sbom_targets[@]}")"
     _sbom_rc=$?
     if [[ $_sbom_rc -ne 0 ]]; then
@@ -839,10 +984,7 @@ if [[ -n "${AEB_TRACE_INTENT:-}" ]]; then
         exit 2
     fi
     AEB_TRACE_BIN="$AEB_HOME/tools/aeb-trace"
-    aeb_fresh "$AEB_TRACE_BIN" "$AEB_HOME/tools/aeb-trace.ae"
-    if [[ ! -x "$AEB_TRACE_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/aeb-trace.ae" --lib "$AEB_HOME/lib" -o "$AEB_TRACE_BIN" 2>/dev/null
-    fi
+    aeb_tool "$AEB_TRACE_BIN" "$AEB_HOME/tools/aeb-trace.ae" --lib "$AEB_HOME/lib"
     # one target per trace (each build leaf is its own intent trace)
     _trace_out="$("$AEB_TRACE_BIN" "$AEB_HOME" "${_trace_targets[0]}")"
     _trace_rc=$?
@@ -865,10 +1007,7 @@ fi
 # remote verdict (exiting with the remote build's pass/fail).
 if [[ -n "${AEB_USE_REMOTE_AGENTS:-}" ]]; then
     AEB_REMOTE_BIN="$AEB_HOME/tools/aeb-remote"
-    aeb_fresh "$AEB_REMOTE_BIN" "$AEB_HOME/tools/aeb-remote.ae"
-    if [[ ! -x "$AEB_REMOTE_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/aeb-remote.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$AEB_REMOTE_BIN" 2>/dev/null
-    fi
+    aeb_tool "$AEB_REMOTE_BIN" "$AEB_HOME/tools/aeb-remote.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools"
     exec "$AEB_REMOTE_BIN" "$@"
 fi
 
@@ -919,19 +1058,13 @@ if [[ -n "${AEB_VET:-}" ]]; then
     fi
 
     AEB_VET_BIN="$AEB_HOME/tools/aeb-vet"
-    aeb_fresh "$AEB_VET_BIN" "$AEB_HOME/tools/aeb-vet.ae"
-    if [[ ! -x "$AEB_VET_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/aeb-vet.ae" --lib "$AEB_HOME/lib" -o "$AEB_VET_BIN" 2>/dev/null
-    fi
+    aeb_tool "$AEB_VET_BIN" "$AEB_HOME/tools/aeb-vet.ae" --lib "$AEB_HOME/lib"
     _vet_targets=()
     if [[ -n "${AEB_SCAN:-}" ]]; then
         # Scan mode: discover the tree, filter by the glob's basename
         # (bash fnmatch == string.glob_match semantics: * ? [abc]).
         AEB_SCAN_BIN="$AEB_HOME/tools/scan-ae-files"
-        aeb_fresh "$AEB_SCAN_BIN" "$AEB_HOME/tools/scan-ae-files.ae"
-        if [[ ! -x "$AEB_SCAN_BIN" ]]; then
-            "$AETHER" build "$AEB_HOME/tools/scan-ae-files.ae" -o "$AEB_SCAN_BIN" 2>/dev/null
-        fi
+        aeb_tool "$AEB_SCAN_BIN" "$AEB_HOME/tools/scan-ae-files.ae"
         while IFS= read -r _p; do
             [[ -n "$_p" ]] || continue
             _b="${_p##*/}"
@@ -991,7 +1124,7 @@ if ! _aeb_cc_present; then
         if [[ -z "$_zos" || -z "$_zarch" ]]; then
             : # unknown platform — no zig build for it; fall through to aether's error
         else
-            _zcache="${XDG_CACHE_HOME:-$HOME/.cache}/aeb/zig/$ZIG_REF"
+            _zcache="$_aeb_cache/zig/$ZIG_REF"
             _zdir="$_zcache/zig-$_zarch-$_zos-$ZIG_REF"
             _zext="tar.xz"; [[ "$_zos" == windows ]] && _zext="zip"
             _zbin="$_zdir/zig"; [[ "$_zos" == windows ]] && _zbin="$_zdir/zig.exe"
@@ -1044,6 +1177,7 @@ if [[ ! -x "$AEB_MAIN_BIN" ]]; then
         echo "aeb:   this is the cold-bootstrap path; \`make install\` normally pre-builds it." >&2
         exit 1
     fi
+    aeb_mark "$AEB_MAIN_BIN"
 fi
 
 if [[ -n "${AEB_TELEMETRY_JSON:-}" && -z "${AEB_VERSION:-}" ]]; then
@@ -1068,10 +1202,7 @@ fi
 AEB_LAUNCH=("$AEB_MAIN_BIN")
 if [[ -n "${AEB_SANDBOX:-}" ]]; then
     AEB_SANDBOX_BIN="$AEB_HOME/tools/aeb-sandbox"
-    aeb_fresh "$AEB_SANDBOX_BIN" "$AEB_HOME/tools/aeb-sandbox.ae"
-    if [[ ! -x "$AEB_SANDBOX_BIN" ]]; then
-        "$AETHER" build "$AEB_HOME/tools/aeb-sandbox.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools" -o "$AEB_SANDBOX_BIN" 2>/dev/null
-    fi
+    aeb_tool "$AEB_SANDBOX_BIN" "$AEB_HOME/tools/aeb-sandbox.ae" --lib "$AEB_HOME/lib" --lib "$AEB_HOME/tools"
     # Resolve $AETHER to an ABSOLUTE path for the sandboxed run: inside the
     # sandbox the env is restricted (only granted vars survive), so a bare
     # `ae` may not resolve via PATH — and a failed `ae`/`aetherc` exec kills

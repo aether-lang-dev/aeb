@@ -206,7 +206,8 @@ _abs(p: string) {
     return path.join(string.trim(cwd), p)
 }
 
-// _ae_bin() — the `ae` driver; PATH lookup is fine here (not sandboxed).
+// _ae_bin() — the `ae` of the toolchain this aeb invocation builds with
+// (bldr._ae_bin), so a traced build compiles as the real one would.
 _ae_bin() {
-    return "ae"
+    return bldr._ae_bin()
 }

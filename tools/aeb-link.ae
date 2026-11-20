@@ -5,7 +5,7 @@
 // replaces the largest remaining bash-side block.
 //
 // Usage:
-//   aeb-link <edges-file> <build-dir> <aeb-lib> <aether-dir> <aether-bin> <out-bin> <root>
+//   aeb-link <edges-file> <build-dir> <aeb-lib> <aether-dir> <aether-bin> <out-bin> <root> <toolchain>
 //
 // <edges-file> : same format as topo-sort: each line is
 //                "<file> <dep1> <dep2> ..." (deps are ignored here, but the
@@ -19,6 +19,9 @@
 // <aether-bin> : path to the `ae` driver (used for `ae build` of helpers)
 // <out-bin>    : path to write the final native binary
 // <root>       : monorepo root, passed as argv[1] to the linked binary
+// <toolchain>  : the identity of the toolchain <aether-bin> resolves
+//                (bldr._toolchain_id); the helpers built here are stamped
+//                with it and rebuilt when it changes (tools/aebfresh)
 //
 // On success this exec()s out-bin with root as its sole argument and
 // never returns. On failure the process exits with the error code from
@@ -866,8 +869,8 @@ _compile_objects_link(aebhome: string, link_cc: string, inc_flags: string, build
 }
 
 main() {
-    if aether_args_count() < 8 {
-        println("Usage: aeb-link <edges-file> <build-dir> <aeb-lib> <aether-dir> <aether-bin> <out-bin> <root>")
+    if aether_args_count() < 9 {
+        println("Usage: aeb-link <edges-file> <build-dir> <aeb-lib> <aether-dir> <aether-bin> <out-bin> <root> <toolchain>")
         exit(1)
     }
     edges_file = aether_args_get(1)
@@ -884,6 +887,7 @@ main() {
     aether_bin = aether_args_get(5)
     out_bin = aether_args_get(6)
     root = aether_args_get(7)
+    toolchain = aether_args_get(8)
 
     // On Windows, MinGW gcc emits <out_bin>.exe; suffix once here so the `-o`
     // target, the per-node `out_bin <root> <label>` exec, and the aeb-driver
@@ -961,15 +965,17 @@ main() {
     // list of what each imports.
     transform_src = string.concat(aebhome, "/tools/transform-ae.ae")
     gen_src = string.concat(aebhome, "/tools/gen-orchestrator.ae")
-    if aebfresh.stale(aebhome, transform_ae, transform_src) == 1 {
+    if aebfresh.stale(aebhome, transform_ae, transform_src, toolchain) == 1 {
         _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(transform_src, string.concat(" -o ", string.concat(transform_ae_base, " 2>/dev/null")))))
+        if file.exists(transform_ae) == 1 { _mt = aebfresh.mark(transform_ae, toolchain) }
     }
     // gen-orchestrator imports aeblabel (encode_name), so an aeblabel edit must
     // invalidate it too — that is the exact drift that left a box emitting the
     // pre-fix __D_all_D_ae symbol.
-    if aebfresh.stale(aebhome, gen_orchestrator, gen_src) == 1 {
+    if aebfresh.stale(aebhome, gen_orchestrator, gen_src, toolchain) == 1 {
         // --lib <aebhome>/tools resolves gen-orchestrator's `import aeblabel`.
         _sh_link(string.concat(string.concat(aether_bin, " build "), string.concat(gen_src, string.concat(" -o ", string.concat(gen_orchestrator_base, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null")))))))
+        if file.exists(gen_orchestrator) == 1 { _mg = aebfresh.mark(gen_orchestrator, toolchain) }
     }
 
     _sh_link(string.concat("mkdir -p ", build_dir))
@@ -1386,7 +1392,7 @@ main() {
         // `build` (lib) + aeblabel (tools); the aeblabel dep is the shared
         // encode_name source whose staleness left a box on the pre-fix symbol.
         aeb_driver_src = string.concat(aebhome, "/tools/aeb-driver.ae")
-        if aebfresh.stale(aebhome, aeb_driver, aeb_driver_src) == 1 {
+        if aebfresh.stale(aebhome, aeb_driver, aeb_driver_src, toolchain) == 1 {
             // -o uses the suffixless base (ae appends .exe on Windows).
             db = string.concat(aether_bin, " build ")
             db = string.concat(db, string.concat(aeb_driver_src, " -o "))
@@ -1395,6 +1401,7 @@ main() {
             db = string.concat(db, compile_lib_flags)
             db = string.concat(db, string.concat(" --lib ", string.concat(aebhome, "/tools 2>/dev/null")))
             _sh_link(db)
+            if file.exists(aeb_driver) == 1 { _md = aebfresh.mark(aeb_driver, toolchain) }
         }
         // aeb-driver reads the edges file (node + its deps per line) to
         // generate the parallel Makefile. NB: aeb-link's arg1
