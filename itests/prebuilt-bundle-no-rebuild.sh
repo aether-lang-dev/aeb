@@ -134,8 +134,12 @@ aebrun_nocc() {
     ( cd "$PROJ" && env -i HOME="$HOME" PATH="$NOCC" TMPDIR="$WORK" AETHER="$AE" AEB_NO_ZIG=1 \
         AEB_CACHE_DIR="$CACHE/empty" AETHER_CACHE_DIR="$WORK/aecache" bash "${AEB_RUN:-$AEB}" "$@" )
 }
+# aeb-link falls back to `gcc` when neither AE_CC nor CC is set; a host whose
+# compiler is only `cc` (stock FreeBSD) is told so.
+CC_ARG=""
+if ! command -v gcc >/dev/null 2>&1 && command -v cc >/dev/null 2>&1; then CC_ARG="CC=cc"; fi
 aebrun_cc() {
-    ( cd "$PROJ" && env -i HOME="$HOME" PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$WORK" \
+    ( cd "$PROJ" && env -i $CC_ARG HOME="$HOME" PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$WORK" \
         AETHER="${USE_AE:-$AE}" AEB_CACHE_DIR="$CACHE/cc" AETHER_CACHE_DIR="$WORK/aecache" bash "${AEB_RUN:-$AEB}" "$@" )
 }
 mkdir -p "$CACHE/empty"
