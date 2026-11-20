@@ -246,6 +246,28 @@ The minimum supported version is **0.898.0** (`AETHER_PIN`); a newer
 installed toolchain is accepted, and an explicit `AETHER=/path/to/ae` selects
 the toolchain to use.
 
+**One toolchain per build.** Everything one `aeb` run compiles and links (the
+orchestrator built from your `.ae` build files, and the programs they build)
+uses one Aether install: its `ae`, `aetherc`, `libaether.a`, headers and
+stdlib. aeb picks it once, in this order:
+
+| Setting | Toolchain |
+|---|---|
+| `AETHER=/path/to/ae` | that one, whatever its version |
+| `AEB_TOOLCHAIN=pinned` | aeb's private copy of `AETHER_FETCH`, fetched into aeb's cache on first use |
+| neither (default) | the `ae` on `PATH` if it is at least `AETHER_PIN`; otherwise aeb's private copy |
+
+The private copy lives under `$AEB_CACHE_DIR/toolchain/` (default
+`~/.cache/aeb/toolchain/`) and is never put on `PATH`. aeb hands the choice to
+every process of the build as `AETHER` (the absolute path of its `ae`) and
+`AETHER_HOME` (its root), replacing an inherited `AETHER_HOME`, since `ae` and
+`aetherc` read their stdlib from `AETHER_HOME` ahead of their own install. If
+the `ae` you chose is itself steered by `AETHER_HOME` to an `aetherc` of
+another release, aeb stops and names both versions. `aeb --toolchain` prints
+the choice and why. The helper tools aeb builds for itself are stamped with the
+toolchain that built them (`tools/<name>.toolchain`) and rebuilt when it
+changes.
+
 **Don't have Aether's `ae` yet?** One line installs it (Aether's own installer,
 into `~/.local`; `PREFIX=` to override, `AETHER_REF=vX.Y.Z` to pin). Aether
 compiles to C, so the only prerequisites are a C compiler and GNU make — no

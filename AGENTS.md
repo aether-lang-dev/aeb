@@ -1264,7 +1264,13 @@ Agreed shape (Paul's framing) — **Role 1 shipped, Role 2 not yet**:
   `/ping` version all cover it for free — that `/ping` version is
   currently advisory and consumed by nothing.
 - **The two may differ**, deliberately: same shape as building a Java 8
-  target on a Java 21 JVM.
+  target on a Java 21 JVM. **Superseded 2026-11-20 within one invocation:**
+  one aeb run now builds with ONE toolchain (orchestrator and programs
+  alike), chosen once by the trampoline (`AETHER`, else
+  `AEB_TOOLCHAIN=pinned`, else the `ae` on PATH if >= `AETHER_PIN`, else the
+  private copy) and handed down as `AETHER` + `AETHER_HOME`. Mixing them
+  linked a newer stdlib against 0.898.0's runtime. See the update at the end
+  of the asks file and `itests/one-toolchain-per-build.sh`.
 
 Still NO installer — states needs, observes presence, never provisions
 (`docs/design/build-prerequisites-and-provisioning.md`).

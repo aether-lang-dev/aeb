@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **One aeb run builds with one Aether toolchain.** With `AETHER` unset and
+  aeb's private toolchain (`AETHER_FETCH`, 0.898.0) already in its cache, the
+  trampoline compiled the orchestrator with that private `aetherc` even when a
+  newer `ae` was on `PATH`, while `aether.program` nodes used the `ae` on
+  `PATH`; and an inherited `AETHER_HOME` naming the newer install made the
+  private `aetherc` compile that install's stdlib, which aeb-link then linked
+  against 0.898.0's `libaether.a` (selaenium: `undefined reference to
+  dir_list_error`). The trampoline now chooses one toolchain: `AETHER` if set;
+  `AEB_TOOLCHAIN=pinned` for the private copy; otherwise the `ae` on `PATH`
+  when it meets `AETHER_PIN`, the private copy when it does not (fetched if
+  needed, as before). It is handed to every process of the build as `AETHER`
+  (absolute) and `AETHER_HOME` (its root); `lib/bldr` reads it in one place
+  and takes the toolchain directory from the `aetherc` that `ae --version`
+  names. An `ae` that `AETHER_HOME` steers to another release's `aetherc` is
+  refused, exit 2, naming both versions. `aeb --toolchain` prints the choice.
+  The helpers aeb builds for itself are stamped with the toolchain that built
+  them (`tools/<name>.toolchain`, `tools/aebfresh`, the trampoline's
+  `aeb_fresh`, `make install`) and rebuilt when it changes; a helper with no
+  stamp, such as one from a release bundle, is rebuilt once. aeb's zig
+  fallback now lives under `$AEB_CACHE_DIR` too. Tested by
+  `itests/one-toolchain-per-build.sh` (two real releases, 0.898.0 and
+  0.927.0; 9 of its 12 checks fail on the previous aeb).
+
 ## v0.347 (2026-11-15)
 
 ### Fixed

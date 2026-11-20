@@ -184,11 +184,20 @@ where the alternative is requiring MSYS `make`. See
 
 ### The one thing aeb fetches for itself
 
-aeb pins the Aether release its **own** machinery is built against
-(`AETHER_PIN`) and will fetch that version into its own cache
-(`~/.cache/aeb/toolchain/aether-<ver>/`) if what is on `PATH` is older.
-That copy is **private** — never on `PATH`, never in a system or user
-prefix. `which ae` answers the same before and after aeb runs.
+aeb pins the oldest Aether its **own** machinery can be built with
+(`AETHER_PIN`) and will fetch a known-good release (`AETHER_FETCH`) into its
+own cache (`$AEB_CACHE_DIR/toolchain/aether-<ver>/`, default
+`~/.cache/aeb/toolchain/`) if what is on `PATH` is older or absent, or when
+`AEB_TOOLCHAIN=pinned` asks for it. That copy is **private** — never on
+`PATH`, never in a system or user prefix. `which ae` answers the same before
+and after aeb runs.
+
+Whichever toolchain aeb picks, it is the only one in that build: the
+orchestrator and every Aether program the build compiles use its `ae`,
+`aetherc`, runtime and stdlib, handed down as `AETHER` and `AETHER_HOME`.
+`aeb --toolchain` says which one and why. A newer `ae` on `PATH` is used in
+preference to an already-fetched private copy; set `AEB_TOOLCHAIN=pinned` for
+a build that should not depend on what the node has installed.
 
 This is not a contradiction of "aeb never provisions". The rule is about
 the *unbounded* case (everyone else's toolchains); aeb fetching its own
@@ -202,7 +211,8 @@ toolchain fails the compile probe. The fetch is logged to
 `~/.cache/aeb/toolchain/fetch-<ver>.log`, which is where the failure
 message points.
 
-Off switches: `AETHER=/path/to/ae` (explicit, no pin check),
+Off switches: `AETHER=/path/to/ae` (explicit, no pin check; it cannot be
+combined with `AEB_TOOLCHAIN=pinned`),
 `AEB_NO_FETCH=1` (assert the floor and explain, exit 2 — never a silent
 `E0301` from a generated file), or `AEB_FETCH_SOURCE=1` (skip the
 prebuilt and build from source — for reproducing a source-only node, or

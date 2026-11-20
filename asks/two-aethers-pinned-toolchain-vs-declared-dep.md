@@ -251,3 +251,24 @@ CI-side test rather than a runtime concern.
   the `MSYSTEM=MINGW64` trap found while fixing it.
 - `AGENTS.md` § "Recent upstream Aether features aeb could lean on" — where
   the version floors currently live as prose.
+
+## Update 2026-11-20: one toolchain per invocation
+
+The "two Aethers" split, as built, mixed them inside one build. With AETHER
+unset and the private copy already in the cache, the trampoline compiled the
+orchestrator with the private 0.898.0 `aetherc` even when a newer `ae` was on
+PATH, while `aether.program` nodes used the `ae` on PATH; and an inherited
+AETHER_HOME naming the newer install made the private `aetherc` compile that
+install's stdlib, which aeb-link then linked against 0.898.0's `libaether.a`
+(`undefined reference to dir_list_error`, selaenium on ae-x64).
+
+Now one aeb invocation builds with one toolchain, chosen once in the
+trampoline: `AETHER` if set; else `AEB_TOOLCHAIN=pinned` for the private copy;
+else the `ae` on PATH when it meets `AETHER_PIN`, the private copy otherwise.
+It is handed down as `AETHER` (absolute) and `AETHER_HOME` (its root), the
+helpers aeb builds for itself are stamped with it, and an `ae` steered by
+AETHER_HOME to another release's `aetherc` is refused with both versions named.
+Role 2 below (a target declaring its own Aether) would therefore be a separate
+aeb invocation, or a container, rather than a second toolchain inside one
+build. Guarded by `itests/one-toolchain-per-build.sh`.
+
