@@ -73,7 +73,9 @@ jobs:
           set -eux
           sudo apt-get update
           # Same dep set as aether's own CI (.github/workflows/ci.yml).
-          sudo apt-get install -y gcc make bc pkg-config libgtk-4-dev
+          # libfyaml-dev: the released 0.898.0 (AETHER_FETCH) links its runtime
+          # against -lfyaml, and itests/one-toolchain-per-build.sh builds with it.
+          sudo apt-get install -y gcc make bc pkg-config libgtk-4-dev libfyaml-dev
 
       - name: Checkout aether toolchain source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
