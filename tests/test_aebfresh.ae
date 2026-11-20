@@ -1,0 +1,108 @@
+// tools/aebfresh: when is a helper that aeb built (or that a release bundle
+// shipped) stale? The trampoline (`aeb`, aeb_fresh) has the same rule in bash;
+// itests/prebuilt-bundle-no-rebuild.sh pins that half end to end.
+//
+// A helper is stamped with the toolchain that built it, and is stale when the
+// stamp is missing or names another. The exception under test: a helper a
+// release bundle ships is stamped `prebuilt <tag> <platform>` and is kept when
+// the tree's own VERSION and BUNDLE name the same tag and platform, whatever
+// the toolchain and whatever the file times; a tree with no BUNDLE has no such
+// identity, so nothing satisfies it.
+
+import std.spec
+import aebfresh
+import bldr(_sh, _sh_capture)
+import std.string
+
+_mktempdir() {
+    raw, _err = _sh_capture("mktemp -d")
+    d = string.trim(raw)
+    nat, _nerr = _sh_capture("cygpath -m ${d}")
+    n = string.trim(nat)
+    if string.length(n) > 0 { return n }
+    return d
+}
+
+// _tree(prebuilt_stamp) — an aeb tree with one helper, tools/h, built from
+// tools/h.ae, stamped `stamp`; VERSION v1 and BUNDLE linux-x86_64 present.
+_tree(stamp: string) {
+    d = _mktempdir()
+    _sh("mkdir -p '${d}/tools'")
+    _sh("printf 'main() { }\\n' > '${d}/tools/h.ae'")
+    _sh("printf 'binary' > '${d}/tools/h'")
+    _sh("printf '%s\\n' '${stamp}' > '${d}/tools/h.toolchain'")
+    _sh("printf 'v1' > '${d}/VERSION'")
+    _sh("printf 'linux-x86_64\\n' > '${d}/BUNDLE'")
+    return d
+}
+
+_stale(d: string, toolchain: string) {
+    return aebfresh.stale(d, "${d}/tools/h", "${d}/tools/h.ae", toolchain)
+}
+
+main() {
+    fw = spec.init()
+
+    spec.describe(fw, "aebfresh: prebuilt_id") {
+        spec.it("names the tag and platform of a bundle tree") callback {
+            d = _tree("x")
+            spec.assert_true(string.equals(aebfresh.prebuilt_id(d), "prebuilt v1 linux-x86_64"), "prebuilt v1 linux-x86_64")
+            _sh("rm -rf '${d}'")
+        }
+        spec.it("is empty without a BUNDLE, as in a development tree") callback {
+            d = _tree("x")
+            _sh("rm -f '${d}/BUNDLE'")
+            spec.assert_true(string.length(aebfresh.prebuilt_id(d)) == 0, "no BUNDLE, no identity")
+            _sh("rm -rf '${d}'")
+        }
+        spec.it("is empty without a VERSION or with an empty one") callback {
+            d = _tree("x")
+            _sh("printf '' > '${d}/VERSION'")
+            spec.assert_true(string.length(aebfresh.prebuilt_id(d)) == 0, "empty VERSION")
+            _sh("rm -f '${d}/VERSION'")
+            spec.assert_true(string.length(aebfresh.prebuilt_id(d)) == 0, "no VERSION")
+            _sh("rm -rf '${d}'")
+        }
+    }
+
+    spec.describe(fw, "aebfresh: stale") {
+        spec.it("keeps a helper stamped prebuilt for this very bundle, under any toolchain") callback {
+            d = _tree("prebuilt v1 linux-x86_64")
+            spec.assert_true(_stale(d, "/nowhere/bin/aetherc (9.9.9)") == 0, "kept under a toolchain it was not built by")
+            // and with its source a minute newer than the binary
+            _sh("touch -d '@4102444800' '${d}/tools/h.ae' 2>/dev/null || touch -t 203001010000 '${d}/tools/h.ae'")
+            spec.assert_true(_stale(d, "/nowhere/bin/aetherc (9.9.9)") == 0, "kept with a newer source")
+            _sh("rm -rf '${d}'")
+        }
+        spec.it("rebuilds a prebuilt stamp the tree does not vouch for") callback {
+            d = _tree("prebuilt v1 linux-x86_64")
+            _sh("rm -f '${d}/BUNDLE'")
+            spec.assert_true(_stale(d, "/nowhere/bin/aetherc (9.9.9)") == 1, "no BUNDLE: a development tree")
+            _sh("rm -rf '${d}'")
+
+            d = _tree("prebuilt v1 linux-x86_64")
+            _sh("printf 'v2' > '${d}/VERSION'")
+            spec.assert_true(_stale(d, "/nowhere/bin/aetherc (9.9.9)") == 1, "another release")
+            _sh("rm -rf '${d}'")
+
+            d = _tree("prebuilt v1 macos-arm64")
+            spec.assert_true(_stale(d, "/nowhere/bin/aetherc (9.9.9)") == 1, "another platform")
+            _sh("rm -rf '${d}'")
+        }
+        spec.it("rebuilds an unstamped helper, in a bundle tree or not") callback {
+            d = _tree("x")
+            _sh("rm -f '${d}/tools/h.toolchain'")
+            spec.assert_true(_stale(d, "/nowhere/bin/aetherc (9.9.9)") == 1, "no stamp")
+            _sh("rm -rf '${d}'")
+        }
+        spec.it("still follows the toolchain for a helper a toolchain built") callback {
+            d = _tree("/nowhere/bin/aetherc (9.9.9)")
+            _sh("rm -f '${d}/BUNDLE'")
+            spec.assert_true(_stale(d, "/nowhere/bin/aetherc (9.9.9)") == 0, "same toolchain: kept")
+            spec.assert_true(_stale(d, "/nowhere/bin/aetherc (9.9.8)") == 1, "another toolchain: rebuilt")
+            _sh("rm -rf '${d}'")
+        }
+    }
+
+    return spec.run_summary(fw)
+}

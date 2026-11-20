@@ -23,6 +23,16 @@
 // toolchain, or whose aetherc is newer than it (a dev tree rebuilt at the same
 // version), is stale too.
 //
+// A release bundle's helpers are the one exception to "built by": they were
+// linked statically on the release runner and need nothing of the toolchain
+// they run under (they reach the user's `ae` only as a program, through its
+// command line). Each is stamped `prebuilt <tag> <platform>` by
+// release/build-bundle.sh, and kept when the tree's own VERSION and BUNDLE
+// files name that same tag and platform (prebuilt_id): whatever the toolchain,
+// whatever the file times (a copied or unpacked tree scrambles them). A tree
+// with no BUNDLE, as a development tree is, has no prebuilt id, so no stamp
+// can match it and the rule above applies as before.
+//
 // The trampoline (`aeb`) has the same rule in bash for the helpers it builds
 // before any Aether tool exists; keep the two in step.
 
@@ -31,7 +41,7 @@ import std.file
 import std.fs
 import std.io
 
-exports(inputs, stale, mark)
+exports(inputs, stale, mark, prebuilt_id)
 
 _has_line(text: string, line: string) {
     if string.length(text) == 0 { return 0 }
@@ -122,14 +132,36 @@ _compiler_of(toolchain: string) {
     return ""
 }
 
+// _trimmed_file(path) — the text of `path` without surrounding white space,
+// "" when it cannot be read.
+_trimmed_file(path: string) {
+    text, err = io.read_file(path)
+    if string.length(err) > 0 { return "" }
+    return string.trim(text)
+}
+
+// prebuilt_id(aebhome) — the stamp that a helper shipped in THIS tree's release
+// bundle carries: "prebuilt <tag> <platform>", from the tree's VERSION and
+// BUNDLE files. "" when the tree is not a bundle (no BUNDLE, as in a
+// development tree or a source payload) or either file is empty.
+prebuilt_id(aebhome: string) {
+    tag = _trimmed_file("${aebhome}/VERSION")
+    platform = _trimmed_file("${aebhome}/BUNDLE")
+    if string.length(tag) == 0 || string.length(platform) == 0 { return "" }
+    return "prebuilt ${tag} ${platform}"
+}
+
 // stale(aebhome, bin, src, toolchain) — 1 when the helper `bin`, built from
 // `src`, needs building: it is not there, it was built by another toolchain
 // than `toolchain` (or no stamp says which), its aetherc is newer than it, or
-// one of its inputs is newer than it.
+// one of its inputs is newer than it. A helper stamped as prebuilt for this
+// very bundle (prebuilt_id) is never stale: it is not built by `toolchain`.
 stale(aebhome: string, bin: string, src: string, toolchain: string) {
     if file.exists(bin) == 0 { return 1 }
     stamp, serr = io.read_file(_stamp(bin))
     if string.length(serr) > 0 { return 1 }
+    pre = prebuilt_id(aebhome)
+    if string.length(pre) > 0 && string.equals(string.trim(stamp), pre) == 1 { return 0 }
     if string.equals(string.trim(stamp), toolchain) == 0 { return 1 }
     bin_mt = fs.file_mtime(bin)
     cc = _compiler_of(toolchain)

@@ -481,6 +481,21 @@ fi
 # a helper whose stamp is missing or names another, or whose aetherc has been
 # rebuilt since, is rebuilt. tools/aebfresh/module.ae is the same rule for the
 # helpers the Aether tools build; keep the two in step.
+#
+# One exception: the helpers a release bundle ships (release/build-bundle.sh).
+# They are linked statically on the release runner and need nothing of the
+# toolchain they run under, so they carry `prebuilt <tag> <platform>` instead of
+# a toolchain, and are kept when this tree's VERSION and BUNDLE files name that
+# same tag and platform: whatever the toolchain, whatever the file times (an
+# unpacked or copied tree scrambles them). A tree with no BUNDLE, as a
+# development tree is, has no such identity, so no stamp matches it.
+aeb_prebuilt_id() {
+    local v="" t=""
+    [[ -f "$AEB_HOME/VERSION" ]] && v="$(tr -d '[:space:]' < "$AEB_HOME/VERSION" 2>/dev/null || true)"
+    [[ -f "$AEB_HOME/BUNDLE" ]] && t="$(tr -d '[:space:]' < "$AEB_HOME/BUNDLE" 2>/dev/null || true)"
+    if [[ -n "$v" && -n "$t" ]]; then printf 'prebuilt %s %s' "$v" "$t"; fi
+    return 0
+}
 aeb_tool_inputs() {
     local todo="$1" seen=$'\n' f m c
     while [[ -n "$todo" ]]; do
@@ -498,11 +513,13 @@ aeb_tool_inputs() {
     done
 }
 aeb_fresh() {
-    local bin="$1" src="$2" f stamp=""
+    local bin="$1" src="$2" f stamp="" pre
     [[ -e "$bin" ]] || return 0
     # A tree that cannot be written to (an install under a system prefix)
     # keeps what it has: the rm below fails there and the binary stays.
     [[ -f "$bin.toolchain" ]] && stamp="$(cat "$bin.toolchain" 2>/dev/null || true)"
+    pre="$(aeb_prebuilt_id)"
+    if [[ -n "$pre" && "$stamp" == "$pre" ]]; then return 0; fi
     if [[ "$stamp" != "$_aeb_tc_id" ]] \
        || { [[ -n "$_aeb_tc_path" ]] && [[ "$_aeb_tc_path" -nt "$bin" ]]; }; then
         rm -f "$bin" 2>/dev/null || true
