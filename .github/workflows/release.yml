@@ -127,44 +127,13 @@ jobs:
           # versus our 445 KB verified bootstrap payload. "bootstrap" in the
           # name says which is which at a glance.
           STAGE="aeb-bootstrap"
-          mkdir -p "$STAGE"
 
-          cp aeb AETHER_PIN AETHER_FETCH Makefile LICENSE README.md "$STAGE/"
-          # Stamp the release TAG into the payload so an installed aeb can
-          # self-report its version. The payload has no .git, so make install's
-          # `git describe` returns "unknown"; without this VERSION file
-          # `aeb --version` reported a generic 0.0.0-dev even on a tagged
-          # release. make install copies VERSION into AEB_STAMP's `version`
-          # field, which aeb-cli prints. Source installs ship no VERSION file
-          # and correctly keep 0.0.0-dev+<sha>.
-          # (asks/aeb-version-does-not-embed-the-release-tag.md)
-          printf '%s' "$TAG" > "$STAGE/VERSION"
-          # veto/ + sandbox/ are 4 KB each and the shipped Makefile's
-          # `install` target copies BOTH unconditionally. Omitting them made
-          # `make install` fail outright on the released payload —
-          # `cp: cannot stat 'veto'` → exit 1, and $PREFIX/bin/aeb was never
-          # created, so the tarball could be unpacked and run in place but
-          # never installed. Found by actually running `make install` from a
-          # published tarball (v0.280); the CI verify step below had missed
-          # it because it only ever ran aeb IN PLACE.
-          cp -r lib tools veto sandbox "$STAGE/"
-          # Ship the docs a node operator actually needs on the box.
-          mkdir -p "$STAGE/docs"
-          cp docs/aeb-host-vm-or-container-setup.md "$STAGE/docs/" || true
-
-          # No prebuilt binaries in the payload: the point is that it
-          # rebuilds. A stale binary here would be worse than none.
-          find "$STAGE/tools" -type f -perm -u+x ! -name '*.ae' ! -name '*.md' -delete || true
-
-          # Drop the Maven resolver: aeb-resolve.jar is 3.6 MB and its Java
-          # source tree another 3.7 MB — 7.3 MB of an otherwise 440 KB payload,
-          # for something ONLY lib/maven shells out to. No core tool
-          # references it (checked: aeb-main and aeb-link have zero hits), so
-          # a node that never builds a Java target never needs it. A Java
-          # node fetches the jar separately; making every node carry it to
-          # spare that one is the wrong trade.
-          rm -f "$STAGE/tools/aeb-resolve.jar"
-          rm -rf "$STAGE/tools/resolver"
+          # What goes in the payload (the trampoline, tools, lib, veto/ and
+          # sandbox/ that `make install` copies unconditionally, VERSION, the
+          # pin files, no prebuilt binary, no Maven resolver) lives in
+          # release/stage-payload.sh, so itests/prebuilt-bundle-no-rebuild.sh
+          # stages the same way.
+          release/stage-payload.sh "$TAG" "$STAGE"
 
           tar czf "$STAGE.tar.gz" "$STAGE"
           sha256sum "$STAGE.tar.gz" | tee "$STAGE.tar.gz.sha256"
@@ -433,6 +402,7 @@ jobs:
         continue-on-error: true
         env:
           FETCH_VER: ${{ steps.stage.outputs.fetchver }}
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
           set -uo pipefail   # NOT -e: a failed cross-build is handled, not fatal
           emit_empty() { echo "zips=" >> "$GITHUB_OUTPUT"; echo "no bundles: $1"; exit 0; }
@@ -443,6 +413,7 @@ jobs:
           test -x "$AE" || emit_empty "no fetched ae"
 
           SRC="aeb-bootstrap"          # the clean staged tree from the Stage step
+          SCRIPT="$PWD/release/build-bundle.sh"
           test -d "$SRC" || emit_empty "staged source tree missing"
 
           # aether's cross backend shells out to zig (0.16.0); the release
@@ -509,102 +480,21 @@ jobs:
             else
               unset AETHER_SYSROOT
             fi
-            B="bundles/aeb-$suffix"
-            rm -rf "$B"; mkdir -p "$B/share/aeb" "$B/bin"
-            # clean source tree (bash wrappers + lib/ + tools/ .ae source)
-            cp -R "$SRC"/. "$B/share/aeb/"
-            cp -f "$SRC/aeb" "$B/bin/aeb"; chmod +x "$B/bin/aeb" "$B/share/aeb/aeb"
-            # overwrite the 5 install tools with target-native binaries
-            fail=0
-            for t in aeb-main aeb-link aeb-graph affected-targets gcheckout; do
-              extra=""; [ "$t" = aeb-main ] && extra="--lib $SRC/lib"
-              if ! "$AE" build --target="$triple" "$SRC/tools/$t.ae" \
-                     -o "$B/share/aeb/tools/$t" --lib "$SRC/tools" $extra >/tmp/b_$t.log 2>&1; then
-                echo "  $suffix: $t cross-build FAILED"; sed -n '1,5p' /tmp/b_$t.log; fail=1
-              fi
-            done
-            if [ "$fail" = 0 ]; then
-              # Drop a tiny installer for the compiler-free path. It is
-              # COPY-ONLY on purpose: this bundle already ships the cross-built
-              # target-native tool binaries (share/aeb/tools/*) and the aeb
-              # script — there is nothing to compile, so it must NOT run
-              # `make install` (that unconditionally REBUILDS the tools for the
-              # HOST via `ae`, undoing the cross-build AND requiring GNU make +
-              # ae on the target box — the exact "GNU make is required" failure
-              # a prebuilt install is meant to avoid). We reproduce make
-              # install's copy phase directly: stage share/aeb, write the
-              # $BINDIR/aeb wrapper, and stamp AEB_STAMP from the shipped
-              # VERSION so `aeb --version` reads clean (not "un-installed").
-              # Heredoc body is indented to the run-block scalar level (10
-              # spaces): YAML strips that common indent before the shell sees
-              # it, so the written file is flush-left. A column-1 body would
-              # terminate the block scalar early and corrupt the workflow.
-              cat > "$B/install.sh" <<'INSTALL'
-          #!/bin/sh
-          # Install this prebuilt aeb bundle. No compiler needed, and no `make`:
-          # the tools under share/aeb/tools are already target-native binaries
-          # and bin/aeb is a script — installing is a copy plus a wrapper.
-          # Usage: ./install.sh [PREFIX]   (default: ~/.local)
-          set -eu
-          here="$(cd "$(dirname "$0")" && pwd)"
-          PREFIX="${1:-$HOME/.local}"
-          BINDIR="$PREFIX/bin"; SHAREDIR="$PREFIX/share/aeb"
-          src="$here/share/aeb"
-          mkdir -p "$BINDIR" "$SHAREDIR"
-          # Copy the runtime tree (aeb script + lib/tools/veto/sandbox), replacing
-          # any prior install so no stale files linger.
-          cp -f "$src/aeb" "$SHAREDIR/aeb"; chmod +x "$SHAREDIR/aeb"
-          for d in lib tools veto sandbox; do
-              [ -d "$src/$d" ] || continue
-              rm -rf "$SHAREDIR/$d"; cp -R "$src/$d" "$SHAREDIR/$d"
-          done
-          # VERSION, and the Aether pins the aeb script reads from AEB_HOME. A
-          # stale AETHER_PIN/AETHER_FETCH left by an older install makes aeb
-          # compile with a too-old cached Aether against a newer std.
-          for f in VERSION AETHER_PIN AETHER_FETCH; do
-              if [ -f "$src/$f" ]; then cp -f "$src/$f" "$SHAREDIR/$f"; fi
-          done
-          # The $BINDIR/aeb wrapper: point AEB_HOME at the runtime, exec the aeb
-          # script (byte-for-byte what `make install` writes).
-          printf '%s\n' \
-              '#!/usr/bin/env bash' \
-              '# aeb wrapper — generated by the prebuilt-bundle install.sh' \
-              "export AEB_HOME=\"$SHAREDIR\"" \
-              "exec \"$SHAREDIR/aeb\" \"\$@\"" \
-              > "$BINDIR/aeb"
-          chmod +x "$BINDIR/aeb"
-          # Stamp so `aeb --version` reads clean instead of "un-installed".
-          VER="$( [ -f "$src/VERSION" ] && tr -d '[:space:]' < "$src/VERSION" || echo 0.0.0 )"
-          printf 'installed %s\nversion %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$VER" \
-              > "$SHAREDIR/AEB_STAMP"
-          echo "aeb installed to $BINDIR/aeb (aeb $VER)"
-          INSTALL
-              chmod +x "$B/install.sh"
-              # Smoke: install over a prior install carrying an older Aether
-              # pin; every pin file must come out matching this bundle.
-              # (v0.339's install.sh copied neither, so upgrades kept 0.840.)
-              P="$(mktemp -d)"; mkdir -p "$P/share/aeb"
-              echo 0.0.1 > "$P/share/aeb/AETHER_PIN"; echo 0.0.1 > "$P/share/aeb/AETHER_FETCH"
-              "$B/install.sh" "$P" >/dev/null
-              for f in AETHER_PIN AETHER_FETCH VERSION; do
-                if ! cmp -s "$B/share/aeb/$f" "$P/share/aeb/$f"; then
-                  echo "  $suffix: install.sh left a stale $f"; fail=1
-                fi
-              done
-              rm -rf "$P"
-              if [ "$fail" != 0 ]; then echo "::error::install.sh smoke failed"; exit 1; fi
-              # Both archive forms (ask 2): .zip AND .tar.gz, so a minimal CI
-              # image with only `tar` (no `unzip`) can consume the fast path.
-              ( cd bundles && zip -qr "aeb-$suffix.zip" "aeb-$suffix" )
-              ( cd bundles && tar -czf "aeb-$suffix.tar.gz" "aeb-$suffix" )
-              # A companion .sha256 for EVERY platform asset (ask 1): the
-              # compiler-free fetch path must be verifiable, same as bootstrap.
-              ( cd bundles && sha256sum "aeb-$suffix.zip"    > "aeb-$suffix.zip.sha256" )
-              ( cd bundles && sha256sum "aeb-$suffix.tar.gz" > "aeb-$suffix.tar.gz.sha256" )
-              echo "  ✅ aeb-$suffix.{zip,tar.gz} (+ .sha256 each) ($(du -h bundles/aeb-$suffix.zip | cut -f1) / $(du -h bundles/aeb-$suffix.tar.gz | cut -f1))"
-            else
-              echo "  ⚠️  aeb-$suffix skipped (a tool failed to cross-build)"
-            fi
+            # One bundle: the payload, the 5 install tools cross-built for the
+            # target, install.sh (copy-only, no make, no compiler), BUNDLE, and
+            # the `prebuilt <tag> <platform>` stamps that let aeb keep those
+            # tools on a node with no C compiler (before them, the first run
+            # rebuilt all five, which is what a bundle exists to avoid), then
+            # both archive forms (ask 2: .zip AND .tar.gz, so a minimal CI
+            # image with only `tar` can consume the fast path) each with its
+            # .sha256 (ask 1: the compiler-free fetch path must be verifiable,
+            # same as bootstrap). Everything is in release/build-bundle.sh so
+            # itests/prebuilt-bundle-no-rebuild.sh builds a bundle the same way.
+            # Exit 1: a tool failed to cross-build, this row skips (fail-safe).
+            # Exit 2: the install.sh smoke failed, which is a bug: stop.
+            "$SCRIPT" --archive "$AE" "$SRC" bundles "$triple" "$suffix" "$TAG"
+            rc=$?
+            if [ "$rc" = 2 ]; then exit 1; fi
           done
           # Space-joined list of ALL built platform assets (archives + their
           # .sha256 companions) for the Publish step.
