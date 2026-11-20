@@ -266,7 +266,24 @@ the `ae` you chose is itself steered by `AETHER_HOME` to an `aetherc` of
 another release, aeb stops and names both versions. `aeb --toolchain` prints
 the choice and why. The helper tools aeb builds for itself are stamped with the
 toolchain that built them (`tools/<name>.toolchain`) and rebuilt when it
-changes.
+changes. Decided 2026-11-20:
+
+- The default is the `ae` on `PATH` when it meets `AETHER_PIN`;
+  `AEB_TOOLCHAIN=pinned` is the explicit choice of the private copy.
+- One toolchain per run is the rule. A target that wants a different Aether
+  needs a separate `aeb` run (with its own `AETHER`) or a container.
+- An `AETHER_HOME` that names a different install of the *same* version as
+  the `ae` chosen is allowed (aeb normalises it to that `ae`'s root); a
+  different version is refused.
+- The five helpers a release bundle ships (`aeb-main`, `aeb-link`, `aeb-graph`,
+  `affected-targets`, `gcheckout`) are stamped `prebuilt <tag> <platform>`,
+  not with a toolchain: they are linked statically and need nothing of the
+  toolchain they run under, so a bundle install keeps them for any `ae` that
+  meets the pin and does not rebuild them on first run. Helpers a toolchain
+  built are still rebuilt when it changes. (The bundle ships five of the
+  helpers a build uses; the others, and the orchestrator of every build,
+  are still compiled on the node, with the node's C compiler or aeb's zig
+  fallback.)
 
 **Don't have Aether's `ae` yet?** One line installs it (Aether's own installer,
 into `~/.local`; `PREFIX=` to override, `AETHER_REF=vX.Y.Z` to pin). Aether

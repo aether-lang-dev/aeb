@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+### Fixed
+
+- **A `java.javac` node's classpath artifact no longer grows on every re-run.**
+  `javac` read the node's own `jvm_classpath_deps_including_transitive` file
+  back (to keep the jars its own `jar_pinned`/`jar_vendored` calls wrote) and
+  appended it to the artifact it wrote, so each re-run in the same `target/`
+  added one more copy of the classes dir (`classes`, `classes:classes` on two
+  lines, ...); a Kotlin consumer then saw a newline in its classpath and could
+  not find any Java class. It now takes those jars from the in-memory list the
+  two calls fill, as `java.shade` already did.
+  `itests/java-classpath-artifact-stable.sh`;
+  `asks/REPLY-java-classpath-artifact-grows-on-rerun.md`.
+- **A release bundle's helpers are kept on first run, so a bundle install
+  stays compiler-free.** Since v0.348 a helper with no
+  `tools/<name>.toolchain` was rebuilt, and the five helpers a bundle ships
+  carried none, so the first run rebuilt `aeb-main`, `aeb-link`, `aeb-graph`,
+  `affected-targets` and `gcheckout` on the node, which needs a C compiler or
+  aeb's zig fallback. The release now stamps each shipped helper
+  `prebuilt <tag> <platform>` and writes the platform into the bundle's
+  `BUNDLE`; `install.sh` carries both over. The trampoline (`aeb_fresh`) and
+  `tools/aebfresh` keep such a helper when the tree's own `VERSION` and
+  `BUNDLE` name the same tag and platform, for any `ae` the run accepts,
+  and without comparing file times, which an unpacked or copied tree
+  scrambles. They are statically linked and reach the user's `ae` only as a
+  program they run, so the toolchain on the node does not matter to them.
+  An unstamped file, a stamp for another platform or release, and a stamp in
+  a tree with no `BUNDLE` (a development tree) are still rebuilt, as is any
+  helper a toolchain built when that toolchain or a source changes. The
+  bundle steps of `release.yml` are now `release/stage-payload.sh` and
+  `release/build-bundle.sh`, so a test builds a bundle the way a release
+  does: `itests/prebuilt-bundle-no-rebuild.sh`, and `tests/test_aebfresh.ae`.
+  A bundle ships five of the helpers a build uses; the others (and the
+  orchestrator, compiled for every build) are still built on the node.
+
+### Decided (2026-11-20)
+
+- The default toolchain stays the `ae` on `PATH` when it meets `AETHER_PIN`,
+  with `AEB_TOOLCHAIN=pinned` the explicit choice. One toolchain per run is
+  accepted: a target that wants a different Aether needs a separate run or a
+  container. An `AETHER_HOME` naming another install of the same version stays
+  allowed; only a different version is refused. README, AGENTS.md and
+  `asks/two-aethers-pinned-toolchain-vs-declared-dep.md` say so.
+
 ## v0.348 (2026-11-20)
 
 Needs Aether 0.898.0 or later, as before; fetches 0.931.0 when it has to

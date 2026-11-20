@@ -197,7 +197,12 @@ orchestrator and every Aether program the build compiles use its `ae`,
 `aetherc`, runtime and stdlib, handed down as `AETHER` and `AETHER_HOME`.
 `aeb --toolchain` says which one and why. A newer `ae` on `PATH` is used in
 preference to an already-fetched private copy; set `AEB_TOOLCHAIN=pinned` for
-a build that should not depend on what the node has installed.
+a build that should not depend on what the node has installed. (Paul decided
+this on 2026-11-20: the `ae` on `PATH` is the default when it meets
+`AETHER_PIN`, `AEB_TOOLCHAIN=pinned` the explicit choice, and a target that
+wants a different Aether needs a separate run or a container, not a second
+toolchain in the same run.) The helpers of a release bundle are the one thing
+no toolchain builds on the node: they ship prebuilt and are kept as they are.
 
 This is not a contradiction of "aeb never provisions". The rule is about
 the *unbounded* case (everyone else's toolchains); aeb fetching its own

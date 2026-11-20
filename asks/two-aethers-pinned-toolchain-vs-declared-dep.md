@@ -2,7 +2,7 @@
 
 **Filed by**: Paul + LLM session, 2026-07-26, after `aeb-driver` failed to
 compile on winbaz with `E0301: Undefined function 'os.spawn_proc'`.
-**Status**: **PROPOSED — design agreed, not implemented.**
+**Status**: Role 1 shipped; one toolchain per run since v0.348; the four open questions decided 2026-11-20 (see the end). Role 2 not implemented.
 **Shape**: Paul's framing. aeb's own compilation of `.foo.ae` should use an
 Aether **coupled to the aeb release** — which aeb may quietly fetch and
 build **for its own private use**, never touching the user's `ae`. A target
@@ -272,3 +272,27 @@ Role 2 below (a target declaring its own Aether) would therefore be a separate
 aeb invocation, or a container, rather than a second toolchain inside one
 build. Guarded by `itests/one-toolchain-per-build.sh`.
 
+## Decisions 2026-11-20
+
+Paul decided the four questions the one-toolchain work left open. The text
+above that reads as a proposal ("PINNED, not the user's choice", "the two may
+differ") is the history; these are what holds now.
+
+1. **DECIDED 2026-11-20: the default toolchain is the `ae` on `PATH` when it
+   meets `AETHER_PIN`.** aeb's private copy of `AETHER_FETCH` is the fallback
+   when that `ae` is older or absent, and `AEB_TOOLCHAIN=pinned` the explicit
+   choice. aeb's own compilation is therefore not "pinned to the aeb release"
+   by default; it is pinned only when asked, or when nothing good is installed.
+2. **DECIDED 2026-11-20: one toolchain per run.** Role 2 (a target declaring
+   its own Aether) is a separate aeb run or a container, not a second
+   toolchain inside a run.
+3. **DECIDED 2026-11-20: the release workflow stamps the helpers it ships**, so
+   a bundle install stays compiler-free. Done: `release/build-bundle.sh`
+   stamps each shipped helper `prebuilt <tag> <platform>` and writes the
+   bundle's `BUNDLE`; `aeb_fresh` and `tools/aebfresh` keep such a helper when
+   the tree's `VERSION` and `BUNDLE` agree, for any `ae` the run accepts.
+   Tested by `itests/prebuilt-bundle-no-rebuild.sh`. The first real proof is
+   the first release cut with it.
+4. **DECIDED 2026-11-20: an `AETHER_HOME` naming a different install of the
+   same version stays allowed** (normalised to the root the chosen `ae`
+   resolves). Only a different version is refused, exit 2, both named.

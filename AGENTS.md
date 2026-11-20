@@ -1223,7 +1223,7 @@ specifically (**aeocha is retired**; its successor `std.spec` is stdlib,
 not contrib, so it needs no `install-contrib`), but the prefix-fallback
 mechanism holds for any surviving `contrib.*`.
 
-## Two Aethers: pinned toolchain vs declared dep (PROPOSED)
+## Two Aethers: one toolchain per run, and a declared dep for a target (DECIDED 2026-11-20)
 
 There is ONE `$AETHER` knob today doing TWO unrelated jobs: compiling
 aeb's own machinery (`transform-ae`, the orchestrator, `aeb-link`,
@@ -1234,9 +1234,33 @@ its ae was 0.413.0, aeb's driver needs 0.442, and the failure surfaced
 as a compile error in a generated file rather than "this aeb needs
 ae >= 0.442".
 
+**Decided by Paul, 2026-11-20** (the four questions the one-toolchain work
+left open):
+
+1. **The default toolchain is the `ae` on `PATH` when it meets `AETHER_PIN`.**
+   aeb's private copy of `AETHER_FETCH` is what it falls back to when that
+   `ae` is older than the pin or absent, and `AEB_TOOLCHAIN=pinned` is the
+   explicit way to ask for it. "Pinned" below means that private copy, not a
+   default: aeb does not insist on it when a good `ae` is already installed.
+2. **One toolchain per run is accepted.** A target that wants a different
+   Aether than the one the run chose needs a separate aeb run or a container;
+   aeb does not mix two inside one run.
+3. **The release workflow stamps the helpers it ships**, so a bundle install
+   stays compiler-free: its five prebuilt helpers carry
+   `prebuilt <tag> <platform>` and are kept when the tree's `VERSION` and
+   `BUNDLE` say the same (`release/build-bundle.sh` says why that is sound;
+   `tools/aebfresh` and the trampoline's `aeb_fresh` apply it together;
+   `itests/prebuilt-bundle-no-rebuild.sh`). Helpers a toolchain built are
+   still rebuilt when the toolchain or a source changes.
+4. **An `AETHER_HOME` naming a different install of the SAME version stays
+   allowed**: aeb normalises it to the root the chosen `ae` resolves. Only a
+   different version is refused (exit 2, both versions named).
+
 Agreed shape (Paul's framing) — **Role 1 shipped, Role 2 not yet**:
 
-- **aeb's own compilation is PINNED to the aeb release**, and aeb may
+- **aeb's own compilation uses the toolchain of the run** (decision 1
+  above: the `ae` on `PATH` when it meets the pin, else aeb's private pinned
+  copy), and aeb may
   **quietly go-get that Aether for its own private use** — into aeb's
   cache dir (`~/.cache/aeb/toolchain/aether-<ver>/`), never on `PATH`,
   never in a system or user prefix. `which ae` must answer the same
