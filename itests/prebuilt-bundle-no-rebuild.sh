@@ -67,7 +67,8 @@ case "$(uname -s)-$(uname -m)" in
 esac
 # A real release cross-builds with zig; where zig is not at hand the host
 # compiler builds the same five for the host ("native").
-if command -v zig >/dev/null 2>&1; then BUILD_TARGET="$TRIPLE"; else BUILD_TARGET=native; fi
+# (FreeBSD's cross-link needs a sysroot asset, so it always builds natively.)
+if command -v zig >/dev/null 2>&1 && [ "$(uname -s)" != FreeBSD ]; then BUILD_TARGET="$TRIPLE"; else BUILD_TARGET=native; fi
 
 echo "[prebuilt-bundle-no-rebuild] $SUFFIX ($BUILD_TARGET), ae $("$AE" --version 2>/dev/null | sed -n 1p)"
 
