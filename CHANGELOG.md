@@ -2,6 +2,62 @@
 
 ## Unreleased
 
+## v0.348 (2026-11-20)
+
+Needs Aether 0.898.0 or later, as before; fetches 0.931.0 when it has to
+fetch one (was 0.898.0). aeb v0.336 and older cannot run on Aether 0.927.0
+and later (their own tools pass a `ptr` where a `string` is wanted, which
+the compiler now refuses), so a project moving to a current Aether needs
+v0.347 or this.
+
+### Added
+
+- **Maven artifacts as hashed nodes.** A team that declares
+  `maven_nodes("<dir>")` in a build file or the `.bom.ae` it loads gets one
+  node per artifact under that directory
+  (`<dir>/<group dirs>/<artifact>/<version>/.jar.ae`: coordinate, sha256,
+  the edges its pom declares). `dep("g:a:v")` is that node, written on first
+  use; `--locked` (the default when `CI` is set) refuses to write. A
+  classpath that reaches one artifact at two versions stops until
+  `dep_arbitration("g:a", "<pick>", and_not("<v>, <v>"))` settles it: the
+  leaf's own line, one it inherits through its `.bom.ae`, or the default
+  beside the artifact. A BOM's managed versions are written as such lines.
+  `aeb mvn add` does the generation by hand. Without the declaration a
+  build resolves at build time as before.
+  `docs/design/maven-nodes-and-arbitration.md`; jooby (core, guice, hikari,
+  netty) and a Spring Data JPA example in `itests/` build this way.
+- **A directory names the one build file in it.** `aeb some/dir` and
+  `dep("some/dir")` mean the single dot-prefixed build file there, whatever
+  its stem; two or more is an error naming them.
+- **`php.test` verifies the phpunit phar.** `phpunit_phar_url` now requires
+  `phpunit_phar_sha256`; the download and the check go through `lib/fetch`,
+  a mismatch fails the node and deletes the file, and a URL with no digest
+  is refused before any download.
+- **`rust.test` and `ts.mocha` record the runner's own counts**, not 1/0 or
+  0/1: cargo's `test result:` lines summed over every test binary, mocha's
+  passing/failing/pending summary.
+- **`aeb --toolchain`** prints which Aether a run will use and why.
+- `docs/sdk-ladder.md`: per language, what aeb does itself and what it hands
+  to the language's own tool, kept in step with `lib/` by
+  `tools/check-sdk-ladder.py`.
+
+### Changed
+
+- **A Maven resolve that could not get everything fails.** It used to print
+  what it had and build on with a short classpath. The resolver now exits 1
+  with the missing artifacts named, the node fails and nothing is cached; a
+  missing BOM file fails too.
+- **`step()` together with an SDK setter is refused** in haskell, elixir,
+  erlang, php and javascript blocks. One of the two used to be dropped
+  without a word; the node now fails naming the setter before any tool runs.
+- **`go_build` no longer runs `go mod tidy`.** A build does not rewrite
+  `go.mod`; a stale one fails with the command to run.
+- **`d.test` runs every test file** and reports each; it used to stop at
+  the first failure.
+- **`nim.build` with `test_file` runs `nim c`** per file, as its comment
+  always said; `nimble build` remains the path without it.
+- `AETHER_FETCH` 0.898.0 -> 0.931.0 (tracking only; the floor stays).
+
 ### Fixed
 
 - **One aeb run builds with one Aether toolchain.** With `AETHER` unset and
@@ -26,6 +82,22 @@
   fallback now lives under `$AEB_CACHE_DIR` too. Tested by
   `itests/one-toolchain-per-build.sh` (two real releases, 0.898.0 and
   0.927.0; 9 of its 12 checks fail on the previous aeb).
+- **A helper tool older than its source, or than a module it imports, is
+  rebuilt.** In a development tree a stale prebuilt helper kept running
+  after its source changed, and masked the change. `tools/aebfresh` decides
+  for `aeb-main`'s lazy tools and for `aeb-link`; the trampoline does the
+  same for the nine it builds. `itests/stale-helper-rebuilt.sh`.
+- **Resolver reads poms as published**: one that starts with a byte-order
+  mark, one with text before its first tag, and a version managed by the
+  pom's own `dependencyManagement`. `javac` gets its annotation processors
+  from the settled jars when nodes are kept (Lombok ran on no processor
+  path).
+- **`ts.tsc_files` is cached** through the same path as `ts.tsc`; it ran
+  tsc on every build.
+- **rust: the local-registry path is computed** from the module's real
+  depth; it was right only three levels below the workspace root.
+- **angular: a failed `ngc` or `ng_build` fails the node**; the exit code
+  was dropped when another builder followed.
 
 ## v0.347 (2026-11-15)
 
