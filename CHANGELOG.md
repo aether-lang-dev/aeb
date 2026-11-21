@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.349 (2026-11-21)
+
+Needs Aether 0.898.0 or later; fetches 0.931.0 when it has to fetch one.
+One change can break a build file: a program node (`aether.program`,
+`aether.program_test`) that imports a module from aeb's own `lib/` must now
+say so with `lib("<aeb lib>")`; it no longer gets that directory for free.
+
 ### Fixed
 
 - **Release bundles no longer ship `.pdb` files, and an incomplete bundle
