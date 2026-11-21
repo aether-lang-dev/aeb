@@ -298,4 +298,9 @@
 # uses the floor). 0.931.0's runtime no longer references libfyaml (`ae cflags
 # --libs` has no -lfyaml), so a bootstrap against the fetched copy needs no
 # libfyaml-dev; the floor copy, 0.898.0, still does.
-0.931.0
+# 0.933.0 (2026-11-21): fetch only, tracking-only bump, no new primitive needed;
+# the floor stays 0.898.0 (AETHER_PIN). 0.932.0 and 0.933.0 change no stdlib file
+# (the std tree is byte-identical to 0.931.0's); the compiler change is the actor
+# scoping fix, which aeb's sources do not touch. Same notes as 0.931.0 above on
+# libfyaml and on the one-toolchain itest.
+0.933.0
