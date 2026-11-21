@@ -17,15 +17,18 @@ BINDIR="$PREFIX/bin"; SHAREDIR="$PREFIX/share/aeb"
 src="$here/share/aeb"
 mkdir -p "$BINDIR" "$SHAREDIR"
 cp -f "$src/aeb" "$SHAREDIR/aeb"; chmod +x "$SHAREDIR/aeb"
+# Every part is required: a bundle missing one is broken, and an install that
+# quietly went on without it would leave aeb half there.
 for d in lib tools veto sandbox; do
-    [ -d "$src/$d" ] || continue
+    [ -d "$src/$d" ] || { echo "install.sh: this bundle has no share/aeb/$d; it is incomplete" >&2; exit 1; }
     rm -rf "$SHAREDIR/$d"; cp -R "$src/$d" "$SHAREDIR/$d"
 done
 # BUNDLE names the platform the prebuilt helpers in tools/ were built for;
 # aeb keeps a helper stamped "prebuilt <VERSION> <BUNDLE>" only against these
 # two files (the trampoline's aeb_fresh, tools/aebfresh).
 for f in VERSION BUNDLE AETHER_PIN AETHER_FETCH; do
-    if [ -f "$src/$f" ]; then cp -f "$src/$f" "$SHAREDIR/$f"; fi
+    [ -f "$src/$f" ] || { echo "install.sh: this bundle has no share/aeb/$f; it is incomplete" >&2; exit 1; }
+    cp -f "$src/$f" "$SHAREDIR/$f"
 done
 printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -34,7 +37,7 @@ printf '%s\n' \
     "exec \"$SHAREDIR/aeb\" \"\$@\"" \
     > "$BINDIR/aeb"
 chmod +x "$BINDIR/aeb"
-VER="$( [ -f "$src/VERSION" ] && tr -d '[:space:]' < "$src/VERSION" || echo 0.0.0 )"
+VER="$(tr -d '[:space:]' < "$src/VERSION")"
 printf 'installed %s\nversion %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$VER" \
     > "$SHAREDIR/AEB_STAMP"
 echo "aeb installed to $BINDIR/aeb (aeb $VER)"

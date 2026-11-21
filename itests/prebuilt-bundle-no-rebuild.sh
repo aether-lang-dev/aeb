@@ -33,6 +33,17 @@
 #      for another platform; a genuine stamp in a tree with no BUNDLE (a
 #      development tree); a genuine stamp in a tree whose VERSION is another
 #      release; the stamp of another toolchain.
+#   F. what the bundle carries (release/check-payload.sh --bundle): every
+#      script aeb runs from tools/ (aeb-cc.sh, aeb-watch, ...) present and
+#      executable, no built helper but the five, no stamp of any other, no
+#      .pdb; the installed copy has them too. The lists come from the sources,
+#      so a new runtime script nobody ships fails here. Where zig is at hand a
+#      windows-x86_64 bundle is cross-built too, since only a Windows
+#      cross-build leaves .pdb files.
+#   G. the object cache works from the installed bundle: a build run twice
+#      compiles its translation units on the first run and takes them from the
+#      cache on the second ("aeb-cc: hit"). A bundle without tools/aeb-cc.sh
+#      ran without the cache and said nothing.
 #   E. with AEB_ITEST_OTHER_AETHER=<path to another ae that meets AETHER_PIN>:
 #      the same bundle runs under that ae and keeps its helpers.
 #
@@ -141,7 +152,7 @@ CC_PATH="/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 if ! PATH="$CC_PATH" command -v gcc >/dev/null 2>&1 && PATH="$CC_PATH" command -v cc >/dev/null 2>&1; then CC_ARG="CC=cc"; fi
 aebrun_cc() {
     ( cd "$PROJ" && env -i $CC_ARG HOME="$HOME" PATH="$CC_PATH" TMPDIR="$WORK" \
-        AETHER="${USE_AE:-$AE}" AEB_CACHE_DIR="$CACHE/cc" AETHER_CACHE_DIR="$WORK/aecache" bash "${AEB_RUN:-$AEB}" "$@" )
+        AETHER="${USE_AE:-$AE}" AEB_CACHE_DIR="${CC_CACHE:-$CACHE/cc}" AETHER_CACHE_DIR="$WORK/aecache" bash "${AEB_RUN:-$AEB}" "$@" )
 }
 mkdir -p "$CACHE/empty"
 
@@ -213,6 +224,47 @@ case_rebuilds "other-platform"  mut_otherplat
 case_rebuilds "dev-tree"        mut_devtree
 case_rebuilds "other-release"   mut_otherrel
 case_rebuilds "other-toolchain" mut_othertc
+
+echo
+echo "F: what the bundle carries"
+if "$REPO_ROOT/release/check-payload.sh" --bundle "$BUNDLE_DIR/share/aeb" "$REPO_ROOT" > "$WORK/f.log" 2>&1; then
+    pass "the bundle holds every runtime script and no built file but the five helpers ($(tail -1 "$WORK/f.log" | sed 's/.*(//; s/)//'))"
+else
+    fail "check-payload.sh refused the bundle:"; sed 's/^/        /' "$WORK/f.log"
+fi
+for s in aeb-cc.sh aeb-watch container/aeb-ctr; do
+    if [ -x "$T/$s" ]; then pass "installed: tools/$s is executable"; else fail "installed: tools/$s is missing or not executable"; fi
+done
+if [ -n "$(find "$SHARE" -name '*.pdb' | head -1)" ]; then fail "a .pdb is in the installed bundle"; else pass "no .pdb in the installed bundle"; fi
+if command -v zig >/dev/null 2>&1 && [ "$(uname -s)" != FreeBSD ]; then
+    # Only a Windows cross-build leaves .pdb files (one per .exe, 2 to 3 MB each).
+    if "$REPO_ROOT/release/build-bundle.sh" "$AE" "$WORK/stage" "$WORK/bundles-win" x86_64-windows windows-x86_64 "$TAG" > "$WORK/win.log" 2>&1; then
+        if "$REPO_ROOT/release/check-payload.sh" --bundle "$WORK/bundles-win/aeb-windows-x86_64/share/aeb" "$REPO_ROOT" > "$WORK/fw.log" 2>&1; then
+            pass "the windows-x86_64 bundle holds its five .exe helpers and no .pdb or other built file"
+        else
+            fail "check-payload.sh refused the windows-x86_64 bundle:"; sed 's/^/        /' "$WORK/fw.log"
+        fi
+    else
+        fail "the windows-x86_64 bundle did not build:"; tail -5 "$WORK/win.log" | sed 's/^/        /'
+    fi
+else
+    echo "  SKIP: windows-x86_64 bundle (no zig on PATH)"
+fi
+
+echo
+echo "G: the object cache works from the installed bundle"
+# A node whose orchestrator is compiled to objects, twice, with one cache. The
+# first run fills the cache; the second must take every translation unit from
+# it. aeb-link says "aeb-cc: hit <file>" or "aeb-cc: miss <file>" for each.
+CC_CACHE="$WORK/cache-g"; mkdir -p "$CC_CACHE"
+aebrun_cc app/.tests.ae > "$WORK/g1.log" 2>&1; rc_g1=$?
+aebrun_cc app/.tests.ae > "$WORK/g2.log" 2>&1; rc_g2=$?
+unset CC_CACHE
+miss1=$(grep -c '^aeb-cc: miss' "$WORK/g1.log"); hit1=$(grep -c '^aeb-cc: hit' "$WORK/g1.log")
+miss2=$(grep -c '^aeb-cc: miss' "$WORK/g2.log"); hit2=$(grep -c '^aeb-cc: hit' "$WORK/g2.log")
+if [ "$rc_g1" = 0 ] && [ "$rc_g2" = 0 ]; then pass "both builds pass"; else fail "a build failed (exit $rc_g1, $rc_g2)"; tail -8 "$WORK/g2.log" | sed 's/^/        /'; fi
+if [ "$miss1" -gt 0 ]; then pass "first run compiled $miss1 translation unit(s) ($hit1 hit)"; else fail "first run: no 'aeb-cc: miss' line ($miss1 miss, $hit1 hit); the object cache was not used"; grep -i 'aeb-link\|aeb-cc' "$WORK/g1.log" | head -5 | sed 's/^/        /'; fi
+if [ "$hit2" -gt 0 ] && [ "$miss2" = 0 ]; then pass "second run: $hit2 hit, 0 miss"; else fail "second run: $hit2 hit, $miss2 miss (wanted all hits)"; grep -i 'aeb-link\|aeb-cc' "$WORK/g2.log" | head -5 | sed 's/^/        /'; fi
 
 if [ -n "${AEB_ITEST_OTHER_AETHER:-}" ]; then
     echo

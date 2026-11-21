@@ -4,6 +4,16 @@
 
 ### Fixed
 
+- **Release bundles no longer ship `.pdb` files, and an incomplete bundle
+  refuses to install.** A Windows cross-build leaves a debug-symbol file beside
+  every `.exe` (2 to 3 MB each, more than half of a Windows bundle); nothing
+  reads them, so `release/build-bundle.sh` removes them. `install.sh` used to
+  skip a missing `lib`, `tools`, `veto`, `sandbox`, `VERSION`, `BUNDLE` or pin
+  file and report success; each is now required. The bundle test builds the
+  host bundle and a Windows one (where zig is present), has
+  `release/check-payload.sh --bundle` judge them, and runs a build twice from
+  the installed bundle to see the second run take its objects from the cache.
+  `itests/prebuilt-bundle-no-rebuild.sh`.
 - **A missing `tools/aeb-cc.sh` is an error, not a silent fallback.** `aeb-link`
   compiles the orchestrator's translation units through that script (in
   parallel, each cached by content); when the file was missing it fell back to

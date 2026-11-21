@@ -86,6 +86,10 @@ if [ "$fail" != 0 ]; then
     echo "  ⚠️  aeb-$SUFFIX skipped (a tool failed to cross-build)"
     exit 1
 fi
+# A Windows cross-build leaves a .pdb (debug symbols, 2 to 3 MB each) beside
+# every .exe. Nothing reads it: a bundle is used by running its helpers, never
+# by debugging them, and it was more than half of a Windows bundle's size.
+rm -f "$B/share/aeb/tools/"*.pdb
 printf '%s\n' "$SUFFIX" > "$B/share/aeb/BUNDLE"
 
 cp "$HERE/bundle-install.sh" "$B/install.sh"; chmod +x "$B/install.sh"
