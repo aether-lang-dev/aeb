@@ -221,6 +221,10 @@ jobs:
       # whatever AETHER_HOME says, and helpers are rebuilt per toolchain.
       - name: one toolchain per build
         run: itests/one-toolchain-per-build.sh
+      # An aeb whose tools/aeb-cc.sh is missing stops and says so, instead of
+      # building without the object cache and saying nothing.
+      - name: missing aeb-cc.sh is loud
+        run: itests/missing-cc-script-is-loud.sh
       # The staged release payload holds the scripts aeb runs from tools/
       # (aeb-cc.sh, aeb-watch, ...) and no built file from the checkout it was
       # staged in; no compiler needed.

@@ -840,12 +840,24 @@ _obj_args_link(build_dir: string, n: int) {
     return strbuilder.finish(sb)
 }
 
-// Compile the TU list to <build>/_obj/<i>.o via tools/aeb-cc.sh. 1 on success,
-// 0 when the helper is missing or fails (the caller then falls back to the
-// single gcc invocation, which also prints the real compiler diagnostics).
+// Compile the TU list to <build>/_obj/<i>.o via tools/aeb-cc.sh. 1 on success.
+// 0 when the helper fails (the caller then falls back to the single gcc
+// invocation, which also prints the real compiler diagnostics). A MISSING
+// helper is not a fallback but a broken install, and stops the build: it used
+// to fall back without a word, which left the object cache off in every
+// released aeb for as long as the payload lacked the file (v0.348 and before),
+// with nothing to say so. Building without the cache is a choice to make with
+// AEB_NO_OBJ_CACHE=1, which does not come here.
 _compile_objects_link(aebhome: string, link_cc: string, inc_flags: string, build_dir: string, tus: ptr) {
     helper = string.concat(aebhome, "/tools/aeb-cc.sh")
-    if file.exists(helper) == 0 { return 0 }
+    if file.exists(helper) == 0 {
+        println("aeb-link: FATAL — ${helper} is missing.")
+        println("aeb-link:   It compiles the orchestrator in parallel and keeps the compiled objects in the")
+        println("aeb-link:   content-addressed cache; without it that cache is off. This aeb install is incomplete")
+        println("aeb-link:   (AEB_HOME=${aebhome}): reinstall aeb. To build without the object cache on purpose,")
+        println("aeb-link:   set AEB_NO_OBJ_CACHE=1.")
+        exit(1)
+    }
     lst = string.concat(build_dir, "/_tus.txt")
     sb = strbuilder.new(1024)
     n = list.size(tus)
@@ -864,7 +876,10 @@ _compile_objects_link(aebhome: string, link_cc: string, inc_flags: string, build
     if string.length(jobs) == 0 { jobs = string.from_int(os.cpu_count()) }
     _e3 = os.setenv("AEB_CC_JOBS", jobs)
     rc = _sh_link(string.concat("sh '", string.concat(helper, string.concat("' '", string.concat(string.concat(build_dir, "/_obj"), string.concat("' '", string.concat(lst, "' 2>&1")))))))
-    if rc != 0 { return 0 }
+    if rc != 0 {
+        println("aeb-link: the parallel, cached compile (tools/aeb-cc.sh) failed with exit ${rc}; compiling in one piece instead, without the object cache (its output above says why).")
+        return 0
+    }
     return 1
 }
 

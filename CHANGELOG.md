@@ -4,6 +4,14 @@
 
 ### Fixed
 
+- **A missing `tools/aeb-cc.sh` is an error, not a silent fallback.** `aeb-link`
+  compiles the orchestrator's translation units through that script (in
+  parallel, each cached by content); when the file was missing it fell back to
+  one plain compile and said nothing, which is how every released aeb ran with
+  the object cache off. It now stops with `aeb-link: FATAL` naming the file and
+  saying that `AEB_NO_OBJ_CACHE=1` builds without the cache on purpose. (The
+  script failing is a different case and still falls back, now saying so.)
+  `itests/missing-cc-script-is-loud.sh`.
 - **A released aeb has the scripts it runs from `tools/`, and so a working
   object cache.** `release/stage-payload.sh` deleted every executable file in
   `tools/` that was not `.ae` or `.md`, to get rid of the helpers a developer
