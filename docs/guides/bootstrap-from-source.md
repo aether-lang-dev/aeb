@@ -38,7 +38,7 @@ scaffolds a starter).
 | **Aether toolchain** (`ae` / `aetherc`) | building aeb's tools — the one hard dep. See [aether's bootstrap-from-source](https://github.com/aether-lang-dev/aether/blob/main/docs/guides/bootstrap-from-source.md). |
 | **bash** (3.2+) | the `aeb` trampoline (POSIX-level; macOS bash 3.2 works) |
 | **GNU make** | two distinct roles: the install is make-based, **and** the node driver uses it at *build* time to schedule nodes in parallel. Without it every build still works, just serially (see below). |
-| **C compiler** (`gcc`/`clang`) | aeb shells out to it for C / Aether-program / generated-header targets |
+| **C compiler** (`gcc`/`cc`/`clang`) | every build: aeb compiles and links its orchestrator through it, whatever the targets are (and C / Aether-program / generated-header targets use it too). With none on the node aeb fetches a pinned `zig` once (network) and uses `zig cc`; `AEB_NO_ZIG=1` turns that off. |
 | **curl, tar** | only for the `install.sh` one-liner |
 | **git** | optional — sharpens `aeb --version` (a tag-derived stamp); a non-git tree falls back to a content hash |
 

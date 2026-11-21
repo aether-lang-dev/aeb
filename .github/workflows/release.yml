@@ -17,16 +17,20 @@ name: release
 #                          per-platform bundle below.
 #
 # ALSO shipped: per-platform bundles whose 5 aeb install tools are already
-# cross-compiled for the target, for CI nodes without a C toolchain. The
+# cross-compiled for the target, so installing needs no compiler and no make
+# and the first run does not rebuild those five. (It is NOT a build with no
+# C compiler: every build links its orchestrator through one, and the other
+# eight helpers are built on first use. With no compiler on the node aeb
+# fetches a pinned zig, which needs the network.) The
 # source tarball above is still the build-anywhere universal path (and the
 # only one that covers a platform with no bundle), but the release notes now
-# LEAD with the bundle — it's the path most consumers want (no compiler,
+# LEAD with the bundle — it's the path most consumers want (prebuilt tools,
 # verifiable, install.sh). Neither is dropped; the notes just stop burying
-# the compiler-free option below the whole source story. Nine
+# the prebuilt option below the whole source story. Nine
 # targets — linux x86_64/arm64 (gnu + static musl), macos x86_64/arm64,
 # windows x86_64/arm64, freebsd x86_64 — each as BOTH aeb-<os>-<arch>.zip and
 # .tar.gz (so a minimal image with only `tar` needs no `unzip`), each with
-# its own .sha256, and each carrying an install.sh (compiler-free
+# its own .sha256, and each carrying an install.sh (a copy: no compiler, no
 # `make install`). All cross-built from ONE Linux runner via ae's zig
 # backend + (freebsd) the aether cross-sysroot release asset. The row is
 # fail-safe: a target that fails to cross-build is skipped, and the source
@@ -491,10 +495,11 @@ jobs:
             # target, install.sh (copy-only, no make, no compiler), BUNDLE, and
             # the `prebuilt <tag> <platform>` stamps that let aeb keep those
             # tools on a node with no C compiler (before them, the first run
-            # rebuilt all five, which is what a bundle exists to avoid), then
+            # rebuilt all five, which is what a bundle exists to avoid; a build
+            # itself still wants a compiler or the zig fallback), then
             # both archive forms (ask 2: .zip AND .tar.gz, so a minimal CI
             # image with only `tar` can consume the fast path) each with its
-            # .sha256 (ask 1: the compiler-free fetch path must be verifiable,
+            # .sha256 (ask 1: the prebuilt-tools fetch path must be verifiable,
             # same as bootstrap). Everything is in release/build-bundle.sh so
             # itests/prebuilt-bundle-no-rebuild.sh builds a bundle the same way.
             # Exit 1: a tool failed to cross-build, this row skips (fail-safe).
@@ -572,9 +577,12 @@ jobs:
 
           Two ways to get aeb. Pick by what's on your box:
 
-          - **No C compiler / a CI node** → grab your **platform bundle**
-            below. The aeb tools come **already compiled** for your target;
-            nothing to build.
+          - **A CI node, or no wish to build aeb's tools** → grab your
+            **platform bundle** below. Five of aeb's tools come **already
+            compiled** for your target and \`install.sh\` needs no compiler and
+            no \`make\`. Building a project still needs a C compiler (or the
+            pinned zig aeb fetches when there is none) and an \`ae\`; see
+            *What a bundle needs on the node* below.
           - **Have a C toolchain, or want the build-anywhere source** →
             **[\`aeb-bootstrap.tar.gz\`](../../releases/download/$TAG/$ASSET)**,
             the self-building source payload (see *Build from source* below).
@@ -582,7 +590,7 @@ jobs:
           Both paths are checksummed and installed the same way in the end
           (\`bin/aeb\` on your \`PATH\`, runtime under \`share/aeb/\`).
 
-          ### Platform bundle (prebuilt, compiler-free)
+          ### Platform bundle (prebuilt tools, copy-only install)
 
           A per-platform bundle whose 5 aeb tools are already cross-compiled
           for that target (\`bin/aeb\` stays a script). Nine targets — linux
@@ -597,7 +605,7 @@ jobs:
           curl -fsSL -O \$BASE/\$A -O \$BASE/\$A.sha256
           sha256sum -c \$A.sha256               # fail-closed
           tar xzf \$A                           # -> ./aeb-linux-x86_64/
-          ./aeb-linux-x86_64/install.sh         # no compiler; PREFIX=~/.local
+          ./aeb-linux-x86_64/install.sh         # a copy: no compiler, no make; PREFIX=~/.local
           # or run in place: ./aeb-linux-x86_64/bin/aeb --version
           \`\`\`
 
@@ -607,6 +615,18 @@ jobs:
           tree. No \`ae\`
           required to install (building *Aether* programs later still needs
           your own \`ae\` on \`PATH\` — see the two-Aethers note below).
+
+          **What a bundle needs on the node.** The bundle saves building five
+          tools and nothing more. Every build compiles and links its
+          orchestrator through a C compiler (\`gcc\`, \`cc\` or \`clang\`, or \`CC\`),
+          and the first build also compiles eight smaller helpers
+          (\`aeb-driver\`, \`aeb-query\`, \`aeb-report\`, \`extract-deps\`,
+          \`gen-orchestrator\`, \`scan-ae-files\`, \`topo-sort\`, \`transform-ae\`)
+          that the bundle does not ship. With no compiler on the node, aeb
+          fetches a pinned zig on first use (network needed, one time) and
+          uses its \`zig cc\`; with \`AEB_NO_ZIG=1\` and no compiler a build
+          fails. It also needs an \`ae\` (a recent one on \`PATH\`, or it fetches
+          its own pinned Aether into \`~/.cache/aeb\` on first use).
 
           > Ignore GitHub's auto-attached *Source code* assets at the very
           > bottom. Those are the **whole repository** — including

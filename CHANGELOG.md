@@ -14,6 +14,16 @@
   `release/check-payload.sh --bundle` judge them, and runs a build twice from
   the installed bundle to see the second run take its objects from the cache.
   `itests/prebuilt-bundle-no-rebuild.sh`.
+- **The notes and docs no longer call a bundle install compiler-free.** A
+  bundle's `install.sh` is a copy and needs no compiler and no `make`, and its
+  five tools are not rebuilt on first run; but every build compiles and links its
+  orchestrator through a C compiler (or the pinned `zig cc` aeb fetches when
+  there is none, which needs the network; `AEB_NO_ZIG=1` turns that off), and
+  the first build compiles eight helpers the bundle does not ship
+  (`aeb-driver`, `aeb-query`, `aeb-report`, `extract-deps`, `gen-orchestrator`,
+  `scan-ae-files`, `topo-sort`, `transform-ae`). The release notes, the
+  bootstrap guide, the host setup guide, `AGENTS.md` and `get.sh` now say so; the
+  release notes gain a "What a bundle needs on the node" paragraph.
 - **A missing `tools/aeb-cc.sh` is an error, not a silent fallback.** `aeb-link`
   compiles the orchestrator's translation units through that script (in
   parallel, each cached by content); when the file was missing it fell back to

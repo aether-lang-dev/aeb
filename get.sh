@@ -28,8 +28,8 @@
 #   * aeb: aeb-<os>-x86_64.tar.gz + its .sha256 from aeb's gh-releases; the
 #          checksum is VERIFIED (mismatch fatal; a missing sidecar or sha256 tool
 #          falls back to source, never installs unverified). Then the bundle's
-#          own install.sh (copies files — "no compiler", but runs `make install`,
-#          so GNU make is needed). Source fallback: the repo install.sh.
+#          own install.sh (copies files: no compiler and no make). Source
+#          fallback: the repo install.sh.
 # A cold box thus skips the ~1-2 min per-tool compile.
 #
 #   ARCH WORD: x86_64 across aether, aeo AND aeb (aeb aligned at v0.300; it used

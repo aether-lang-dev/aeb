@@ -1246,7 +1246,10 @@ left open):
    Aether than the one the run chose needs a separate aeb run or a container;
    aeb does not mix two inside one run.
 3. **The release workflow stamps the helpers it ships**, so a bundle install
-   stays compiler-free: its five prebuilt helpers carry
+   keeps them and does not rebuild them on first run (it does not make a build
+   compiler-free: the orchestrator of every build is compiled with a C compiler
+   or aeb's zig fallback, and eight smaller helpers are built on first use):
+   its five prebuilt helpers carry
    `prebuilt <tag> <platform>` and are kept when the tree's `VERSION` and
    `BUNDLE` say the same (`release/build-bundle.sh` says why that is sound;
    `tools/aebfresh` and the trampoline's `aeb_fresh` apply it together;

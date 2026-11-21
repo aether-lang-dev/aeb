@@ -201,8 +201,11 @@ a build that should not depend on what the node has installed. (Paul decided
 this on 2026-11-20: the `ae` on `PATH` is the default when it meets
 `AETHER_PIN`, `AEB_TOOLCHAIN=pinned` the explicit choice, and a target that
 wants a different Aether needs a separate run or a container, not a second
-toolchain in the same run.) The helpers of a release bundle are the one thing
-no toolchain builds on the node: they ship prebuilt and are kept as they are.
+toolchain in the same run.) The five helpers a release bundle ships are the
+only ones no toolchain builds on the node: they come prebuilt and are kept as
+they are. The orchestrator of every build, and eight smaller helpers on first
+use, are still compiled with the node's C compiler (or the pinned `zig cc`
+aeb fetches when there is none).
 
 This is not a contradiction of "aeb never provisions". The rule is about
 the *unbounded* case (everyone else's toolchains); aeb fetching its own
