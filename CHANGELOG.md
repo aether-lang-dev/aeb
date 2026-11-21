@@ -4,6 +4,27 @@
 
 ### Fixed
 
+- **A released aeb has the scripts it runs from `tools/`, and so a working
+  object cache.** `release/stage-payload.sh` deleted every executable file in
+  `tools/` that was not `.ae` or `.md`, to get rid of the helpers a developer
+  has built there, and so also deleted `tools/aeb-cc.sh` (aeb-link's parallel,
+  content-addressed compile), `tools/aeb-watch`, `tools/container/aeb-ctr`,
+  `tools/resolve-imports.sh`, `tools/cargo-*.sh` and `tools/check-workflow-env.py`
+  from the payload and from every bundle. `aeb-link` went on without
+  `aeb-cc.sh` and said nothing, so the object cache was off in every released
+  aeb. The payload is now what git tracks under `lib/`, `tools/`, `veto/` and
+  `sandbox/` (built files cannot be in it, so there is no list of what to
+  delete), plus the host setup guide, which the stage step named by a path that
+  does not exist (`docs/aeb-host-vm-or-container-setup.md`, under `|| true`) and
+  which the release notes now point to at its real place,
+  `docs/guides/aeb-host-vm-or-container-setup.md`. The release workflow's
+  "source only" check, which counted executables and so approved the broken
+  payload, is now `release/check-payload.sh`: every tracked runtime file is
+  present with its executable bit, every `tools/` name the runtime sources
+  mention is a shipped file, a helper built from a `tools/*.ae`, or named as
+  built on demand, and nothing untracked is in the tree. The "prebuilt
+  binaries" count in the notes counts binaries, not shell scripts.
+  `itests/release-payload-contents.sh`.
 - **A `java.javac` node's classpath artifact no longer grows on every re-run.**
   `javac` read the node's own `jvm_classpath_deps_including_transitive` file
   back (to keep the jars its own `jar_pinned`/`jar_vendored` calls wrote) and

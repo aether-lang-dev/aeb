@@ -146,11 +146,13 @@ jobs:
           # goes stale the first time someone adds one, and nothing would
           # catch it. `exe` is the one that must stay 0: the whole claim of
           # this payload is that it is source that rebuilds, so a stray
-          # binary here is a bug, not a bonus.
+          # binary here is a bug, not a bonus. (Executable SCRIPTS, which aeb
+          # runs from tools/, are not binaries: a file starting "#!" is not
+          # counted.)
           {
             echo "n_tools=$(find "$STAGE/tools" -maxdepth 1 -name '*.ae' | wc -l | tr -d ' ')"
             echo "n_sdk=$(find "$STAGE/lib" -maxdepth 1 -mindepth 1 -type d | wc -l | tr -d ' ')"
-            echo "n_exe=$(find "$STAGE" -type f -perm -u+x ! -name '*.ae' ! -name '*.md' ! -name aeb | wc -l | tr -d ' ')"
+            echo "n_exe=$(find "$STAGE" -type f -perm -u+x ! -exec sh -c 'head -c 2 "$1" | grep -q "#!"' _ {} \; -print | wc -l | tr -d ' ')"
             echo "unpacked=$(du -sh "$STAGE" | cut -f1)"
             echo "pin=$(grep -v '^#' "$STAGE/AETHER_PIN" | tr -d '[:space:]')"
             echo "fetchver=$(grep -v '^#' "$STAGE/AETHER_FETCH" | tr -d '[:space:]')"
@@ -214,16 +216,19 @@ jobs:
           test ! -x "$HOME_DIR/tools/aeb-main" \
             || { echo "payload contains a prebuilt aeb-main; it must rebuild"; exit 1; }
 
-          # The release notes state "source only — 0 executables". Assert it
-          # rather than trust the staging step's `find -delete`, because the
-          # notes are a promise to whoever downloads this: a shipped binary
-          # under a source-only description is the kind of mismatch that
-          # erodes trust in every other claim on the page. (The bash
-          # trampoline `aeb` is the one intended executable and is excluded.)
-          STRAY="$(find "$HOME_DIR" -type f -perm -u+x ! -name '*.ae' ! -name '*.md' ! -name aeb)"
-          test -z "$STRAY" || {
-            echo "payload contains executables but is described as source-only:"
-            echo "$STRAY"; exit 1; }
+          # The release notes state "source only: no prebuilt binaries".
+          # Assert it rather than trust the staging step, because the notes
+          # are a promise to whoever downloads this: a shipped binary under a
+          # source-only description is the kind of mismatch that erodes trust
+          # in every other claim on the page. release/check-payload.sh checks
+          # the unpacked tarball against what git tracks: every tracked
+          # runtime file in it (the scripts aeb runs from tools/ included, a
+          # check this step once did the opposite of: it counted executables,
+          # and so approved a payload that had lost aeb-cc.sh), and nothing
+          # in it that git does not track (no built helper, no stamp, no
+          # .pdb). This step runs in the checkout, so `.` is the repo.
+          release/check-payload.sh "$HOME_DIR" . \
+            || { echo "payload is not what the release notes say it is"; exit 1; }
 
           # Fetch the Aether the payload itself asks for, the same way a
           # cold node would: the trampoline also tries the prebuilt asset
@@ -446,6 +451,8 @@ jobs:
           # Retried: a GitHub 504 here silently dropped the FreeBSD bundle from the
           # first v0.344 cut (the row is fail-safe, so the release still shipped).
           if curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "$FBSD_URL" -o /tmp/fbsd-sysroot.tar.xz; then
+            # (A failed extract leaves FBSD_SYSROOT empty, so the freebsd row
+            # fails and "Require every platform bundle" below stops the release.)
             mkdir -p /tmp/fbsd-sr && tar -xJf /tmp/fbsd-sysroot.tar.xz -C /tmp/fbsd-sr 2>/dev/null \
               && FBSD_SYSROOT="$(ls -d /tmp/fbsd-sr/fbsd-sysroot 2>/dev/null || echo /tmp/fbsd-sr)" \
               && echo "freebsd sysroot ready: $FBSD_SYSROOT"
@@ -498,6 +505,8 @@ jobs:
           done
           # Space-joined list of ALL built platform assets (archives + their
           # .sha256 companions) for the Publish step.
+          # (2>/dev/null: no bundle at all is the empty list, which the next step
+          # turns into a failed release naming each missing file.)
           assets=$(ls bundles/aeb-*.zip bundles/aeb-*.tar.gz bundles/aeb-*.sha256 2>/dev/null | tr '\n' ' ')
           echo "zips=$assets" >> "$GITHUB_OUTPUT"
           echo "built: $assets"
@@ -647,7 +656,7 @@ jobs:
           > \`PATH\`, and fails with \`sh: ae: not found\` if there isn't
           > one. Targets in other languages (\`bash.test\`, \`java\`,
           > \`rust\`, …) have no such requirement. Two Aethers, on purpose —
-          > see \`docs/aeb-host-vm-or-container-setup.md\`.
+          > see \`docs/guides/aeb-host-vm-or-container-setup.md\`.
 
           ### Download and verify
 

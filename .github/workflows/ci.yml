@@ -221,6 +221,11 @@ jobs:
       # whatever AETHER_HOME says, and helpers are rebuilt per toolchain.
       - name: one toolchain per build
         run: itests/one-toolchain-per-build.sh
+      # The staged release payload holds the scripts aeb runs from tools/
+      # (aeb-cc.sh, aeb-watch, ...) and no built file from the checkout it was
+      # staged in; no compiler needed.
+      - name: release payload contents
+        run: itests/release-payload-contents.sh
       # A bundle built and installed the way a release does keeps its five
       # prebuilt helpers on first run, with no C compiler reachable; a helper
       # the tree does not vouch for is still rebuilt.
