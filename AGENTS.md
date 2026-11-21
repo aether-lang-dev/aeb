@@ -668,8 +668,11 @@ runtime tree to `$PREFIX/share/aeb/`, with a wrapper at
   `import contrib.aeocha` + `make install-contrib` dance is retired);
   (b) the cache hasher's roots are source_dir + ancestors, the node's
   `lib()` dirs (symlinked sibling checkouts included), `<source_dir>/src`
-  and the `AEB_COMPILE_LIB` entries (`_key_import_roots`); every candidate
-  an import resolves to across them is hashed. A module in a **sibling**
+  and the project root `AEB_PROGRAM_LIB` (`_key_import_roots`); every
+  candidate an import resolves to across them is hashed. aeb's own `lib/` is
+  NOT a root of a program node (its `lua`, `python`, `ruby`, ... are builder
+  modules and would shadow a package's bridges): a program that imports an aeb
+  SDK module declares `lib("${root}/lib")`, as `tools/agent/.dist.ae` does. A module in a **sibling**
   dir that is on none of those roots still isn't seen — put it on the
   path with `lib()` or express it as a repo-root dotted path, per the
   "share a source module across directories" idiom above.

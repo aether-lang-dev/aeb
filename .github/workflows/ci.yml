@@ -221,6 +221,12 @@ jobs:
       # whatever AETHER_HOME says, and helpers are rebuilt per toolchain.
       - name: one toolchain per build
         run: itests/one-toolchain-per-build.sh
+      # An Aether program node imports the project's own packages, not aeb's
+      # lib/ (whose lua, python, ruby, ... are builder modules, not the
+      # guest-language bridges); a program that wants an aeb SDK module says so
+      # with lib().
+      - name: program nodes see packages, not aeb's SDK
+        run: itests/program-imports-package-not-sdk.sh
       # An aeb whose tools/aeb-cc.sh is missing stops and says so, instead of
       # building without the object cache and saying nothing.
       - name: missing aeb-cc.sh is loud

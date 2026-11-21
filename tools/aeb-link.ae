@@ -182,11 +182,10 @@ _is_windows_link() {
 
 // aetherc's lib-search-path separator: `;` on Windows, `:` on POSIX
 // (compiler/aether_lib_path.h AETHER_LIB_PATH_SEP_CHAR — `:` collides with the
-// drive-letter colon on Windows, so the toolchain uses `;` there). Used ONLY to
-// build the separator-joined AEB_COMPILE_LIB env value, which downstream tools
-// feed to aetherc's separator parser (a non-shell path, so `;` is safe there).
-// Command-LINE --lib args use repeated flags instead (compile_lib_flags) — see
-// the note there for why a joined value breaks under the Windows shell.
+// drive-letter colon on Windows, so the toolchain uses `;` there). Used to
+// join PATH-style lists (PKG_CONFIG_PATH). Command-LINE --lib args use repeated
+// flags instead (compile_lib_flags) — see the note there for why a joined value
+// breaks under the Windows shell.
 // Mirrors bldr._path_sep().
 _lib_sep_link() {
     if _is_windows_link() == 1 { return ";" }
@@ -935,10 +934,6 @@ main() {
     // subdir invocation too. A marker-less tree (source tarball, `git archive`)
     // falls back to <root>=cwd, so root-relative imports resolve there too.
     repo_root = _discover_repo_root(root)
-    compile_lib = string.concat(aeb_lib, "")
-    if string.length(repo_root) > 0 {
-        compile_lib = string.concat(aeb_lib, string.concat(_lib_sep_link(), repo_root))
-    }
     // For COMMAND LINES we emit ONE `--lib <entry>` flag per search-path
     // entry, NOT a single separator-joined `--lib a;b` value. This is the
     // toolchain's designed answer to a Windows-specific trap (aetherc.c's
@@ -948,24 +943,25 @@ main() {
     // sh does — the `;` leaks out as a separator). aetherc's first `--lib`
     // resets the chain and each subsequent one appends, so repeated flags
     // compose into the same search path with zero shell-quoting fragility.
-    // The separator-joined `compile_lib` is kept ONLY for the AEB_COMPILE_LIB
-    // env export below, which routes through aetherc's separator parser
-    // (not a shell), where `;`/`:` is correct.
     compile_lib_flags = string.concat("--lib ", aeb_lib)
     if string.length(repo_root) > 0 {
         compile_lib_flags = string.concat(compile_lib_flags, string.concat(" --lib ", repo_root))
     }
-    // Export the same search path the per-file orchestrator compile uses
-    // so the `aether.program` manual path (lib/aether's _compile_and_link)
-    // can resolve the entry's `import`s when it runs its own standalone
-    // `aetherc entry.ae entry.c`. Without this, an entry that imports an
-    // extern-backed sibling module (the no_closure_regen / thin-Aether-
-    // over-C shape) fails the plain compile with E0301 — the import
-    // resolves to nothing because the relocated/standalone compile never
-    // had the SDK lib + repo root on its search path. Inherited by the
-    // orchestrator binary / aeb-driver / make / per-node children through
-    // the process env (all spawned via os.system after this point).
-    _sl = os.setenv("AEB_COMPILE_LIB", compile_lib)
+    // What an Aether PROGRAM node (aether.program / aether.program_test) is
+    // compiled against is NOT this path. The orchestrator above needs aeb's lib/
+    // because it is generated from build files, and build files import aeb's
+    // SDK modules (`import java`, `import lua`, ...). A user's program imports
+    // its own modules and the packages installed for its project, and aeb's
+    // lib/ among its --lib entries shadowed those: aeb's lib/lua is a builder
+    // module, and `import lua` in a program that meant the bridge from
+    // aether-guest-languages failed with E0301 (aeb-lib-shadows-guest-language-
+    // bridges). So a program is given only the project root, so that a
+    // root-relative dotted import resolves as it does for the orchestrator, and
+    // a program that imports an aeb SDK module (tools/agent/.dist.ae) says so
+    // with lib(). AEB_PROGRAM_LIB holds that one root; lib/aether reads it.
+    // Inherited by the orchestrator binary / aeb-driver / make / per-node
+    // children through the process env (all spawned via os.system after this).
+    _sl = os.setenv("AEB_PROGRAM_LIB", repo_root)
     // Helper tool paths: suffixless base for `ae build -o` (ae auto-appends
     // .exe on Windows, so an explicit .exe there would double-suffix to
     // .exe.exe), and the .exe-suffixed name for file.exists + invocation.

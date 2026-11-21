@@ -24,6 +24,23 @@
   `scan-ae-files`, `topo-sort`, `transform-ae`). The release notes, the
   bootstrap guide, the host setup guide, `AGENTS.md` and `get.sh` now say so; the
   release notes gain a "What a bundle needs on the node" paragraph.
+- **An `aether.program` / `aether.program_test` node is no longer compiled with
+  aeb's own `lib/` on its search path, so `import lua` in a program finds the
+  package.** aeb's SDK modules are for build files, and several are named like
+  the languages (`lua`, `python`, `ruby`, `go`, `java`); `aeb-link` exported
+  `AEB_COMPILE_LIB` as `<aeb>/lib:<project root>` and `lib/aether` turned it into
+  `--lib` flags on every program compile, ahead of the project's installed
+  packages, so a program that did `import lua` for the bridge from
+  `aether-guest-languages` got aeb's builder module and failed with
+  `E0301 Undefined function 'lua.run'` (plain `ae build` of the same source
+  worked). A program is now compiled with the project root only (the variable is
+  `AEB_PROGRAM_LIB`; `AEB_COMPILE_LIB` is gone, nothing else read it) plus the
+  node's own `lib()` dirs and the project's packages, which is what `ae build`
+  sees. A program that imports an aeb SDK module declares it with
+  `lib("${root}/lib")`: `tools/agent`, `tools/keygen` and `tools/lease`
+  (`.dist.ae`), the only such nodes in this repository or the family checkouts,
+  now do. `itests/program-imports-package-not-sdk.sh`;
+  `asks/REPLY-lib-shadows-guest-language-bridges.md`.
 - **A missing `tools/aeb-cc.sh` is an error, not a silent fallback.** `aeb-link`
   compiles the orchestrator's translation units through that script (in
   parallel, each cached by content); when the file was missing it fell back to

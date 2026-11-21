@@ -352,13 +352,21 @@ include_dir(_ctx: ptr, dir: string) {
 // Aether compile. The Aether-side twin of include_dir (which is gcc `-I`).
 //
 // A node whose source `import`s sibling modules that live in a repo subdir
-// OTHER than the source dir or repo root needs this: the orchestrator's
-// AEB_COMPILE_LIB path is `<aeb_lib>:<repo_root>`, so an app at
+// OTHER than the source dir or repo root needs this: a program is compiled with
+// the project root (AEB_PROGRAM_LIB) and what lib() adds, so an app at
 // `aevg/apps/rubiks_cube/rubiks_cube.ae` importing `vg`/`vg_live` from `aevg/`
 // can't resolve them. `lib("${root}/aevg")` adds that dir to the search path.
 //
-// Appended AFTER the env-derived AEB_COMPILE_LIB flags, so a node can only ADD
-// to the orchestrator's path, never lose it. Relative dirs resolve against
+// A program that imports one of aeb's own SDK modules (what a build file
+// imports: `agent`, `veto`, `cache`, ...) says so here too, with
+// `lib("${root}/lib")`: aeb's lib/ is NOT on a program's search path unasked,
+// because its modules are named like languages (`lua`, `python`, `ruby`, `go`,
+// `java`) and shadowed the same-named packages a program imports
+// (asks/REPLY-lib-shadows-guest-language-bridges.md). tools/agent/.dist.ae is
+// the example.
+//
+// Appended AFTER the project-root flag, so a node can only ADD to the path,
+// never lose it. Relative dirs resolve against
 // source_dir; absolute pass through (same rule as include_dir / extra_source).
 // Repeatable. Folded into the link cache key so a changed lib path invalidates.
 lib(_ctx: ptr, dir: string) {
@@ -765,7 +773,7 @@ _resolve_import_ae_all(modname: string, roots: ptr) {
     return out
 }
 
-// _split_search_path(s) — a PATH-style list (AEB_COMPILE_LIB) split on the
+// _split_search_path(s) — a PATH-style list (AEB_PROGRAM_LIB) split on the
 // platform separator into its non-empty entries. Same rule as
 // _ae_build_lib_flags, returned as a list rather than rendered as flags.
 _split_search_path(s: string) {
@@ -797,9 +805,8 @@ _split_search_path(s: string) {
 //   - source_dir/src (aetherc probes `src/<mod>` too),
 //   - the node's lib() dirs — sibling checkouts, often reached through a
 //     relative symlink (OpenDisk-ae's `aether-ui -> ../aether-ui`),
-//   - the orchestrator's AEB_COMPILE_LIB entries (`<aeb_lib>:<repo_root>`),
-//     which phase 1 passes to aetherc as --lib.
-// Without the lib() and AEB_COMPILE_LIB roots, a module reached only through
+//   - the project root (AEB_PROGRAM_LIB), which the compile gets as --lib.
+// Without the lib() and AEB_PROGRAM_LIB roots, a module reached only through
 // them never resolved here, so neither it nor anything IT imported was
 // hashed — editing aether-ui's ui/module.ae left a consumer's key unchanged
 // and a stale binary was restored from the cache.
@@ -816,7 +823,7 @@ _key_import_roots(builder_map: ptr, source_dir: string) {
         _a1 = list.add(roots, d1)
         i1 = i1 + 1
     }
-    cls = _split_search_path(os.getenv("AEB_COMPILE_LIB"))
+    cls = _split_search_path(os.getenv("AEB_PROGRAM_LIB"))
     n2 = list.size(cls)
     i2 = 0
     while i2 < n2 {
@@ -1063,7 +1070,7 @@ _cache_key_for_aether_link(builder_map: ptr, source_dir: string, src_path: strin
     // motivating case) never busts a consumer's key. `import` modules
     // are resolved against EVERY root aetherc can search for this node —
     // source_dir + ancestors, the node's lib() dirs (sibling checkouts,
-    // symlinked or not) and AEB_COMPILE_LIB — following every candidate
+    // symlinked or not) and AEB_PROGRAM_LIB — following every candidate
     // (see _key_import_roots / _resolve_import_ae_all).
     imp_roots = _key_import_roots(builder_map, source_dir)
     imps = _transitive_import_aes_ex(src_path, imp_roots, 1)
@@ -1532,7 +1539,7 @@ _ae_build_cmd_delegated(ae_build_args: string, root: string, image: string, work
     return cmd
 }
 
-// _ae_build_lib_flags(compile_lib) — turn a separator-joined AEB_COMPILE_LIB
+// _ae_build_lib_flags(compile_lib) — turn a separator-joined AEB_PROGRAM_LIB
 // value (<a><sep><b>…, sep = bldr._path_sep(): ':' POSIX / ';' Windows) into a
 // repeated-flag fragment " --lib a --lib b". Empty in → "". Repeated flags (not
 // a joined --lib value) keep it Windows-shell-safe (aetherc's first --lib resets
@@ -1700,18 +1707,19 @@ _shell_out_ae_build(ctx: ptr, builder_map: ptr, src_path: string, bin_path: stri
     // (this path already reports [n/a]).
     tgt_flag = _target_flag(builder_map)
 
-    // Thread the orchestrator's module search path (AEB_COMPILE_LIB, set by
-    // tools/aeb-link as <aeb_lib>:<repo_root>) onto this `ae build` as repeated
-    // `--lib` flags. Without it, a program that imports an SDK module from lib/
-    // (e.g. tools/aeb-agent: `import agent` / `import veto` / `import build`)
-    // fails with E0301 — `ae build` only searches cwd + --lib, and the imported
-    // modules live under the repo's lib/, not the source dir. The
-    // _compile_and_link path already threads this; the default shell-out path
-    // (here) did not — which is why the aeb-agent dogfood build
-    // (tools/agent/.dist.ae) was broken (asks/agent-dist-dogfood-broken.md).
+    // Thread the project root (AEB_PROGRAM_LIB, set by tools/aeb-link) onto
+    // this `ae build` as a `--lib` flag. `ae build` only searches cwd + --lib
+    // (and the project's installed packages), so without it a program that
+    // imports a module from elsewhere in the repo's root fails with E0301.
+    // NOT aeb's own lib/: that holds the SDK modules of BUILD FILES, named like
+    // languages, and ahead of the project's packages it made `import lua` in a
+    // program find aeb's builder instead of the bridge from
+    // aether-guest-languages. A program that imports an aeb SDK module
+    // (tools/agent/.dist.ae: `import agent`, `import veto`) declares
+    // lib("<aeb>/lib") itself, below.
     // Repeated flags (not a `;`/`:`-joined value) so it's Windows-shell-safe
     // (the cmd.exe∘sh quoting law — see lib/build's _sh).
-    lib_flags = _ae_build_lib_flags(os.getenv("AEB_COMPILE_LIB"))
+    lib_flags = _ae_build_lib_flags(os.getenv("AEB_PROGRAM_LIB"))
     // Per-node lib() dirs (appended after the env path, so a node only ADDS).
     // See asks/aether-program-per-node-lib-search-path.md.
     lib_flags = string.concat(lib_flags, _node_lib_flags(builder_map, source_dir))
@@ -2737,8 +2745,8 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
 
     // Phase 1: aetherc src.ae → src.c
     //
-    // Thread the orchestrator's search path (AEB_COMPILE_LIB, set by
-    // tools/aeb-link as <aeb_lib>:<repo_root>) onto this standalone
+    // Thread the project root (AEB_PROGRAM_LIB, set by tools/aeb-link; not aeb's
+    // lib/, see the `ae build` path above) onto this standalone
     // compile so the entry's `import`s resolve. Without it, an entry
     // importing an extern-backed sibling module (the no_closure_regen
     // thin-Aether-over-C shape) fails here with E0301 — the import
@@ -2749,8 +2757,8 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // self-contained-entry case.
     // ONE `--lib` FLAG PER ENTRY — never the separator-joined value verbatim.
     //
-    // AEB_COMPILE_LIB is PATH-style (`<aeb_lib><sep><repo_root>`), and the
-    // separator is `;` on Windows. Splicing that straight onto a command line
+    // AEB_PROGRAM_LIB was PATH-style (`<a><sep><b>`) and is still read as a list
+    // by _ae_build_lib_flags, and the separator is `;` on Windows. Splicing that straight onto a command line
     // hands `sh` a statement separator, so the single command
     //
     //     aetherc --lib C:/…/lib;C:/…/aether-ui src.ae out.c
@@ -2767,7 +2775,7 @@ _compile_and_link(ctx: ptr, builder_map: ptr, src_path: string, bin_path: string
     // (asks/windows-fanout-aetherc-invoked-as-directory.md)
     // _ae_build_lib_flags is the existing splitter (the `ae build` shell-out
     // path was hardened against this same trap; this consumer was missed).
-    lib_flag = _ae_build_lib_flags(os.getenv("AEB_COMPILE_LIB"))
+    lib_flag = _ae_build_lib_flags(os.getenv("AEB_PROGRAM_LIB"))
     // Per-node lib() dirs, appended AFTER the env path so a node only ADDS to
     // the orchestrator's search path. Lets an app import sibling modules from a
     // repo subdir other than its source dir / root (e.g. aevg/apps/* importing

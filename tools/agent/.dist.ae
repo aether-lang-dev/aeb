@@ -11,12 +11,16 @@
 //   aeb tools/agent/.install.ae   (deps this, then installs to ~/.local)
 import bldr
 import aether
-import aether(source, output)
+import aether(source, output, lib)
 main() {
     bldr.build() {
+        root = _get("root")
         aether.program() {
             source("../aeb-agent.ae")
             output("aeb-agent")
+            // imports `agent` from aeb's own lib/, which a program does not see
+            // unless it asks (it would shadow a package's `lua`, `python`, ...)
+            lib("${root}/lib")
         }
     }
 }
