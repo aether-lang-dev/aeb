@@ -309,4 +309,9 @@
 # block's receiver export of the same name); aeb's own sources compile to the
 # same C, and aeb's tests pass on 0.935.0 (see the commit). Same notes as
 # 0.931.0 above on libfyaml and on the one-toolchain itest.
-0.935.0
+0# 0.936.0 (2026-11-22): fetch only, tracking-only bump, no new primitive needed;
+# the floor stays 0.898.0 (AETHER_PIN). Runtime ABI revision 6, the std.tcp and TLS
+# deadline additions and the per-task contexts of cooperative builds touch nothing
+# aeb builds or runs; aeb's tests pass on 0.936.0 (see the commit). Same notes as
+# 0.931.0 above on libfyaml and on the one-toolchain itest.
+0.936.0
