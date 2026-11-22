@@ -303,4 +303,10 @@
 # (the std tree is byte-identical to 0.931.0's); the compiler change is the actor
 # scoping fix, which aeb's sources do not touch. Same notes as 0.931.0 above on
 # libfyaml and on the one-toolchain itest.
-0.933.0
+# 0.935.0 (2026-11-22): fetch only, tracking-only bump, no new primitive needed;
+# the floor stays 0.898.0 (AETHER_PIN). The one change that could touch aeb is
+# 0.935.0's receiver rule (a name the program binds now comes before a trailing
+# block's receiver export of the same name); aeb's own sources compile to the
+# same C, and aeb's tests pass on 0.935.0 (see the commit). Same notes as
+# 0.931.0 above on libfyaml and on the one-toolchain itest.
+0.935.0

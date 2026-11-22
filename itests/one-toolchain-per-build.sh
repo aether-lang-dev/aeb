@@ -12,7 +12,7 @@
 #   undefined reference to `dir_list_error'
 #
 # Two real releases are used: OLD is aeb's private copy, NEW is a newer release
-# ($AEB_ITEST_NEW_AETHER, default 0.933.0), both installed with aeb's own get.sh.
+# ($AEB_ITEST_NEW_AETHER, default 0.935.0), both installed with aeb's own get.sh.
 # OLD is the floor, AETHER_PIN (the oldest release aeb supports), not
 # AETHER_FETCH: the fetched copy is normally the latest release, and the test
 # needs a private copy OLDER than the one on PATH. The aeb copy the test builds
@@ -41,7 +41,7 @@
 # Usage: ./itests/one-toolchain-per-build.sh
 #   AEB_TREE=<aeb checkout>        the aeb to test (default: this one; it is
 #                                  copied, so its own helpers are not touched)
-#   AEB_ITEST_NEW_AETHER=<x.y.z>   the newer release (default 0.933.0)
+#   AEB_ITEST_NEW_AETHER=<x.y.z>   the newer release (default 0.935.0)
 #   AEB_ITEST_TOOLCHAINS=<dir>     keep the downloaded releases here between
 #                                  runs (<dir>/<version>/bin/ae)
 # Exit: 0 if every assertion passed or the test was skipped (no network, a
@@ -51,7 +51,7 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 AEB_TREE="${AEB_TREE:-$REPO_ROOT}"
-NEW_V="${AEB_ITEST_NEW_AETHER:-0.933.0}"
+NEW_V="${AEB_ITEST_NEW_AETHER:-0.935.0}"
 OLD_V="$(grep -v '^#' "$AEB_TREE/AETHER_PIN" 2>/dev/null | tr -d '[:space:]')"
 case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) echo "  SKIP: Windows"; exit 0 ;; esac
 [ -n "$OLD_V" ] || { echo "error: cannot read $AEB_TREE/AETHER_PIN" >&2; exit 1; }
