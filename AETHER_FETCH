@@ -309,9 +309,16 @@
 # block's receiver export of the same name); aeb's own sources compile to the
 # same C, and aeb's tests pass on 0.935.0 (see the commit). Same notes as
 # 0.931.0 above on libfyaml and on the one-toolchain itest.
-0# 0.936.0 (2026-11-22): fetch only, tracking-only bump, no new primitive needed;
+# 0.936.0 (2026-11-22): fetch only, tracking-only bump, no new primitive needed;
 # the floor stays 0.898.0 (AETHER_PIN). Runtime ABI revision 6, the std.tcp and TLS
 # deadline additions and the per-task contexts of cooperative builds touch nothing
 # aeb builds or runs; aeb's tests pass on 0.936.0 (see the commit). Same notes as
 # 0.931.0 above on libfyaml and on the one-toolchain itest.
-0.936.0
+# 0.939.0 (2026-11-23): fetch only, tracking-only bump, no new primitive needed;
+# the floor stays 0.898.0 (AETHER_PIN). 0.939.0 removes std.http.client's
+# process-wide connection pool (a request with no pool opens its own connection);
+# aeb's fetch, webhook, agent and remote calls are each a single request, so they
+# keep plain requests and none used the removed pool functions. aeb's tests pass
+# on 0.939.0 (see the commit). Same notes as 0.931.0 above on libfyaml and on the
+# one-toolchain itest.
+0.939.0
