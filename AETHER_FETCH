@@ -321,4 +321,10 @@
 # keep plain requests and none used the removed pool functions. aeb's tests pass
 # on 0.939.0 (see the commit). Same notes as 0.931.0 above on libfyaml and on the
 # one-toolchain itest.
-0.939.0
+# 0.941.0 (2026-11-24): fetch only, tracking-only bump, no new primitive needed;
+# the floor stays 0.898.0 (AETHER_PIN). 0.940.0 and 0.941.0 change how std.http.client
+# retries (only idempotent methods) and word its errors; aeb's fetch, webhook, agent and
+# remote calls are each one request, and none of aeb's tests or sources match the old
+# "recv timeout" wording. aeb's tests pass on 0.941.0 (see the commit). Same notes as
+# 0.931.0 above on libfyaml and on the one-toolchain itest.
+0.941.0
