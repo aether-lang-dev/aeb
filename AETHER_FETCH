@@ -338,4 +338,9 @@
 # variables, glob imports bind only exports, a local named like an imported function is
 # E0301); aeb's sources compile unchanged and aeb's tests pass on 0.945.0 (see the
 # commit). Same notes as 0.931.0 above on libfyaml and on the one-toolchain itest.
-0.945.0
+# 0.946.0 (2026-11-25): fetch only, tracking-only bump, no new primitive needed;
+# the floor stays 0.898.0 (AETHER_PIN). 0.946.0 fixes a selective `import std.math (...)`
+# in one module breaking `math.sqrt` in another (E0301, aether#3877); aeb's sources
+# compile unchanged and aeb's tests pass on 0.946.0 (see the commit). Same notes as
+# 0.931.0 above on libfyaml and on the one-toolchain itest.
+0.946.0
