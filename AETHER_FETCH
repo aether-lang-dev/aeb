@@ -327,4 +327,9 @@
 # remote calls are each one request, and none of aeb's tests or sources match the old
 # "recv timeout" wording. aeb's tests pass on 0.941.0 (see the commit). Same notes as
 # 0.931.0 above on libfyaml and on the one-toolchain itest.
-0.941.0
+# 0.944.0 (2026-11-25): fetch only, tracking-only bump, no new primitive needed;
+# the floor stays 0.898.0 (AETHER_PIN). 0.942.0 to 0.944.0 are performance changes (runtime
+# actor batching, std.math scalar functions inlined, slice-view release inline) with no
+# language or stdlib API change; aeb's sources compile unchanged and aeb's tests pass on
+# 0.944.0 (see the commit). Same notes as 0.931.0 above on libfyaml and on the one-toolchain itest.
+0.944.0

@@ -40,7 +40,8 @@ o=$(run) || fail "source-change run: $o"
 echo "$o" | grep "miss" | grep -q "b.c" || fail "source change did not rebuild b.c: $o"
 
 # AEB_NO_CACHE skips the read.
-o=$(AEB_NO_CACHE=1 run) || fail "no-cache run: $o"
+# (a subshell with an export: FreeBSD sh does not export a prefix assignment through a function call)
+o=$( export AEB_NO_CACHE=1; run ) || fail "no-cache run: $o"
 [ "$(echo "$o" | grep -c 'aeb-cc: miss')" = 2 ] || fail "AEB_NO_CACHE should miss: $o"
 
 # A TU that does not compile fails the run.
